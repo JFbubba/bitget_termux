@@ -22,6 +22,40 @@ Les deux ne partagent **pas** les mêmes clés ni le même niveau de risque.
 
 ---
 
+## Où et comment lancer l'installation
+
+`claude mcp add` est une commande de la **CLI Claude Code** : on la tape dans un
+**terminal**, **pas** dans le chat Claude. Une fois le serveur enregistré, c'est
+l'agent Claude qui utilise les outils (tu vérifies avec `/mcp`).
+
+| Shell | Script fourni | Quand |
+|---|---|---|
+| **PowerShell** (Windows) | `pc/setup_bitget_mcp.ps1` | natif Windows |
+| **Git Bash / WSL** (Windows) | `pc/setup_bitget_mcp.sh` | si Git for Windows / WSL |
+| **Terminal** (macOS / Linux) | `pc/setup_bitget_mcp.sh` | natif |
+
+PowerShell — palier public (sans clés) :
+
+```powershell
+pwsh ./pc/setup_bitget_mcp.ps1 -Public
+# ou la commande directe :
+claude mcp add -s user bitget-public -- npx -y bitget-mcp-server --modules spot,futures
+```
+
+PowerShell — lecture seule (clés via `$env:`) :
+
+```powershell
+$env:BITGET_API_KEY="<ta_cle_api>"
+$env:BITGET_SECRET_KEY="<ta_cle_secrete>"
+$env:BITGET_PASSPHRASE="<ta_passphrase>"
+pwsh ./pc/setup_bitget_mcp.ps1
+```
+
+> Si PowerShell interprète mal le séparateur `--`, utilise le script `.ps1`
+> (il passe `--` littéralement) ou bascule sur **Git Bash / WSL**.
+
+---
+
 ## Prérequis (sur le PC)
 
 - **Node.js ≥ 18** + `npx` (`node --version`)
@@ -123,13 +157,21 @@ claude mcp add -s user \
 
 ## Script d'installation (raccourci)
 
-Le script `pc/setup_bitget_mcp.sh` automatise ces paliers (lit les clés depuis
-l'environnement, ne stocke aucun secret) :
+Les scripts automatisent ces paliers (lisent les clés depuis l'environnement,
+ne stockent aucun secret). Bash (macOS / Linux / Git Bash / WSL) :
 
 ```bash
 bash pc/setup_bitget_mcp.sh --public        # palier 1
 bash pc/setup_bitget_mcp.sh                 # palier 2 (lecture seule)
 bash pc/setup_bitget_mcp.sh --trading       # palier 3 (confirmation requise)
+```
+
+PowerShell (Windows) :
+
+```powershell
+pwsh ./pc/setup_bitget_mcp.ps1 -Public      # palier 1
+pwsh ./pc/setup_bitget_mcp.ps1              # palier 2 (lecture seule)
+pwsh ./pc/setup_bitget_mcp.ps1 -Trading     # palier 3 (confirmation requise)
 ```
 
 ---
