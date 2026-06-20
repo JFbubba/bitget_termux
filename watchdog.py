@@ -82,16 +82,33 @@ def pid_is_alive(pid):
         return False
 
 
-def _read_proc_cmdline(pid_str):
+def _proc_argv(pid_str):
+    """Retourne la liste argv d'un process (depuis /proc), ou None."""
     try:
         with open(f"/proc/{pid_str}/cmdline", "rb") as f:
-            return f.read().replace(b"\x00", b" ").decode("utf-8", "ignore")
+            raw = f.read()
     except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
         return None
+    if not raw:
+        return None
+    return [part.decode("utf-8", "ignore") for part in raw.split(b"\x00") if part]
+
+
+def _is_agent_loop(argv):
+    """Vrai seulement si argv == 'python ... agent_loop.py' (match précis).
+
+    Évite de confondre un process tiers dont la ligne de commande contient
+    simplement la chaîne 'agent_loop.py' (editeur, grep, pkill, ce bot...).
+    """
+    if not argv or len(argv) < 2:
+        return False
+    if "python" not in argv[0]:
+        return False
+    return any(a == "agent_loop.py" or a.endswith("/agent_loop.py") for a in argv[1:])
 
 
 def find_loop_process():
-    """Cherche 'agent_loop.py' dans /proc. Retourne (pid|None, etat)."""
+    """Cherche le process 'python agent_loop.py' dans /proc. Retourne (pid|None, etat)."""
     proc = Path("/proc")
     if not proc.is_dir():
         return None, "unavailable"
@@ -107,8 +124,7 @@ def find_loop_process():
             continue
         if int(entry.name) == my_pid:
             continue
-        cmd = _read_proc_cmdline(entry.name)
-        if cmd and "agent_loop.py" in cmd:
+        if _is_agent_loop(_proc_argv(entry.name)):
             return int(entry.name), "found"
 
     return None, "not_found"

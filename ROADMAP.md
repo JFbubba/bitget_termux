@@ -21,7 +21,7 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 - [x] Ajouter rotation des journaux (rotate_logs.sh)
 - [x] Ajouter commande Telegram /git_version
 - [x] Ajouter verification de processus agent_loop.py (watchdog.py + /watchdog)
-- Ajouter procedure restart propre
+- [x] Ajouter procedure restart propre (restart_agent.sh + agent_loop.pid)
 
 ## Priorite 3  Observabilite
 

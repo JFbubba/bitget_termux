@@ -202,6 +202,47 @@ def test_watchdog_report_alert_text():
     txt2 = watchdog.build_report(down)
     assert "ALERTE" in txt2 and "DOWN" in txt2
 
+def test_watchdog_is_agent_loop_precise():
+    import watchdog
+    # vrais matches
+    assert watchdog._is_agent_loop(["python", "agent_loop.py"]) is True
+    assert watchdog._is_agent_loop(["python3", "/home/u/agent_loop.py"]) is True
+    # faux positifs a NE PAS confondre (le bug attrape par le test fonctionnel)
+    assert watchdog._is_agent_loop(["grep", "agent_loop.py"]) is False
+    assert watchdog._is_agent_loop(["pkill", "-f", "agent_loop.py"]) is False
+    assert watchdog._is_agent_loop(["bash", "-c", "echo agent_loop.py"]) is False
+    assert watchdog._is_agent_loop(["python", "watchdog.py"]) is False
+    assert watchdog._is_agent_loop(["python"]) is False
+    assert watchdog._is_agent_loop(None) is False
+
+
+# ---------- agent_loop : PID file (arret/relance propre) ----------
+
+def test_agent_loop_pid_file_lifecycle():
+    import os
+    import tempfile
+    from pathlib import Path
+
+    import agent_loop
+
+    old = agent_loop.PID_FILE
+    with tempfile.TemporaryDirectory() as d:
+        agent_loop.PID_FILE = Path(d) / "agent_loop.pid"
+        try:
+            agent_loop.write_pid_file()
+            assert agent_loop.PID_FILE.exists()
+            assert agent_loop.PID_FILE.read_text().strip() == str(os.getpid())
+
+            agent_loop.remove_pid_file()
+            assert not agent_loop.PID_FILE.exists()
+
+            # remove_pid_file ne touche pas un PID file appartenant a autrui
+            agent_loop.PID_FILE.write_text("999999")
+            agent_loop.remove_pid_file()
+            assert agent_loop.PID_FILE.exists()
+        finally:
+            agent_loop.PID_FILE = old
+
 
 def test_preorder_guard_blocks_pending_when_observation():
     import csv

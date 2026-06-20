@@ -50,6 +50,16 @@ python agent_hub.py
 python agent_control.py
 python git_version.py
 python system_health.py
+python watchdog.py
+```
+
+## Exploitation Termux
+
+```bash
+bash bootstrap_termux.sh   # installe les dependances (requirements.txt)
+bash restart_agent.sh      # arret propre + relance de agent_loop.py
+bash rotate_logs.sh        # rotation des journaux volumineux
+bash safe_push_check.sh    # controle avant git push (secrets, ordres, tests)
 ```
 
 ## Commandes Telegram (lecture seule)
