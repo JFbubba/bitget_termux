@@ -58,7 +58,8 @@ python watchdog.py
 ```bash
 bash bootstrap_termux.sh   # installe les dependances (requirements.txt)
 bash restart_agent.sh      # arret propre + relance de agent_loop.py
-bash rotate_logs.sh        # rotation des journaux volumineux
+bash rotate_logs.sh        # rotation avancee des journaux (gzip + retention KEEP)
+MAX_KB=1024 KEEP=14 bash rotate_logs.sh   # seuil et retention configurables
 bash safe_push_check.sh    # controle avant git push (secrets, ordres, tests)
 ```
 
