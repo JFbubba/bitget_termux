@@ -1,0 +1,36 @@
+
+# Claude/export local
+# Local archives / broken files
+# Logs / journals
+# Node dependencies
+# Python cache
+# Runtime CSV / backups
+# Runtime PID / reports
+# Runtime state
+# Secrets / local auth
+*.bak.*
+*.broken.*
+*.corrupted.*
+*.csv
+*.jsonl
+*.log
+*.pyc
+*.tar.gz
+*_backup.py
+*_backup_*.csv
+*_old.csv
+.env
+.env.*
+__pycache__/
+agent_loop.pid
+claude_export/
+final_outcomes_journal.csv
+node_modules/
+open_outcomes_state.csv
+open_outcomes_state_backup_*.csv
+order_signals_report.txt
+outcomes_journal*.csv
+paper_positions.json
+pending_orders.json
+signals_journal.csv
+telegram_offset.txt

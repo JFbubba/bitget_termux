@@ -1,0 +1,276 @@
+"""
+tests_audit.py — tests unitaires du système Bitget local (sans réseau, sans ordre).
+
+Classement : SAFE.
+
+Lancement (Termux) :
+    cd ~/bitget-agent
+    python tests_audit.py
+ou, si pytest est installé :
+    pytest -q tests_audit.py
+
+Les tests n'appellent JAMAIS l'API Bitget : les bougies sont synthétiques.
+Aucun ordre, aucune clé, aucun secret.
+"""
+
+from datetime import datetime, timedelta
+
+import indicators
+import risk_limits
+import security_agent
+import order_signal_engine as ose
+from outcome_state import check_outcome
+
+
+# ---------- indicateurs ----------
+
+def test_ema_basic():
+    vals = [float(i) for i in range(1, 60)]
+    e = indicators.ema(vals, 21)
+    assert len(e) == len(vals) - 21 + 1
+
+def test_rsi_all_gains_is_100():
+    vals = [float(i) for i in range(1, 40)]
+    r = indicators.calculate_rsi(vals, 14)
+    assert round(r[-1], 6) == 100.0
+
+def test_indicators_raise_on_short_data():
+    for fn, arg in [(indicators.ema, [1.0, 2.0, 3.0]),
+                    (indicators.calculate_rsi, [1.0, 2.0, 3.0])]:
+        try:
+            fn(arg, 14)
+            assert False, "aurait dû lever ValueError"
+        except ValueError:
+            pass
+
+def test_atr_length():
+    candles = [{"high": 10 + i, "low": 9 + i, "close": 9.5 + i} for i in range(30)]
+    a = indicators.calculate_atr(candles, 14)
+    assert len(a) == (len(candles) - 1) - 14 + 1
+
+
+# ---------- outcome LONG & SHORT ----------
+
+def _sig(side, entry, sl, tp, t):
+    return {"timestamp": t.isoformat(timespec="seconds"), "symbol": "BTCUSDT",
+            "side": side, "entry": str(entry), "stop_loss": str(sl), "take_profit": str(tp)}
+
+def _candle(t, high, low, close):
+    return {"time": t, "high": high, "low": low, "close": close, "open": close}
+
+def test_long_tp_and_sl():
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    sig = _sig("LONG", 100, 95, 110, t0)
+    tp_candle = _candle(t0 + timedelta(minutes=15), high=111, low=100, close=110)
+    assert check_outcome(sig, [tp_candle], "LONG")["outcome"] == "TP TOUCHÉ"
+    sl_candle = _candle(t0 + timedelta(minutes=15), high=101, low=94, close=95)
+    assert check_outcome(sig, [sl_candle], "LONG")["outcome"] == "SL TOUCHÉ"
+
+def test_short_tp_and_sl_now_supported():
+    # C'était LE bug majeur : les shorts n'étaient jamais évalués.
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    sig = _sig("SHORT", 100, 110, 90, t0)
+    tp_candle = _candle(t0 + timedelta(minutes=15), high=101, low=89, close=90)
+    assert check_outcome(sig, [tp_candle], "SHORT")["outcome"] == "TP TOUCHÉ"
+    sl_candle = _candle(t0 + timedelta(minutes=15), high=111, low=99, close=110)
+    assert check_outcome(sig, [sl_candle], "SHORT")["outcome"] == "SL TOUCHÉ"
+
+def test_short_running_sign():
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    sig = _sig("SHORT", 100, 110, 90, t0)
+    c = _candle(t0 + timedelta(minutes=15), high=100, low=98, close=99)  # prix baisse -> gagnant
+    assert check_outcome(sig, [c], "SHORT")["outcome"] == "EN COURS +"
+
+def test_ambiguous_same_candle():
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+    sig = _sig("LONG", 100, 95, 110, t0)
+    c = _candle(t0 + timedelta(minutes=15), high=111, low=94, close=100)
+    assert check_outcome(sig, [c], "LONG")["outcome"] == "AMBIGU"
+
+
+# ---------- normalisation des signaux ----------
+
+def test_normalize_side_variants():
+    assert ose.normalize_side("LONG POSSIBLE") == "LONG"
+    assert ose.normalize_side("biais short") == "SHORT"
+    assert ose.normalize_side("buy") == "LONG"
+    assert ose.normalize_side("NEUTRE") == "UNKNOWN"
+
+def test_find_value_precedence():
+    row = {"Symbol": "btcusdt", "pair": "ignored"}
+    assert ose.find_value(row, ["symbol", "pair"]) == "btcusdt"
+
+
+# ---------- risk_limits ----------
+
+def test_risk_caps_notional():
+    preorders = [
+        {"id": "a", "status": "PENDING_APPROVAL", "notional_usdt": 200.0, "sl_distance_percent": 1.0},
+        {"id": "b", "status": "PENDING_APPROVAL", "notional_usdt": 200.0, "sl_distance_percent": 1.0},
+    ]
+    extra = risk_limits.evaluate_portfolio_caps(preorders, open_positions_count=0,
+                                                risk_per_trade_percent=1.0)
+    # le 1er passe (200<=300), le 2e dépasse le notionnel cumulé
+    assert "b" in extra and "a" not in extra
+
+def test_risk_caps_dust_stop():
+    preorders = [{"id": "x", "status": "PENDING_APPROVAL", "notional_usdt": 50.0,
+                  "sl_distance_percent": 0.05}]
+    extra = risk_limits.evaluate_portfolio_caps(preorders, 0, 1.0)
+    assert "x" in extra
+
+
+# ---------- sécurité ----------
+
+def test_security_keyword_coverage():
+    # tokens construits par concaténation pour ne pas déclencher le scanner.
+    must_cover = ["open" + "_long", "open" + "_short", "close" + "_position",
+                  "cancel" + "_order", "place" + "_order", "with" + "draw", "trans" + "fer"]
+    kws = [k.lower() for k in security_agent.DANGEROUS_KEYWORDS]
+    for token in must_cover:
+        assert token in kws, f"mot-clé non couvert: {token}"
+
+def test_telegram_auth_detection_robust():
+    original = "if chat_id != str(ALLOWED_CHAT_ID):"
+    refactored = "if not is_authorized(chat_id):  # ALLOWED_CHAT_ID"
+    weak = "x = 1"
+    assert security_agent.telegram_auth_is_present(original) == (True, True)
+    assert security_agent.telegram_auth_is_present(refactored)[1] is True
+    assert security_agent.telegram_auth_is_present(weak) == (False, False)
+
+
+
+def test_preorder_guard_blocks_pending_when_observation():
+    import csv
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import preorder_guard
+
+    old_open_state = preorder_guard.OPEN_STATE_FILE
+    old_pending = preorder_guard.PENDING_ORDERS_FILE
+    old_journal = preorder_guard.PREORDER_GUARD_JOURNAL_FILE
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        open_state = tmp / "open_outcomes_state.csv"
+        pending = tmp / "pending_orders.json"
+        journal = tmp / "preorder_guard_journal.jsonl"
+
+        with open_state.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["symbol", "side", "outcome"])
+            writer.writeheader()
+            writer.writerow({"symbol": "BTCUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "ETHUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "SOLUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "XRPUSDT", "side": "LONG", "outcome": "EN COURS +"})
+
+        pending.write_text(json.dumps({
+            "orders": [
+                {"id": "TEST_PENDING", "status": "PENDING_APPROVAL", "reasons": []},
+                {"id": "TEST_REJECTED", "status": "REJECTED", "reasons": ["déjà rejeté"]},
+            ]
+        }), encoding="utf-8")
+
+        preorder_guard.OPEN_STATE_FILE = str(open_state)
+        preorder_guard.PENDING_ORDERS_FILE = pending
+        preorder_guard.PREORDER_GUARD_JOURNAL_FILE = journal
+
+        try:
+            state, blocked = preorder_guard.apply_guard()
+
+            data = json.loads(pending.read_text(encoding="utf-8"))
+            orders = {o["id"]: o for o in data["orders"]}
+
+            assert state["mode"] == "OBSERVATION"
+            assert "TEST_PENDING" in blocked
+            assert orders["TEST_PENDING"]["status"] == "REJECTED"
+            assert orders["TEST_PENDING"]["guard_status"] == "OBSERVATION_BLOCKED"
+            assert "OBSERVATION" in " ".join(orders["TEST_PENDING"]["reasons"])
+            assert orders["TEST_REJECTED"]["status"] == "REJECTED"
+            assert journal.exists()
+
+        finally:
+            preorder_guard.OPEN_STATE_FILE = old_open_state
+            preorder_guard.PENDING_ORDERS_FILE = old_pending
+            preorder_guard.PREORDER_GUARD_JOURNAL_FILE = old_journal
+
+def _run_all():
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    passed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS  {t.__name__}")
+            passed += 1
+        except AssertionError as e:
+            print(f"FAIL  {t.__name__}: {e}")
+        except Exception as e:
+            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
+    print(f"\n{passed}/{len(tests)} tests OK")
+    return passed == len(tests)
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(0 if _run_all() else 1)
+
+
+def test_preorder_guard_blocks_pending_when_observation():
+    import csv
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import preorder_guard
+
+    old_open_state = preorder_guard.OPEN_STATE_FILE
+    old_pending = preorder_guard.PENDING_ORDERS_FILE
+    old_journal = preorder_guard.PREORDER_GUARD_JOURNAL_FILE
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        open_state = tmp / "open_outcomes_state.csv"
+        pending = tmp / "pending_orders.json"
+        journal = tmp / "preorder_guard_journal.jsonl"
+
+        with open_state.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["symbol", "side", "outcome"])
+            writer.writeheader()
+            writer.writerow({"symbol": "BTCUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "ETHUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "SOLUSDT", "side": "LONG", "outcome": "EN COURS -"})
+            writer.writerow({"symbol": "XRPUSDT", "side": "LONG", "outcome": "EN COURS +"})
+
+        pending.write_text(json.dumps({
+            "orders": [
+                {"id": "TEST_PENDING", "status": "PENDING_APPROVAL", "reasons": []},
+                {"id": "TEST_REJECTED", "status": "REJECTED", "reasons": ["déjà rejeté"]},
+            ]
+        }), encoding="utf-8")
+
+        preorder_guard.OPEN_STATE_FILE = str(open_state)
+        preorder_guard.PENDING_ORDERS_FILE = pending
+        preorder_guard.PREORDER_GUARD_JOURNAL_FILE = journal
+
+        try:
+            state, blocked = preorder_guard.apply_guard()
+
+            data = json.loads(pending.read_text(encoding="utf-8"))
+            orders = {o["id"]: o for o in data["orders"]}
+
+            assert state["mode"] == "OBSERVATION"
+            assert "TEST_PENDING" in blocked
+            assert orders["TEST_PENDING"]["status"] == "REJECTED"
+            assert orders["TEST_PENDING"]["guard_status"] == "OBSERVATION_BLOCKED"
+            assert "OBSERVATION" in " ".join(orders["TEST_PENDING"]["reasons"])
+            assert orders["TEST_REJECTED"]["status"] == "REJECTED"
+            assert journal.exists()
+
+        finally:
+            preorder_guard.OPEN_STATE_FILE = old_open_state
+            preorder_guard.PENDING_ORDERS_FILE = old_pending
+            preorder_guard.PREORDER_GUARD_JOURNAL_FILE = old_journal

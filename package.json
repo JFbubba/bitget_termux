@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "bitget-mcp-server": "^1.1.0",
+    "bitget-skill-hub": "^1.0.2"
+  }
+}

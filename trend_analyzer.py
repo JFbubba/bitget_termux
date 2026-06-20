@@ -1,0 +1,105 @@
+import requests
+from datetime import datetime
+
+
+def get_bitget_candles(symbol="BTCUSDT", product_type="USDT-FUTURES", granularity="15m", limit=100):
+    url = "https://api.bitget.com/api/v2/mix/market/candles"
+
+    params = {
+        "symbol": symbol,
+        "productType": product_type,
+        "granularity": granularity,
+        "limit": str(limit),
+    }
+
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("code") != "00000":
+        raise RuntimeError(f"Erreur Bitget: {result}")
+
+    candles = []
+
+    for row in result["data"]:
+        timestamp_ms = int(row[0])
+
+        candles.append({
+            "time": datetime.fromtimestamp(timestamp_ms / 1000),
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume_base": float(row[5]),
+            "volume_quote": float(row[6]),
+        })
+
+    candles.sort(key=lambda x: x["time"])
+    return candles
+
+
+def ema(values, period):
+    if len(values) < period:
+        raise ValueError("Pas assez de données pour calculer l'EMA")
+
+    multiplier = 2 / (period + 1)
+    ema_values = []
+
+    first_ema = sum(values[:period]) / period
+    ema_values.append(first_ema)
+
+    for price in values[period:]:
+        next_ema = (price - ema_values[-1]) * multiplier + ema_values[-1]
+        ema_values.append(next_ema)
+
+    return ema_values
+
+
+def analyze_trend(symbol="BTCUSDT"):
+    candles = get_bitget_candles(symbol=symbol, granularity="15m", limit=100)
+    closes = [candle["close"] for candle in candles]
+
+    ema9 = ema(closes, 9)
+    ema21 = ema(closes, 21)
+
+    last_close = closes[-1]
+    last_ema9 = ema9[-1]
+    last_ema21 = ema21[-1]
+
+    previous_ema9 = ema9[-2]
+    previous_ema21 = ema21[-2]
+
+    if last_ema9 > last_ema21 and previous_ema9 <= previous_ema21:
+        signal = "CROISEMENT HAUSSIER"
+    elif last_ema9 < last_ema21 and previous_ema9 >= previous_ema21:
+        signal = "CROISEMENT BAISSIER"
+    elif last_ema9 > last_ema21:
+        signal = "TENDANCE HAUSSIÈRE"
+    elif last_ema9 < last_ema21:
+        signal = "TENDANCE BAISSIÈRE"
+    else:
+        signal = "NEUTRE"
+
+    distance_percent = ((last_ema9 - last_ema21) / last_ema21) * 100
+
+    return {
+        "symbol": symbol,
+        "last_close": last_close,
+        "ema9": last_ema9,
+        "ema21": last_ema21,
+        "distance_percent": distance_percent,
+        "signal": signal,
+    }
+
+
+if __name__ == "__main__":
+    result = analyze_trend("BTCUSDT")
+
+    print("=== BITGET TREND ANALYZER ===")
+    print(f"Symbole: {result['symbol']}")
+    print(f"Dernier close: {result['last_close']:.2f}")
+    print(f"EMA 9: {result['ema9']:.2f}")
+    print(f"EMA 21: {result['ema21']:.2f}")
+    print(f"Distance EMA9/EMA21: {result['distance_percent']:.4f}%")
+    print(f"Signal: {result['signal']}")
