@@ -244,6 +244,57 @@ def test_agent_loop_pid_file_lifecycle():
             agent_loop.PID_FILE = old
 
 
+# ---------- system_health : compteurs (lecture seule, sans réseau) ----------
+
+def test_system_health_preorder_counts():
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import system_health
+
+    old = system_health.PENDING_ORDERS_FILE
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "pending_orders.json"
+        p.write_text(json.dumps({"orders": [
+            {"id": "a", "status": "PENDING_APPROVAL"},
+            {"id": "b", "status": "REJECTED"},
+            {"id": "c", "status": "REJECTED", "guard_status": "OBSERVATION_BLOCKED"},
+        ]}), encoding="utf-8")
+        system_health.PENDING_ORDERS_FILE = p
+        try:
+            counts, blocked = system_health.count_pending_orders()
+            assert counts["PENDING_APPROVAL"] == 1
+            assert counts["REJECTED"] == 2
+            assert blocked == 1
+        finally:
+            system_health.PENDING_ORDERS_FILE = old
+
+def test_system_health_execution_journal_no_real_order():
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import system_health
+
+    old = system_health.EXECUTION_JOURNAL
+    with tempfile.TemporaryDirectory() as d:
+        j = Path(d) / "execution_dry_run_journal.jsonl"
+        j.write_text(
+            json.dumps({"action": "EXECUTION_DRY_RUN", "real_order_sent": False}) + "\n"
+            + json.dumps({"action": "EXECUTION_DRY_RUN", "real_order_sent": False}) + "\n"
+            + json.dumps({"action": "EXECUTION_DRY_RUN_REJECTED", "real_order_sent": False}) + "\n",
+            encoding="utf-8",
+        )
+        system_health.EXECUTION_JOURNAL = j
+        try:
+            dry_run, real_sent = system_health.scan_execution_journal()
+            assert dry_run == 2
+            assert real_sent == 0
+        finally:
+            system_health.EXECUTION_JOURNAL = old
+
+
 def test_preorder_guard_blocks_pending_when_observation():
     import csv
     import json

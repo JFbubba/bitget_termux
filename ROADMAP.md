@@ -28,8 +28,8 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 - [x] Resume sante systeme (/system_health)
 - [x] Dernier commit Git (/git_version)
 - [x] Dernier tag stable (/git_version)
-- Taille des journaux
-- Nombre de pre-ordres pending/rejected/dry-run
+- [x] Taille des journaux (/system_health)
+- [x] Nombre de pre-ordres pending/rejected/dry-run (/system_health)
 - [x] Statut pause/resume (/pause_status)
 
 ## Priorite 4  Qualite strategie

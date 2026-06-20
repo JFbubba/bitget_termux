@@ -2,6 +2,8 @@
 
 Agent local Termux Android pour monitoring Bitget Futures en mode paper / dry-run uniquement.
 
+> Référence complète des commandes Termux : voir [TERMUX.md](TERMUX.md).
+
 ## Etat stable
 
 - Tag stable : stable-paper-dryrun-20260620
