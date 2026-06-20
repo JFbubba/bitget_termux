@@ -119,13 +119,16 @@ export BITGET_PASSPHRASE=<ta_passphrase>
 Enregistre le serveur authentifié, **verrouillé en lecture seule** :
 
 ```bash
-claude mcp add -s user \
+claude mcp add -s user bitget \
   --env "BITGET_API_KEY=$BITGET_API_KEY" \
   --env "BITGET_SECRET_KEY=$BITGET_SECRET_KEY" \
   --env "BITGET_PASSPHRASE=$BITGET_PASSPHRASE" \
-  bitget \
   -- npx -y bitget-mcp-server --modules spot,futures,account --read-only
 ```
+
+> Le **nom `bitget` vient AVANT** les `--env` (sinon certaines versions du CLI
+> renvoient « Invalid environment variable format: bitget »). Sous Windows,
+> remplace `npx` par `cmd /c npx`.
 
 Vérifie et teste (toujours aucun ordre possible) :
 
@@ -154,11 +157,10 @@ Quand tu veux autoriser les ordres réels, le changement doit être **délibér�
 
 ```bash
 claude mcp remove bitget
-claude mcp add -s user \
+claude mcp add -s user bitget \
   --env "BITGET_API_KEY=$BITGET_API_KEY" \
   --env "BITGET_SECRET_KEY=$BITGET_SECRET_KEY" \
   --env "BITGET_PASSPHRASE=$BITGET_PASSPHRASE" \
-  bitget \
   -- npx -y bitget-mcp-server --modules spot,futures,account
 ```
 

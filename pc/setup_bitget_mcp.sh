@@ -90,11 +90,13 @@ echo "MCP authentifie ($MODE): $NAME [$MODULES] ${READONLY_FLAG:-(ecriture activ
 
 # Le couple cle=valeur est mis ENTIEREMENT entre guillemets pour ne jamais
 # exposer une valeur litterale dans le source du script.
-claude mcp add -s user \
+# Le NOM du serveur est place AVANT les --env : certaines versions du CLI
+# lisent --env de facon "variadic" et avaleraient le nom sinon
+# ("Invalid environment variable format: <name>").
+claude mcp add -s user "$NAME" \
   --env "BITGET_API_KEY=$BITGET_API_KEY" \
   --env "BITGET_SECRET_KEY=$BITGET_SECRET_KEY" \
   --env "BITGET_PASSPHRASE=$BITGET_PASSPHRASE" \
-  "$NAME" \
   -- "${NPX_LAUNCH[@]}" -y bitget-mcp-server --modules "$MODULES" ${READONLY_FLAG}
 
 echo "OK. Verifie: claude mcp list ; claude mcp get $NAME ; puis /mcp dans Claude Code."

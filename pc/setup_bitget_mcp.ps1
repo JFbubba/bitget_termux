@@ -81,11 +81,10 @@ if ($Trading) {
 # Arguments construits en tableau puis splattes : '--' est passe LITTERALEMENT
 # (evite que PowerShell n'interprete le separateur).
 $claudeArgs = @(
-  'mcp','add','-s','user',
+  'mcp','add','-s','user', $Name,
   '--env', "BITGET_API_KEY=$env:BITGET_API_KEY",
   '--env', "BITGET_SECRET_KEY=$env:BITGET_SECRET_KEY",
   '--env', "BITGET_PASSPHRASE=$env:BITGET_PASSPHRASE",
-  $Name,
   '--',
   'cmd','/c','npx','-y','bitget-mcp-server','--modules', $Modules
 )
