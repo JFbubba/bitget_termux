@@ -172,6 +172,37 @@ def test_git_version_report_dirty_and_tag_at_head():
     assert "Vs amont" not in txt  # pas d'info amont fournie
 
 
+# ---------- watchdog agent_loop (décision pure, sans I/O) ----------
+
+def test_watchdog_verdicts():
+    import watchdog
+    # (process_known, process_alive, data_known, fresh, paused) -> (verdict, alert)
+    assert watchdog.decide_verdict(True, True, True, True, False) == ("RUNNING", False)
+    assert watchdog.decide_verdict(True, True, True, False, False) == ("STALE", True)
+    assert watchdog.decide_verdict(True, False, True, True, False) == ("DOWN", True)
+    assert watchdog.decide_verdict(True, False, True, False, True) == ("PAUSE", False)
+    assert watchdog.decide_verdict(False, False, True, True, False) == ("RUNNING?", False)
+    assert watchdog.decide_verdict(False, False, True, False, False) == ("DOWN", True)
+    assert watchdog.decide_verdict(False, False, False, False, False) == ("UNKNOWN", False)
+
+def test_watchdog_report_alert_text():
+    import watchdog
+    running = {
+        "pid_file_pid": 1234, "proc_scan": "found", "proc_scan_pid": 1234,
+        "process_known": True, "process_alive": True,
+        "data_known": True, "age_min": 1.0, "fresh": True, "interval_min": 15.0,
+        "paused": False, "verdict": "RUNNING", "alert": False,
+    }
+    txt = watchdog.build_report(running)
+    assert "WATCHDOG" in txt and "RUNNING" in txt
+    assert "ALERTE" not in txt
+    assert "Aucun redémarrage automatique" in txt
+
+    down = dict(running, process_alive=False, verdict="DOWN", alert=True)
+    txt2 = watchdog.build_report(down)
+    assert "ALERTE" in txt2 and "DOWN" in txt2
+
+
 def test_preorder_guard_blocks_pending_when_observation():
     import csv
     import json

@@ -50,6 +50,7 @@ FILES_TO_SCAN = [
     "account_equity.py",
     "git_version.py",
     "system_health.py",
+    "watchdog.py",
 ]
 
 

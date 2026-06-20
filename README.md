@@ -56,5 +56,6 @@ python system_health.py
 
 - /git_version : commit, branche, dernier tag, etat du depot
 - /system_health : bilan de sante (fichiers, fraicheur, can_trade=False, pause)
+- /watchdog : etat de la boucle agent_loop (PID, /proc, fraicheur du scan)
 - /security : audit securite (VERDICT SAFE attendu)
 - /status : rapport compact
