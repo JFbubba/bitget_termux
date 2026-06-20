@@ -48,3 +48,13 @@ python tests_audit.py
 python security_agent.py
 python agent_hub.py
 python agent_control.py
+python git_version.py
+python system_health.py
+```
+
+## Commandes Telegram (lecture seule)
+
+- /git_version : commit, branche, dernier tag, etat du depot
+- /system_health : bilan de sante (fichiers, fraicheur, can_trade=False, pause)
+- /security : audit securite (VERDICT SAFE attendu)
+- /status : rapport compact

@@ -17,20 +17,20 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 
 ## Priorite 2  Exploitation Termux
 
-- Ajouter bootstrap_termux.sh
-- Ajouter rotation des journaux
-- Ajouter commande Telegram /git_version
-- Ajouter verification de processus agent_loop.py
+- [x] Ajouter bootstrap_termux.sh
+- [x] Ajouter rotation des journaux (rotate_logs.sh)
+- [x] Ajouter commande Telegram /git_version
+- Ajouter verification de processus agent_loop.py (watchdog)
 - Ajouter procedure restart propre
 
 ## Priorite 3  Observabilite
 
-- Resume sante systeme
-- Dernier commit Git
-- Dernier tag stable
+- [x] Resume sante systeme (/system_health)
+- [x] Dernier commit Git (/git_version)
+- [x] Dernier tag stable (/git_version)
 - Taille des journaux
 - Nombre de pre-ordres pending/rejected/dry-run
-- Statut pause/resume
+- [x] Statut pause/resume (/pause_status)
 
 ## Priorite 4  Qualite strategie
 

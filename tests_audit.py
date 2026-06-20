@@ -139,6 +139,38 @@ def test_telegram_auth_detection_robust():
     assert security_agent.telegram_auth_is_present(weak) == (False, False)
 
 
+# ---------- git_version (lecture seule, sans git ni réseau) ----------
+
+def test_git_version_report_clean():
+    import git_version
+    info = {
+        "branch": "main", "commit_short": "abc1234", "subject": "fix: x",
+        "commit_date": "2026-06-20 10:00:00",
+        "last_tag": "stable-paper-dryrun-20260620", "tag_at_head": "",
+        "dirty": False, "changed_count": 0, "ahead": "0", "behind": "0",
+    }
+    txt = git_version.build_report(info)
+    assert "GIT VERSION" in txt
+    assert "main" in txt and "abc1234" in txt
+    assert "propre" in txt and "à jour" in txt
+    assert "SAFE" in txt
+    # aucun nom de secret ne doit fuiter dans le rapport
+    for leak in ("BITGET_API_SECRET", "TELEGRAM_BOT_TOKEN", "PASSPHRASE"):
+        assert leak not in txt
+
+def test_git_version_report_dirty_and_tag_at_head():
+    import git_version
+    info = {
+        "branch": "claude/x", "commit_short": "deadbee", "subject": "wip",
+        "commit_date": "2026-06-20 11:00:00", "last_tag": "(aucun tag)",
+        "tag_at_head": "stable-paper-dryrun-20260620",
+        "dirty": True, "changed_count": 3,
+    }
+    txt = git_version.build_report(info)
+    assert "MODIFIÉ" in txt and "3 fichier" in txt
+    assert "Tag (HEAD)" in txt and "stable-paper-dryrun-20260620" in txt
+    assert "Vs amont" not in txt  # pas d'info amont fournie
+
 
 def test_preorder_guard_blocks_pending_when_observation():
     import csv

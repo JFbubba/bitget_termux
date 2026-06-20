@@ -48,6 +48,8 @@ FILES_TO_SCAN = [
     "agents_manifest.py",
     "bitget_balance_reader.py",
     "account_equity.py",
+    "git_version.py",
+    "system_health.py",
 ]
 
 
