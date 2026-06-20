@@ -4,9 +4,8 @@ set -euo pipefail
 echo "=== BOOTSTRAP BITGET TERMUX AGENT ==="
 
 pkg update -y
-pkg install -y git python nano
+pkg install -y git python python-pip nano
 
-python -m pip install --upgrade pip
 python -m pip install requests python-dotenv
 
 echo "Vérification fichiers requis"

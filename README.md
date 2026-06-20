@@ -1,4 +1,3 @@
-0
 # Bitget Termux Agent
 
 Agent local Termux Android pour monitoring Bitget Futures en mode paper / dry-run uniquement.
