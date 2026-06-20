@@ -4,6 +4,13 @@ Agent local Termux Android pour monitoring Bitget Futures en mode paper / dry-ru
 
 > Référence complète des commandes Termux : voir [TERMUX.md](TERMUX.md).
 
+## Architecture (2 machines)
+
+- **Termux (Android)** — ce dépôt : moteur de monitoring **paper / dry-run**,
+  collecte / analyse / envoi de signaux. Reste `can_trade=False`, aucun ordre réel.
+- **PC (Claude Code + Bitget Agent Hub)** — pont MCP vers l'exchange Bitget,
+  capable de trading réel. Installation : voir [pc/BITGET_AGENT_HUB.md](pc/BITGET_AGENT_HUB.md).
+
 ## Etat stable
 
 - Tag stable : stable-paper-dryrun-20260620
