@@ -53,7 +53,7 @@ nohup python telegram_command_bot.py >> telegram_bot.log 2>&1 & # en arrière-pl
 ```
 
 Commandes Telegram utiles : `/status` `/git_version` `/system_health`
-`/watchdog` `/security` `/signals` `/preorders` `/pause` `/resume` `/help`.
+`/watchdog` `/stats` `/security` `/signals` `/preorders` `/pause` `/resume` `/help`.
 
 ---
 
@@ -64,6 +64,7 @@ python watchdog.py             # la boucle agent_loop tourne-t-elle ? (PID + /pr
 python watchdog.py --alert     # idem + alerte Telegram si DOWN/STALE
 python system_health.py        # bilan : fichiers, fraîcheur, tailles journaux, pré-ordres, can_trade=False
 python git_version.py          # commit, branche, dernier tag, état du dépôt
+python stats_report.py         # stats TP/SL par symbole et sens (résultats finalisés)
 ```
 
 ---

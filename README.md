@@ -53,6 +53,7 @@ python agent_control.py
 python git_version.py
 python system_health.py
 python watchdog.py
+python stats_report.py
 ```
 
 ## Exploitation Termux
@@ -70,5 +71,6 @@ bash safe_push_check.sh    # controle avant git push (secrets, ordres, tests)
 - /git_version : commit, branche, dernier tag, etat du depot
 - /system_health : bilan de sante (fichiers, fraicheur, can_trade=False, pause)
 - /watchdog : etat de la boucle agent_loop (PID, /proc, fraicheur du scan)
+- /stats : statistiques TP/SL par symbole et sens (resultats finalises)
 - /security : audit securite (VERDICT SAFE attendu)
 - /status : rapport compact

@@ -244,6 +244,38 @@ def test_agent_loop_pid_file_lifecycle():
             agent_loop.PID_FILE = old
 
 
+# ---------- stats_report (lecture seule, sans réseau) ----------
+
+def test_stats_compute_and_report():
+    import stats_report
+    rows = [
+        {"symbol": "BTCUSDT", "side": "LONG", "outcome": "TP TOUCHÉ"},
+        {"symbol": "BTCUSDT", "side": "LONG", "outcome": "SL TOUCHÉ"},
+        {"symbol": "BTCUSDT", "side": "SHORT", "outcome": "TP TOUCHÉ"},
+        {"symbol": "ETHUSDT", "side": "SHORT", "outcome": "AMBIGU"},
+        {"symbol": "ETHUSDT", "side": "LONG", "outcome": "EN COURS +"},  # ignoré
+    ]
+    s = stats_report.compute_stats(rows)
+    assert s["total"] == 4  # 3 TP/SL + 1 AMBIGU ; EN COURS exclu
+    assert s["tp"] == 2 and s["sl"] == 1 and s["ambigu"] == 1
+    assert round(s["win_rate"], 1) == round(2 / 3 * 100, 1)
+    assert round(s["tp_sl_ratio"], 2) == 2.0
+    assert s["by_symbol"]["BTCUSDT"]["tp"] == 2
+    assert s["by_side"]["SHORT"]["tp"] == 1 and s["by_side"]["SHORT"]["ambigu"] == 1
+
+    txt = stats_report.build_report(s)
+    assert "STATS" in txt and "Par symbole" in txt and "Par sens" in txt
+    assert "SAFE" in txt
+
+def test_stats_empty():
+    import stats_report
+    s = stats_report.compute_stats([])
+    assert s["total"] == 0
+    assert s["win_rate"] is None and s["tp_sl_ratio"] is None
+    txt = stats_report.build_report(s)
+    assert "Aucun résultat finalisé" in txt and "SAFE" in txt
+
+
 # ---------- system_health : compteurs (lecture seule, sans réseau) ----------
 
 def test_system_health_preorder_counts():

@@ -111,6 +111,7 @@ def handle_command(text):
             "/git_version - version Git du dépôt (lecture seule)\n"
             "/system_health - bilan de santé du système (lecture seule)\n"
             "/watchdog - état de la boucle agent_loop (lecture seule)\n"
+            "/stats - statistiques TP/SL par symbole et sens (lecture seule)\n"
             "/signals - propositions d’ordres sans exécution\n"
             "/preorders - pré-ordres verrouillés sans exécution\n"
             "/approve_preorder ID - approuve un pré-ordre en simulation uniquement\n"
@@ -140,6 +141,7 @@ def handle_command(text):
             "/git_version - affiche la version Git (commit, branche, tag, état)\n"
             "/system_health - affiche le bilan de santé (lecture seule)\n"
             "/watchdog - vérifie si agent_loop tourne (lecture seule)\n"
+            "/stats - statistiques des résultats finalisés (TP/SL)\n"
             "/signals - génère les propositions d’ordres\n"
             "/preorders - affiche les pré-ordres verrouillés\n"
             "/approve_preorder ID - validation simulée, aucun ordre réel\n"
@@ -258,6 +260,22 @@ def handle_command(text):
         if result.returncode != 0:
             return (
                 "❌ Erreur system_health.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/stats":
+        result = subprocess.run(
+            ["python", "stats_report.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur stats_report.py\n\n"
                 f"STDOUT:\n{result.stdout[-2500:]}\n\n"
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
@@ -521,7 +539,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

@@ -51,6 +51,7 @@ FILES_TO_SCAN = [
     "git_version.py",
     "system_health.py",
     "watchdog.py",
+    "stats_report.py",
 ]
 
 

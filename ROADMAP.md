@@ -36,9 +36,9 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 
 - Backtest offline simple
 - Journal des signaux ignores
-- Statistiques par symbole
-- Statistiques long/short
-- Ratio TP/SL
+- [x] Statistiques par symbole (stats_report.py + /stats)
+- [x] Statistiques long/short (stats_report.py + /stats)
+- [x] Ratio TP/SL (stats_report.py + /stats)
 - Gestion des signaux ambigus
 
 ## Interdit
