@@ -38,9 +38,20 @@ PowerShell — palier public (sans clés) :
 
 ```powershell
 pwsh ./pc/setup_bitget_mcp.ps1 -Public
-# ou la commande directe :
-claude mcp add -s user bitget-public -- npx -y bitget-mcp-server --modules spot,futures
+# ou la commande directe (cmd /c requis sur Windows) :
+claude mcp add -s user bitget-public -- cmd /c npx -y bitget-mcp-server --modules spot,futures
 ```
+
+> **Windows (important).** Claude Code natif Windows ne peut pas lancer `npx`
+> directement : il faut le préfixer par **`cmd /c`** (sinon avertissement
+> « Windows requires 'cmd /c' wrapper to execute npx »). Les scripts
+> `setup_bitget_mcp.*` le gèrent automatiquement. En **Git Bash**, ajoute
+> `MSYS_NO_PATHCONV=1` devant la commande pour que `/c` ne soit pas converti
+> en chemin :
+>
+> ```bash
+> MSYS_NO_PATHCONV=1 claude mcp add -s user bitget-public -- cmd /c npx -y bitget-mcp-server --modules spot,futures
+> ```
 
 PowerShell — lecture seule (clés via `$env:`) :
 

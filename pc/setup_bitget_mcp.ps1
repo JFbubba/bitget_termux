@@ -47,7 +47,8 @@ if ($nodeMajor -lt 18) {
 if ($Public) {
   if (-not $Name) { $Name = "bitget-public" }
   Write-Host "MCP PUBLIC (sans cles, marche public): $Name [$Modules]"
-  $publicArgs = @('mcp','add','-s','user', $Name, '--', 'npx','-y','bitget-mcp-server','--modules', $Modules)
+  # Windows : npx doit passer par "cmd /c".
+  $publicArgs = @('mcp','add','-s','user', $Name, '--', 'cmd','/c','npx','-y','bitget-mcp-server','--modules', $Modules)
   & claude @publicArgs
   Write-Host "OK. Verifie: claude mcp list ; puis /mcp dans Claude Code."
   exit 0
@@ -86,7 +87,7 @@ $claudeArgs = @(
   '--env', "BITGET_PASSPHRASE=$env:BITGET_PASSPHRASE",
   $Name,
   '--',
-  'npx','-y','bitget-mcp-server','--modules', $Modules
+  'cmd','/c','npx','-y','bitget-mcp-server','--modules', $Modules
 )
 if ($readOnly) { $claudeArgs += '--read-only' }
 

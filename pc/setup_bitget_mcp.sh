@@ -46,11 +46,19 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
   echo "Node.js >= 18 requis (detecte: $(node --version))."; exit 1
 fi
 
+# Sous Git Bash / MSYS / Cygwin, `claude` est l'exe Windows : npx doit etre
+# lance via "cmd /c". Sous WSL / Linux / macOS, npx direct.
+# ("//c" empeche MSYS de convertir "/c" en chemin "C:\".)
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) NPX_LAUNCH=(cmd //c npx) ;;
+  *)                    NPX_LAUNCH=(npx) ;;
+esac
+
 # --- Palier public (aucune cle) ---
 if [ "$MODE" = "public" ]; then
   NAME="${NAME:-bitget-public}"
   echo "MCP PUBLIC (sans cles, marche public): $NAME [$MODULES]"
-  claude mcp add -s user "$NAME" -- npx -y bitget-mcp-server --modules "$MODULES"
+  claude mcp add -s user "$NAME" -- "${NPX_LAUNCH[@]}" -y bitget-mcp-server --modules "$MODULES"
   echo "OK. Verifie: claude mcp list ; puis /mcp dans Claude Code."
   exit 0
 fi
@@ -87,7 +95,7 @@ claude mcp add -s user \
   --env "BITGET_SECRET_KEY=$BITGET_SECRET_KEY" \
   --env "BITGET_PASSPHRASE=$BITGET_PASSPHRASE" \
   "$NAME" \
-  -- npx -y bitget-mcp-server --modules "$MODULES" ${READONLY_FLAG}
+  -- "${NPX_LAUNCH[@]}" -y bitget-mcp-server --modules "$MODULES" ${READONLY_FLAG}
 
 echo "OK. Verifie: claude mcp list ; claude mcp get $NAME ; puis /mcp dans Claude Code."
 echo "Rappel securite: protege ~/.claude.json (il contient desormais tes cles)."
