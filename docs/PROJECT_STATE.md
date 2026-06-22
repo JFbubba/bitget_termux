@@ -156,6 +156,14 @@ COMMAND_BOT_TOKEN=assistant). Bot assistant tourne en service systemd
 Reste : mémoire de conversation, multi-exchange (funding/OI agrégés), vision charts,
 déploiement du dashboard web, clés Bitget (optionnel, pour solde/compte).
 
+**FAIT aussi** : #3 **mémoire de conversation** (`assistant/memory.py`,
+`conversation_state.json` gitignoré, `/forget`) ; #4 **funding/OI agrégés
+multi-exchange** (`aggregated_derivs.py` — Binance+Bybit+Bitget, les 3 répondent
+depuis le VPS Frankfurt, funding 8h OI-pondéré + OI total ; outil
+`get_aggregated_derivs` + `/deriv`). **15 outils** dans l'assistant.
+Reste : #5 vision charts, #6 déploiement dashboard web, #7 clés Bitget,
++ "OI historique en bougies" (dernier indicateur de la liste, optionnel).
+
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
 
