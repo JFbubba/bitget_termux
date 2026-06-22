@@ -1,14 +1,17 @@
 """
 assistant/agent.py — assistant conversationnel crypto (LECTURE SEULE).
 
-Classement : SAFE. Boucle agentique : le LLM (Claude Haiku par défaut) répond en
-langage naturel et appelle des OUTILS read-only pour récupérer des données
-réelles. Il n'exécute aucun ordre.
+Classement : SAFE. Boucle agentique : le LLM répond en langage naturel et appelle
+des OUTILS read-only pour récupérer des données réelles. Il n'exécute aucun ordre.
+
+Provider :
+- Anthropic (Claude Haiku) par défaut.
+- OpenAI-compatible (Groq/Gemini/Ollama…) si LLM_BASE_URL est défini dans .env.
 
 CLI :  python assistant/agent.py "ta question"
-       (nécessite ANTHROPIC_API_KEY dans .env)
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -33,8 +36,7 @@ SYSTEM = (
 MAX_ITERS = 6
 
 
-def run(user_message, history=None, max_iters=MAX_ITERS):
-    """Boucle agentique Anthropic. Retourne (texte, messages)."""
+def _run_anthropic(user_message, history, max_iters):
     messages = list(history or [])
     messages.append({"role": "user", "content": user_message})
     for _ in range(max_iters):
@@ -59,6 +61,41 @@ def run(user_message, history=None, max_iters=MAX_ITERS):
         )
         return text.strip() or "(réponse vide)", messages
     return "(limite d'itérations atteinte — reformule ta question)", messages
+
+
+def _run_openai(user_message, history, max_iters):
+    messages = list(history or [])
+    if not any(isinstance(m, dict) and m.get("role") == "system" for m in messages):
+        messages.insert(0, {"role": "system", "content": SYSTEM})
+    messages.append({"role": "user", "content": user_message})
+    for _ in range(max_iters):
+        resp = llm_client.openai_chat(messages, tools=tools.TOOLS)
+        choice = (resp.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        tool_calls = msg.get("tool_calls")
+        assistant_msg = {"role": "assistant", "content": msg.get("content") or ""}
+        if tool_calls:
+            assistant_msg["tool_calls"] = tool_calls
+        messages.append(assistant_msg)
+        if tool_calls:
+            for call in tool_calls:
+                fn = call.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except Exception:
+                    args = {}
+                out = tools.dispatch(fn.get("name"), args)
+                messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": out})
+            continue
+        return (msg.get("content") or "").strip() or "(réponse vide)", messages
+    return "(limite d'itérations atteinte — reformule ta question)", messages
+
+
+def run(user_message, history=None, max_iters=MAX_ITERS):
+    """Boucle agentique. Choisit le provider selon LLM_BASE_URL. Retourne (texte, messages)."""
+    if llm_client.use_openai():
+        return _run_openai(user_message, history, max_iters)
+    return _run_anthropic(user_message, history, max_iters)
 
 
 def main():

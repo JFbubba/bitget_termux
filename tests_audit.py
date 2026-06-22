@@ -343,6 +343,34 @@ def test_assistant_agent_loop():
         for m in msgs
     )
 
+def test_assistant_openai_loop():
+    from assistant import agent, llm_client, tools
+    seq = {"n": 0}
+
+    def fake_openai(messages, tools=None, **kw):
+        seq["n"] += 1
+        if seq["n"] == 1:
+            return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "get_fear_greed", "arguments": "{}"}}]}}]}
+        return {"choices": [{"message": {"role": "assistant", "content": "Réponse OpenAI."}}]}
+
+    o_use, o_chat, o_disp = llm_client.use_openai, llm_client.openai_chat, tools.dispatch
+    llm_client.use_openai = lambda: True
+    llm_client.openai_chat = fake_openai
+    tools.dispatch = lambda name, args: "RESULT_OK"
+    try:
+        text, msgs = agent.run("question")
+    finally:
+        llm_client.use_openai, llm_client.openai_chat, tools.dispatch = o_use, o_chat, o_disp
+    assert text == "Réponse OpenAI." and seq["n"] == 2
+    assert any(isinstance(m, dict) and m.get("role") == "tool" for m in msgs)
+
+def test_assistant_openai_tools_format():
+    from assistant import llm_client, tools
+    conv = llm_client.to_openai_tools(tools.TOOLS)
+    assert conv and all(t["type"] == "function" and t["function"]["name"] for t in conv)
+    assert conv[0]["function"]["parameters"]["type"] == "object"
+
 def test_check_env_masks_value():
     import check_env
     line = check_env.status_line("X_API_KEY", "supersecretvalue123", optional=True)

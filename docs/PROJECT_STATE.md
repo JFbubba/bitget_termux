@@ -119,8 +119,11 @@ le verdict de couverture des 32 liens de `outils_trading.md`.
   `python check_env.py` (ou `/envcheck`). Clés X = optionnelles.
 
 **Assistant conversationnel : SQUELETTE CONSTRUIT** (`assistant/`).
-- `assistant/llm_client.py` : appel Anthropic Messages (Haiku par défaut) +
-  point d'extension OpenAI-compatible (`LLM_BASE_URL`, Kimi/Ollama, texte seul).
+- `assistant/llm_client.py` : Anthropic Messages (Haiku) **ET** OpenAI-compatible
+  **avec outils** (Groq/Gemini/Ollama/Kimi). Bascule auto sur OpenAI dès que
+  `LLM_BASE_URL` est défini. Charge le `.env` racine. (Note billing : l'API
+  Anthropic exige des crédits prépayés → l'utilisateur a choisi la voie GRATUITE
+  via Groq/Gemini, d'où le chemin OpenAI complet.)
 - `assistant/tools.py` : 8 outils LECTURE SEULE (order-flow, macro, confluence,
   check_token_safety, defi, search_dex, fear_greed, trade_stats). Aucun ordre.
 - `assistant/agent.py` : boucle agentique (tool_use) + CLI
