@@ -86,6 +86,11 @@ def _prediction_markets(query=None, **_):
     return polymarket_data.fetch_markets(query)
 
 
+def _brain(symbol="BTCUSDT", **_):
+    import swarm_brain
+    return swarm_brain.read(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -102,6 +107,7 @@ TOOL_FUNCS = {
     "get_market_overview": _market_overview,
     "get_aggregated_derivs": _aggregated_derivs,
     "get_prediction_markets": _prediction_markets,
+    "get_brain_read": _brain,
 }
 
 TOOLS = [
@@ -179,6 +185,11 @@ TOOLS = [
         "name": "get_prediction_markets",
         "description": "Cotes des marchés de prédiction Polymarket (probabilités implicites) — sentiment sur des événements (Fed, BTC, élections...). Lecture seule. Optionnel : un mot-clé de recherche.",
         "input_schema": {"type": "object", "properties": {"query": {"type": "string", "description": "ex. bitcoin, fed, election (optionnel)"}}},
+    },
+    {
+        "name": "get_brain_read",
+        "description": "CERVEAU (essaim d'agents) : agrège 5 agents spécialisés (order-flow, technique, macro, sentiment, dérivés) en un consensus pondéré → biais LONG/SHORT/NEUTRE + conviction. Les poids s'apprennent (auto-évaluation des décisions passées vs prix réalisé). Aide à la décision adaptative, lecture seule.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT, SOLUSDT"}}, "required": ["symbol"]},
     },
 ]
 

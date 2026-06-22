@@ -581,6 +581,60 @@ def test_risk_caps_dust_stop():
     assert "x" in extra
 
 
+# ---------- cerveau (essaim d'agents) ----------
+
+def test_brain_aggregate_bias_and_consensus():
+    import swarm_brain as sb
+    # consensus pondéré par vote*conf*poids ; seuil ±0.2 -> LONG/SHORT/NEUTRE
+    votes = {
+        "a": {"vote": 1.0, "confidence": 1.0},
+        "b": {"vote": 1.0, "confidence": 0.5},
+        "c": {"vote": -1.0, "confidence": 0.0},  # conf nulle -> ignoré
+    }
+    r = sb.aggregate(votes, {"a": 1.0, "b": 1.0, "c": 1.0})
+    assert r["bias"] == "LONG" and r["consensus"] == 1.0 and r["conviction"] == 1.0
+    # désaccord équilibré -> proche de 0 -> NEUTRE
+    neutral = sb.aggregate(
+        {"a": {"vote": 1.0, "confidence": 1.0}, "b": {"vote": -1.0, "confidence": 1.0}},
+        {"a": 1.0, "b": 1.0},
+    )
+    assert neutral["bias"] == "NEUTRE" and abs(neutral["consensus"]) < 1e-9
+    # vote baissier dominant -> SHORT
+    short = sb.aggregate({"a": {"vote": -0.8, "confidence": 1.0}}, {"a": 1.0})
+    assert short["bias"] == "SHORT" and short["consensus"] < -0.2
+
+def test_brain_aggregate_weighting():
+    import swarm_brain as sb
+    # un agent à poids fort doit tirer le consensus vers son vote
+    votes = {"strong": {"vote": 1.0, "confidence": 1.0}, "weak": {"vote": -1.0, "confidence": 1.0}}
+    r = sb.aggregate(votes, {"strong": 3.0, "weak": 0.2})
+    assert r["consensus"] > 0.2 and r["bias"] == "LONG"
+
+def test_brain_aggregate_empty_is_neutral():
+    import swarm_brain as sb
+    r = sb.aggregate({}, {})
+    assert r["consensus"] == 0.0 and r["bias"] == "NEUTRE" and r["agents"] == []
+
+def test_brain_update_weights_rewards_correct():
+    import swarm_brain as sb
+    w = sb.update_weights({"good": 1.0, "bad": 1.0, "skip": 1.0},
+                          {"good": True, "bad": False, "skip": None})
+    # bon agent renforcé au-dessus du mauvais ; None ignoré
+    assert w["good"] > w["bad"]
+    # normalisation : moyenne ~1 (à l'arrondi 3 décimales près)
+    assert abs(sum(w.values()) / len(w) - 1.0) < 1e-2
+
+def test_brain_update_weights_clamped():
+    import swarm_brain as sb
+    # un agent toujours juste, un toujours faux, sur de nombreuses itérations :
+    # les bornes [0.2,3.0] empêchent la divergence -> le ratio reste plafonné.
+    w = {"good": 1.0, "bad": 1.0}
+    for _ in range(200):
+        w = sb.update_weights(w, {"good": True, "bad": False})
+    assert w["good"] > w["bad"]
+    assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
+
+
 # ---------- sécurité ----------
 
 def test_security_keyword_coverage():

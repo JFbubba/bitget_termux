@@ -22,6 +22,8 @@
 .env
 .env.*
 !.env.example
+brain_log.json
+brain_weights.json
 conversation_state.json
 __pycache__/
 agent_loop.pid
