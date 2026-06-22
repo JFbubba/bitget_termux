@@ -128,10 +128,15 @@ def build_state(symbol=None):
         return out
 
     def _candles():
+        # source résiliente : Bitget (primaire) -> CoinGecko (repli), cachée
+        import market_sources
+        cs = market_sources.candles(symbol, "5m", 60)
+        if cs:
+            return cs
+        # repli ultime : ancien chemin direct (au cas où market_sources indisponible)
         import technicals
-        cs = technicals.fetch_candles(symbol, "5m", 60)
-        # [time_s, open, high, low, close, volume] — time requis par Lightweight Charts
-        return [[int(c["ts"] // 1000), c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in cs]
+        raw = technicals.fetch_candles(symbol, "5m", 60)
+        return [[int(c["ts"] // 1000), c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in raw]
 
     def _book():
         import bitget_market_data as bmd

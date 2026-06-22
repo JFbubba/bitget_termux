@@ -291,6 +291,20 @@ function drawChart(candles){
     color:k[4]>=k[1]?"rgba(46,194,126,.45)":"rgba(245,86,107,.45)"})));
 }
 
+// pose la "conscience" du cerveau (biais + consensus + régime de vol) sur la dernière bougie
+function markBrainOnChart(b){
+  if(!chart||!series.candles||!_candles.length)return;
+  const t=_candles[_candles.length-1][0];
+  const bias=b&&b.bias;
+  if(!bias||bias==="NEUTRE"){series.candles.setMarkers([]);return;}
+  const long=bias==="LONG";
+  const cons=(b.consensus!=null)?((b.consensus>=0?"+":"")+(+b.consensus).toFixed(2)):"";
+  const vol=(b.volatility&&b.volatility.regime&&b.volatility.regime!=="normal")?(" · "+b.volatility.regime):"";
+  series.candles.setMarkers([{time:t,position:long?"belowBar":"aboveBar",
+    color:long?"#2ec27e":"#f5566b",shape:long?"arrowUp":"arrowDown",
+    text:`${bias} ${cons}${vol}`}]);
+}
+
 function handleCrosshair(param){
   const tip=$("chart-tip"),el=$("chart");
   if(!param.point||!param.time||param.point.x<0){tip.style.display="none";return;}
@@ -445,7 +459,7 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
     const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
     $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
     $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";

@@ -135,8 +135,11 @@ ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit)
   Macro déjà couverte par **FRED** (≈ pandas-datareader) ; **Alpha Vantage** noté
   comme repli optionnel mais **non branché** (éviter la prolifération de clés/
   dépendances — cohérent avec « optimiser la dépendance runtime »). Dashboard :
-  **TradingView Lightweight Charts** (Apache-2.0, auto-hébergé, on fournit nos
-  données) — choix retenu, implémentation UI différée.
+  **TradingView Lightweight Charts** (Apache-2.0 v4.2.3, auto-hébergé) **déjà
+  intégré** (chandelier + EMA20/EMA50/VWAP/volume, crosshair, toggles) puis
+  **enrichi** : bougies via `market_sources` (Bitget→CoinGecko, cachées) + un
+  **marqueur de « conscience »** sur la dernière bougie (biais + consensus + régime
+  de vol du cerveau).
 - **Outils IA web (Tickeron, ChartingLens ×9, FXReplay) — recheck** : **aucune API
   développeur gratuite** confirmée → non branchables (rejet documenté, honnête).
 - **Optimiser la dépendance externe au runtime** → `runtime_cache.py` :

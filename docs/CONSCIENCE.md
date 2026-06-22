@@ -114,9 +114,14 @@ les limites.*
   cache **TTL** par source + **stale-while-error** (sur panne, on sert la dernière
   valeur connue ; sinon fallback neutre). Le cerveau **ne bloque jamais** sur une
   source morte, et la latence de décision est **découplée** de la latence réseau.
-- **Redondance de fournisseurs** — `market_sources.py` : prix Bitget (primaire) →
-  **repli CoinGecko** (hôte indépendant), derrière le cache. `cache_warmer.py`
-  pré-chauffe les 6 sources pour que les lectures live restent locales.
+- **Redondance de fournisseurs** — `market_sources.py` : prix/bougies Bitget
+  (primaire) → **repli CoinGecko** (hôte indépendant), derrière le cache.
+  `cache_warmer.py` pré-chauffe les 6 sources pour que les lectures live restent
+  locales.
+- **Conscience visualisée** — le dashboard (TradingView Lightweight Charts,
+  Apache-2.0) pose un **marqueur** sur la dernière bougie : biais LONG/SHORT,
+  consensus et régime de volatilité — la décision de l'essaim, lisible d'un coup
+  d'œil, alimentée par la même source résiliente.
 - **Sources cartographiées** (cf. RESEARCH_NOTES §7) : Bitget (primaire fiable) +
   CoinGecko (repli) ; yfinance & MCP CoinDesk/Bigdata (enrichissement faillible) ;
   CCXT réservé au réseau complet (Binance/OKX géo-bloqués ici) ; TDLib/Telegram

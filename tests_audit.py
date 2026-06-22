@@ -743,6 +743,11 @@ def test_market_sources_helpers():
     try:
         rc.get("closes:BTCUSDT:15m", 60, lambda: [100.0] * 25, now=1000)  # pré-remplit
         assert rc.decide(rc._MEM["closes:BTCUSDT:15m"], 60, 1001)[0] == "fresh"
+        # candles() : forme [t,o,h,l,c,v] servie depuis le cache, sans réseau
+        sample = [[1000 + i, 1.0, 2.0, 0.5, 1.5, 10.0] for i in range(12)]
+        rc.get("candles:BTCUSDT:5m", 20, lambda: sample, now=2000)
+        assert rc.decide(rc._MEM["candles:BTCUSDT:5m"], 20, 2001) == ("fresh", sample)
+        assert len(sample[0]) == 6
     finally:
         rc._load_disk, rc._save_disk = orig_load, orig_save
         rc._MEM.clear()
