@@ -13,8 +13,15 @@ Dépendance : requests (déjà dans requirements).
 """
 
 import os
+from pathlib import Path
 
 import requests
+
+try:  # charge le .env de la racine du repo (présent sur le VPS) avant tout getenv
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except Exception:
+    pass
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
