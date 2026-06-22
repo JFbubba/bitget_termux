@@ -116,6 +116,7 @@ def handle_command(text):
             "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
             "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
             "/ask QUESTION - assistant IA (langage naturel, lecture seule)\n"
+            "/forget - efface la mémoire de conversation de l'assistant\n"
             "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/feargreed - indice Fear & Greed crypto\n"
@@ -322,6 +323,10 @@ def handle_command(text):
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
         return result.stdout
+
+    if text == "/forget":
+        result = subprocess.run(["python", "assistant/agent.py", "--reset"], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ {result.stderr[-1500:]}"
 
     if text.startswith("/ask"):
         parts = text.split(maxsplit=1)
@@ -663,7 +668,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /price /news /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

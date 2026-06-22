@@ -332,7 +332,7 @@ def test_assistant_agent_loop():
     llm_client.anthropic_chat = fake_chat
     tools.dispatch = lambda name, args: "RESULT_OK"
     try:
-        text, msgs = agent.run("test question")
+        text, msgs = agent.run("test question", use_memory=False)
     finally:
         llm_client.anthropic_chat = orig_chat
         tools.dispatch = orig_dispatch
@@ -359,11 +359,31 @@ def test_assistant_openai_loop():
     llm_client.openai_chat = fake_openai
     tools.dispatch = lambda name, args: "RESULT_OK"
     try:
-        text, msgs = agent.run("question")
+        text, msgs = agent.run("question", use_memory=False)
     finally:
         llm_client.use_openai, llm_client.openai_chat, tools.dispatch = o_use, o_chat, o_disp
     assert text == "Réponse OpenAI." and seq["n"] == 2
     assert any(isinstance(m, dict) and m.get("role") == "tool" for m in msgs)
+
+def test_assistant_memory():
+    import pathlib
+    import tempfile
+    from assistant import memory
+    orig = memory.STORE
+    memory.STORE = pathlib.Path(tempfile.gettempdir()) / "conv_test_bitget.json"
+    try:
+        memory.reset()
+        assert memory.load_messages() == []
+        memory.save_turn("question1", "reponse1")
+        memory.save_turn("question2", "reponse2")
+        assert memory.load_messages() == [
+            {"role": "user", "content": "question1"}, {"role": "assistant", "content": "reponse1"},
+            {"role": "user", "content": "question2"}, {"role": "assistant", "content": "reponse2"},
+        ]
+        memory.reset()
+        assert memory.load_messages() == []
+    finally:
+        memory.STORE = orig
 
 def test_assistant_openai_tools_format():
     from assistant import llm_client, tools

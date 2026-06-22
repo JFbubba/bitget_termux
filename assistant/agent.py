@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from assistant import llm_client, tools  # noqa: E402
+from assistant import llm_client, memory, tools  # noqa: E402
 
 SYSTEM = (
     "Tu es l'assistant de trading crypto de l'utilisateur, en FRANÇAIS.\n"
@@ -91,17 +91,30 @@ def _run_openai(user_message, history, max_iters):
     return "(limite d'itérations atteinte — reformule ta question)", messages
 
 
-def run(user_message, history=None, max_iters=MAX_ITERS):
-    """Boucle agentique. Choisit le provider selon LLM_BASE_URL. Retourne (texte, messages)."""
+def run(user_message, history=None, max_iters=MAX_ITERS, use_memory=True):
+    """Boucle agentique. Choisit le provider selon LLM_BASE_URL. Retourne (texte, messages).
+
+    use_memory=True charge l'historique de conversation et y enregistre le tour.
+    """
+    if history is None and use_memory:
+        history = memory.load_messages()
     if llm_client.use_openai():
-        return _run_openai(user_message, history, max_iters)
-    return _run_anthropic(user_message, history, max_iters)
+        text, msgs = _run_openai(user_message, history, max_iters)
+    else:
+        text, msgs = _run_anthropic(user_message, history, max_iters)
+    if use_memory:
+        memory.save_turn(user_message, text)
+    return text, msgs
 
 
 def main():
     if len(sys.argv) < 2:
-        print('Usage: python assistant/agent.py "ta question"')
+        print('Usage: python assistant/agent.py "ta question"  (ou --reset)')
         raise SystemExit(2)
+    if sys.argv[1] in ("--reset", "reset"):
+        memory.reset()
+        print("🧠 Mémoire de conversation effacée.")
+        return
     question = " ".join(sys.argv[1:])
     try:
         answer, _ = run(question)

@@ -69,6 +69,7 @@ FILES_TO_SCAN = [
     "assistant/llm_client.py",
     "assistant/tools.py",
     "assistant/agent.py",
+    "assistant/memory.py",
 ]
 
 
