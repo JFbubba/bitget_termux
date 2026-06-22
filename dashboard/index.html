@@ -94,6 +94,14 @@
       <div class="row"><span class="k">pétrole WTI</span><span id="oil">—</span></div>
     </div>
 
+    <!-- Market / sentiment -->
+    <div class="panel">
+      <h2>MARKET · SENTIMENT</h2>
+      <div class="row"><span class="k">Fear &amp; Greed</span><span id="fng">—</span></div>
+      <div class="row"><span class="k">TVL DeFi</span><span id="tvl">—</span></div>
+      <div id="chains" class="dim" style="margin-top:8px;line-height:1.7">—</div>
+    </div>
+
     <!-- Relationship graph -->
     <div class="panel">
       <h2>RELATIONSHIP GRAPH</h2>
@@ -114,6 +122,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const fmt = (v, d=2) => (v===null||v===undefined||v==="") ? "—" : (typeof v==="number" ? v.toFixed(d) : v);
+function human(n){ if(n===null||n===undefined) return "—"; const u=["","K","M","B","T"]; let i=0; n=Math.abs(n); while(n>=1000&&i<u.length-1){n/=1000;i++;} return n.toFixed(1)+u[i]; }
 
 function color(el, cls){ el.className = cls; }
 
@@ -199,6 +208,12 @@ async function tick(){
       $("dxy").textContent=(m.dxy_change_pct===null||m.dxy_change_pct===undefined)?"—":fmt(m.dxy_change_pct)+"%";
       $("oil").textContent=fmt(m.oil_wti);
     }
+
+    const mk = st.market||{}; const fg = mk.fear_greed; const df = mk.defi;
+    $("fng").textContent = fg ? (fg.value+" · "+fg.classification) : "—";
+    if(fg){ $("fng").className = fg.value<25?"red":(fg.value>75?"green":"amber"); }
+    if(df){ $("tvl").textContent = "$"+human(df.total_tvl);
+      $("chains").textContent = (df.top_chains||[]).map(c=>c.name+" $"+human(c.tvl)).join(" · "); }
 
     if(!started){ initGraph(st.symbols&&st.symbols.length?st.symbols:[st.symbol], st.symbol); started=true; drawGraph(); }
     const hh = st.health||{};

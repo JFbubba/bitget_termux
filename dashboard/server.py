@@ -67,7 +67,7 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
-def assemble_state(symbol, symbols, stats, orderflow, macro, health):
+def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -77,6 +77,7 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health):
         "stats": stats or {},
         "orderflow": orderflow,
         "macro": macro,
+        "market": market or {},
         "health": health or {},
     }
 
@@ -108,13 +109,28 @@ def build_state(symbol=None):
         import config
         return config.SYMBOLS
 
+    def _market():
+        out = {}
+        try:
+            import sentiment_index
+            out["fear_greed"] = sentiment_index.fetch_fear_greed()
+        except Exception:
+            out["fear_greed"] = None
+        try:
+            import defi_data
+            out["defi"] = defi_data.fetch_chains(top=5)
+        except Exception:
+            out["defi"] = None
+        return out
+
     stats = _safe(_stats, {})
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
+    market = _cached("market", 600, lambda: _safe(_market, {}))
     health = _safe(_health, {})
     symbols = _safe(_symbols, [symbol])
 
-    return assemble_state(symbol, symbols, stats, orderflow, macro, health)
+    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market)
 
 
 class Handler(BaseHTTPRequestHandler):

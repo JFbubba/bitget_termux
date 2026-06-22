@@ -115,6 +115,10 @@ def handle_command(text):
             "/orderflow [SYMBOL] - microstructure: carnet, CVD, OI, funding (lecture seule)\n"
             "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
             "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
+            "/feargreed - indice Fear & Greed crypto\n"
+            "/defi - TVL DeFi + top chaines (DefiLlama)\n"
+            "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
+            "/dexsearch REQUETE - recherche de paires DEX (DexScreener)\n"
             "/signals - propositions d’ordres sans exécution\n"
             "/preorders - pré-ordres verrouillés sans exécution\n"
             "/approve_preorder ID - approuve un pré-ordre en simulation uniquement\n"
@@ -148,6 +152,9 @@ def handle_command(text):
             "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
             "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
+            "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
+            "/rugcheck ADRESSE [chain] - détection rug/honeypot\n"
+            "/dexsearch REQUETE - paires DEX (DexScreener)\n"
             "/signals - génère les propositions d’ordres\n"
             "/preorders - affiche les pré-ordres verrouillés\n"
             "/approve_preorder ID - validation simulée, aucun ordre réel\n"
@@ -308,6 +315,30 @@ def handle_command(text):
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
         return result.stdout
+
+    if text == "/feargreed":
+        result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ sentiment_index.py\n{result.stderr[-1500:]}"
+
+    if text == "/defi":
+        result = subprocess.run(["python", "defi_data.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ defi_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/rugcheck"):
+        parts = text.split()
+        if len(parts) < 2:
+            return "Usage: /rugcheck ADRESSE [chain]\nex. /rugcheck 0x... eth\n/rugcheck <mint> solana"
+        address = parts[1]
+        chain = parts[2] if len(parts) > 2 else "eth"
+        result = subprocess.run(["python", "token_safety.py", address, chain], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ token_safety.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/dexsearch"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return "Usage: /dexsearch REQUETE\nex. /dexsearch SOL"
+        result = subprocess.run(["python", "dex_scanner.py", parts[1]], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ dex_scanner.py\n{result.stderr[-1500:]}"
 
     if text == "/macro":
         result = subprocess.run(
@@ -598,7 +629,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /feargreed /defi /rugcheck /dexsearch /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
