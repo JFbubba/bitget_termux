@@ -751,6 +751,34 @@ def test_arbitrage_basis_and_funding():
     assert ab.funding_spread([{"exchange": "x", "funding": 0.1}]) is None
 
 
+# ---------- macro TradFi (yfinance, modèle pur) ----------
+
+def test_macro_data_summarize_regime():
+    import macro_data as md
+    # VIX bas + DXY en baisse -> risk-on
+    on = md.summarize({"VIX": {"last": 15.0, "change_pct": -1.0},
+                       "DXY": {"last": 100.0, "change_pct": -0.8}})
+    assert on["regime"] == "RISK_ON" and on["score"] > 0
+    # VIX élevé + DXY en hausse -> risk-off
+    off = md.summarize({"VIX": {"last": 30.0, "change_pct": 4.0},
+                        "DXY": {"last": 106.0, "change_pct": 1.0}})
+    assert off["regime"] == "RISK_OFF" and off["score"] < 0
+    # quotes vides -> neutre, ne lève pas
+    assert md.summarize({})["regime"] == "NEUTRE"
+
+def test_macro_data_degrades_without_lib(monkeypatch=None):
+    import macro_data as md
+    # si yfinance absent, fetch_macro renvoie une erreur claire et fetch_regime None
+    orig = md._available
+    md._available = lambda: False
+    try:
+        d = md.fetch_macro()
+        assert d.get("error") and "yfinance" in d["error"] and d["regime"] == "NEUTRE"
+        assert md.fetch_regime() is None
+    finally:
+        md._available = orig
+
+
 # ---------- sécurité ----------
 
 def test_security_keyword_coverage():

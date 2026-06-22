@@ -109,6 +109,11 @@ def _arbitrage(symbol="BTCUSDT", **_):
     return arbitrage.detect(str(symbol).upper())
 
 
+def _tradfi_macro(**_):
+    import macro_data
+    return macro_data.fetch_macro()
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -129,6 +134,7 @@ TOOL_FUNCS = {
     "get_liquidations": _liquidations,
     "get_economic_calendar": _economic_calendar,
     "get_arbitrage": _arbitrage,
+    "get_tradfi_macro": _tradfi_macro,
 }
 
 TOOLS = [
@@ -226,6 +232,11 @@ TOOLS = [
         "name": "get_arbitrage",
         "description": "DÉTECTION d'écarts de prix (lecture seule, aucune exécution) : spread spot inter-exchange (Binance/Bybit/OKX/Bitget), base perp↔spot, spread de funding. Écarts BRUTS hors frais/slippage/retrait. Veille uniquement.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_tradfi_macro",
+        "description": "Contexte macro TradFi en quasi-temps réel (yfinance) : VIX, indice dollar DXY, S&P 500, rendement 10 ans US, or, pétrole WTI, BTC, + régime risk-on/off. Complète get_macro (FRED). Lecture seule.",
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]
 

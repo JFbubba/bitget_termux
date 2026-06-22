@@ -56,6 +56,7 @@ FILES_TO_SCAN = [
     "order_flow.py",
     "bitget_market_data.py",
     "macro_context.py",
+    "macro_data.py",
     "confluence_score.py",
     "dashboard/server.py",
     "sentiment_index.py",

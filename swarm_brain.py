@@ -55,8 +55,16 @@ def agent_technicals(symbol):
 
 
 def agent_macro(symbol):
-    import macro_context as mc
-    reg = (mc.macro_snapshot() or {}).get("regime")
+    # régime TradFi frais (yfinance) si dispo, sinon FRED (macro_context)
+    reg = None
+    try:
+        import macro_data as md
+        reg = md.fetch_regime()
+    except Exception:
+        reg = None
+    if reg is None:
+        import macro_context as mc
+        reg = (mc.macro_snapshot() or {}).get("regime")
     vote = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
     return {"vote": vote, "confidence": 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1, "note": f"régime {reg}"}
 
