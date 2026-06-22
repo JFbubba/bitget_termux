@@ -305,6 +305,18 @@ def test_find_value_precedence():
     row = {"Symbol": "btcusdt", "pair": "ignored"}
     assert ose.find_value(row, ["symbol", "pair"]) == "btcusdt"
 
+def test_order_signal_confluence_annotation():
+    row = {"symbol": "BTCUSDT", "side": "LONG", "entry": "100", "stop_loss": "95", "take_profit": "110"}
+    strong = ose.build_signal_card(row, confluence={"label": "FORTE CONFLUENCE", "score": 4})
+    assert "FORTE CONFLUENCE" in strong and "Confiance : ÉLEVÉE" in strong
+    weak = ose.build_signal_card(row, confluence={"label": "CONTRE-SIGNAL", "score": -3})
+    assert "CONTRE-SIGNAL" in weak and "Confiance : FAIBLE" in weak
+    assert "Confluence" not in ose.build_signal_card(row)  # rien sans confluence
+    # le filtre sécurité n'est JAMAIS écrasé par la confluence :
+    bad = dict(row, implied_leverage="5")  # > MAX_SIGNAL_LEVERAGE -> REJETÉ
+    card = ose.build_signal_card(bad, confluence={"label": "FORTE CONFLUENCE", "score": 4})
+    assert "REJETÉ" in card and "Confiance : FAIBLE" in card
+
 
 # ---------- risk_limits ----------
 

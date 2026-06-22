@@ -1,4 +1,5 @@
 import csv
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -107,7 +108,7 @@ def portfolio_risk_mode():
 
     return "NORMAL", f"{positive} positives / {negative} négatives"
 
-def build_signal_card(row, portfolio_mode="NORMAL", portfolio_reason=""):
+def build_signal_card(row, portfolio_mode="NORMAL", portfolio_reason="", confluence=None):
     symbol = find_value(row, ["symbol", "pair", "market"]).upper()
     side = normalize_side(find_value(row, ["side", "direction", "signal", "decision"]))
 
@@ -156,6 +157,17 @@ def build_signal_card(row, portfolio_mode="NORMAL", portfolio_reason=""):
     elif rr_text != "N/A" and not rr_text.startswith("1:0") and status == "EXPLOITABLE":
         confidence = "MOYENNE"
 
+    # Confluence (advisory) : n'ajuste QUE la confiance, jamais le filtre
+    # sécurité. Aucun ordre. Si absente (réseau/désactivée), carte inchangée.
+    confluence_line = None
+    if confluence:
+        confluence_line = f"Confluence : {confluence['label']} (score {confluence['score']:+d})"
+        if status == "EXPLOITABLE":
+            if confluence["label"] == "FORTE CONFLUENCE":
+                confidence = "ÉLEVÉE"
+            elif confluence["score"] < 0:
+                confidence = "FAIBLE"
+
     lines = [
         f"{emoji} SIGNAL {side} — {symbol}",
         "",
@@ -169,6 +181,10 @@ def build_signal_card(row, portfolio_mode="NORMAL", portfolio_reason=""):
         f"ATR : {atr or 'N/A'}",
         f"Confiance : {confidence}",
         f"Filtre sécurité : {status}",
+    ]
+    if confluence_line:
+        lines.append(confluence_line)
+    lines += [
         "",
         f"Décision source : {decision or 'N/A'}",
         "",
@@ -176,6 +192,44 @@ def build_signal_card(row, portfolio_mode="NORMAL", portfolio_reason=""):
     ]
 
     return "\n".join(lines)
+
+
+def _confluence_enabled():
+    return os.getenv("ENABLE_CONFLUENCE", "1") != "0"
+
+
+def _safe_macro_regime():
+    """Régime macro courant, ou None si désactivé / échec réseau."""
+    if not _confluence_enabled():
+        return None
+    try:
+        import macro_context
+        return macro_context.macro_snapshot().get("regime")
+    except Exception:
+        return None
+
+
+def _safe_confluence(row, macro_regime):
+    """Confluence pour un signal. Fail-safe : ne casse jamais le scan, ne place
+    aucun ordre. Retourne None si désactivé, symbole inconnu, ou échec réseau."""
+    if not _confluence_enabled():
+        return None
+    symbol = find_value(row, ["symbol", "pair", "market"]).upper()
+    side = normalize_side(find_value(row, ["side", "direction", "signal", "decision"]))
+    if not symbol or side == "UNKNOWN":
+        return None
+    try:
+        import bitget_market_data
+        import confluence_score
+        snap = bitget_market_data.market_snapshot(symbol)
+        return confluence_score.confluence_score(
+            side,
+            book_imbalance=snap.get("book_imbalance"),
+            cvd=snap.get("cvd"),
+            macro_regime=macro_regime,
+        )
+    except Exception:
+        return None
 
 
 def main():
@@ -213,8 +267,11 @@ def main():
     report.append(f"Mode portefeuille : {portfolio_mode} — {portfolio_reason}")
     report.append("")
 
+    macro_regime = _safe_macro_regime()
+
     for row in latest[-6:]:
-        report.append(build_signal_card(row, portfolio_mode, portfolio_reason))
+        confluence = _safe_confluence(row, macro_regime)
+        report.append(build_signal_card(row, portfolio_mode, portfolio_reason, confluence))
         report.append("")
         report.append("---")
         report.append("")
