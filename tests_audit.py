@@ -409,6 +409,18 @@ def test_technicals_pure():
     assert lc["bid_walls"][0]["price"] == 99 and lc["ask_walls"][0]["price"] == 102
     assert tk.parse_candles([["1", "10", "12", "9", "11", "100", "x"]])[0]["close"] == 11
 
+def test_aggregated_derivs():
+    import aggregated_derivs as ad
+    parts = [
+        {"exchange": "binance", "funding": 0.0001, "oi_usd": 2_000_000_000},
+        {"exchange": "bybit", "funding": 0.0003, "oi_usd": 1_000_000_000},
+        {"exchange": "bitget", "funding": None, "oi_usd": None},  # exclu (pas d'OI)
+    ]
+    agg = ad.aggregate(parts)
+    assert agg["total_oi_usd"] == 3_000_000_000 and len(agg["exchanges"]) == 2
+    assert abs(agg["oi_weighted_funding"] - (5e5 / 3e9)) < 1e-12
+    assert ad.aggregate([])["oi_weighted_funding"] is None
+
 def test_coingecko_parse():
     import coingecko_data as cg
     assert cg.resolve_id("btc") == "bitcoin" and cg.resolve_id("solana") == "solana"

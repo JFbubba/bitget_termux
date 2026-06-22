@@ -76,6 +76,11 @@ def _market_overview(**_):
     return coingecko_data.fetch_global()
 
 
+def _aggregated_derivs(symbol="BTCUSDT", **_):
+    import aggregated_derivs
+    return aggregated_derivs.fetch_aggregate(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -90,6 +95,7 @@ TOOL_FUNCS = {
     "get_news": _news,
     "get_prices": _prices,
     "get_market_overview": _market_overview,
+    "get_aggregated_derivs": _aggregated_derivs,
 }
 
 TOOLS = [
@@ -157,6 +163,11 @@ TOOLS = [
         "name": "get_market_overview",
         "description": "Vue d'ensemble du marché crypto (CoinGecko) : market cap totale, dominance BTC, variation 24h.",
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_aggregated_derivs",
+        "description": "Funding & open interest AGRÉGÉS multi-exchange (Binance+Bybit+Bitget) : OI total en USD et funding 8h pondéré par l'OI. Pour jauger le positionnement des dérivés.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
     },
 ]
 

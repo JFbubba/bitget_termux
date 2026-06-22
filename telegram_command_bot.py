@@ -119,6 +119,7 @@ def handle_command(text):
             "/forget - efface la mémoire de conversation de l'assistant\n"
             "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
+            "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
@@ -350,6 +351,12 @@ def handle_command(text):
             return "Usage: /price BTC ETH SOL"
         result = subprocess.run(["python", "coingecko_data.py"] + parts[1:], capture_output=True, text=True, timeout=30)
         return result.stdout if result.returncode == 0 else f"❌ coingecko_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/deriv"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "aggregated_derivs.py", sym], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ aggregated_derivs.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -668,7 +675,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
