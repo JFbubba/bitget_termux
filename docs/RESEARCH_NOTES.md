@@ -128,11 +128,17 @@ ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit)
 - **Non branchables** : Tickeron, ChartingLens, FXReplay, MT5/MQL5, TradeStation —
   **web/manuel, pas d'API gratuite** ; MQL5 confirme néanmoins nos garde-fous de
   risque (sizing, breakeven, trailing) comme standards. À noter honnêtement.
-- **Bibliothèques** : on reste sur nos indicateurs **purs** (vs TA-Lib/pandas-ta)
-  et notre backtest (vs backtrader/vectorbt/zipline) pour l'auditabilité ; si « plus
-  d'apprentissage » : **scikit-learn** (gradient boosting / logreg), **statsmodels**
-  (ARIMA, validation), jamais un deep net (§1). Dashboard : **TradingView
-  Lightweight Charts** (Apache-2.0, auto-hébergé, on fournit nos données).
+- **Bibliothèques (décisions, recheck confirmé)** : on reste sur nos indicateurs
+  **purs** (vs TA-Lib/pandas-ta) et notre backtest (vs backtrader/vectorbt/zipline)
+  pour l'auditabilité ; si « plus d'apprentissage » : **scikit-learn** (gradient
+  boosting / logreg), **statsmodels** (ARIMA, validation), jamais un deep net (§1).
+  Macro déjà couverte par **FRED** (≈ pandas-datareader) ; **Alpha Vantage** noté
+  comme repli optionnel mais **non branché** (éviter la prolifération de clés/
+  dépendances — cohérent avec « optimiser la dépendance runtime »). Dashboard :
+  **TradingView Lightweight Charts** (Apache-2.0, auto-hébergé, on fournit nos
+  données) — choix retenu, implémentation UI différée.
+- **Outils IA web (Tickeron, ChartingLens ×9, FXReplay) — recheck** : **aucune API
+  développeur gratuite** confirmée → non branchables (rejet documenté, honnête).
 - **Optimiser la dépendance externe au runtime** → `runtime_cache.py` :
   1. **cache TTL** par source (book 10 s, liq 2 min, derivs 5 min, F&G 15 min,
      macro 30 min) — dans le TTL, **zéro appel réseau** ;
