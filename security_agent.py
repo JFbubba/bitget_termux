@@ -54,6 +54,7 @@ FILES_TO_SCAN = [
     "stats_report.py",
     "pro_indicators.py",
     "order_flow.py",
+    "bitget_market_data.py",
 ]
 
 

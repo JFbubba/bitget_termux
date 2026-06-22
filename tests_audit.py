@@ -173,6 +173,38 @@ def test_liquidation_levels():
         pass
 
 
+# ---------- bitget_market_data : parseurs (purs, sans réseau) ----------
+
+def test_bitget_parsers():
+    import bitget_market_data as bmd
+    ob = bmd.parse_orderbook({"bids": [[100, 2], ["99", "1"]], "asks": [[101, 3]]})
+    assert ob["bids"] == [[100.0, 2.0], [99.0, 1.0]]
+    assert ob["asks"] == [[101.0, 3.0]]
+
+    trades = bmd.parse_trades([
+        {"side": "Buy", "size": "0.5", "price": "100"},
+        {"side": "sell", "size": "0.2", "price": "100"},
+    ])
+    assert trades[0]["side"] == "buy" and trades[0]["size"] == 0.5
+    assert trades[1]["side"] == "sell"
+
+    assert bmd.parse_open_interest({"openInterestList": [{"symbol": "BTCUSDT", "size": "100.5"}]}) == 100.5
+    assert bmd.parse_open_interest({}) == 0.0
+    assert abs(bmd.parse_funding_rate([{"fundingRate": "0.0001"}]) - 0.0001) < 1e-12
+    assert bmd.parse_funding_rate([]) is None
+
+def test_bitget_build_report():
+    import bitget_market_data as bmd
+    snap = {
+        "symbol": "BTCUSDT", "mid_price": 64000.0, "book_imbalance": -0.5,
+        "bid_volume": 3.0, "ask_volume": 9.0, "cvd": -0.2,
+        "open_interest": 32584.0, "funding_rate": 0.00004,
+    }
+    txt = bmd.build_report(snap)
+    assert "ORDER FLOW BTCUSDT" in txt and "SAFE" in txt
+    assert "Funding" in txt
+
+
 # ---------- outcome LONG & SHORT ----------
 
 def _sig(side, entry, sl, tp, t):
