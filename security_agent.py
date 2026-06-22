@@ -64,6 +64,7 @@ FILES_TO_SCAN = [
     "token_safety.py",
     "dex_scanner.py",
     "technicals.py",
+    "backtest_brain.py",
     "chart.py",
     "aggregated_derivs.py",
     "ccxt_markets.py",

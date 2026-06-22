@@ -812,6 +812,38 @@ def test_ccxt_cross_exchange_aggregates():
         cm.available, cm.fetch_spot_prices = orig_av, orig_fp
 
 
+# ---------- backtester du cerveau (purs) ----------
+
+def test_backtest_forward_returns():
+    import backtest_brain as bt
+    assert bt.forward_returns([100, 110, 121], 1) == [0.1, 0.1]
+    assert bt.forward_returns([100, 100], 1) == [0.0]
+    fr = bt.forward_returns([100, 50, 200], 2)
+    assert len(fr) == 1 and abs(fr[0] - 1.0) < 1e-9
+
+def test_backtest_evaluate_perfect_and_wrong():
+    import backtest_brain as bt
+    good = bt.evaluate([1, -1, 1], [0.1, -0.1, 0.1], fee=0.0)
+    assert good["trades"] == 3 and good["hit_rate"] == 1.0 and good["total_return"] > 0
+    bad = bt.evaluate([1, -1], [-0.1, 0.1], fee=0.0)
+    assert bad["hit_rate"] == 0.0 and bad["total_return"] < 0
+    # signal nul ignoré
+    assert bt.evaluate([0, 1], [0.5, 0.1], fee=0.0)["trades"] == 1
+
+def test_backtest_evaluate_fee_reduces_return():
+    import backtest_brain as bt
+    nofee = bt.evaluate([1, 1, 1], [0.01, 0.01, 0.01], fee=0.0)["total_return"]
+    withfee = bt.evaluate([1, 1, 1], [0.01, 0.01, 0.01], fee=0.005)["total_return"]
+    assert withfee < nofee
+
+def test_backtest_technical_signal_trend():
+    import backtest_brain as bt
+    up = [{"open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100 + i, "volume": 10} for i in range(60)]
+    assert bt.technical_signal(up) > 0
+    down = [{"open": 200 - i, "high": 201 - i, "low": 199 - i, "close": 200 - i, "volume": 10} for i in range(60)]
+    assert bt.technical_signal(down) < 0
+
+
 # ---------- sécurité ----------
 
 def test_security_keyword_coverage():

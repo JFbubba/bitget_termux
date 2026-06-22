@@ -119,6 +119,11 @@ def _cross_exchange(symbol="BTCUSDT", **_):
     return ccxt_markets.cross_exchange(str(symbol).upper())
 
 
+def _backtest(symbol="BTCUSDT", timeframe="1H", **_):
+    import backtest_brain
+    return backtest_brain.run_backtest(str(symbol).upper(), str(timeframe))
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -141,6 +146,7 @@ TOOL_FUNCS = {
     "get_arbitrage": _arbitrage,
     "get_tradfi_macro": _tradfi_macro,
     "get_cross_exchange": _cross_exchange,
+    "get_backtest": _backtest,
 }
 
 TOOLS = [
@@ -248,6 +254,11 @@ TOOLS = [
         "name": "get_cross_exchange",
         "description": "Prix spot multi-exchange via CCXT (Binance/Bybit/OKX/KuCoin/Gate/Bitget) + meilleur écart inter-exchange. Couverture plus large que get_arbitrage. Écart BRUT hors frais, lecture seule. Nécessite ccxt installé sur le serveur.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_backtest",
+        "description": "Backtest hors-ligne du signal TECHNIQUE du cerveau sur l'historique des bougies : taux de réussite, rendement vs buy&hold, Sharpe, drawdown (frais inclus). Ne rejoue que la couche technique (seule reconstructible sur l'historique), pas l'essaim complet. Lecture seule.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}, "timeframe": {"type": "string", "description": "1m|5m|15m|1H|4H|1D (défaut 1H)"}}, "required": ["symbol"]},
     },
 ]
 

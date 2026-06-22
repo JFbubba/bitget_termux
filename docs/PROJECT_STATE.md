@@ -205,6 +205,22 @@ alimenté par `swarm_brain.peek` via `build_state` (clé `brain`, cache 45s).
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
 
+**FAIT — sources hautes valeur (liste outils_trading.md)** :
+- `liquidations.py` : carte de liquidations (clusters/heatmap) prix×levier×OI réel
+  → **6ᵉ agent du cerveau** + panneau dashboard + `/liq`.
+- `econ_calendar.py` : calendrier éco keyless (Forex Factory) → `/calendar`.
+- `arbitrage.py` : détection d'écarts (spot/base/funding), read-only → `/arb`.
+- `macro_data.py` (yfinance, **dép. optionnelle**) : TradFi temps quasi-réel
+  (VIX/DXY/SPX/10Y/or/WTI/BTC) → enrichit l'agent macro + `/tradfi`.
+- `ccxt_markets.py` (ccxt, **dép. optionnelle**) : prix/funding multi-exchange
+  read-only → `/cross`.
+- `backtest_brain.py` : backtest hors-ligne du signal **technique** du cerveau
+  (hit-rate, rendement vs buy&hold, Sharpe, DD) → `/backtest`.
+- Dashboard : graphique **TradingView Lightweight Charts** (vendorisé,
+  `dashboard/vendor/`, route statique sûre) remplaçant le canvas maison.
+- **23 outils** assistant. Dépendances optionnelles : `requirements-optional.txt`
+  (`pip install -r` sur le VPS pour yfinance/ccxt). Tests 84/84, SAFE.
+
 **Prochaine étape majeure (en attente de l'utilisateur)** : couche d'exécution
 autonome. Pré-requis explicites : clés Bitget **read+trade (JAMAIS withdraw)**,
 IP whitelistée, `dry-run` par défaut derrière `risk_manager`, réorientation du
