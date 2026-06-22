@@ -89,7 +89,9 @@ souvent plus robustes en live. → conforte l'approche ensemble + poids en ligne
       escompte de conviction (anti-cohérence-adverse).
 - [ ] Pondération EARCP complète (perf **+** cohérence explicite avec `β`, `η`,
       `w_min`) — évolution possible de `update_weights`.
-- [ ] **PBO / CSCV** dans `backtest_brain.py` (étiquette anti-surapprentissage).
+- [x] **PBO / CSCV + walk-forward** dans `backtest_brain.py` (garde-fou anti-
+      surapprentissage ; sur BTC 1H le signal technique seul sort PBO≈0.46 et
+      0/5 tranches gagnantes → confirmé non déployable, honnêtement).
 - [ ] Débruitage Savitzky–Golay des features techniques (§1).
 - [ ] Si « plus d'apprentissage » : régression logistique / gradient boosting sur
       bonnes features (jamais un deep net en premier — §1).

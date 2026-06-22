@@ -106,24 +106,105 @@ def evaluate(signals, rets, fee=0.0):
     }
 
 
+def walk_forward(returns, k=5):
+    """Découpe `returns` en k tranches séquentielles et retourne le rendement
+    composé de chaque tranche (out-of-sample « marche en avant »). Pur."""
+    n = len(returns)
+    if n < k:
+        return []
+    bounds = [round(i * n / k) for i in range(k + 1)]
+    folds = []
+    for i in range(k):
+        eq = 1.0
+        for r in returns[bounds[i]:bounds[i + 1]]:
+            eq *= (1 + r)
+        folds.append(round(eq - 1, 5))
+    return folds
+
+
+def pbo(returns_by_config, n_blocks=8):
+    """Probability of Backtest Overfitting (Bailey & López de Prado, CSCV). Pur.
+
+    returns_by_config : {label: [rendements par pas]} (mêmes longueurs). On forme
+    toutes les combinaisons IS/OOS de blocs ; pour chacune on prend la config la
+    meilleure IN-SAMPLE et on regarde son rang OUT-OF-SAMPLE. Si la meilleure IS
+    finit sous la médiane OOS (logit ≤ 0), c'est un signe de surapprentissage.
+    PBO = fraction de telles combinaisons. PBO élevé (≈>0.5) = peu fiable.
+    """
+    import itertools
+    import math
+    import statistics
+    labels = list(returns_by_config)
+    series = [returns_by_config[l] for l in labels]
+    if len(series) < 2:
+        return {"pbo": None, "n_combos": 0, "n_configs": len(series), "n_blocks": n_blocks}
+    T = min(len(s) for s in series)
+    series = [s[:T] for s in series]
+    n_blocks = max(2, min(n_blocks, T))
+    if n_blocks % 2:
+        n_blocks -= 1
+    bounds = [round(i * T / n_blocks) for i in range(n_blocks + 1)]
+    blocks = [list(range(bounds[i], bounds[i + 1])) for i in range(n_blocks)]
+
+    def perf(idxs, c):
+        r = [series[c][i] for i in idxs]
+        if not r:
+            return 0.0
+        m = statistics.fmean(r)
+        sd = statistics.pstdev(r) if len(r) > 1 else 0.0
+        return (m / sd) if sd > 0 else m          # Sharpe-ish (ou moyenne si σ=0)
+
+    half = n_blocks // 2
+    lam = []
+    for IS in itertools.combinations(range(n_blocks), half):
+        OOS = [b for b in range(n_blocks) if b not in IS]
+        is_idx = [i for b in IS for i in blocks[b]]
+        oos_idx = [i for b in OOS for i in blocks[b]]
+        is_perf = [perf(is_idx, c) for c in range(len(series))]
+        oos_perf = [perf(oos_idx, c) for c in range(len(series))]
+        best = max(range(len(series)), key=lambda c: is_perf[c])
+        order = sorted(range(len(series)), key=lambda c: oos_perf[c])  # croissant
+        rank = order.index(best) + 1
+        omega = min(max(rank / (len(series) + 1), 1e-6), 1 - 1e-6)
+        lam.append(math.log(omega / (1 - omega)))
+    pbo_val = sum(1 for x in lam if x <= 0) / len(lam) if lam else 0.0
+    return {"pbo": round(pbo_val, 4), "n_combos": len(lam),
+            "n_configs": len(series), "n_blocks": n_blocks}
+
+
 def run_backtest(symbol="BTCUSDT", timeframe="1H", limit=500, horizon=4, fee=0.0006, warmup=55):
     import technicals
     candles = technicals.fetch_candles(symbol, timeframe, limit)
     closes = [c["close"] for c in candles]
     if len(closes) <= warmup + horizon:
         return {"error": "pas assez de bougies", "symbol": symbol, "timeframe": timeframe}
+    # signaux techniques reconstruits, calculés une seule fois
+    sig_at = {i: technical_signal(candles[:i + 1]) for i in range(warmup, len(closes) - 1)}
     rets_all = forward_returns(closes, horizon)
+    # backtest principal : trades non chevauchants (pas = horizon)
     signals, rets = [], []
     i = warmup
-    while i < len(closes) - horizon:          # pas = horizon -> trades non chevauchants
-        signals.append(technical_signal(candles[:i + 1]))
+    while i < len(closes) - horizon:
+        signals.append(sig_at[i])
         rets.append(rets_all[i])
         i += horizon
     stats = evaluate(signals, rets, fee)
     bh = (closes[-1] - closes[warmup]) / closes[warmup] if closes[warmup] else 0.0
+    # robustesse anti-surapprentissage : famille de seuils d'action -> CSCV/PBO + walk-forward
+    fwd1 = [(closes[j + 1] - closes[j]) / closes[j] for j in range(warmup, len(closes) - 1)]
+    bar_sigs = [sig_at[j] for j in range(warmup, len(closes) - 1)]
+    family = {}
+    for th in (0.1, 0.2, 0.3, 0.4, 0.5):
+        family[f"th={th}"] = [((1 if s > th else -1 if s < -th else 0) * r
+                               - (fee if abs(s) > th else 0.0)) for s, r in zip(bar_sigs, fwd1)]
+    pbo_res = pbo(family, n_blocks=8)
+    wf = walk_forward(family["th=0.2"], k=5)
     stats.update({"symbol": symbol, "timeframe": timeframe, "horizon": horizon,
                   "bars": len(candles), "fee": fee, "buy_hold_return": round(bh, 5),
-                  "signal": "technical (couche reconstructible du cerveau)"})
+                  "signal": "technical (couche reconstructible du cerveau)",
+                  "pbo": pbo_res["pbo"], "pbo_combos": pbo_res["n_combos"],
+                  "walk_forward": wf,
+                  "folds_positive": round(sum(1 for x in wf if x > 0) / len(wf), 3) if wf else 0.0})
     return stats
 
 
@@ -140,8 +221,19 @@ def build_report(s):
         f"Sharpe {s['sharpe']} | max DD {s['max_drawdown'] * 100:.1f}%",
         f"Long {('%+.2f%%' % (s['avg_return_long'] * 100)) if s['avg_return_long'] is not None else '—'}/trade"
         f" · Short {('%+.2f%%' % (s['avg_return_short'] * 100)) if s['avg_return_short'] is not None else '—'}/trade",
+    ]
+    pbo_v = s.get("pbo")
+    if pbo_v is not None:
+        verdict = "robuste" if pbo_v < 0.3 else "douteux" if pbo_v < 0.5 else "PROBABLEMENT SURAPPRIS"
+        lines.append(f"PBO (surapprentissage) : {pbo_v:.2f} sur {s.get('pbo_combos', 0)} combinaisons → {verdict}")
+    wf = s.get("walk_forward")
+    if wf:
+        folds = " ".join(f"{x * 100:+.1f}%" for x in wf)
+        lines.append(f"Walk-forward (5 tranches) : {folds} · gagnantes {s.get('folds_positive', 0) * 100:.0f}%")
+    lines += [
         "",
         "⚠️ Rejoue UNIQUEMENT l'agent technique (seul reconstructible sur l'historique).",
+        "PBO/walk-forward = garde-fous anti-surapprentissage (CSCV, López de Prado).",
         "Lecture seule. Aucun ordre. VERDICT: SAFE",
     ]
     return "\n".join(lines)

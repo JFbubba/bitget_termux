@@ -877,6 +877,22 @@ def test_backtest_technical_signal_trend():
     down = [{"open": 200 - i, "high": 201 - i, "low": 199 - i, "close": 200 - i, "volume": 10} for i in range(60)]
     assert bt.technical_signal(down) < 0
 
+def test_backtest_walk_forward():
+    import backtest_brain as bt
+    folds = bt.walk_forward([0.01] * 10, k=5)
+    assert len(folds) == 5 and all(f > 0 for f in folds)
+    assert bt.walk_forward([0.01], k=5) == []          # trop court
+
+def test_backtest_pbo_bounds_and_dominance():
+    import backtest_brain as bt
+    # config A domine partout -> meilleure IS = meilleure OOS -> aucun surapprentissage
+    fam = {"A": [0.02] * 40, "B": [0.01] * 40}
+    res = bt.pbo(fam, n_blocks=4)
+    assert res["n_combos"] == 6 and 0.0 <= res["pbo"] <= 1.0
+    assert res["pbo"] == 0.0
+    # une seule config -> PBO indéfini (None), pas de crash
+    assert bt.pbo({"only": [0.01] * 10})["pbo"] is None
+
 
 # ---------- sécurité ----------
 
