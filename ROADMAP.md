@@ -37,6 +37,7 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 - Backtest offline simple
 - Journal des signaux ignores
 - [x] Indicateurs volume : niveau ancre + biais (concept Unbiased Level Pro)
+- [x] Indicateurs pro calculables : momentum, volume profile, Sharpe, sizing risque capital, timing horaire (pro_indicators.py)
 - [x] Statistiques par symbole (stats_report.py + /stats)
 - [x] Statistiques long/short (stats_report.py + /stats)
 - [x] Ratio TP/SL (stats_report.py + /stats)

@@ -73,6 +73,64 @@ def test_volume_indicators_validate_input():
             pass
 
 
+# ---------- pro_indicators (purs, sans réseau) ----------
+
+def test_momentum_roc():
+    import pro_indicators as pro
+    vals = [float(i) for i in range(1, 30)]
+    roc = pro.momentum(vals, period=10)
+    assert len(roc) == len(vals) - 10
+    assert roc[-1] > 0  # série croissante -> momentum positif
+    try:
+        pro.momentum([1.0, 2.0], period=10)
+        assert False
+    except ValueError:
+        pass
+
+def test_volume_profile_poc():
+    import pro_indicators as pro
+    # gros volume concentré autour de 100 -> POC proche de 100
+    candles = (
+        [{"close": 100.0, "volume": 1000.0}]
+        + [{"close": 101.0, "volume": 10.0}]
+        + [{"close": 99.0, "volume": 10.0}]
+    )
+    vp = pro.volume_profile(candles, bins=10)
+    assert 99.0 <= vp["poc"] <= 101.0
+    assert vp["value_area_low"] <= vp["poc"] <= vp["value_area_high"]
+    assert vp["total_volume"] == 1020.0
+
+def test_sharpe_ratio():
+    import pro_indicators as pro
+    assert pro.sharpe_ratio([0.01, 0.02, 0.015, 0.005, 0.01]) > 0
+    assert pro.sharpe_ratio([0.01, 0.01, 0.01]) == 0.0  # volatilité nulle
+    try:
+        pro.sharpe_ratio([0.01])
+        assert False
+    except ValueError:
+        pass
+
+def test_risk_based_position_size():
+    import pro_indicators as pro
+    r = pro.risk_based_position_size(capital=1000.0, risk_percent=1.0, entry=100.0, stop=95.0)
+    assert r["risk_amount"] == 10.0
+    assert r["distance"] == 5.0
+    assert r["size"] == 2.0
+    try:
+        pro.risk_based_position_size(1000.0, 1.0, 100.0, 100.0)  # stop == entry
+        assert False
+    except ValueError:
+        pass
+
+def test_trading_sessions_brussels():
+    import pro_indicators as pro
+    from datetime import datetime
+    assert pro.trading_sessions(datetime(2026, 1, 1, 9, 30)) == ["EU_MORNING"]
+    assert set(pro.trading_sessions(datetime(2026, 1, 1, 16, 0))) == {"US_OPEN", "US_OPEN_PEAK"}
+    assert pro.trading_sessions(datetime(2026, 1, 1, 12, 0)) == []
+    assert pro.in_active_session(datetime(2026, 1, 1, 1, 30)) is True
+
+
 # ---------- outcome LONG & SHORT ----------
 
 def _sig(side, entry, sl, tp, t):

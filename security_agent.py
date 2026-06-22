@@ -52,6 +52,7 @@ FILES_TO_SCAN = [
     "system_health.py",
     "watchdog.py",
     "stats_report.py",
+    "pro_indicators.py",
 ]
 
 
