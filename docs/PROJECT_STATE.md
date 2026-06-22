@@ -148,6 +148,14 @@ Itérer ensuite : bridge Telegram (`/ask` depuis le tél, besoin du token Telegr
 mémoire de conversation, outils news/prix (clés CryptoPanic+CoinGecko déjà là),
 multi-exchange (funding/OI agrégés), vision charts (Gemini/Claude).
 
+**FAIT — bridge Telegram LIVE** : 2 bots (TELEGRAM_BOT_TOKEN=alertes,
+COMMAND_BOT_TOKEN=assistant). Bot assistant tourne en service systemd
+(`deploy/bitget-bot.service`, `systemctl ... bitget-bot`) → `/ask /price /news`
++ toutes les commandes répondent depuis le téléphone. Outils news (CryptoPanic)
++ prix/marché (CoinGecko) ajoutés. **13 outils** au total dans l'assistant.
+Reste : mémoire de conversation, multi-exchange (funding/OI agrégés), vision charts,
+déploiement du dashboard web, clés Bitget (optionnel, pour solde/compte).
+
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
 
