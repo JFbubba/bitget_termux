@@ -90,7 +90,10 @@ def openai_chat(messages, tools=None, model=None, max_tokens=2048, timeout=90):
         raise LLMError("LLM_BASE_URL manquant pour le provider OpenAI-compatible")
     key = os.getenv("LLM_API_KEY")
     if not key:
-        raise LLMError("LLM_API_KEY manquant dans .env (clé du fournisseur Groq/Gemini, pas la clé Anthropic)")
+        if any(host in base for host in ("localhost", "127.0.0.1")):
+            key = "local"  # Ollama / serveur local : pas de clé requise
+        else:
+            raise LLMError("LLM_API_KEY manquant dans .env (clé du fournisseur Groq/Gemini, pas la clé Anthropic)")
     headers = {"Authorization": f"Bearer {key}", "content-type": "application/json"}
     body = {"model": model or DEFAULT_MODEL, "max_tokens": max_tokens, "messages": messages}
     if tools:
