@@ -50,6 +50,16 @@ def _trade_stats(**_):
     return stats_report.compute_stats(stats_report.load_rows())
 
 
+def _technicals(symbol="BTCUSDT", granularity="15m", **_):
+    import technicals
+    return technicals.technicals(str(symbol).upper(), str(granularity))
+
+
+def _liquidity(symbol="BTCUSDT", **_):
+    import technicals
+    return technicals.book_liquidity(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -59,13 +69,25 @@ TOOL_FUNCS = {
     "search_dex": _dex,
     "get_fear_greed": _fear_greed,
     "get_trade_stats": _trade_stats,
+    "get_technicals": _technicals,
+    "get_liquidity_clusters": _liquidity,
 }
 
 TOOLS = [
     {
         "name": "get_order_flow",
-        "description": "Order-flow Bitget d'un symbole : prix mid, déséquilibre du carnet, CVD, open interest, funding. Pour analyser la microstructure.",
+        "description": "Order-flow Bitget d'un symbole : prix mid, déséquilibre du carnet, CVD (Cumulative Volume Delta = pression acheteur-vendeur cumulée), open interest, funding. Pour analyser la microstructure.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT, SOLUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_technicals",
+        "description": "Indicateurs techniques sur bougies : VWAP, Volume SMA, Volume Profile (POC/VAH/VAL ~ VPVR), TPO (profil temps-prix), RSI14, ATR14, EMA20/50, biais volume.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}, "granularity": {"type": "string", "description": "1m|5m|15m|1H|4H|1D (défaut 15m)"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_liquidity_clusters",
+        "description": "Murs de liquidité du carnet (~ order-book heatmap statique) : plus grosses tailles côté bid et ask.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]},
     },
     {
         "name": "get_macro",

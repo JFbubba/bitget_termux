@@ -132,6 +132,13 @@ le verdict de couverture des 32 liens de `outils_trading.md`.
 - `.env.example` : `LLM_MODEL/LLM_PROVIDER/LLM_BASE_URL/LLM_API_KEY` ajoutés.
 - Testé : outils en réel, boucle via LLM factice (51/51), security SAFE.
 
+**Indicateurs techniques** : `technicals.py` (réutilise `indicators.py`) — VWAP,
+Volume SMA, Volume Profile (POC/VAH/VAL ~ VPVR/VPSV), TPO (temps-prix), RSI14,
+ATR14, EMA20/50, biais volume, clusters de liquidité du carnet (~ OB heatmap).
+Exposés à l'assistant : outils `get_technicals` + `get_liquidity_clusters`.
+À FAIRE (multi-exchange) : funding agrégé OI-pondéré 8h, OI agrégé en bougies
+(Binance+Bybit+Bitget ou MCP CoinDesk). Vision charts : option Gemini/Claude.
+
 **Prochaine action** : tester sur le VPS (la clé ANTHROPIC y est) avec
 `python assistant/agent.py "..."`, puis itérer (bridge Telegram dédié + mémoire
 de conversation + plus d'outils ; brancher l'option OpenAI/Kimi avec outils).

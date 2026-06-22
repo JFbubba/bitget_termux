@@ -371,6 +371,24 @@ def test_assistant_openai_tools_format():
     assert conv and all(t["type"] == "function" and t["function"]["name"] for t in conv)
     assert conv[0]["function"]["parameters"]["type"] == "object"
 
+def test_technicals_pure():
+    import technicals as tk
+    candles = [
+        {"ts": 1, "open": 10, "high": 12, "low": 9, "close": 11, "volume": 100},
+        {"ts": 2, "open": 11, "high": 13, "low": 10, "close": 12, "volume": 200},
+        {"ts": 3, "open": 12, "high": 14, "low": 11, "close": 13, "volume": 300},
+    ]
+    assert abs(tk.vwap(candles) - 12.0) < 1e-6
+    vp = tk.volume_profile(candles, bins=10)
+    assert vp["low"] == 9 and vp["high"] == 14 and vp["val"] <= vp["poc"] <= vp["vah"]
+    tpo = tk.tpo_profile(candles, bins=10)
+    assert tpo and 9 <= tpo["poc"] <= 14
+    vs = tk.volume_sma(candles, period=2)
+    assert vs["period"] == 2 and vs["avg_volume"] == 250
+    lc = tk.liquidity_clusters({"bids": [[100, 5], [99, 20]], "asks": [[101, 3], [102, 8]]}, top=1)
+    assert lc["bid_walls"][0]["price"] == 99 and lc["ask_walls"][0]["price"] == 102
+    assert tk.parse_candles([["1", "10", "12", "9", "11", "100", "x"]])[0]["close"] == 11
+
 def test_check_env_masks_value():
     import check_env
     line = check_env.status_line("X_API_KEY", "supersecretvalue123", optional=True)
