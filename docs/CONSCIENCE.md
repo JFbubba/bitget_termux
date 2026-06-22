@@ -57,16 +57,17 @@ les limites.*
   `position_sizer.calculate_position_size()` : c'est le **stop qui protège le
   capital**, pas la taille (fixed-fractional). Stops **ATR** dans
   `portfolio_scanner.py` (`config.ATR_STOP_MULTIPLIER`).
+- **Coupure de régime de volatilité (CVIX)** — `volatility_regime()` : compare la
+  vol réalisée court terme à sa baseline ; escompte la conviction en régime
+  *stress/extrême*. **Principe clé : le risque MODULE, il ne BRIDE pas** — le
+  `scale` ne descend jamais sous 0.6 et n'agit qu'au-delà d'un ratio de 1.8 ; on
+  ne veut pas un frein trop serré à la passation d'ordres.
 - **Méta-cognition** — `cognition()` : **entropie des poids**, **accord
   directionnel**, **dispersion**, drapeau **groupthink** (cohérence adverse :
   quand tout le monde est d'accord sur une erreur, l'erreur s'amplifie) →
   **facteur de prudence** qui escompte la conviction.
 - **Garde-fous sur le code** — `security_agent.py` (SAFE/RISKY) +
   `safe_push_check.sh` avant tout push.
-- **Reste à construire (honnêtement)** : une **coupure de régime de volatilité**
-  explicite (style CVIX : réduire/couper l'exposition au-dessus d'un seuil de
-  vol) — aujourd'hui seulement approché par les stops ATR et la distance de stop
-  minimale.
 
 ### 4. Conscience de PERFORMANCE & d'AMÉLIORATION (apprentissage en ligne)
 *Mesurer ce qu'on fait, et s'ajuster.*
@@ -74,9 +75,11 @@ les limites.*
   (famille Hedge, poids bornés [0.2, 3.0] et renormalisés) : les agents qui ont
   raison montent, ceux qui se trompent descendent, **sans jamais tomber à 0**
   (un agent peut redevenir utile en régime non-stationnaire).
+- **Pondération EARCP complète** — `earcp_weights()` : combine **performance**
+  (mémoire Hedge en ligne) **et cohérence** (`_coherence_scores` : accord avec le
+  consensus), `s_i = β·P̃_i + (1−β)·C̃_i`, softmax `η`, **plancher d'exploration**
+  garanti. Branchée dans `learn()`.
 - `brain_log.json` → journal des décisions, évaluées à maturité (`HORIZON_S`).
-- **À construire** : pondération **EARCP complète** (perf EMA **+** cohérence,
-  `s_i = β·P̃_i + (1−β)·C̃_i`, softmax `η`, plancher `w_min`).
 
 ### 5. Conscience AUTODIDACTE (recherche & enrichissement)
 *Lire la littérature, en extraire des décisions, garder la trace.*
@@ -102,7 +105,26 @@ les limites.*
   l'ensemble (EARCP). Il n'a pas à avoir « toujours raison » ; il a à voir
   **autre chose**.
 
+### 7. Conscience PERCEPTIVE (les sens : données réelles + résilience)
+*Percevoir le monde sans en dépendre au point de se figer.*
+- **Sept agents branchés sur des données réelles** : orderflow (carnet/CVD
+  Bitget), technicals (bougies), macro (yfinance/FRED), sentiment (Fear & Greed),
+  derivs (funding agrégé), liquidations, divergent.
+- **Optimisation de la dépendance externe au runtime** — `runtime_cache.py` :
+  cache **TTL** par source + **stale-while-error** (sur panne, on sert la dernière
+  valeur connue ; sinon fallback neutre). Le cerveau **ne bloque jamais** sur une
+  source morte, et la latence de décision est **découplée** de la latence réseau.
+- **Sources cartographiées** (cf. RESEARCH_NOTES §7) : Bitget (primaire fiable),
+  CCXT (unification/repli), yfinance & MCP CoinDesk/Bigdata (enrichissement
+  faillible), TDLib/Telegram (différé). Les « outils IA » web (Tickeron…) n'ont
+  pas d'API gratuite → non branchables, noté honnêtement.
+
 ---
+
+> **Cette liste est une base, pas une clôture.** Sept facettes aujourd'hui ;
+> d'autres viendront (perception on-chain, conscience inter-marchés, mémoire
+> épisodique des régimes…). Le principe reste : chaque facette = du **code réel,
+> testé, auditable**, jamais une promesse.
 
 ## Ce que cette conscience n'est PAS
 - ❌ Une promesse de profit. Même le meilleur agent **perd** pendant les krachs.

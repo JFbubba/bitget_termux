@@ -64,7 +64,8 @@ def _lag1_autocorr(x):
 
 def agent_orderflow(symbol):
     import bitget_market_data as bmd
-    s = bmd.market_snapshot(symbol)
+    import runtime_cache as rc
+    s = rc.get(f"book:{symbol}", 10, lambda: bmd.market_snapshot(symbol) or {}, fallback={})
     imb = s.get("book_imbalance") or 0.0
     cvd = s.get("cvd") or 0.0
     vote = _clamp(imb * 2 + (0.3 if cvd > 0 else -0.3 if cvd < 0 else 0))
@@ -85,9 +86,8 @@ def agent_technicals(symbol):
     return {"vote": _clamp(vote), "confidence": 0.6, "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}"}
 
 
-def agent_macro(symbol):
+def _fetch_macro_regime():
     # régime TradFi frais (yfinance) si dispo, sinon FRED (macro_context)
-    reg = None
     try:
         import macro_data as md
         reg = md.fetch_regime()
@@ -96,13 +96,20 @@ def agent_macro(symbol):
     if reg is None:
         import macro_context as mc
         reg = (mc.macro_snapshot() or {}).get("regime")
+    return reg
+
+
+def agent_macro(symbol):
+    import runtime_cache as rc
+    reg = rc.get("macro_regime", 1800, _fetch_macro_regime, fallback=None)  # 30 min
     vote = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
     return {"vote": vote, "confidence": 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1, "note": f"régime {reg}"}
 
 
 def agent_sentiment(symbol):
     import sentiment_index as si
-    fg = si.fetch_fear_greed()
+    import runtime_cache as rc
+    fg = rc.get("fear_greed", 900, lambda: si.fetch_fear_greed() or {}, fallback={})  # 15 min
     v = fg.get("value") if fg else None
     if v is None:
         return {"vote": 0, "confidence": 0, "note": "n/a"}
@@ -112,7 +119,9 @@ def agent_sentiment(symbol):
 
 def agent_derivs(symbol):
     import aggregated_derivs as ad
-    f = (ad.fetch_aggregate(symbol) or {}).get("oi_weighted_funding")
+    import runtime_cache as rc
+    agg = rc.get(f"derivs:{symbol}", 300, lambda: ad.fetch_aggregate(symbol) or {}, fallback={})  # 5 min
+    f = (agg or {}).get("oi_weighted_funding")
     if f is None:
         return {"vote": 0, "confidence": 0, "note": "n/a"}
     vote = _clamp(-f * 2000)  # funding très positif = longs surchargés -> contrarian
@@ -121,7 +130,8 @@ def agent_derivs(symbol):
 
 def agent_liquidations(symbol):
     import liquidations as lq
-    d = lq.fetch_liquidations(symbol)
+    import runtime_cache as rc
+    d = rc.get(f"liq:{symbol}", 120, lambda: lq.fetch_liquidations(symbol) or {}, fallback={})  # 2 min
     sk = d.get("skew") or {}
     net = sk.get("net")
     if net is None:

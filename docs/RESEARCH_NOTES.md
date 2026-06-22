@@ -105,6 +105,39 @@ before collapse).
      calculée sur les rendements **bruts** (le débruitage effacerait le signal) :
      quand la résilience chute, l'agent devient **plus convaincu**.
 
+## §7 — Sources de données & dépendance externe au runtime
+Revue de 13 ressources (CCXT, yfinance, QuantInsti, LuxAlgo, TradingView,
+ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit).
+- **Sources branchables, gratuites, programmables** :
+  - **Bitget REST** (déjà utilisé, joignable au runtime — vérifié) : OHLCV, carnet,
+    funding, OI. **Source primaire fiable.**
+  - **CCXT** (installé) : API unifiée 100+ exchanges, Bitget inclus, **données
+    publiques sans clé**, websockets via CCXT Pro. → repli/unification possible.
+  - **yfinance** (installé) : macro gratuite (SPX/DXY/VIX/or) mais **non officielle,
+    rate-limitée, usage perso** (endpoint Yahoo a renvoyé HTTPError ici) → à mettre
+    **derrière cache + repli**, jamais sur le chemin critique.
+  - **MCP CoinDesk** (funding/OI/carnet/news) et **MCP Bigdata.com** (sentiment) :
+    enrichissement, mais dépendance externe au runtime → cache + dégradation.
+  - **TDLib** : ingestion de canaux Telegram (news/signaux) en lecture, bindings
+    Python — mais **compilation lourde** (OpenSSL/zlib) → différé.
+- **Non branchables** : Tickeron, ChartingLens, FXReplay, MT5/MQL5, TradeStation —
+  **web/manuel, pas d'API gratuite** ; MQL5 confirme néanmoins nos garde-fous de
+  risque (sizing, breakeven, trailing) comme standards. À noter honnêtement.
+- **Bibliothèques** : on reste sur nos indicateurs **purs** (vs TA-Lib/pandas-ta)
+  et notre backtest (vs backtrader/vectorbt/zipline) pour l'auditabilité ; si « plus
+  d'apprentissage » : **scikit-learn** (gradient boosting / logreg), **statsmodels**
+  (ARIMA, validation), jamais un deep net (§1). Dashboard : **TradingView
+  Lightweight Charts** (Apache-2.0, auto-hébergé, on fournit nos données).
+- **Optimiser la dépendance externe au runtime** → `runtime_cache.py` :
+  1. **cache TTL** par source (book 10 s, liq 2 min, derivs 5 min, F&G 15 min,
+     macro 30 min) — dans le TTL, **zéro appel réseau** ;
+  2. **stale-while-error** : sur échec de rafraîchissement, on sert la **dernière
+     valeur connue** ; aucune valeur → **fallback neutre** ;
+  3. le cerveau ne **bloque jamais** sur une source morte ; latence de décision
+     **découplée** de la latence réseau (§1, « latency = alpha ») ;
+  4. priorité au **local fiable** (Bitget) sur le chemin chaud ; yfinance/MCP/
+     Telegram = enrichissement qui peut échouer en silence.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
@@ -123,8 +156,17 @@ before collapse).
       `technical_signal` et `divergent_score`. Mesure honnête BTC 1H : Sharpe
       −0.31→+0.12, edge −6.0%→−1.8%, DD −8.4%→−6.5%, tranches gagnantes 0%→40% ;
       MAIS PBO reste élevé (~0.77) → meilleures features, edge encore non robuste.
+- [x] **Coupure de régime de volatilité (CVIX)** — `volatility_regime()` : escompte
+      la conviction en stress/extrême, **jamais < 0.6** (module, ne bride pas).
+- [x] **Pondération EARCP complète** — `earcp_weights()` : `s=β·P̃+(1−β)·C̃`,
+      softmax `η`, plancher d'exploration garanti ; branchée dans `learn()` avec
+      cohérence = accord au consensus.
+- [x] **Cache TTL + stale-while-error** (`runtime_cache.py`) — optimise la
+      dépendance externe au runtime (§7) ; agents réseau enveloppés.
 - [ ] Si « plus d'apprentissage » : régression logistique / gradient boosting sur
       bonnes features (jamais un deep net en premier — §1).
+- [ ] Enrichissement différé : MCP CoinDesk/Bigdata derrière le cache ; TDLib
+      (Telegram) si la compilation est justifiée.
 
 _Références : 2506.05764, 2603.14651, 2412.03167, 2408.03594, 2505.17388,
 2112.02947, 2601.06084, 2602.12104, 2501.09404, 2209.05559, 2006.05826,

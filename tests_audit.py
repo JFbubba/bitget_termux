@@ -696,6 +696,34 @@ def test_brain_coherence_scores():
     assert c["x"] == 1.0    # x toujours d'accord avec le consensus
     assert c["y"] == 0.0    # y toujours en désaccord
 
+def test_runtime_cache():
+    import runtime_cache as rc
+    # decide() est pur : miss / fresh / stale
+    assert rc.decide(None, 10, 100)[0] == "miss"
+    assert rc.decide({"ts": 100, "val": 7}, 10, 105) == ("fresh", 7)
+    assert rc.decide({"ts": 100, "val": 7}, 10, 120) == ("stale", 7)
+    # get() : on isole le disque pour un test hermétique
+    orig_load, orig_save = rc._load_disk, rc._save_disk
+    rc._MEM.clear()
+    store = {}
+    rc._load_disk = lambda: dict(store)
+    rc._save_disk = lambda d: store.update(d)
+    try:
+        calls = {"n": 0}
+        def ok():
+            calls["n"] += 1
+            return calls["n"]
+        assert rc.get("k", 10, ok, now=1000) == 1 and calls["n"] == 1   # miss -> fetch
+        assert rc.get("k", 10, ok, now=1005) == 1 and calls["n"] == 1   # frais -> pas de fetch
+        def boom():
+            raise RuntimeError("réseau mort")
+        assert rc.get("k", 10, boom, now=1100) == 1                     # stale-while-error
+        assert rc.get("k", 10, ok, now=1200) == 2 and calls["n"] == 2   # expiré -> rafraîchit
+        assert rc.get("absent", 10, boom, fallback={"x": 0}, now=1300) == {"x": 0}  # miss+échec -> fallback
+    finally:
+        rc._load_disk, rc._save_disk = orig_load, orig_save
+        rc._MEM.clear()
+
 
 # ---------- cerveau : agent divergent + cognition ----------
 
