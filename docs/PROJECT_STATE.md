@@ -164,6 +164,13 @@ depuis le VPS Frankfurt, funding 8h OI-pondéré + OI total ; outil
 Reste : #5 vision charts, #6 déploiement dashboard web, #7 clés Bitget,
 + "OI historique en bougies" (dernier indicateur de la liste, optionnel).
 
+**FAIT — #5 charts & vision** : `chart.py` (matplotlib) rend bougies+VWAP/EMA/POC/
+volume depuis les données Bitget → `/chart SYMBOL [TF]` envoie l'image (généré dans
+/tmp, pas d'accumulation). `assistant/vision.py` analyse une image envoyée
+(Gemini, `VISION_API_KEY`). Granularité normalisée (1h→1H). Le bot assistant
+répond par SON token (`reply_text`/`reply_photo`). Reste : #6 dashboard web,
+#7 clés Bitget, + OI historique (optionnel).
+
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
 
