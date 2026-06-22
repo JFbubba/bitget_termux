@@ -43,16 +43,30 @@ s'abstenir.*
 - Indicateurs **purs** qui **lèvent une erreur** sur données insuffisantes
   (pas de valeur fausse silencieuse).
 
-### 3. Conscience des RISQUES (méta-cognition + garde-fous)
-*Savoir quand se méfier de soi-même.*
-- `cognition()` → **entropie des poids**, **accord directionnel**, **dispersion**,
-  drapeau **groupthink** (cohérence adverse : quand tout le monde est d'accord
-  sur une erreur, l'erreur s'amplifie) → **facteur de prudence** qui escompte la
-  conviction.
-- `security_agent.py` (verdict SAFE/RISKY) + `safe_push_check.sh` : garde-fous
-  sur le code lui-même avant tout push.
-- **À construire** : sizing par le risque (ATR / vol-target), kill-switch de
-  drawdown, coupure d'achat au-dessus d'un seuil de volatilité (CVIX).
+### 3. Conscience des RISQUES (garde-fous durs + méta-cognition)
+*Savoir quand se méfier de soi-même, et ne jamais laisser un trade contourner
+les limites.*
+- **Garde-fous DURS avant exécution** — `risk_manager.py` : kill-switch
+  (`KILL_SWITCH` / `TRADING_HALT`), plafonds non négociables (taille position,
+  levier, nb positions, **perte journalière → halte**). `check_trade()` dit
+  OUI/NON ; aucun trade réel ne le contourne.
+- **Garde-fous PORTEFEUILLE** — `risk_limits.py` : plafond du nombre de positions
+  concurrentes, du notionnel total, du **risque total cumulé (%)**, et **distance
+  de stop minimale** (bloque les « dust stops » qui gonflent le levier).
+- **Sizing par le risque** — `pro_indicators.risk_based_position_size()` /
+  `position_sizer.calculate_position_size()` : c'est le **stop qui protège le
+  capital**, pas la taille (fixed-fractional). Stops **ATR** dans
+  `portfolio_scanner.py` (`config.ATR_STOP_MULTIPLIER`).
+- **Méta-cognition** — `cognition()` : **entropie des poids**, **accord
+  directionnel**, **dispersion**, drapeau **groupthink** (cohérence adverse :
+  quand tout le monde est d'accord sur une erreur, l'erreur s'amplifie) →
+  **facteur de prudence** qui escompte la conviction.
+- **Garde-fous sur le code** — `security_agent.py` (SAFE/RISKY) +
+  `safe_push_check.sh` avant tout push.
+- **Reste à construire (honnêtement)** : une **coupure de régime de volatilité**
+  explicite (style CVIX : réduire/couper l'exposition au-dessus d'un seuil de
+  vol) — aujourd'hui seulement approché par les stops ATR et la distance de stop
+  minimale.
 
 ### 4. Conscience de PERFORMANCE & d'AMÉLIORATION (apprentissage en ligne)
 *Mesurer ce qu'on fait, et s'ajuster.*
