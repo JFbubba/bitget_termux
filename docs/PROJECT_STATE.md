@@ -178,8 +178,38 @@ keyless, lecture seule) → outil `get_prediction_markets` + `/poly` : cotes des
 marchés de prédiction (sentiment, PAS de pari). **16 outils** dans l'assistant.
 Reste UNIQUEMENT : #7 clés Bitget (optionnel, solde/compte), OI historique (option).
 
+**FAIT — risk engine** : `risk_manager.py` — `check_trade()` (caps
+position/levier/positions ouvertes/perte journalière via env `RISK_*`) +
+`kill_switch_active()` (fichier `KILL_SWITCH` ou `TRADING_HALT=1`). Fondation de
+la future couche d'exécution. LECTURE SEULE, aucun ordre.
+
+**FAIT — cerveau « essaim »** : `swarm_brain.py` — 5 agents spécialisés
+(`orderflow`, `technicals`, `macro`, `sentiment`, `derivs`), chacun vote
+[-1..1] + confiance. `aggregate()` (pur) = consensus pondéré → biais
+LONG/SHORT/NEUTRE + conviction. **S'éduque en ligne** : `_record` journalise,
+`learn()` juge les décisions après `BRAIN_HORIZON_S` (3600s) contre le prix réel
+et `update_weights()` renforce/affaiblit les agents (bornes [0.2,3], normalisé).
+Persistance `brain_weights.json` + `brain_log.json` (gitignorés). `peek()` =
+lecture sans écrire (pour le polling dashboard). Outil assistant
+`get_brain_read` + commande `/brain SYMBOL`. **17 outils**. Tests purs ajoutés
+(consensus/seuils, pondération, normalisation, renforcement, bornes).
+
+**FAIT — dashboard interactif** : `dashboard/index.html` rendu « plus
+dynamique » et chaque couche est isolable. Barre d'indicateurs du graphique
+(Bougies/EMA20/EMA50/VWAP/Volume, calculés côté client) — clic=toggle,
+double-clic=isoler ; crosshair + tooltip OHLC au survol ; légende du graphe
+relationnel cliquable (toggle/isoler bear/bull/catalyst/cluster) ; nouveau
+panneau « Cerveau · Essaim » (biais + 5 agents, chaque agent isolable au clic),
+alimenté par `swarm_brain.peek` via `build_state` (clé `brain`, cache 45s).
+
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
+
+**Prochaine étape majeure (en attente de l'utilisateur)** : couche d'exécution
+autonome. Pré-requis explicites : clés Bitget **read+trade (JAMAIS withdraw)**,
+IP whitelistée, `dry-run` par défaut derrière `risk_manager`, réorientation du
+`security_agent` (aujourd'hui il bloque tout mot-clé d'ordre). Le cerveau
+fournit déjà le signal ; il manque l'exécuteur gardé + la boucle autonome.
 
 **Historique des commits de la session** (branche `claude/beautiful-heisenberg-c5aoqu`) :
 dashboard web → readers keyless (Fear&Greed/DeFi/token-safety/DEX) → câblage
