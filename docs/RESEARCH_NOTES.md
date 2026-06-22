@@ -80,11 +80,38 @@ arXiv:2006.05826, 2602.19373, 2512.10913 — la non-stationnarité dégrade les
 modèles complexes ; modèles simples + adaptation en ligne + gestion du risque
 souvent plus robustes en live. → conforte l'approche ensemble + poids en ligne.
 
+## §6 — Signaux avant-coureurs / ANTICIPATION (agent divergent)
+**Scheffer et al., Nature 2009 (early-warning signals)** ; **Guttal & Diks,
+PLOS One 2015** ; **« Critical slowing down as EWS for financial crises? »,
+Empirical Economics 2019** ; alphaXiv 2604.21297 (dynamical network markers),
+2604.20949 (latent microstructure regimes), 2509.04683 (flickering / echoes
+before collapse).
+- **Critical slowing down (CSD)** : à l'approche d'un point de bascule, un
+  système se rétablit **plus lentement** après un choc → la **variance** et
+  **l'autocorrélation lag-1** des rendements **montent AVANT** la transition.
+  Ce sont des indicateurs **anticipateurs** (leading), pas réactifs.
+- ⚠️ **Nuance honnête** : sur les marchés, la preuve est **mixte pour
+  l'autocorrélation** (CSD pas toujours présent avant les krachs récents) mais
+  **robuste pour la variance montante** (« rising variability »). → on **pondère
+  la variance plus fort** que l'autocorrélation (0.5 vs 0.3).
+- **Flickering / skewness** : oscillations croissantes entre états avant bascule.
+- → **Décision** : `divergent_score` **réécrit**. Ce n'est plus un simple
+  contrarien (« voter contre »), mais un **angle différent** au sens propre :
+  1. **Anticipation de direction** — divergence prix/momentum (le RSI se
+     retourne avant le prix).
+  2. **Sensibilité aux stimuli faibles** — extension relative en z-score, **sans
+     seuils RSI durs** (on « lève les barrières » des paliers fixes).
+  3. **Anticipation d'intensité** — instabilité CSD (variance + autocorr lag-1)
+     calculée sur les rendements **bruts** (le débruitage effacerait le signal) :
+     quand la résilience chute, l'agent devient **plus convaincu**.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
-- [x] **Agent divergent** (HPI / mean-reversion) — diversité des biais.
+- [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
+      prix/momentum + critical slowing down sur rendements bruts + sensibilité
+      relative sans seuils durs). N'est plus une simple opposition (§6).
 - [x] **Couche cognition** — entropie, accord, dispersion, drapeau groupthink,
       escompte de conviction (anti-cohérence-adverse).
 - [ ] Pondération EARCP complète (perf **+** cohérence explicite avec `β`, `η`,
@@ -100,4 +127,6 @@ souvent plus robustes en live. → conforte l'approche ensemble + poids en ligne
       bonnes features (jamais un deep net en premier — §1).
 
 _Références : 2506.05764, 2603.14651, 2412.03167, 2408.03594, 2505.17388,
-2112.02947, 2601.06084, 2602.12104, 2501.09404, 2209.05559, 2006.05826._
+2112.02947, 2601.06084, 2602.12104, 2501.09404, 2209.05559, 2006.05826,
+2604.21297, 2604.20949, 2509.04683 ; Scheffer Nature 2009 ; Guttal/Diks PLOS
+One 2015 ; Empirical Economics 57(4) 2019._

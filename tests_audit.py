@@ -665,6 +665,38 @@ def test_brain_divergent_score():
     assert sb.divergent_score(down) > 0
     assert sb.divergent_score([100, 101, 102]) == 0.0   # trop court -> neutre
 
+def test_brain_divergent_helpers():
+    import swarm_brain as sb
+    assert abs(sb._slope([0, 1, 2, 3]) - 1.0) < 1e-9
+    assert abs(sb._slope([3, 2, 1, 0]) + 1.0) < 1e-9
+    assert sb._slope([5, 5, 5]) == 0.0
+    assert sb._slope([7]) == 0.0
+    # autocorrélation lag-1 : persistant -> +1, alterné -> -1 (critical slowing down)
+    assert sb._lag1_autocorr([1, 2, 3, 4, 5, 6, 7, 8]) > 0.99
+    assert sb._lag1_autocorr([1, -1, 1, -1, 1, -1, 1, -1]) < -0.99
+    assert sb._lag1_autocorr([1, 2]) == 0.0
+
+def test_brain_divergent_anticipation():
+    import swarm_brain as sb
+    # divergence haussière : prix qui descend mais momentum qui remonte en fin
+    # -> l'agent ANTICIPE le rebond (vote > 0), pas une simple opposition.
+    series = [100 - i * 0.6 for i in range(24)] + [100 - 24 * 0.6 + j * 0.9 for j in range(1, 7)]
+    assert sb.divergent_score(series) > 0
+
+def test_brain_divergent_instability_amplifies():
+    import swarm_brain as sb, random
+    # même DIRECTION (hausse -> fader, vote<0) mais variance brute qui MONTE en
+    # 2e moitié : le critical slowing down doit amplifier la conviction.
+    random.seed(2)
+    calm = [100 + i * 0.5 + random.uniform(-0.1, 0.1) for i in range(30)]
+    random.seed(2)
+    turb = ([100 + i * 0.5 + random.uniform(-0.1, 0.1) for i in range(15)] +
+            [100 + i * 0.5 + random.uniform(-3, 3) for i in range(15, 30)])
+    vc, vt = sb.divergent_score(calm), sb.divergent_score(turb)
+    assert vc < 0 and vt < 0
+    assert abs(vt) >= abs(vc)
+    assert -1.0 <= vt <= 1.0
+
 def test_brain_cognition_groupthink():
     import swarm_brain as sb
     votes = {"a": {"vote": 0.8, "confidence": 0.8}, "b": {"vote": 0.7, "confidence": 0.7},

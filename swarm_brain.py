@@ -29,6 +29,37 @@ def _clamp(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, x))
 
 
+def _slope(y):
+    """Pente OLS de y sur l'index 0..n-1 (tendance locale). Pur."""
+    n = len(y)
+    if n < 2:
+        return 0.0
+    mx = (n - 1) / 2.0
+    my = sum(y) / n
+    num = sum((i - mx) * (y[i] - my) for i in range(n))
+    den = sum((i - mx) ** 2 for i in range(n)) or 1e-9
+    return num / den
+
+
+def _lag1_autocorr(x):
+    """Autocorrélation lag-1 (Pearson entre x[:-1] et x[1:]). Pur.
+
+    Marqueur de « critical slowing down » : quand elle monte, le système met plus
+    de temps à revenir à l'équilibre après un choc -> perte de résilience, signe
+    avant-coureur d'une transition de régime (Scheffer 2009)."""
+    n = len(x)
+    if n < 3:
+        return 0.0
+    a, b = x[:-1], x[1:]
+    ma = sum(a) / len(a)
+    mb = sum(b) / len(b)
+    num = sum((ai - ma) * (bi - mb) for ai, bi in zip(a, b))
+    da = sum((ai - ma) ** 2 for ai in a)
+    db = sum((bi - mb) ** 2 for bi in b)
+    den = (da * db) ** 0.5
+    return num / den if den > 0 else 0.0
+
+
 # ---------- agents (symbol -> {vote[-1..1], confidence[0..1], note}) ----------
 
 def agent_orderflow(symbol):
@@ -102,37 +133,74 @@ def agent_liquidations(symbol):
 
 
 def divergent_score(closes):
-    """Signal DIVERGENT / contrarian (mean-reversion) à partir des clôtures. Pur.
+    """Agent DIVERGENT — un angle neuro-atypique, PAS une simple opposition. Pur.
 
-    Vision « neuro-atypique / HPI » : pense à contre-courant des agents de
-    tendance pour capter les RETOURNEMENTS qu'ils manquent (excès, survente).
-    >0 = opportunité de rebond (prix sous-tendu / survendu) ;
-    <0 = excès haussier à fader. Style mean-reversion, biais inductif décorrélé
-    de orderflow/technicals (cf. EARCP : la diversité des experts améliore
-    l'ensemble).
+    Il ne se contente pas de voter contre le consensus : il perçoit ce que les
+    agents de tendance ne voient pas encore. Trois facultés, ancrées dans les
+    « early-warning signals » de transition de régime (critical slowing down :
+    la variance et l'autocorrélation lag-1 montent AVANT le retournement —
+    Scheffer Nature 2009 ; rising variability robuste sur les marchés,
+    Guttal/Diks, PLOS One 2015) :
+
+      • ANTICIPATION de direction — divergence prix/momentum : le RSI se retourne
+        avant le prix (le prix baisse mais le momentum remonte -> rebond anticipé).
+      • SENSIBILITÉ aux stimuli faibles — extension relative douce (z-score),
+        SANS seuils RSI durs : on « lève les barrières » des paliers fixes pour
+        percevoir en relatif et en dynamique.
+      • ANTICIPATION d'intensité — instabilité (critical slowing down) mesurée sur
+        les rendements BRUTS : quand la résilience chute, l'agent devient PLUS
+        convaincu, là où les agents de tendance restent complaisants.
+
+    >0 = retournement haussier anticipé ; <0 = retournement baissier anticipé.
     """
     if len(closes) < 20:
         return 0.0
     import statistics
+    raw = list(closes)
+    smoothed = raw
     try:
         import indicators
-        closes = indicators.savitzky_golay(closes, window=11, poly=2)  # débruitage (arXiv:2506.05764)
+        smoothed = indicators.savitzky_golay(raw, window=11, poly=2)  # débruitage (arXiv:2506.05764)
     except Exception:
         pass
-    window = closes[-20:]
-    mean = sum(window) / len(window)
-    sd = statistics.pstdev(window) or 1e-9
-    z = (closes[-1] - mean) / sd            # extension vs moyenne récente
-    vote = -_clamp(z / 2.5) * 0.6           # prix très au-dessus -> fader (vote <0)
+
+    # --- sensibilité : extension relative, sans seuil dur (mean-reversion douce) ---
+    w20 = smoothed[-20:]
+    mean = sum(w20) / len(w20)
+    sd = statistics.pstdev(w20) or 1e-9
+    z = (smoothed[-1] - mean) / sd
+    reversion = -_clamp(z / 3.0) * 0.5
+
+    # --- anticipation de direction : divergence prix / momentum (RSI) ---
+    divergence = 0.0
     try:
         import indicators
-        rsi = indicators.calculate_rsi(closes)[-1]
-        if rsi < 20:
-            vote += 0.4                     # survente extrême -> rebond
-        elif rsi > 80:
-            vote -= 0.4                     # surachat extrême -> repli
+        rsi = indicators.calculate_rsi(smoothed)
+        n = min(14, len(rsi))
+        if n >= 3:
+            ps = _slope(smoothed[-n:])
+            rs = _slope(rsi[-n:])
+            if ps != 0 and rs != 0 and (ps > 0) != (rs > 0):
+                divergence = _clamp(rs / 4.0)   # RSI monte alors que prix baisse -> +
     except Exception:
         pass
+
+    direction = _clamp(divergence + reversion)
+
+    # --- anticipation d'intensité : critical slowing down (rendements BRUTS) ---
+    # le débruitage effacerait justement la variance que ce signal cherche.
+    instability = 0.0
+    rets = [raw[i] - raw[i - 1] for i in range(1, len(raw))]
+    if len(rets) >= 20:
+        half = len(rets) // 2
+        v_recent = statistics.pvariance(rets[-half:]) or 1e-12
+        v_base = statistics.pvariance(rets[:half]) or 1e-12
+        var_ratio = v_recent / v_base
+        d_ac = _lag1_autocorr(rets[-half:]) - _lag1_autocorr(rets[:half])
+        # variance pondérée plus fort : preuve empirique plus robuste que l'autocorr
+        instability = _clamp(0.5 * (var_ratio - 1.0) + 0.3 * d_ac)
+
+    vote = direction * (1.0 + 0.6 * max(instability, 0.0))
     return _clamp(vote)
 
 
@@ -144,7 +212,7 @@ def agent_divergent(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
     vote = divergent_score(closes)
     return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0),
-            "note": f"contrarian/mean-reversion {vote:+.2f}"}
+            "note": f"anticipation/divergence {vote:+.2f}"}
 
 
 AGENT_FUNCS = {
