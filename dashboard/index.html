@@ -167,6 +167,7 @@
         <div class="bar" style="margin-top:8px"><i id="br-conv" style="background:var(--blue)"></i></div>
         <div class="dim">conviction <span id="br-convp">—</span></div>
         <div class="dim" style="margin-top:4px">consensus <span id="br-cons" class="accent">—</span></div>
+        <div class="dim" id="br-cog" style="margin-top:6px;font-size:9.5px;line-height:1.5">—</div>
       </div>
       <div class="agents" id="br-agents"></div>
     </div>
@@ -380,6 +381,12 @@ function renderBrain(b){
   const conv=(b.conviction!=null)?b.conviction:0;
   setBar("br-conv",conv*100);$("br-convp").textContent=(conv*100).toFixed(0)+"%";
   $("br-cons").textContent=(b.consensus!=null)?((b.consensus>=0?"+":"")+b.consensus.toFixed(2)):"—";
+  const cg=b.cognition;
+  if(cg){
+    const gt=cg.groupthink?" · <span class='red'>⚠ groupthink</span>":"";
+    $("br-cog").innerHTML=`accord ${Math.round(cg.agreement*100)}% · entropie ${cg.weight_entropy.toFixed(2)}`+
+      ` · conv.ajust ${(b.adjusted_conviction!=null?b.adjusted_conviction:cg.prudence*(b.conviction||0)).toFixed(2)}${gt}`;
+  } else $("br-cog").textContent="—";
   const host=$("br-agents");host.innerHTML="";
   agents.forEach(a=>{
     const v=a.vote||0,pos=v>=0,half=Math.min(Math.abs(v),1)*50,left=pos?50:50-half;

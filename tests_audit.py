@@ -639,6 +639,40 @@ def test_brain_update_weights_clamped():
     assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
 
 
+# ---------- cerveau : agent divergent + cognition ----------
+
+def test_brain_divergent_score():
+    import swarm_brain as sb
+    up = [100 + i for i in range(30)]       # forte hausse -> fader -> vote < 0
+    assert sb.divergent_score(up) < 0
+    down = [100 - i for i in range(30)]      # forte baisse -> rebond -> vote > 0
+    assert sb.divergent_score(down) > 0
+    assert sb.divergent_score([100, 101, 102]) == 0.0   # trop court -> neutre
+
+def test_brain_cognition_groupthink():
+    import swarm_brain as sb
+    votes = {"a": {"vote": 0.8, "confidence": 0.8}, "b": {"vote": 0.7, "confidence": 0.7},
+             "c": {"vote": 0.9, "confidence": 0.6}}
+    cog = sb.cognition(votes, {"a": 1.0, "b": 1.0, "c": 1.0}, 0.8)
+    assert cog["groupthink"] is True and cog["prudence"] == 0.8
+    assert cog["agreement"] == 1.0 and 0.0 <= cog["weight_entropy"] <= 1.0
+    # désaccord -> pas de groupthink, pleine confiance
+    mixed = {"a": {"vote": 0.8, "confidence": 0.8}, "b": {"vote": -0.4, "confidence": 0.8}}
+    cog2 = sb.cognition(mixed, {"a": 1.0, "b": 1.0}, 0.2)
+    assert cog2["groupthink"] is False and cog2["prudence"] == 1.0
+
+def test_brain_read_attaches_cognition():
+    import swarm_brain as sb
+    # aggregate + cognition cohérents sur des votes synthétiques
+    votes = {n: {"vote": 0.5, "confidence": 0.5} for n in ("a", "b", "c")}
+    w = {"a": 1.0, "b": 1.0, "c": 1.0}
+    res = sb.aggregate(votes, w)
+    res = sb._attach_cognition(res, votes, w)
+    assert "cognition" in res and "adjusted_conviction" in res
+    # groupthink (accord total, conviction forte) -> conviction ajustée <= conviction
+    assert res["adjusted_conviction"] <= res["conviction"]
+
+
 # ---------- liquidations (modèle) ----------
 
 def test_liquidation_levels_sides_and_distance():

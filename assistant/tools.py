@@ -227,7 +227,7 @@ TOOLS = [
     },
     {
         "name": "get_brain_read",
-        "description": "CERVEAU (essaim d'agents) : agrège 6 agents spécialisés (order-flow, technique, macro, sentiment, dérivés, liquidations) en un consensus pondéré → biais LONG/SHORT/NEUTRE + conviction. Les poids s'apprennent (auto-évaluation des décisions passées vs prix réalisé). Aide à la décision adaptative, lecture seule.",
+        "description": "CERVEAU (essaim d'agents) : agrège 7 agents spécialisés (order-flow, technique, macro, sentiment, dérivés, liquidations, divergent/contrarian) en un consensus pondéré → biais LONG/SHORT/NEUTRE + conviction. Couche méta 'cognition' : accord/entropie/dispersion + drapeau groupthink et conviction ajustée par prudence. Les poids s'apprennent (vs prix réalisé). Aide à la décision adaptative, lecture seule.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT, SOLUSDT"}}, "required": ["symbol"]},
     },
     {

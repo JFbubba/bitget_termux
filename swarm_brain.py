@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -101,9 +101,51 @@ def agent_liquidations(symbol):
             "note": f"aimant {net:+.2f}, longs ~{int(d.get('long_share', 0) * 100)}%"}
 
 
+def divergent_score(closes):
+    """Signal DIVERGENT / contrarian (mean-reversion) à partir des clôtures. Pur.
+
+    Vision « neuro-atypique / HPI » : pense à contre-courant des agents de
+    tendance pour capter les RETOURNEMENTS qu'ils manquent (excès, survente).
+    >0 = opportunité de rebond (prix sous-tendu / survendu) ;
+    <0 = excès haussier à fader. Style mean-reversion, biais inductif décorrélé
+    de orderflow/technicals (cf. EARCP : la diversité des experts améliore
+    l'ensemble).
+    """
+    if len(closes) < 20:
+        return 0.0
+    import statistics
+    window = closes[-20:]
+    mean = sum(window) / len(window)
+    sd = statistics.pstdev(window) or 1e-9
+    z = (closes[-1] - mean) / sd            # extension vs moyenne récente
+    vote = -_clamp(z / 2.5) * 0.6           # prix très au-dessus -> fader (vote <0)
+    try:
+        import indicators
+        rsi = indicators.calculate_rsi(closes)[-1]
+        if rsi < 20:
+            vote += 0.4                     # survente extrême -> rebond
+        elif rsi > 80:
+            vote -= 0.4                     # surachat extrême -> repli
+    except Exception:
+        pass
+    return _clamp(vote)
+
+
+def agent_divergent(symbol):
+    import technicals as tk
+    candles = tk.fetch_candles(symbol, "15m", 60)
+    closes = [c["close"] for c in candles]
+    if len(closes) < 20:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+    vote = divergent_score(closes)
+    return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0),
+            "note": f"contrarian/mean-reversion {vote:+.2f}"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
+    "divergent": agent_divergent,
 }
 
 
@@ -122,6 +164,42 @@ def aggregate(votes, weights):
     consensus = (num / den) if den else 0.0
     bias = "LONG" if consensus > 0.2 else "SHORT" if consensus < -0.2 else "NEUTRE"
     return {"consensus": round(consensus, 3), "bias": bias, "conviction": round(abs(consensus), 3), "agents": contrib}
+
+
+def cognition(votes, weights, consensus):
+    """Méta-cognition du cerveau (« conscience » de son propre état). Pur.
+
+    Inspiré d'EARCP (arXiv:2603.14651) : surveille l'entropie des poids et la
+    cohérence entre agents, et détecte le « groupthink » (cohérence adverse) —
+    quand les agents s'accordent trop fort, l'erreur peut être amplifiée. On en
+    déduit un facteur de PRUDENCE qui escompte la conviction.
+
+    Retourne entropy[0..1], agreement[0..1], dispersion, groupthink(bool),
+    prudence[0..1] (1 = pleine confiance, <1 = escompter).
+    """
+    import math
+    import statistics
+    names = list(votes.keys())
+    ws = [max(weights.get(n, 1.0), 1e-9) for n in names]
+    tot = sum(ws) or 1.0
+    probs = [w / tot for w in ws]
+    H = -sum(p * math.log(p) for p in probs if p > 0)
+    Hmax = math.log(len(probs)) if len(probs) > 1 else 1.0
+    entropy = (H / Hmax) if Hmax > 0 else 1.0
+    # accord directionnel parmi les agents qui s'expriment (conf > 0.05)
+    voiced = [v.get("vote", 0) or 0 for v in votes.values() if (v.get("confidence", 0) or 0) > 0.05]
+    nonzero = [x for x in voiced if x != 0]
+    if nonzero and consensus != 0:
+        agreement = sum(1 for x in nonzero if (x > 0) == (consensus > 0)) / len(nonzero)
+    else:
+        agreement = 0.0
+    allv = [v.get("vote", 0) or 0 for v in votes.values()]
+    dispersion = statistics.pstdev(allv) if len(allv) > 1 else 0.0
+    groupthink = agreement >= 0.85 and abs(consensus) >= 0.4
+    prudence = 0.8 if groupthink else 1.0
+    return {"weight_entropy": round(entropy, 3), "agreement": round(agreement, 3),
+            "dispersion": round(dispersion, 3), "groupthink": groupthink,
+            "prudence": prudence}
 
 
 def update_weights(weights, agent_correct):
@@ -218,6 +296,15 @@ def gather_votes(symbol):
     return votes
 
 
+def _attach_cognition(result, votes, weights):
+    """Ajoute la méta-cognition et une conviction escomptée par la prudence."""
+    cog = cognition(votes, weights, result.get("consensus", 0.0))
+    result["cognition"] = cog
+    result["adjusted_conviction"] = round(result.get("conviction", 0.0) * cog["prudence"], 3)
+    result["notes"] = {n: v.get("note") for n, v in votes.items()}
+    return result
+
+
 def peek(symbol="BTCUSDT"):
     """Lecture instantanée du consensus SANS journaliser ni apprendre.
 
@@ -229,8 +316,7 @@ def peek(symbol="BTCUSDT"):
     result = aggregate(votes, weights)
     result["symbol"] = symbol
     result["weights"] = weights
-    result["notes"] = {n: v.get("note") for n, v in votes.items()}
-    return result
+    return _attach_cognition(result, votes, weights)
 
 
 def read(symbol="BTCUSDT", do_learn=True):
@@ -248,8 +334,7 @@ def read(symbol="BTCUSDT", do_learn=True):
         result["price"] = price
     except Exception:
         pass
-    result["notes"] = {n: v.get("note") for n, v in votes.items()}
-    return result
+    return _attach_cognition(result, votes, weights)
 
 
 def build_report(r):
@@ -262,6 +347,13 @@ def build_report(r):
     for a in r["agents"]:
         note = r.get("notes", {}).get(a["agent"], "")
         lines.append(f"- {a['agent']:<11} {a['vote']:+.2f} · {a['conf']:.2f} · w{a['weight']:.2f}  | {note}")
+    cog = r.get("cognition")
+    if cog:
+        lines.append("")
+        gt = "  ⚠️ GROUPTHINK (prudence)" if cog.get("groupthink") else ""
+        lines.append(f"Cognition : accord {cog['agreement'] * 100:.0f}% · entropie poids "
+                     f"{cog['weight_entropy']:.2f} · dispersion {cog['dispersion']:.2f}{gt}")
+        lines.append(f"Conviction ajustée (prudence) : {r.get('adjusted_conviction', r['conviction']):.2f}")
     lines.append("")
     lines.append("Aide à la décision adaptative, LECTURE SEULE. Aucun ordre. VERDICT: SAFE")
     return "\n".join(lines)
