@@ -724,6 +724,29 @@ def test_runtime_cache():
         rc._load_disk, rc._save_disk = orig_load, orig_save
         rc._MEM.clear()
 
+def test_market_sources_helpers():
+    import market_sources as ms
+    assert ms.split_symbol("BTCUSDT") == ("BTC", "USDT")
+    assert ms.split_symbol("ETHUSDC") == ("ETH", "USDC")
+    assert ms.split_symbol("SOLUSD") == ("SOL", "USD")
+    assert ms.split_symbol("WEIRD") == ("WEIRD", "")     # quote non reconnue -> vide
+    assert ms.coingecko_id("BTCUSDT") == "bitcoin"
+    assert ms.coingecko_id("ETHUSDT") == "ethereum"
+    assert ms.coingecko_id("ZZZUSDT") is None            # inconnu -> None, ne lève pas
+    # closes() ne lève jamais et passe par le cache (fetch injecté hors réseau)
+    import runtime_cache as rc
+    orig_load, orig_save = rc._load_disk, rc._save_disk
+    rc._MEM.clear()
+    store = {}
+    rc._load_disk = lambda: dict(store)
+    rc._save_disk = lambda d: store.update(d)
+    try:
+        rc.get("closes:BTCUSDT:15m", 60, lambda: [100.0] * 25, now=1000)  # pré-remplit
+        assert rc.decide(rc._MEM["closes:BTCUSDT:15m"], 60, 1001)[0] == "fresh"
+    finally:
+        rc._load_disk, rc._save_disk = orig_load, orig_save
+        rc._MEM.clear()
+
 
 # ---------- cerveau : agent divergent + cognition ----------
 

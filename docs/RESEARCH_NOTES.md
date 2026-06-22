@@ -113,6 +113,11 @@ ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit)
     funding, OI. **Source primaire fiable.**
   - **CCXT** (installé) : API unifiée 100+ exchanges, Bitget inclus, **données
     publiques sans clé**, websockets via CCXT Pro. → repli/unification possible.
+    ⚠️ **Réalité réseau constatée ici** : Binance (451) et OKX (403) **géo-bloqués**
+    → la valeur multi-exchange de CCXT ne s'applique pas dans cet environnement ;
+    réservé à un déploiement à réseau complet.
+  - **CoinGecko** (joignable, gratuit, hôte indépendant) : vraie **redondance**
+    de prix face à Bitget. → branché comme **repli** dans `market_sources.py`.
   - **yfinance** (installé) : macro gratuite (SPX/DXY/VIX/or) mais **non officielle,
     rate-limitée, usage perso** (endpoint Yahoo a renvoyé HTTPError ici) → à mettre
     **derrière cache + repli**, jamais sur le chemin critique.
@@ -163,6 +168,11 @@ ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit)
       cohérence = accord au consensus.
 - [x] **Cache TTL + stale-while-error** (`runtime_cache.py`) — optimise la
       dépendance externe au runtime (§7) ; agents réseau enveloppés.
+- [x] **Redondance multi-fournisseurs** (`market_sources.py`) — closes Bitget →
+      repli CoinGecko (hôte indépendant), derrière le cache. Validé live : 2ᵉ appel
+      servi en 0.000 s sans réseau.
+- [x] **Pré-chauffe de cache** (`cache_warmer.py`) — peuple les 6 sources d'un
+      coup → lectures live locales (cron / boucle légère).
 - [ ] Si « plus d'apprentissage » : régression logistique / gradient boosting sur
       bonnes features (jamais un deep net en premier — §1).
 - [ ] Enrichissement différé : MCP CoinDesk/Bigdata derrière le cache ; TDLib

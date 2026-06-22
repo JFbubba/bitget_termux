@@ -114,10 +114,14 @@ les limites.*
   cache **TTL** par source + **stale-while-error** (sur panne, on sert la dernière
   valeur connue ; sinon fallback neutre). Le cerveau **ne bloque jamais** sur une
   source morte, et la latence de décision est **découplée** de la latence réseau.
-- **Sources cartographiées** (cf. RESEARCH_NOTES §7) : Bitget (primaire fiable),
-  CCXT (unification/repli), yfinance & MCP CoinDesk/Bigdata (enrichissement
-  faillible), TDLib/Telegram (différé). Les « outils IA » web (Tickeron…) n'ont
-  pas d'API gratuite → non branchables, noté honnêtement.
+- **Redondance de fournisseurs** — `market_sources.py` : prix Bitget (primaire) →
+  **repli CoinGecko** (hôte indépendant), derrière le cache. `cache_warmer.py`
+  pré-chauffe les 6 sources pour que les lectures live restent locales.
+- **Sources cartographiées** (cf. RESEARCH_NOTES §7) : Bitget (primaire fiable) +
+  CoinGecko (repli) ; yfinance & MCP CoinDesk/Bigdata (enrichissement faillible) ;
+  CCXT réservé au réseau complet (Binance/OKX géo-bloqués ici) ; TDLib/Telegram
+  (différé). Les « outils IA » web (Tickeron…) n'ont pas d'API gratuite → non
+  branchables, noté honnêtement.
 
 ---
 

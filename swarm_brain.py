@@ -479,10 +479,10 @@ def _attach_cognition(result, votes, weights, closes=None):
 
 
 def _series(symbol):
-    """Petite série de clôtures pour le régime de volatilité (best-effort)."""
+    """Série de clôtures résiliente (Bitget -> CoinGecko, cachée) pour le CVIX."""
     try:
-        import technicals as tk
-        return [c["close"] for c in tk.fetch_candles(symbol, "15m", 120)]
+        import market_sources as ms
+        return ms.closes(symbol, limit=120) or None
     except Exception:
         return None
 
