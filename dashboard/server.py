@@ -67,7 +67,7 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
-def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None):
+def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -79,6 +79,8 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None
         "macro": macro,
         "market": market or {},
         "health": health or {},
+        "candles": candles or [],
+        "orderbook": orderbook or {"bids": [], "asks": []},
     }
 
 
@@ -123,14 +125,26 @@ def build_state(symbol=None):
             out["defi"] = None
         return out
 
+    def _candles():
+        import technicals
+        cs = technicals.fetch_candles(symbol, "5m", 60)
+        return [[c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in cs]
+
+    def _book():
+        import bitget_market_data as bmd
+        ob = bmd.parse_orderbook(bmd.fetch_orderbook(symbol, limit=20))
+        return {"bids": ob["bids"][:12], "asks": ob["asks"][:12]}
+
     stats = _safe(_stats, {})
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
     market = _cached("market", 600, lambda: _safe(_market, {}))
+    candles = _cached(f"cd:{symbol}", 20, lambda: _safe(_candles, []))
+    book = _cached(f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []}))
     health = _safe(_health, {})
     symbols = _safe(_symbols, [symbol])
 
-    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market)
+    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book)
 
 
 class Handler(BaseHTTPRequestHandler):

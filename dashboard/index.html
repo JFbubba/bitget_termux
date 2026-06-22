@@ -3,225 +3,283 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CRYPTO TERMINAL · PAPER</title>
+<title>MIROFISH · TRADING TERMINAL</title>
 <style>
   :root{
-    --bg:#0a0a0a; --panel:#0e0e0e; --line:#1e1e1e; --txt:#cdd1d4;
-    --dim:#6e7681; --green:#3fb950; --red:#f85149; --amber:#d29922; --accent:#e6e6e6;
+    --bg:#07090d; --panel:#0b0e14; --panel2:#0e121a; --line:#19202b; --txt:#c5cdd6;
+    --dim:#5b6675; --green:#2ec27e; --red:#f5566b; --amber:#f0b429; --blue:#4ea1ff;
+    --purple:#b083f0; --accent:#e8edf2;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);
-    font-family:"DejaVu Sans Mono","SFMono-Regular",Menlo,Consolas,monospace;
-    font-size:13px;line-height:1.4}
-  a{color:var(--green)}
-  .wrap{max-width:1200px;margin:0 auto;padding:14px}
-  .top{display:flex;justify-content:space-between;align-items:center;
-    border:1px solid var(--line);background:var(--panel);padding:10px 14px;margin-bottom:12px}
-  .top .title{letter-spacing:2px}
-  .tag{border:1px solid var(--line);padding:2px 8px;color:var(--amber);margin-left:8px;font-size:11px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .panel{border:1px solid var(--line);background:var(--panel);padding:12px}
-  .panel h2{margin:0 0 10px;font-size:12px;letter-spacing:2px;color:var(--accent);
-    border-bottom:1px solid var(--line);padding-bottom:6px;font-weight:600}
-  .span2{grid-column:1 / -1}
-  .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #161616}
+    font-family:"DejaVu Sans Mono","SFMono-Regular",Menlo,Consolas,monospace;font-size:12px;line-height:1.35}
+  .wrap{max-width:1480px;margin:0 auto;padding:10px}
+  .panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:6px;padding:10px}
+  h2{margin:0 0 8px;font-size:10.5px;letter-spacing:2px;color:var(--accent);font-weight:600;
+    border-bottom:1px solid var(--line);padding-bottom:5px;text-transform:uppercase}
+  .green{color:var(--green)} .red{color:var(--red)} .amber{color:var(--amber)}
+  .blue{color:var(--blue)} .purple{color:var(--purple)} .dim{color:var(--dim)}
+  .row{display:flex;justify-content:space-between;padding:2px 0}
   .row .k{color:var(--dim)}
-  .big{font-size:34px;letter-spacing:2px;color:var(--accent)}
-  .green{color:var(--green)} .red{color:var(--red)} .amber{color:var(--amber)} .dim{color:var(--dim)}
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-  .chip{border:1px solid var(--line);padding:6px 10px;min-width:96px}
-  .chip .v{font-size:16px;color:var(--accent)}
-  .chip .l{font-size:10px;color:var(--dim);letter-spacing:1px}
-  canvas{width:100%;display:block;background:#080808;border:1px solid #141414}
-  .bar{height:18px;background:#101010;border:1px solid var(--line);position:relative;margin:6px 0}
-  .bar .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#333}
-  .bar .fill{position:absolute;top:0;bottom:0}
-  .foot{margin-top:12px;border:1px solid var(--line);background:var(--panel);
-    padding:8px 14px;color:var(--dim);font-size:11px;letter-spacing:1px;
-    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
-  .regime-ON{color:var(--green)} .regime-OFF{color:var(--red)} .regime-NEUTRE{color:var(--amber)}
-  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  canvas{width:100%;display:block}
+  .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid var(--line);
+    background:var(--panel);border-radius:6px;padding:8px 12px;margin-bottom:8px}
+  .badge{border:1px solid var(--line);border-radius:4px;padding:2px 8px;font-size:10px;letter-spacing:1px}
+  .live{color:var(--green);border-color:#16432f}
+  .top .met{display:flex;flex-direction:column;line-height:1.1}
+  .top .met .l{font-size:9px;color:var(--dim);letter-spacing:1px}
+  .top .met .v{font-size:13px;color:var(--accent)}
+  .grid{display:grid;grid-template-columns:255px 1fr 235px;gap:8px}
+  .big{font-size:30px;letter-spacing:1px;color:var(--accent)}
+  .chips{display:flex;gap:6px;margin-top:8px}
+  .chip{flex:1;border:1px solid var(--line);border-radius:4px;padding:5px;text-align:center}
+  .chip .v{font-size:14px;color:var(--accent)} .chip .l{font-size:9px;color:var(--dim)}
+  .bar{height:6px;background:#10151d;border-radius:3px;overflow:hidden;margin:3px 0 7px}
+  .bar i{display:block;height:100%;width:0}
+  .ob{font-size:11px}
+  .ob .lvl{display:flex;justify-content:space-between;position:relative;padding:1px 4px}
+  .ob .lvl span{position:relative;z-index:1}
+  .ob .lvl .depth{position:absolute;top:0;bottom:0;right:0;opacity:.18}
+  .ob .mid{text-align:center;color:var(--amber);padding:4px 0;border-block:1px solid var(--line);margin:3px 0}
+  .cycle{display:grid;grid-template-columns:repeat(6,1fr) 90px;gap:6px;margin:8px 0}
+  .cyc{border:1px solid var(--line);border-radius:4px;padding:6px 8px;background:var(--panel)}
+  .cyc.on{border-color:var(--amber);box-shadow:0 0 0 1px #3a2f0e inset}
+  .cyc .s{font-size:9px;color:var(--dim)} .cyc .n{font-size:11px;color:var(--accent)}
+  .cyc.budget{background:#14110a;border-color:#3a2f0e;color:var(--amber);text-align:center}
+  .full{grid-column:1/-1}
+  .bottom{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+  .foot{margin-top:8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);
+    padding:6px 12px;color:var(--dim);font-size:10px;letter-spacing:1px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .gstats{position:absolute;top:10px;right:10px;background:rgba(8,10,14,.7);border:1px solid var(--line);
+    border-radius:4px;padding:6px 8px;font-size:10px}
+  .legend{position:absolute;top:10px;left:10px;font-size:10px;background:rgba(8,10,14,.6);padding:4px 6px;border-radius:4px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
 <body>
 <div class="wrap">
+
   <div class="top">
-    <div><span class="title">CRYPTO TERMINAL</span><span class="tag" id="mode">PAPER</span><span class="tag" id="sym">—</span></div>
-    <div class="dim" id="ts">—</div>
+    <span style="color:var(--amber);font-size:15px">◈</span>
+    <b style="letter-spacing:2px;color:var(--accent)">MIROFISH · TRADING TERMINAL</b>
+    <span class="badge" id="mode">PAPER</span>
+    <span class="badge live">● LIVE</span>
+    <span class="badge" id="sym">—</span>
+    <div class="met"><span class="l">PRICE</span><span class="v" id="t-price">—</span></div>
+    <div class="met"><span class="l">WIN RATE</span><span class="v green" id="t-win">—</span></div>
+    <div class="met"><span class="l">FINALISES</span><span class="v" id="t-final">—</span></div>
+    <div class="met"><span class="l">REGIME</span><span class="v" id="t-regime">—</span></div>
+    <div style="margin-left:auto" class="dim" id="t-clock">—</div>
   </div>
 
   <div class="grid">
-    <!-- Header / performance -->
-    <div class="panel span2">
-      <h2>PERFORMANCE · RÉSULTATS FINALISÉS</h2>
-      <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap">
-        <div><div class="big" id="winrate">—</div><div class="dim">taux de réussite (TP/(TP+SL))</div></div>
-        <div class="chips" style="flex:1">
-          <div class="chip"><div class="v green" id="tp">0</div><div class="l">TP</div></div>
-          <div class="chip"><div class="v red" id="sl">0</div><div class="l">SL</div></div>
-          <div class="chip"><div class="v dim" id="amb">0</div><div class="l">AMBIGU</div></div>
-          <div class="chip"><div class="v" id="ratio">—</div><div class="l">RATIO TP/SL</div></div>
-          <div class="chip"><div class="v" id="total">0</div><div class="l">FINALISÉS</div></div>
-        </div>
+    <div class="panel">
+      <h2>Wallet · Performance</h2>
+      <div class="big" id="w-win">—</div>
+      <div class="dim">taux de reussite (reel, paper)</div>
+      <div class="chips">
+        <div class="chip"><div class="v green" id="w-tp">0</div><div class="l">TP</div></div>
+        <div class="chip"><div class="v red" id="w-sl">0</div><div class="l">SL</div></div>
+        <div class="chip"><div class="v" id="w-ratio">—</div><div class="l">R/R</div></div>
+        <div class="chip"><div class="v" id="w-total">0</div><div class="l">TRADES</div></div>
+      </div>
+      <h2 style="margin-top:12px">Model Confidence</h2>
+      <div class="dim" style="font-size:10px">order-flow</div><div class="bar"><i id="cf-of" style="background:var(--blue)"></i></div>
+      <div class="dim" style="font-size:10px">macro</div><div class="bar"><i id="cf-macro" style="background:var(--purple)"></i></div>
+      <div class="dim" style="font-size:10px">sentiment (F&amp;G)</div><div class="bar"><i id="cf-fg" style="background:var(--amber)"></i></div>
+      <div class="dim" style="font-size:10px">win rate</div><div class="bar"><i id="cf-win" style="background:var(--green)"></i></div>
+      <div class="row" style="margin-top:8px"><span class="k">signals</span><span id="w-signals">—</span></div>
+      <div class="row"><span class="k">positions ouvertes</span><span id="w-open">—</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>BTC · 5M · <span id="c-price">—</span></h2>
+      <canvas id="chart" height="230"></canvas>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px">
+        <div class="chip"><div class="v" id="of-imb">—</div><div class="l">IMBALANCE</div></div>
+        <div class="chip"><div class="v" id="of-cvd">—</div><div class="l">CVD</div></div>
+        <div class="chip"><div class="v" id="of-oi">—</div><div class="l">OPEN INT</div></div>
+        <div class="chip"><div class="v" id="of-fund">—</div><div class="l">FUNDING</div></div>
+        <div class="chip"><div class="v" id="of-mid">—</div><div class="l">MID</div></div>
       </div>
     </div>
 
-    <!-- Probability lattice -->
     <div class="panel">
-      <h2>PROBABILITY LATTICE</h2>
-      <canvas id="lattice" height="200"></canvas>
-      <div class="dim" style="margin-top:6px">distribution des issues — la loi des grands nombres a besoin de répétition</div>
+      <h2>Order Book</h2>
+      <div class="ob" id="ob"></div>
     </div>
+  </div>
 
-    <!-- Order flow -->
-    <div class="panel">
-      <h2>ORDER FLOW · <span id="ofsym">—</span></h2>
-      <div class="row"><span class="k">prix mid</span><span id="mid">—</span></div>
-      <div class="row"><span class="k">déséquilibre carnet</span><span id="imb">—</span></div>
-      <div class="bar"><div class="mid"></div><div class="fill" id="imbfill"></div></div>
-      <div class="row"><span class="k">CVD (tape)</span><span id="cvd">—</span></div>
-      <div class="row"><span class="k">open interest</span><span id="oi">—</span></div>
-      <div class="row"><span class="k">funding</span><span id="funding">—</span></div>
+  <div class="cycle" id="cycle">
+    <div class="cyc"><div class="s">01</div><div class="n">Scan</div></div>
+    <div class="cyc"><div class="s">02</div><div class="n">Detect</div></div>
+    <div class="cyc"><div class="s">03</div><div class="n">Validate</div></div>
+    <div class="cyc"><div class="s">04</div><div class="n">Size · Risk</div></div>
+    <div class="cyc"><div class="s">05</div><div class="n">Propose</div></div>
+    <div class="cyc"><div class="s">06</div><div class="n">Journal</div></div>
+    <div class="cyc budget"><div class="s">PIPELINE</div><div class="n">read-only</div></div>
+  </div>
+
+  <div class="panel full" style="position:relative;margin-top:8px">
+    <h2>MiroFish · Relationship Graph</h2>
+    <div class="legend">
+      <span class="dot" style="background:var(--red)"></span>bear &nbsp;
+      <span class="dot" style="background:var(--green)"></span>bull &nbsp;
+      <span class="dot" style="background:var(--amber)"></span>catalyst &nbsp;
+      <span class="dot" style="background:var(--purple)"></span>cluster
     </div>
-
-    <!-- Macro -->
-    <div class="panel">
-      <h2>MACRO · RISK REGIME</h2>
-      <div class="row"><span class="k">régime</span><span id="regime" class="amber">—</span></div>
-      <div class="row"><span class="k">VIX</span><span id="vix">—</span></div>
-      <div class="row"><span class="k">courbe 2s10s</span><span id="curve">—</span></div>
-      <div class="row"><span class="k">DXY (var.)</span><span id="dxy">—</span></div>
-      <div class="row"><span class="k">pétrole WTI</span><span id="oil">—</span></div>
+    <div class="gstats">
+      <div class="row"><span class="k">convergence&nbsp;</span><span class="green" id="g-conv">—</span></div>
+      <div class="row"><span class="k">P(up)&nbsp;</span><span class="green" id="g-up">—</span></div>
+      <div class="row"><span class="k">P(down)&nbsp;</span><span class="red" id="g-down">—</span></div>
+      <div class="row"><span class="k">nodes&nbsp;</span><span id="g-nodes">—</span></div>
     </div>
+    <canvas id="graph" height="300"></canvas>
+  </div>
 
-    <!-- Market / sentiment -->
+  <div class="bottom">
+    <div class="panel"><h2>Probability Lattice</h2><canvas id="lattice" height="150"></canvas></div>
     <div class="panel">
-      <h2>MARKET · SENTIMENT</h2>
-      <div class="row"><span class="k">Fear &amp; Greed</span><span id="fng">—</span></div>
-      <div class="row"><span class="k">TVL DeFi</span><span id="tvl">—</span></div>
-      <div id="chains" class="dim" style="margin-top:8px;line-height:1.7">—</div>
+      <h2>Market · Sentiment</h2>
+      <div class="row"><span class="k">Fear &amp; Greed</span><span id="m-fg">—</span></div>
+      <div class="row"><span class="k">TVL DeFi</span><span id="m-tvl">—</span></div>
+      <div class="row"><span class="k">VIX</span><span id="m-vix">—</span></div>
+      <div class="row"><span class="k">DXY var.</span><span id="m-dxy">—</span></div>
+      <div class="dim" id="m-chains" style="margin-top:6px;line-height:1.7">—</div>
     </div>
-
-    <!-- Relationship graph -->
     <div class="panel">
-      <h2>RELATIONSHIP GRAPH</h2>
-      <canvas id="graph" height="200"></canvas>
-      <div class="dim" style="margin-top:6px" id="graphnote">nœuds = symboles suivis</div>
+      <h2>Macro · Regime</h2>
+      <div class="row"><span class="k">regime</span><span id="ma-reg" class="amber">—</span></div>
+      <div class="row"><span class="k">courbe 2s10s</span><span id="ma-curve">—</span></div>
+      <div class="row"><span class="k">petrole WTI</span><span id="ma-oil">—</span></div>
+      <div class="row"><span class="k">symboles suivis</span><span id="ma-syms">—</span></div>
     </div>
   </div>
 
   <div class="foot">
     <span id="f1">AGENT —</span>
-    <span id="f2">MODE PAPER / DRY-RUN</span>
+    <span>MODE PAPER · can_trade=False · NO REAL ORDER</span>
     <span id="f3">SIGNALS —</span>
     <span id="f4">LATENCE — ms</span>
-    <span>NO REAL ORDER · can_trade=False</span>
+    <span>STACK MIROFISH · READ-ONLY</span>
   </div>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
-const fmt = (v, d=2) => (v===null||v===undefined||v==="") ? "—" : (typeof v==="number" ? v.toFixed(d) : v);
-function human(n){ if(n===null||n===undefined) return "—"; const u=["","K","M","B","T"]; let i=0; n=Math.abs(n); while(n>=1000&&i<u.length-1){n/=1000;i++;} return n.toFixed(1)+u[i]; }
+const $=id=>document.getElementById(id);
+const fmt=(v,d=2)=>(v===null||v===undefined||v==="")?"—":(typeof v==="number"?v.toFixed(d):v);
+function human(n){if(n===null||n===undefined)return"—";const u=["","K","M","B","T"];let i=0;n=Math.abs(n);while(n>=1000&&i<u.length-1){n/=1000;i++;}return n.toFixed(1)+u[i];}
+function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100,pct))+"%";}
 
-function color(el, cls){ el.className = cls; }
-
-function drawLattice(stats){
-  const c = $("lattice"); const w = c.width = c.clientWidth; const h = c.height;
-  const ctx = c.getContext("2d"); ctx.clearRect(0,0,w,h);
-  const data = [["TP", stats.tp||0, "#3fb950"], ["SL", stats.sl||0, "#f85149"], ["AMBIGU", stats.ambigu||0, "#6e7681"]];
-  const max = Math.max(1, ...data.map(d=>d[1]));
-  const bw = w/(data.length*2); const base = h-24;
-  data.forEach((d,i)=>{
-    const x = (i*2+0.5)*bw; const bh = (d[1]/max)*(base-10);
-    ctx.fillStyle = d[2]; ctx.fillRect(x, base-bh, bw, bh);
-    ctx.fillStyle = "#cdd1d4"; ctx.font="11px monospace"; ctx.textAlign="center";
-    ctx.fillText(d[1], x+bw/2, base-bh-5);
-    ctx.fillStyle = "#6e7681"; ctx.fillText(d[0], x+bw/2, h-8);
+function drawChart(candles){
+  const c=$("chart"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
+  ctx.clearRect(0,0,w,h);
+  if(!candles||!candles.length)return;
+  const lows=candles.map(k=>k[2]),highs=candles.map(k=>k[1]);
+  const lo=Math.min(...lows),hi=Math.max(...highs),rng=(hi-lo)||1;
+  const n=candles.length,cw=w/n,bw=Math.max(1,cw*0.6);
+  const y=p=>h-((p-lo)/rng)*(h-16)-8;
+  candles.forEach((k,i)=>{
+    const o=k[0],hg=k[1],lw=k[2],cl=k[3],x=i*cw+cw/2,up=cl>=o,col=up?"#2ec27e":"#f5566b";
+    ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,y(hg));ctx.lineTo(x,y(lw));ctx.stroke();
+    ctx.fillStyle=col;const yo=y(o),yc=y(cl);ctx.fillRect(x-bw/2,Math.min(yo,yc),bw,Math.max(Math.abs(yc-yo),1));
   });
+  const last=candles[n-1][3];
+  ctx.strokeStyle="#3a3f4a";ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(0,y(last));ctx.lineTo(w,y(last));ctx.stroke();ctx.setLineDash([]);
 }
 
-let nodes = [], started = false;
-function initGraph(symbols, hot){
-  const c = $("graph"); const w = c.clientWidth, h = c.height;
-  nodes = symbols.map((s,i)=>{
-    const a = (i/symbols.length)*Math.PI*2;
-    return {s, x:w/2+Math.cos(a)*w*0.28, y:h/2+Math.sin(a)*h*0.32, a, hot:s===hot};
-  });
+function drawBook(ob,mid){
+  const el=$("ob");if(!ob){el.textContent="n/a";return;}
+  const asks=(ob.asks||[]).slice().sort((a,b)=>a[0]-b[0]).slice(0,9); // meilleurs asks (bas)
+  const bids=(ob.bids||[]).slice().sort((a,b)=>b[0]-a[0]).slice(0,9); // meilleurs bids (haut)
+  const maxs=Math.max(1,...[...asks,...bids].map(x=>x[1]||0));
+  let html="";
+  asks.slice().reverse().forEach(a=>{html+=`<div class="lvl"><div class="depth" style="width:${(a[1]/maxs*100)}%;background:#f5566b"></div><span class="red">${fmt(a[0])}</span><span class="dim">${fmt(a[1],3)}</span></div>`;});
+  html+=`<div class="mid">${fmt(mid)} · spread</div>`;
+  bids.forEach(b=>{html+=`<div class="lvl"><div class="depth" style="width:${(b[1]/maxs*100)}%;background:#2ec27e"></div><span class="green">${fmt(b[0])}</span><span class="dim">${fmt(b[1],3)}</span></div>`;});
+  el.innerHTML=html;
+}
+
+let nodes=[],edges=[],gstarted=false;
+const CLS={bear:"#f5566b",bull:"#2ec27e",catalyst:"#f0b429",cluster:"#b083f0"};
+function initGraph(symbols){
+  const c=$("graph"),w=c.clientWidth,h=c.height;nodes=[];edges=[];
+  const hubs=symbols.map((s,i)=>{const a=(i/symbols.length)*6.283;
+    return{label:s.replace("USDT",""),cls:"cluster",x:w/2+Math.cos(a)*w*0.25,y:h/2+Math.sin(a)*h*0.28,r:9};});
+  nodes.push(...hubs);
+  const types=["bear","bull","catalyst","bear","bull","bear","bull","catalyst"];
+  for(let i=0;i<46;i++){const cls=types[i%types.length],hub=hubs[i%hubs.length];
+    nodes.push({cls,x:hub.x+(Math.random()-.5)*220,y:hub.y+(Math.random()-.5)*200,r:3+Math.random()*2});
+    edges.push([nodes.indexOf(hub),nodes.length-1]);
+    if(Math.random()<.4)edges.push([nodes.length-1,Math.floor(Math.random()*nodes.length)]);
+  }
 }
 function drawGraph(){
-  const c = $("graph"); const w = c.width = c.clientWidth, h = c.height;
-  const ctx = c.getContext("2d"); ctx.clearRect(0,0,w,h);
-  // edges to a central hub
-  const cx=w/2, cy=h/2;
-  ctx.strokeStyle="#1c1c1c";
-  nodes.forEach(n=>{ ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(n.x,n.y); ctx.stroke(); });
-  // hub
-  ctx.fillStyle="#222"; ctx.beginPath(); ctx.arc(cx,cy,5,0,7); ctx.fill();
-  const t = Date.now()/900;
-  nodes.forEach((n,i)=>{
-    n.x += Math.cos(t+i)*0.3; n.y += Math.sin(t+i*1.3)*0.3;
-    ctx.fillStyle = n.hot ? "#3fb950" : "#7a1f1f";
-    ctx.beginPath(); ctx.arc(n.x,n.y, n.hot?7:5, 0, 7); ctx.fill();
-    ctx.fillStyle="#cdd1d4"; ctx.font="10px monospace"; ctx.textAlign="center";
-    ctx.fillText(n.s.replace("USDT",""), n.x, n.y-9);
+  const c=$("graph"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
+  ctx.clearRect(0,0,w,h);const t=Date.now()/1400;
+  ctx.strokeStyle="rgba(80,90,110,.18)";
+  edges.forEach(e=>{const na=nodes[e[0]],nb=nodes[e[1]];if(!na||!nb)return;ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();});
+  nodes.forEach((n,i)=>{n.x+=Math.cos(t+i)*0.25;n.y+=Math.sin(t+i*1.3)*0.25;
+    const col=CLS[n.cls]||"#888";
+    if(n.cls==="cluster"){ctx.fillStyle=col+"22";ctx.beginPath();ctx.arc(n.x,n.y,n.r+10,0,6.283);ctx.fill();}
+    ctx.fillStyle=col;ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,6.283);ctx.fill();
+    if(n.label){ctx.fillStyle="#c5cdd6";ctx.font="9px monospace";ctx.textAlign="center";ctx.fillText(n.label,n.x,n.y-n.r-4);}
   });
   requestAnimationFrame(drawGraph);
 }
 
-async function tick(){
-  const t0 = performance.now();
-  try{
-    const r = await fetch("/api/state"); const st = await r.json();
-    const lat = Math.round(performance.now()-t0);
-
-    $("mode").textContent = st.mode; $("sym").textContent = st.symbol;
-    $("ofsym").textContent = st.symbol;
-    $("ts").textContent = st.timestamp;
-
-    const s = st.stats||{};
-    $("winrate").textContent = (s.win_rate===null||s.win_rate===undefined)?"—":s.win_rate.toFixed(1)+"%";
-    $("tp").textContent = s.tp||0; $("sl").textContent = s.sl||0; $("amb").textContent = s.ambigu||0;
-    $("ratio").textContent = (s.tp_sl_ratio===null||s.tp_sl_ratio===undefined)?"—":s.tp_sl_ratio.toFixed(2);
-    $("total").textContent = s.total||0;
-    drawLattice(s);
-
-    const o = st.orderflow;
-    if(o){
-      $("mid").textContent = fmt(o.mid_price);
-      const imb = o.book_imbalance||0;
-      $("imb").textContent = (imb>=0?"+":"")+imb.toFixed(3);
-      $("imb").className = imb>=0?"green":"red";
-      const f=$("imbfill"); const pct=Math.min(Math.abs(imb),1)*50;
-      if(imb>=0){ f.style.left="50%"; f.style.width=pct+"%"; f.style.background="#163a22"; f.style.borderLeft="2px solid #3fb950"; }
-      else { f.style.left=(50-pct)+"%"; f.style.width=pct+"%"; f.style.background="#3a1616"; f.style.borderRight="2px solid #f85149"; }
-      $("cvd").textContent = (o.cvd>=0?"+":"")+fmt(o.cvd,4); $("cvd").className=o.cvd>=0?"green":"red";
-      $("oi").textContent = fmt(o.open_interest);
-      $("funding").textContent = (o.funding_rate===null||o.funding_rate===undefined)?"—":(o.funding_rate*100).toFixed(4)+"%/8h";
-    } else { ["mid","imb","cvd","oi","funding"].forEach(id=>$(id).textContent="n/a"); }
-
-    const m = st.macro;
-    if(m){
-      const reg=m.regime||"NEUTRE"; $("regime").textContent=reg+" ("+(m.score>=0?"+":"")+(m.score||0)+")";
-      $("regime").className = "regime-"+(reg.replace("RISK_","")||"NEUTRE");
-      $("vix").textContent=fmt(m.vix); $("curve").textContent=fmt(m.yield_2s10s);
-      $("dxy").textContent=(m.dxy_change_pct===null||m.dxy_change_pct===undefined)?"—":fmt(m.dxy_change_pct)+"%";
-      $("oil").textContent=fmt(m.oil_wti);
-    }
-
-    const mk = st.market||{}; const fg = mk.fear_greed; const df = mk.defi;
-    $("fng").textContent = fg ? (fg.value+" · "+fg.classification) : "—";
-    if(fg){ $("fng").className = fg.value<25?"red":(fg.value>75?"green":"amber"); }
-    if(df){ $("tvl").textContent = "$"+human(df.total_tvl);
-      $("chains").textContent = (df.top_chains||[]).map(c=>c.name+" $"+human(c.tvl)).join(" · "); }
-
-    if(!started){ initGraph(st.symbols&&st.symbols.length?st.symbols:[st.symbol], st.symbol); started=true; drawGraph(); }
-    const hh = st.health||{};
-    $("f1").textContent="AGENT ONLINE"; $("f3").textContent="SIGNALS "+(hh.signals||0)+" · OPEN "+(hh.open_positions||0)+" · FINAL "+(hh.finalized||0);
-    $("f4").textContent="LATENCE "+lat+" ms";
-  }catch(e){ $("f1").textContent="AGENT OFFLINE ("+e+")"; }
+function drawLattice(s){
+  const c=$("lattice"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");ctx.clearRect(0,0,w,h);
+  const data=[["TP",s.tp||0,"#2ec27e"],["SL",s.sl||0,"#f5566b"],["AMBIGU",s.ambigu||0,"#5b6675"]];
+  const max=Math.max(1,...data.map(d=>d[1])),bw=w/(data.length*2),base=h-22;
+  data.forEach((d,i)=>{const x=(i*2+0.5)*bw,bh=(d[1]/max)*(base-10);
+    ctx.fillStyle=d[2];ctx.fillRect(x,base-bh,bw,bh);
+    ctx.fillStyle="#c5cdd6";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(d[1],x+bw/2,base-bh-4);
+    ctx.fillStyle="#5b6675";ctx.fillText(d[0],x+bw/2,h-6);});
 }
-tick(); setInterval(tick, 5000);
+
+async function tick(){
+  const t0=performance.now();
+  try{
+    const st=await(await fetch("/api/state")).json();const lat=Math.round(performance.now()-t0);
+    const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
+    $("mode").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
+    const win=(s.win_rate==null)?null:s.win_rate;
+    $("t-price").textContent=fmt(o.mid_price);$("c-price").textContent=fmt(o.mid_price);
+    $("t-win").textContent=win==null?"—":win.toFixed(1)+"%";
+    $("t-final").textContent=s.total||0;$("t-regime").textContent=m.regime||"—";
+    $("w-win").textContent=win==null?"—":win.toFixed(1)+"%";
+    $("w-tp").textContent=s.tp||0;$("w-sl").textContent=s.sl||0;
+    $("w-ratio").textContent=(s.tp_sl_ratio==null)?"—":s.tp_sl_ratio.toFixed(2);$("w-total").textContent=s.total||0;
+    $("w-signals").textContent=hh.signals||0;$("w-open").textContent=hh.open_positions||0;
+    setBar("cf-of",Math.abs(o.book_imbalance||0)*100);
+    setBar("cf-macro",(m.regime==="RISK_ON"||m.regime==="RISK_OFF")?75:30);
+    const fg=mk.fear_greed;setBar("cf-fg",fg?Math.abs(50-fg.value)*2:0);
+    setBar("cf-win",win||0);
+    const imb=o.book_imbalance||0;
+    $("of-imb").textContent=(imb>=0?"+":"")+imb.toFixed(3);$("of-imb").className="v "+(imb>=0?"green":"red");
+    $("of-cvd").textContent=fmt(o.cvd,3);$("of-cvd").className="v "+((o.cvd||0)>=0?"green":"red");
+    $("of-oi").textContent=human(o.open_interest);
+    $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
+    $("of-mid").textContent=fmt(o.mid_price);
+    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);
+    const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
+    $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
+    $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";
+    if(!gstarted){initGraph((st.symbols&&st.symbols.length)?st.symbols:[st.symbol]);gstarted=true;drawGraph();}
+    $("g-nodes").textContent=nodes.length;
+    $("m-fg").textContent=fg?(fg.value+" · "+fg.classification):"—";if(fg)$("m-fg").className=fg.value<25?"red":fg.value>75?"green":"amber";
+    const df=mk.defi;if(df){$("m-tvl").textContent="$"+human(df.total_tvl);$("m-chains").textContent=(df.top_chains||[]).map(c=>c.name+" $"+human(c.tvl)).join(" · ");}
+    $("m-vix").textContent=fmt(m.vix);$("m-dxy").textContent=(m.dxy_change_pct==null)?"—":fmt(m.dxy_change_pct)+"%";
+    $("ma-reg").textContent=m.regime||"—";$("ma-curve").textContent=fmt(m.yield_2s10s);$("ma-oil").textContent=fmt(m.oil_wti);
+    $("ma-syms").textContent=(st.symbols||[]).length;
+    $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
+    $("f4").textContent="LATENCE "+lat+" ms";
+  }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
+}
+setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
+tick();setInterval(tick,5000);
 </script>
 </body>
 </html>
