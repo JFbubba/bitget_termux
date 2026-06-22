@@ -426,6 +426,27 @@ def test_chart_module_imports():
     import chart
     assert hasattr(chart, "render") and callable(chart.render)
 
+def test_risk_manager():
+    import os
+    import risk_manager as rm
+    lim = {"max_position_usd": 50, "max_leverage": 3, "max_open_positions": 3, "max_daily_loss_usd": 25}
+    ok, _ = rm.check_trade({"notional_usd": 30, "leverage": 2}, open_positions=1, daily_loss_usd=5, limits=lim)
+    assert ok
+    ok, r = rm.check_trade({"notional_usd": 80, "leverage": 2}, open_positions=1, daily_loss_usd=5, limits=lim)
+    assert not ok and "taille" in r
+    ok, r = rm.check_trade({"notional_usd": 30, "leverage": 5}, open_positions=1, daily_loss_usd=5, limits=lim)
+    assert not ok and "levier" in r
+    ok, r = rm.check_trade({"notional_usd": 30, "leverage": 2}, open_positions=3, daily_loss_usd=5, limits=lim)
+    assert not ok and "positions" in r
+    ok, r = rm.check_trade({"notional_usd": 30, "leverage": 2}, open_positions=1, daily_loss_usd=30, limits=lim)
+    assert not ok and "halte" in r
+    os.environ["TRADING_HALT"] = "1"
+    try:
+        ok, r = rm.check_trade({"notional_usd": 30, "leverage": 2}, open_positions=0, daily_loss_usd=0, limits=lim)
+        assert not ok and "KILL_SWITCH" in r
+    finally:
+        del os.environ["TRADING_HALT"]
+
 def test_polymarket_parse():
     import polymarket_data as pm
     data = [
