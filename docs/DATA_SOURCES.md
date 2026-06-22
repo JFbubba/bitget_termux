@@ -19,6 +19,8 @@ Never in chat, never committed. See `ENV_SETUP.md`.
 | Fear & Greed (alternative.me) | `sentiment_index.py` | sentiment marché |
 | FRED (CSV) | `macro_context.py` | DXY, VIX, courbe, pétrole |
 | Liquidations (modèle) | `liquidations.py` | clusters/heatmap (prix×levier×OI réel multi-exchange) |
+| Forex Factory (cette semaine) | `econ_calendar.py` | calendrier éco à fort impact (FOMC/CPI/NFP/PCE) |
+| Binance/Bybit/OKX/Bitget spot | `arbitrage.py` | détection d'écarts (spot/base perp↔spot/funding), lecture seule |
 
 ## B. Pending keys (free tiers — wire once user adds keys to `.env`)
 
@@ -38,7 +40,7 @@ Kalshi, Finnhub, AlphaVantage, TwelveData. Variable names already in `.env.examp
 | # | Link (theme) | Status |
 |---|---|---|
 | 1 | investinglive.com (news macro) | ⏳ via CryptoPanic/FMP/news later |
-| 2 | tradingeconomics.com (calendrier éco) | ⏳ FMP/Finnhub calendar (key) |
+| 2 | tradingeconomics.com (calendrier éco) | ✅ `econ_calendar.py` (Forex Factory keyless) + `/calendar` |
 | 3 | tradingster.com (COT/options) | ⛔ niche, basse priorité |
 | 4 | "sentinel macro analyst" (concept) | 💡 inspiration prompt macro |
 | 5 | imprimantetrading.com | ❓ peu clair, à ignorer |
@@ -49,7 +51,7 @@ Kalshi, Finnhub, AlphaVantage, TwelveData. Variable names already in `.env.examp
 | 10 | Maestro-Sniper-Bot | ⛔ HORS PÉRIMÈTRE (sniping) |
 | 11 | pump-fun-sniper-bot | ⛔ HORS PÉRIMÈTRE (pump.fun sniping) |
 | 12 | ai-trade-agent (repo) | 💡 référence |
-| 13 | crypto-arbitrage-bot | 🟡 futur : DÉTECTION d'arb (read-only), pas d'exécution |
+| 13 | crypto-arbitrage-bot | ✅ `arbitrage.py` DÉTECTION (spot/base/funding), read-only + `/arb` |
 | 14 | OpenInsider-MCP (insiders US) | ⏳ MCP self-host possible (actions US, basse prio) |
 | 15 | sec-edgar-mcp (SEC filings) | ⏳ MCP self-host possible (actions US) |
 | 16 | trade-prediction-markets (skill) | ✅ Polymarket via prediction-mcp |

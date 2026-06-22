@@ -96,6 +96,19 @@ def _liquidations(symbol="BTCUSDT", **_):
     return liquidations.fetch_liquidations(str(symbol).upper())
 
 
+def _economic_calendar(currencies=None, impact="High", **_):
+    import econ_calendar
+    curr = None
+    if currencies:
+        curr = [c.strip().upper() for c in str(currencies).replace(" ", ",").split(",") if c.strip()]
+    return econ_calendar.fetch_calendar(impact_min=impact or "High", currencies=curr)
+
+
+def _arbitrage(symbol="BTCUSDT", **_):
+    import arbitrage
+    return arbitrage.detect(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -114,6 +127,8 @@ TOOL_FUNCS = {
     "get_prediction_markets": _prediction_markets,
     "get_brain_read": _brain,
     "get_liquidations": _liquidations,
+    "get_economic_calendar": _economic_calendar,
+    "get_arbitrage": _arbitrage,
 }
 
 TOOLS = [
@@ -200,6 +215,16 @@ TOOLS = [
     {
         "name": "get_liquidations",
         "description": "Carte de liquidations (clusters/heatmap) : estime les pools de liquidations au-dessus/en dessous du prix à partir du prix et de l'open interest réel multi-exchange. 'net' > 0 = aimant haussier (pools de shorts au-dessus). MODÈLE estimatif (prix×levier×OI), pas un flux exchange. Lecture seule.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_economic_calendar",
+        "description": "Calendrier économique de la semaine (Forex Factory) : événements macro à fort impact (FOMC, CPI, NFP, PCE...) avec heures restantes, prévision et valeur précédente. Sert à repérer les fenêtres de volatilité / éviter de se positionner juste avant. Lecture seule.",
+        "input_schema": {"type": "object", "properties": {"currencies": {"type": "string", "description": "filtre devises séparées par virgule, ex. USD,EUR (optionnel)"}, "impact": {"type": "string", "enum": ["High", "Medium", "Low"], "description": "impact minimum (défaut High)"}}},
+    },
+    {
+        "name": "get_arbitrage",
+        "description": "DÉTECTION d'écarts de prix (lecture seule, aucune exécution) : spread spot inter-exchange (Binance/Bybit/OKX/Bitget), base perp↔spot, spread de funding. Écarts BRUTS hors frais/slippage/retrait. Veille uniquement.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
     },
 ]

@@ -688,6 +688,69 @@ def test_liquidation_cluster_map_sorted():
     assert all(cm[i]["notional_usd"] >= cm[i + 1]["notional_usd"] for i in range(len(cm) - 1))
 
 
+# ---------- calendrier éco (modèle pur) ----------
+
+def test_econ_calendar_parse_filters():
+    import econ_calendar as ec
+    from datetime import datetime, timezone
+    now = datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+    data = [
+        {"title": "Core CPI m/m", "country": "USD", "impact": "High",
+         "date": "2026-06-22T12:00:00+00:00", "forecast": "0.3%", "previous": "0.2%"},
+        {"title": "Retail Sales", "country": "EUR", "impact": "Medium",
+         "date": "2026-06-23T00:00:00+00:00"},
+        {"title": "Bank Holiday", "country": "GBP", "impact": "Holiday",
+         "date": "2026-06-22T00:00:00+00:00"},
+    ]
+    # impact High seulement -> 1 event, hours_until = 12
+    high = ec.parse_calendar(data, impact_min="High", now=now)
+    assert len(high) == 1 and high[0]["currency"] == "USD"
+    assert abs(high[0]["hours_until"] - 12.0) < 1e-6
+    # impact Medium -> inclut CPI + Retail Sales (triés par proximité)
+    med = ec.parse_calendar(data, impact_min="Medium", now=now)
+    assert [e["title"] for e in med] == ["Core CPI m/m", "Retail Sales"]
+    # filtre devise
+    assert ec.parse_calendar(data, impact_min="Medium", currencies=["EUR"], now=now)[0]["currency"] == "EUR"
+
+def test_econ_calendar_within_and_next():
+    import econ_calendar as ec
+    from datetime import datetime, timezone
+    now = datetime(2026, 6, 22, 0, 0, tzinfo=timezone.utc)
+    data = [
+        {"title": "Past", "country": "USD", "impact": "High", "date": "2026-06-21T00:00:00+00:00"},
+        {"title": "Soon", "country": "USD", "impact": "High", "date": "2026-06-22T06:00:00+00:00"},
+        {"title": "Later", "country": "USD", "impact": "High", "date": "2026-06-25T00:00:00+00:00"},
+    ]
+    win = ec.parse_calendar(data, impact_min="High", within_hours=24, now=now)
+    assert [e["title"] for e in win] == ["Soon"]  # passé exclu, >24h exclu
+    nxt = ec.next_high_impact(ec.parse_calendar(data, impact_min="High", now=now))
+    assert nxt["title"] == "Soon"
+
+
+# ---------- arbitrage / détection d'écarts (purs) ----------
+
+def test_arbitrage_spot_spread():
+    import arbitrage as ab
+    assert ab.spot_spread({"a": 100.0}) is None         # < 2 cotations
+    assert ab.spot_spread({"a": None, "b": None}) is None
+    s = ab.spot_spread({"binance": 100.0, "okx": 101.0, "bybit": None})
+    assert s["buy_at"] == "binance" and s["sell_at"] == "okx"
+    assert abs(s["spread_pct"] - 1.0) < 1e-6
+
+def test_arbitrage_basis_and_funding():
+    import arbitrage as ab
+    assert ab.basis(0, 100) is None and ab.basis(100, 0) is None
+    b = ab.basis(100.0, 101.0)
+    assert abs(b["basis_pct"] - 1.0) < 1e-6        # perp au-dessus du spot = contango
+    parts = [{"exchange": "binance", "funding": 0.0003}, {"exchange": "bybit", "funding": -0.0001},
+             {"exchange": "okx", "funding": None}]
+    fs = ab.funding_spread(parts)
+    # short là où funding le plus haut, long là où le plus bas
+    assert fs["short_on"] == "binance" and fs["long_on"] == "bybit"
+    assert abs(fs["spread"] - 0.0004) < 1e-9
+    assert ab.funding_spread([{"exchange": "x", "funding": 0.1}]) is None
+
+
 # ---------- sécurité ----------
 
 def test_security_keyword_coverage():

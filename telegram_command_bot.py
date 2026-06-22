@@ -124,6 +124,8 @@ def handle_command(text):
             "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
             "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 6 agents\n"
             "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
+            "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
+            "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
             "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
@@ -380,6 +382,18 @@ def handle_command(text):
         sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
         return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/calendar") or text.startswith("/eco"):
+        parts = text.split()
+        result = subprocess.run(["python", "econ_calendar.py"] + [p.upper() for p in parts[1:]],
+                                capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ econ_calendar.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/arb"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "arbitrage.py", sym], capture_output=True, text=True, timeout=50)
+        return result.stdout if result.returncode == 0 else f"❌ arbitrage.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -757,7 +771,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
