@@ -233,7 +233,7 @@ def test_dashboard_assemble_state():
     spec = importlib.util.spec_from_file_location("dash_server", pathlib.Path("dashboard/server.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    st = mod.assemble_state("BTCUSDT", ["BTCUSDT", "ETHUSDT"], {"total": 3, "tp": 2, "sl": 1}, None, {"signals": 5})
+    st = mod.assemble_state("BTCUSDT", ["BTCUSDT", "ETHUSDT"], {"total": 3, "tp": 2, "sl": 1}, None, None, {"signals": 5})
     assert st["symbol"] == "BTCUSDT" and st["mode"].startswith("PAPER")
     assert st["symbols"] == ["BTCUSDT", "ETHUSDT"]
     assert st["stats"]["tp"] == 2 and st["health"]["signals"] == 5
