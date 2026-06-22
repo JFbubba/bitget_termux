@@ -64,8 +64,10 @@ risk-on / risk-off** au-dessus des signaux crypto.
    publics Bitget : merge-depth, fills/tape, open-interest, current-fund-rate).
    CLI : `python bitget_market_data.py BTCUSDT` ; Telegram : `/orderflow [SYMBOL]`.
 2. **COT hebdo** depuis cftc.gov → positionnement.
-3. **Couche macro** (DXY, VIX, yield curve, XLY/XLP) via FRED + un connecteur
-   crypto (FMP) ou les serveurs MCP de contexte → flag risk-on/off.
+3. **[fait]** Couche macro risk-on/off → `macro_context.py` (VIX, courbe 2s10s,
+   DXY via FRED, export CSV public sans clé ; logique de régime pure et testée).
+   CLI : `python macro_context.py` ; Telegram : `/macro`. (XLY/XLP, pétrole et
+   COT restent à ajouter comme séries supplémentaires.)
 4. **prediction-mcp** (Polymarket) côté PC → odds/sentiment (déjà documenté
    dans `docs/EXTERNAL_TOOLS.md`).
 

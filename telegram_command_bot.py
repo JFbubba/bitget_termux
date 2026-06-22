@@ -113,6 +113,7 @@ def handle_command(text):
             "/watchdog - état de la boucle agent_loop (lecture seule)\n"
             "/stats - statistiques TP/SL par symbole et sens (lecture seule)\n"
             "/orderflow [SYMBOL] - microstructure: carnet, CVD, OI, funding (lecture seule)\n"
+            "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
             "/signals - propositions d’ordres sans exécution\n"
             "/preorders - pré-ordres verrouillés sans exécution\n"
             "/approve_preorder ID - approuve un pré-ordre en simulation uniquement\n"
@@ -144,6 +145,7 @@ def handle_command(text):
             "/watchdog - vérifie si agent_loop tourne (lecture seule)\n"
             "/stats - statistiques des résultats finalisés (TP/SL)\n"
             "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
+            "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/signals - génère les propositions d’ordres\n"
             "/preorders - affiche les pré-ordres verrouillés\n"
             "/approve_preorder ID - validation simulée, aucun ordre réel\n"
@@ -281,6 +283,22 @@ def handle_command(text):
         if result.returncode != 0:
             return (
                 "❌ Erreur bitget_market_data.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/macro":
+        result = subprocess.run(
+            ["python", "macro_context.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur macro_context.py\n\n"
                 f"STDOUT:\n{result.stdout[-2500:]}\n\n"
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
@@ -560,7 +578,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

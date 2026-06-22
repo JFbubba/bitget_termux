@@ -205,6 +205,26 @@ def test_bitget_build_report():
     assert "Funding" in txt
 
 
+# ---------- macro_context : parseur + régime (purs, sans réseau) ----------
+
+def test_macro_parse_fred_csv():
+    import macro_context as mc
+    csv = "observation_date,VIXCLS\n2024-01-01,13.20\n2024-01-02,.\n2024-01-03,14.05\n"
+    rows = mc.parse_fred_csv(csv)
+    assert rows == [("2024-01-01", 13.20), ("2024-01-03", 14.05)]
+    assert mc.latest_value(rows) == 14.05
+    assert mc.latest_value([]) is None
+
+def test_macro_risk_regime():
+    import macro_context as mc
+    on = mc.compute_risk_regime(vix=15.0, yield_2s10s=0.5, dxy_change_pct=-1.0)
+    assert on["regime"] == "RISK_ON" and on["score"] > 0
+    off = mc.compute_risk_regime(vix=30.0, yield_2s10s=-0.2, dxy_change_pct=1.0)
+    assert off["regime"] == "RISK_OFF" and off["score"] < 0
+    neutral = mc.compute_risk_regime()
+    assert neutral["regime"] == "NEUTRE" and neutral["score"] == 0
+
+
 # ---------- outcome LONG & SHORT ----------
 
 def _sig(side, entry, sl, tp, t):

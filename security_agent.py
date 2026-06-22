@@ -55,6 +55,7 @@ FILES_TO_SCAN = [
     "pro_indicators.py",
     "order_flow.py",
     "bitget_market_data.py",
+    "macro_context.py",
 ]
 
 
