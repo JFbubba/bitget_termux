@@ -96,7 +96,8 @@ def openai_chat(messages, tools=None, model=None, max_tokens=2048, timeout=90):
     if tools:
         body["tools"] = to_openai_tools(tools)
         body["tool_choice"] = "auto"
-    resp = requests.post(f"{base}/chat/completions", headers=headers, json=body, timeout=timeout)
+    url = f"{base}/chat/completions"
+    resp = requests.post(url, headers=headers, json=body, timeout=timeout)
     if resp.status_code >= 400:
-        raise LLMError(f"LLM {resp.status_code}: {resp.text[:300]}")
+        raise LLMError(f"LLM {resp.status_code} @ {url} (modèle={body['model']}): {resp.text[:200]}")
     return resp.json()
