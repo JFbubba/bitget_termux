@@ -67,7 +67,7 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
-def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None):
+def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -81,6 +81,7 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None
         "health": health or {},
         "candles": candles or [],
         "orderbook": orderbook or {"bids": [], "asks": []},
+        "brain": brain or {},
     }
 
 
@@ -135,16 +136,22 @@ def build_state(symbol=None):
         ob = bmd.parse_orderbook(bmd.fetch_orderbook(symbol, limit=20))
         return {"bids": ob["bids"][:12], "asks": ob["asks"][:12]}
 
+    def _brain():
+        import swarm_brain
+        return swarm_brain.peek(symbol)
+
     stats = _safe(_stats, {})
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
     market = _cached("market", 600, lambda: _safe(_market, {}))
     candles = _cached(f"cd:{symbol}", 20, lambda: _safe(_candles, []))
     book = _cached(f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []}))
+    # le cerveau réinterroge 5 agents (réseau) : cache plus long pour le polling.
+    brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     health = _safe(_health, {})
     symbols = _safe(_symbols, [symbol])
 
-    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book)
+    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain)
 
 
 class Handler(BaseHTTPRequestHandler):

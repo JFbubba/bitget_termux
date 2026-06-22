@@ -197,6 +197,21 @@ def gather_votes(symbol):
     return votes
 
 
+def peek(symbol="BTCUSDT"):
+    """Lecture instantanée du consensus SANS journaliser ni apprendre.
+
+    Destinée au polling (dashboard) : ne touche ni brain_log.json ni les poids.
+    """
+    symbol = symbol.upper()
+    weights = load_weights()
+    votes = gather_votes(symbol)
+    result = aggregate(votes, weights)
+    result["symbol"] = symbol
+    result["weights"] = weights
+    result["notes"] = {n: v.get("note") for n, v in votes.items()}
+    return result
+
+
 def read(symbol="BTCUSDT", do_learn=True):
     symbol = symbol.upper()
     weights = load_weights()

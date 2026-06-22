@@ -238,6 +238,9 @@ def test_dashboard_assemble_state():
     assert st["symbols"] == ["BTCUSDT", "ETHUSDT"]
     assert st["stats"]["tp"] == 2 and st["health"]["signals"] == 5
     assert st["orderflow"] is None
+    assert st["brain"] == {} and st["candles"] == []
+    st2 = mod.assemble_state("BTCUSDT", [], {}, None, None, {}, brain={"bias": "LONG"})
+    assert st2["brain"]["bias"] == "LONG"
 
 def test_macro_risk_regime():
     import macro_context as mc

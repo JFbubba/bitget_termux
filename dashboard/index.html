@@ -18,7 +18,7 @@
   h2{margin:0 0 8px;font-size:10.5px;letter-spacing:2px;color:var(--accent);font-weight:600;
     border-bottom:1px solid var(--line);padding-bottom:5px;text-transform:uppercase}
   .green{color:var(--green)} .red{color:var(--red)} .amber{color:var(--amber)}
-  .blue{color:var(--blue)} .purple{color:var(--purple)} .dim{color:var(--dim)}
+  .blue{color:var(--blue)} .purple{color:var(--purple)} .dim{color:var(--dim)} .accent{color:var(--accent)}
   .row{display:flex;justify-content:space-between;padding:2px 0}
   .row .k{color:var(--dim)}
   canvas{width:100%;display:block}
@@ -52,9 +52,37 @@
     padding:6px 12px;color:var(--dim);font-size:10px;letter-spacing:1px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .gstats{position:absolute;top:10px;right:10px;background:rgba(8,10,14,.7);border:1px solid var(--line);
     border-radius:4px;padding:6px 8px;font-size:10px}
-  .legend{position:absolute;top:10px;left:10px;font-size:10px;background:rgba(8,10,14,.6);padding:4px 6px;border-radius:4px}
+  .legend{position:absolute;top:10px;left:10px;font-size:10px;background:rgba(8,10,14,.6);padding:4px 6px;border-radius:4px;display:flex;gap:4px;flex-wrap:wrap}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}
-  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}}
+  /* toggles d'indicateurs / couches : cliquer = afficher/masquer, double-clic = isoler */
+  .legend .lg{cursor:pointer;padding:1px 5px;border-radius:3px;border:1px solid transparent;user-select:none}
+  .legend .lg:hover{border-color:var(--line)}
+  .legend .lg.off{opacity:.32;text-decoration:line-through}
+  .ind-bar{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+  .ind{cursor:pointer;font-size:9.5px;letter-spacing:.5px;padding:3px 8px;border-radius:4px;
+    border:1px solid var(--line);color:var(--dim);background:var(--panel);user-select:none}
+  .ind:hover{border-color:#33415a;color:var(--txt)}
+  .ind.on{color:var(--accent);border-color:#33415a;background:#10151d}
+  .ind .sw{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:5px;vertical-align:middle;opacity:.35}
+  .ind.on .sw{opacity:1}
+  .tip{position:absolute;pointer-events:none;z-index:5;background:rgba(8,10,14,.94);border:1px solid var(--line);
+    border-radius:4px;padding:5px 7px;font-size:10px;line-height:1.5;display:none;white-space:nowrap}
+  /* cerveau / essaim */
+  .brain{display:grid;grid-template-columns:170px 1fr;gap:14px;align-items:center}
+  .brain .verdict{text-align:center}
+  .brain .verdict .b{font-size:26px;letter-spacing:2px}
+  .agents{display:flex;flex-direction:column;gap:5px}
+  .ag{display:grid;grid-template-columns:78px 1fr 92px;gap:8px;align-items:center;cursor:pointer;
+    padding:3px 5px;border-radius:4px;border:1px solid transparent}
+  .ag:hover{border-color:var(--line);background:var(--panel)}
+  .ag.iso{border-color:#33415a;background:#10151d}
+  .ag.dim2{opacity:.3}
+  .ag .nm{color:var(--txt);font-size:10.5px}
+  .ag .meta{font-size:9px;color:var(--dim);text-align:right}
+  .vbar{position:relative;height:9px;background:#10151d;border-radius:3px}
+  .vbar .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#2a313c}
+  .vbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -93,9 +121,17 @@
       <div class="row"><span class="k">positions ouvertes</span><span id="w-open">—</span></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" style="position:relative">
       <h2>BTC · 5M · <span id="c-price">—</span></h2>
       <canvas id="chart" height="230"></canvas>
+      <div class="tip" id="chart-tip"></div>
+      <div class="ind-bar" id="ind-bar" title="clic = afficher/masquer · double-clic = isoler">
+        <span class="ind on" data-ind="candles"><span class="sw" style="background:var(--accent)"></span>Bougies</span>
+        <span class="ind on" data-ind="ema20"><span class="sw" style="background:var(--blue)"></span>EMA20</span>
+        <span class="ind on" data-ind="ema50"><span class="sw" style="background:var(--purple)"></span>EMA50</span>
+        <span class="ind on" data-ind="vwap"><span class="sw" style="background:var(--amber)"></span>VWAP</span>
+        <span class="ind" data-ind="volume"><span class="sw" style="background:#3a6ea5"></span>Volume</span>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px">
         <div class="chip"><div class="v" id="of-imb">—</div><div class="l">IMBALANCE</div></div>
         <div class="chip"><div class="v" id="of-cvd">—</div><div class="l">CVD</div></div>
@@ -121,13 +157,27 @@
     <div class="cyc budget"><div class="s">PIPELINE</div><div class="n">read-only</div></div>
   </div>
 
+  <div class="panel full" style="margin-top:8px">
+    <h2>Cerveau · Essaim d'agents <span class="dim" style="letter-spacing:0">— clic sur un agent pour l'isoler</span></h2>
+    <div class="brain">
+      <div class="verdict">
+        <div class="b" id="br-bias">—</div>
+        <div class="dim">biais consensus</div>
+        <div class="bar" style="margin-top:8px"><i id="br-conv" style="background:var(--blue)"></i></div>
+        <div class="dim">conviction <span id="br-convp">—</span></div>
+        <div class="dim" style="margin-top:4px">consensus <span id="br-cons" class="accent">—</span></div>
+      </div>
+      <div class="agents" id="br-agents"></div>
+    </div>
+  </div>
+
   <div class="panel full" style="position:relative;margin-top:8px">
     <h2>MiroFish · Relationship Graph</h2>
-    <div class="legend">
-      <span class="dot" style="background:var(--red)"></span>bear &nbsp;
-      <span class="dot" style="background:var(--green)"></span>bull &nbsp;
-      <span class="dot" style="background:var(--amber)"></span>catalyst &nbsp;
-      <span class="dot" style="background:var(--purple)"></span>cluster
+    <div class="legend" id="g-legend" title="clic = afficher/masquer · double-clic = isoler">
+      <span class="lg" data-cls="bear"><span class="dot" style="background:var(--red)"></span>bear</span>
+      <span class="lg" data-cls="bull"><span class="dot" style="background:var(--green)"></span>bull</span>
+      <span class="lg" data-cls="catalyst"><span class="dot" style="background:var(--amber)"></span>catalyst</span>
+      <span class="lg" data-cls="cluster"><span class="dot" style="background:var(--purple)"></span>cluster</span>
     </div>
     <div class="gstats">
       <div class="row"><span class="k">convergence&nbsp;</span><span class="green" id="g-conv">—</span></div>
@@ -172,21 +222,79 @@ const fmt=(v,d=2)=>(v===null||v===undefined||v==="")?"—":(typeof v==="number"?
 function human(n){if(n===null||n===undefined)return"—";const u=["","K","M","B","T"];let i=0;n=Math.abs(n);while(n>=1000&&i<u.length-1){n/=1000;i++;}return n.toFixed(1)+u[i];}
 function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100,pct))+"%";}
 
+// couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
+const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
+let _candles=[],_chartGeo=null;
+
+function emaSeries(vals,period){
+  const out=vals.map(()=>null);if(vals.length<period)return out;
+  const k=2/(period+1);let prev=0;for(let i=0;i<period;i++)prev+=vals[i];prev/=period;out[period-1]=prev;
+  for(let i=period;i<vals.length;i++){prev=vals[i]*k+prev*(1-k);out[i]=prev;}return out;
+}
+function vwapSeries(candles){let pv=0,vv=0;return candles.map(k=>{const tp=(k[1]+k[2]+k[3])/3,v=k[4]||0;pv+=tp*v;vv+=v;return vv?pv/vv:null;});}
+function drawLine(ctx,series,xAt,yAt,color){
+  ctx.strokeStyle=color;ctx.lineWidth=1.3;ctx.beginPath();let started=false;
+  series.forEach((p,i)=>{if(p==null){started=false;return;}const x=xAt(i),y=yAt(p);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);});
+  ctx.stroke();ctx.lineWidth=1;
+}
+
 function drawChart(candles){
+  if(candles)_candles=candles;
   const c=$("chart"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
   ctx.clearRect(0,0,w,h);
-  if(!candles||!candles.length)return;
-  const lows=candles.map(k=>k[2]),highs=candles.map(k=>k[1]);
-  const lo=Math.min(...lows),hi=Math.max(...highs),rng=(hi-lo)||1;
-  const n=candles.length,cw=w/n,bw=Math.max(1,cw*0.6);
-  const y=p=>h-((p-lo)/rng)*(h-16)-8;
-  candles.forEach((k,i)=>{
-    const o=k[0],hg=k[1],lw=k[2],cl=k[3],x=i*cw+cw/2,up=cl>=o,col=up?"#2ec27e":"#f5566b";
-    ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,y(hg));ctx.lineTo(x,y(lw));ctx.stroke();
-    ctx.fillStyle=col;const yo=y(o),yc=y(cl);ctx.fillRect(x-bw/2,Math.min(yo,yc),bw,Math.max(Math.abs(yc-yo),1));
-  });
-  const last=candles[n-1][3];
+  if(!_candles.length){_chartGeo=null;return;}
+  const closes=_candles.map(k=>k[3]);
+  const ema20=emaSeries(closes,20),ema50=emaSeries(closes,50),vwap=vwapSeries(_candles);
+  // l'échelle de prix englobe les couches actives pour qu'elles restent visibles
+  const vals=[];_candles.forEach(k=>{vals.push(k[1],k[2]);});
+  if(LAYERS.vwap)vwap.forEach(v=>v!=null&&vals.push(v));
+  if(LAYERS.ema20)ema20.forEach(v=>v!=null&&vals.push(v));
+  if(LAYERS.ema50)ema50.forEach(v=>v!=null&&vals.push(v));
+  const lo=Math.min(...vals),hi=Math.max(...vals),rng=(hi-lo)||1;
+  const n=_candles.length,cw=w/n,bw=Math.max(1,cw*0.6);
+  const volH=LAYERS.volume?Math.round(h*0.22):0,top=8,bot=h-8-volH;
+  const y=p=>bot-((p-lo)/rng)*(bot-top),xAt=i=>i*cw+cw/2;
+  _chartGeo={lo,hi,rng,cw,n,top,bot,volH,h,w,ema20,ema50,vwap,y,xAt};
+  if(LAYERS.volume){
+    const mv=Math.max(1,..._candles.map(k=>k[4]||0));
+    _candles.forEach((k,i)=>{const vh=((k[4]||0)/mv)*(volH-4),x=xAt(i),up=k[3]>=k[0];
+      ctx.fillStyle=up?"rgba(46,194,126,.35)":"rgba(245,86,107,.35)";ctx.fillRect(x-bw/2,h-8-vh,bw,vh);});
+  }
+  if(LAYERS.candles){
+    _candles.forEach((k,i)=>{const o=k[0],hg=k[1],lw=k[2],cl=k[3],x=xAt(i),up=cl>=o,col=up?"#2ec27e":"#f5566b";
+      ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,y(hg));ctx.lineTo(x,y(lw));ctx.stroke();
+      ctx.fillStyle=col;const yo=y(o),yc=y(cl);ctx.fillRect(x-bw/2,Math.min(yo,yc),bw,Math.max(Math.abs(yc-yo),1));});
+  }
+  if(LAYERS.ema20)drawLine(ctx,ema20,xAt,y,"#4ea1ff");
+  if(LAYERS.ema50)drawLine(ctx,ema50,xAt,y,"#b083f0");
+  if(LAYERS.vwap)drawLine(ctx,vwap,xAt,y,"#f0b429");
+  const last=closes[n-1];
   ctx.strokeStyle="#3a3f4a";ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(0,y(last));ctx.lineTo(w,y(last));ctx.stroke();ctx.setLineDash([]);
+}
+
+function chartHover(ev){
+  const g=_chartGeo;if(!g||!_candles.length)return;
+  const c=$("chart"),rect=c.getBoundingClientRect();
+  let i=Math.floor((ev.clientX-rect.left)/g.cw);i=Math.max(0,Math.min(g.n-1,i));
+  drawChart();                                  // redessine la base puis le crosshair
+  const ctx=c.getContext("2d"),x=g.xAt(i);
+  ctx.strokeStyle="rgba(120,140,170,.45)";ctx.setLineDash([2,3]);
+  ctx.beginPath();ctx.moveTo(x,g.top);ctx.lineTo(x,g.bot);ctx.stroke();ctx.setLineDash([]);
+  const k=_candles[i],parts=[`O ${fmt(k[0])}  H ${fmt(k[1])}`,`L ${fmt(k[2])}  C ${fmt(k[3])}`,`Vol ${human(k[4])}`];
+  if(LAYERS.ema20&&g.ema20[i]!=null)parts.push(`<span class="blue">EMA20 ${fmt(g.ema20[i])}</span>`);
+  if(LAYERS.ema50&&g.ema50[i]!=null)parts.push(`<span class="purple">EMA50 ${fmt(g.ema50[i])}</span>`);
+  if(LAYERS.vwap&&g.vwap[i]!=null)parts.push(`<span class="amber">VWAP ${fmt(g.vwap[i])}</span>`);
+  const tip=$("chart-tip");tip.innerHTML=parts.join("<br>");tip.style.display="block";
+  let tx=x+14;if(tx+130>g.w)tx=x-140;
+  tip.style.left=(c.offsetLeft+Math.max(0,tx))+"px";tip.style.top=(c.offsetTop+g.top+2)+"px";
+}
+function chartLeave(){$("chart-tip").style.display="none";drawChart();}
+
+// distingue clic simple (toggle) et double-clic (isoler) sur un même élément
+function bindClickDbl(el,single,double){
+  let t=null;
+  el.addEventListener("click",()=>{if(t)return;t=setTimeout(()=>{t=null;single();},220);});
+  el.addEventListener("dblclick",()=>{if(t){clearTimeout(t);t=null;}double();});
 }
 
 function drawBook(ob,mid){
@@ -203,6 +311,7 @@ function drawBook(ob,mid){
 
 let nodes=[],edges=[],gstarted=false;
 const CLS={bear:"#f5566b",bull:"#2ec27e",catalyst:"#f0b429",cluster:"#b083f0"};
+const CLS_ON={bear:true,bull:true,catalyst:true,cluster:true};  // couches du graphe (toggle/isoler)
 function initGraph(symbols){
   const c=$("graph"),w=c.clientWidth,h=c.height;nodes=[];edges=[];
   const hubs=symbols.map((s,i)=>{const a=(i/symbols.length)*6.283;
@@ -219,8 +328,10 @@ function drawGraph(){
   const c=$("graph"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
   ctx.clearRect(0,0,w,h);const t=Date.now()/1400;
   ctx.strokeStyle="rgba(80,90,110,.18)";
-  edges.forEach(e=>{const na=nodes[e[0]],nb=nodes[e[1]];if(!na||!nb)return;ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();});
+  edges.forEach(e=>{const na=nodes[e[0]],nb=nodes[e[1]];if(!na||!nb)return;
+    if(!CLS_ON[na.cls]||!CLS_ON[nb.cls])return;ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();});
   nodes.forEach((n,i)=>{n.x+=Math.cos(t+i)*0.25;n.y+=Math.sin(t+i*1.3)*0.25;
+    if(!CLS_ON[n.cls])return;
     const col=CLS[n.cls]||"#888";
     if(n.cls==="cluster"){ctx.fillStyle=col+"22";ctx.beginPath();ctx.arc(n.x,n.y,n.r+10,0,6.283);ctx.fill();}
     ctx.fillStyle=col;ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,6.283);ctx.fill();
@@ -237,6 +348,36 @@ function drawLattice(s){
     ctx.fillStyle=d[2];ctx.fillRect(x,base-bh,bw,bh);
     ctx.fillStyle="#c5cdd6";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(d[1],x+bw/2,base-bh-4);
     ctx.fillStyle="#5b6675";ctx.fillText(d[0],x+bw/2,h-6);});
+}
+
+// ---- cerveau / essaim : chaque agent est une couche isolable au clic ----
+let brainIso=null;
+function styleBrainIso(){
+  document.querySelectorAll("#br-agents .ag").forEach(r=>{
+    const on=brainIso&&r.dataset.ag===brainIso;
+    r.classList.toggle("iso",!!on);r.classList.toggle("dim2",!!brainIso&&!on);
+  });
+}
+function renderBrain(b){
+  const agents=b.agents||[],notes=b.notes||{};
+  $("br-bias").textContent=b.bias||"—";
+  $("br-bias").className="b "+(b.bias==="LONG"?"green":b.bias==="SHORT"?"red":"dim");
+  const conv=(b.conviction!=null)?b.conviction:0;
+  setBar("br-conv",conv*100);$("br-convp").textContent=(conv*100).toFixed(0)+"%";
+  $("br-cons").textContent=(b.consensus!=null)?((b.consensus>=0?"+":"")+b.consensus.toFixed(2)):"—";
+  const host=$("br-agents");host.innerHTML="";
+  agents.forEach(a=>{
+    const v=a.vote||0,pos=v>=0,half=Math.min(Math.abs(v),1)*50,left=pos?50:50-half;
+    const row=document.createElement("div");row.className="ag";row.dataset.ag=a.agent;
+    row.innerHTML=`<div class="nm">${a.agent}</div>`+
+      `<div class="vbar"><div class="zero"></div><i style="left:${left}%;width:${half}%;background:${pos?"#2ec27e":"#f5566b"}"></i></div>`+
+      `<div class="meta">${(v>=0?"+":"")}${v.toFixed(2)} · c${a.conf!=null?a.conf.toFixed(2):"—"} · w${a.weight!=null?a.weight.toFixed(2):"—"}</div>`;
+    row.title=notes[a.agent]||"";
+    bindClickDbl(row,()=>{brainIso=(brainIso===a.agent)?null:a.agent;styleBrainIso();},
+                     ()=>{brainIso=a.agent;styleBrainIso();});
+    host.appendChild(row);
+  });
+  styleBrainIso();
 }
 
 async function tick(){
@@ -263,7 +404,7 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);
+    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});
     const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
     $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
     $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";
@@ -278,6 +419,23 @@ async function tick(){
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
 }
+// --- barre d'indicateurs du graphique : clic = toggle, double-clic = isoler ---
+function applyIndUI(){document.querySelectorAll("#ind-bar .ind").forEach(el=>el.classList.toggle("on",!!LAYERS[el.dataset.ind]));}
+document.querySelectorAll("#ind-bar .ind").forEach(el=>bindClickDbl(el,
+  ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();drawChart();},
+  ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();drawChart();}));
+
+// --- légende du graphe : clic = toggle d'une couche, double-clic = isoler ---
+function applyLegendUI(){document.querySelectorAll("#g-legend .lg").forEach(el=>el.classList.toggle("off",!CLS_ON[el.dataset.cls]));}
+document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
+  ()=>{CLS_ON[el.dataset.cls]=!CLS_ON[el.dataset.cls];applyLegendUI();},
+  ()=>{const k=el.dataset.cls;Object.keys(CLS_ON).forEach(x=>CLS_ON[x]=(x===k));applyLegendUI();}));
+
+// --- crosshair + tooltip OHLC sur le graphique ---
+const _chartEl=$("chart");
+_chartEl.addEventListener("mousemove",chartHover);
+_chartEl.addEventListener("mouseleave",chartLeave);
+
 setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
 tick();setInterval(tick,5000);
 </script>
