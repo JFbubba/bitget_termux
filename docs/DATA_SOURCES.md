@@ -18,6 +18,7 @@ Never in chat, never committed. See `ENV_SETUP.md`.
 | RugCheck | `token_safety.py` | rug report Solana (mint/freeze authority) |
 | Fear & Greed (alternative.me) | `sentiment_index.py` | sentiment marché |
 | FRED (CSV) | `macro_context.py` | DXY, VIX, courbe, pétrole |
+| Liquidations (modèle) | `liquidations.py` | clusters/heatmap (prix×levier×OI réel multi-exchange) |
 
 ## B. Pending keys (free tiers — wire once user adds keys to `.env`)
 
@@ -43,7 +44,7 @@ Kalshi, Finnhub, AlphaVantage, TwelveData. Variable names already in `.env.examp
 | 5 | imprimantetrading.com | ❓ peu clair, à ignorer |
 | 6 | TradingView "Unbiased Level Pro" (indicateur) | 💡 on calcule nos niveaux (confluence) |
 | 7 | orallexa-ai-trading-agent (repo) | 💡 archi de référence |
-| 8 | "phantom institutional flow / liquidation cluster" | 🟡 order-flow couvert ; liquidations = Coinglass (key) |
+| 8 | "phantom institutional flow / liquidation cluster" | ✅ `liquidations.py` (clusters/heatmap, 6ᵉ agent du cerveau, `/liq`) ; flux temps-réel Coinglass = option (key) |
 | 9 | Maestro-Trading-Bot (Solana sniper) | ⛔ HORS PÉRIMÈTRE (sniping) → détection only |
 | 10 | Maestro-Sniper-Bot | ⛔ HORS PÉRIMÈTRE (sniping) |
 | 11 | pump-fun-sniper-bot | ⛔ HORS PÉRIMÈTRE (pump.fun sniping) |

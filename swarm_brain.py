@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -80,9 +80,22 @@ def agent_derivs(symbol):
     return {"vote": vote, "confidence": min(abs(f) * 2000, 1.0), "note": f"funding {f * 100:.4f}%"}
 
 
+def agent_liquidations(symbol):
+    import liquidations as lq
+    d = lq.fetch_liquidations(symbol)
+    sk = d.get("skew") or {}
+    net = sk.get("net")
+    if net is None:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+    # net > 0 : pools de shorts au-dessus -> aimant haussier
+    vote = _clamp(net)
+    return {"vote": vote, "confidence": min(abs(net), 1.0),
+            "note": f"aimant {net:+.2f}, longs ~{int(d.get('long_share', 0) * 100)}%"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
-    "sentiment": agent_sentiment, "derivs": agent_derivs,
+    "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
 }
 
 

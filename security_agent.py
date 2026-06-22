@@ -68,6 +68,7 @@ FILES_TO_SCAN = [
     "polymarket_data.py",
     "risk_manager.py",
     "swarm_brain.py",
+    "liquidations.py",
     "coingecko_data.py",
     "news_feed.py",
     "check_env.py",

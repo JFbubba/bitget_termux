@@ -91,6 +91,11 @@ def _brain(symbol="BTCUSDT", **_):
     return swarm_brain.read(str(symbol).upper())
 
 
+def _liquidations(symbol="BTCUSDT", **_):
+    import liquidations
+    return liquidations.fetch_liquidations(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -108,6 +113,7 @@ TOOL_FUNCS = {
     "get_aggregated_derivs": _aggregated_derivs,
     "get_prediction_markets": _prediction_markets,
     "get_brain_read": _brain,
+    "get_liquidations": _liquidations,
 }
 
 TOOLS = [
@@ -188,8 +194,13 @@ TOOLS = [
     },
     {
         "name": "get_brain_read",
-        "description": "CERVEAU (essaim d'agents) : agrège 5 agents spécialisés (order-flow, technique, macro, sentiment, dérivés) en un consensus pondéré → biais LONG/SHORT/NEUTRE + conviction. Les poids s'apprennent (auto-évaluation des décisions passées vs prix réalisé). Aide à la décision adaptative, lecture seule.",
+        "description": "CERVEAU (essaim d'agents) : agrège 6 agents spécialisés (order-flow, technique, macro, sentiment, dérivés, liquidations) en un consensus pondéré → biais LONG/SHORT/NEUTRE + conviction. Les poids s'apprennent (auto-évaluation des décisions passées vs prix réalisé). Aide à la décision adaptative, lecture seule.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT, SOLUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_liquidations",
+        "description": "Carte de liquidations (clusters/heatmap) : estime les pools de liquidations au-dessus/en dessous du prix à partir du prix et de l'open interest réel multi-exchange. 'net' > 0 = aimant haussier (pools de shorts au-dessus). MODÈLE estimatif (prix×levier×OI), pas un flux exchange. Lecture seule.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
     },
 ]
 

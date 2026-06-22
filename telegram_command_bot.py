@@ -122,7 +122,8 @@ def handle_command(text):
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
             "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
-            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 5 agents\n"
+            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 6 agents\n"
+            "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
             "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
@@ -373,6 +374,12 @@ def handle_command(text):
         sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         result = subprocess.run(["python", "swarm_brain.py", sym], capture_output=True, text=True, timeout=60)
         return result.stdout if result.returncode == 0 else f"❌ swarm_brain.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/liq"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
+        return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -750,7 +757,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

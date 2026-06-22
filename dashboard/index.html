@@ -171,6 +171,18 @@
     </div>
   </div>
 
+  <div class="panel full" style="margin-top:8px">
+    <h2>Liquidations · Aimants de liquidité <span class="dim" style="letter-spacing:0">— modèle prix×levier×OI, pas un flux exchange</span></h2>
+    <div class="brain">
+      <div class="verdict">
+        <div class="b" id="lq-net" style="font-size:22px">—</div>
+        <div class="dim">aimant net</div>
+        <div class="dim" style="margin-top:4px">longs ~<span id="lq-long">—</span> · OI <span id="lq-oi">—</span></div>
+      </div>
+      <div class="ob" id="lq-clusters"></div>
+    </div>
+  </div>
+
   <div class="panel full" style="position:relative;margin-top:8px">
     <h2>MiroFish · Relationship Graph</h2>
     <div class="legend" id="g-legend" title="clic = afficher/masquer · double-clic = isoler">
@@ -380,6 +392,25 @@ function renderBrain(b){
   styleBrainIso();
 }
 
+function renderLiq(d){
+  const sk=d.skew||{},net=sk.net;
+  const el=$("lq-net");
+  el.textContent=(net==null)?"—":((net>=0?"+":"")+net.toFixed(2));
+  el.className="b "+(net>0.15?"green":net<-0.15?"red":"dim");
+  $("lq-long").textContent=(d.long_share!=null)?Math.round(d.long_share*100)+"%":"—";
+  $("lq-oi").textContent=(d.total_oi_usd!=null)?"$"+human(d.total_oi_usd):"—";
+  const cl=(d.clusters||[]).slice().sort((a,b)=>b.distance_pct-a.distance_pct);  // haut → bas
+  const max=Math.max(1,...cl.map(c=>c.notional_usd||0));
+  let html="";
+  cl.forEach(c=>{
+    const up=c.side==="short";const col=up?"#2ec27e":"#f5566b";
+    html+=`<div class="lvl"><div class="depth" style="width:${(c.notional_usd/max*100)}%;background:${col}"></div>`+
+      `<span class="${up?'green':'red'}">${c.distance_pct>=0?'+':''}${c.distance_pct.toFixed(1)}% · ${c.side}</span>`+
+      `<span class="dim">$${human(c.notional_usd)}</span></div>`;
+  });
+  $("lq-clusters").innerHTML=html||"<span class='dim'>n/a</span>";
+}
+
 async function tick(){
   const t0=performance.now();
   try{
@@ -404,7 +435,7 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});
+    drawChart(st.candles);drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
     const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
     $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
     $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";

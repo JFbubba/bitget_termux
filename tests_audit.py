@@ -238,9 +238,10 @@ def test_dashboard_assemble_state():
     assert st["symbols"] == ["BTCUSDT", "ETHUSDT"]
     assert st["stats"]["tp"] == 2 and st["health"]["signals"] == 5
     assert st["orderflow"] is None
-    assert st["brain"] == {} and st["candles"] == []
-    st2 = mod.assemble_state("BTCUSDT", [], {}, None, None, {}, brain={"bias": "LONG"})
-    assert st2["brain"]["bias"] == "LONG"
+    assert st["brain"] == {} and st["candles"] == [] and st["liquidations"] == {}
+    st2 = mod.assemble_state("BTCUSDT", [], {}, None, None, {}, brain={"bias": "LONG"},
+                             liquidations={"skew": {"net": 0.3}})
+    assert st2["brain"]["bias"] == "LONG" and st2["liquidations"]["skew"]["net"] == 0.3
 
 def test_macro_risk_regime():
     import macro_context as mc
@@ -636,6 +637,55 @@ def test_brain_update_weights_clamped():
         w = sb.update_weights(w, {"good": True, "bad": False})
     assert w["good"] > w["bad"]
     assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
+
+
+# ---------- liquidations (modèle) ----------
+
+def test_liquidation_levels_sides_and_distance():
+    import liquidations as lq
+    lvls = lq.liquidation_levels(100.0, 1_000_000.0, long_share=0.5)
+    longs = [x for x in lvls if x["side"] == "long"]
+    shorts = [x for x in lvls if x["side"] == "short"]
+    assert longs and shorts
+    # longs se liquident SOUS le prix, shorts AU-DESSUS
+    assert all(x["price"] < 100.0 and x["distance_pct"] < 0 for x in longs)
+    assert all(x["price"] > 100.0 and x["distance_pct"] > 0 for x in shorts)
+    # 10x liquide à ±10%
+    l10 = next(x for x in longs if x["leverage"] == 10)
+    assert abs(l10["distance_pct"] + 10.0) < 1e-6
+    # notionnel total ~ OI
+    assert abs(sum(x["notional_usd"] for x in lvls) - 1_000_000.0) < 1.0
+
+def test_liquidation_levels_guard_and_share():
+    import liquidations as lq
+    assert lq.liquidation_levels(0, 100) == [] and lq.liquidation_levels(100, 0) == []
+    # plus de longs -> plus de notionnel côté long
+    lvls = lq.liquidation_levels(100.0, 1000.0, long_share=0.8)
+    lo = sum(x["notional_usd"] for x in lvls if x["side"] == "long")
+    sh = sum(x["notional_usd"] for x in lvls if x["side"] == "short")
+    assert lo > sh
+
+def test_liquidation_skew_direction():
+    import liquidations as lq
+    price = 100.0
+    # gros pool de shorts proche au-dessus -> net > 0 (aimant haussier)
+    levels = [
+        {"side": "short", "leverage": 50, "price": 102, "distance_pct": 2.0, "notional_usd": 900.0},
+        {"side": "long", "leverage": 10, "price": 90, "distance_pct": -10.0, "notional_usd": 100.0},
+    ]
+    sk = lq.liquidation_skew(levels, price, band_pct=8.0)
+    assert sk["net"] > 0 and sk["nearest_short"]["distance_pct"] == 2.0
+    # hors bande : ignoré
+    far = lq.liquidation_skew([{"side": "short", "leverage": 3, "price": 133,
+                                "distance_pct": 33.0, "notional_usd": 1e9}], price, band_pct=8.0)
+    assert far["net"] == 0.0
+
+def test_liquidation_cluster_map_sorted():
+    import liquidations as lq
+    lvls = lq.liquidation_levels(100.0, 1_000_000.0, long_share=0.5)
+    cm = lq.cluster_map(lvls, bucket_pct=1.0, top=5)
+    assert len(cm) <= 5
+    assert all(cm[i]["notional_usd"] >= cm[i + 1]["notional_usd"] for i in range(len(cm) - 1))
 
 
 # ---------- sécurité ----------
