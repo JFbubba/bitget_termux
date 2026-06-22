@@ -57,6 +57,7 @@ FILES_TO_SCAN = [
     "bitget_market_data.py",
     "macro_context.py",
     "confluence_score.py",
+    "dashboard/server.py",
 ]
 
 

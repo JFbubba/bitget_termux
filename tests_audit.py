@@ -227,6 +227,18 @@ def test_macro_parse_fred_csv():
     assert mc.latest_value(rows) == 14.05
     assert mc.latest_value([]) is None
 
+def test_dashboard_assemble_state():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    st = mod.assemble_state("BTCUSDT", ["BTCUSDT", "ETHUSDT"], {"total": 3, "tp": 2, "sl": 1}, None, {"signals": 5})
+    assert st["symbol"] == "BTCUSDT" and st["mode"].startswith("PAPER")
+    assert st["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert st["stats"]["tp"] == 2 and st["health"]["signals"] == 5
+    assert st["orderflow"] is None
+
 def test_macro_risk_regime():
     import macro_context as mc
     on = mc.compute_risk_regime(vix=15.0, yield_2s10s=0.5, dxy_change_pct=-1.0)
