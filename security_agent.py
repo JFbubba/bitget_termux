@@ -63,6 +63,7 @@ FILES_TO_SCAN = [
     "token_safety.py",
     "dex_scanner.py",
     "technicals.py",
+    "chart.py",
     "aggregated_derivs.py",
     "coingecko_data.py",
     "news_feed.py",

@@ -121,6 +121,7 @@ def handle_command(text):
             "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
+            "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
@@ -635,7 +636,7 @@ def handle_command(text):
         return "\n".join(output)
 
     if text == "/run_once":
-        send_telegram_message("▶️ Cycle manuel lancé. Attends le rapport de fin.")
+        reply_text("▶️ Cycle manuel lancé. Attends le rapport de fin.")
         result = subprocess.run(
             ["python", "agent_control.py"],
             capture_output=True,
@@ -674,6 +675,41 @@ def handle_command(text):
     )
 
 
+def reply_text(text):
+    """Répond par le bot QUI reçoit le message (son propre token)."""
+    if not text:
+        return
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                  data={"chat_id": ALLOWED_CHAT_ID, "text": text}, timeout=30)
+
+
+def reply_photo(path, caption=""):
+    with open(path, "rb") as fh:
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+                      data={"chat_id": ALLOWED_CHAT_ID, "caption": caption[:1000]},
+                      files={"photo": fh}, timeout=60)
+
+
+def handle_chart(text):
+    """Dessine le graphique (bougies + indicateurs) et l'envoie en photo."""
+    parts = text.split()
+    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+    granularity = parts[2] if len(parts) > 2 else "1H"
+    try:
+        import chart
+        import technicals
+        path = chart.render(symbol, granularity)
+        t = technicals.technicals(symbol, granularity)
+        cap = f"{symbol} {granularity}"
+        if t.get("vwap"):
+            cap += f" · VWAP {t['vwap']:.0f}"
+        if t.get("rsi14") is not None:
+            cap += f" · RSI {t['rsi14']:.1f}"
+        reply_photo(path, cap)
+    except Exception as exc:
+        reply_text(f"❌ chart: {type(exc).__name__}: {str(exc)[:250]}")
+
+
 def download_telegram_file(file_id):
     """Récupère un fichier Telegram et renvoie (base64, media_type)."""
     import base64
@@ -700,7 +736,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
@@ -731,13 +767,18 @@ def main():
             photo = message.get("photo")
             if photo:
                 print("Photo reçue -> analyse vision")
-                send_telegram_message(handle_photo(photo, message.get("caption", "")))
+                reply_text(handle_photo(photo, message.get("caption", "")))
+                continue
+
+            if text.startswith("/chart"):
+                print("Chart demandé")
+                handle_chart(text)
                 continue
 
             print(f"Commande reçue: {text}")
 
             reply = handle_command(text)
-            send_telegram_message(reply)
+            reply_text(reply)
 
         time.sleep(1)
 

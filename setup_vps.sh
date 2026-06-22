@@ -17,7 +17,7 @@ echo
 if command -v apt-get >/dev/null 2>&1; then
   echo "[1/4] Dépendances système (apt)..."
   apt-get update -y
-  apt-get install -y python-is-python3 python3-pip python3-dotenv python3-requests
+  apt-get install -y python-is-python3 python3-pip python3-dotenv python3-requests python3-matplotlib
 else
   echo "[1/4] apt-get absent — installe Python 3 + 'requests' + 'python-dotenv' manuellement."
 fi

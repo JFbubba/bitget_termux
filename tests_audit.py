@@ -419,6 +419,10 @@ def test_technicals_pure():
     assert lc["bid_walls"][0]["price"] == 99 and lc["ask_walls"][0]["price"] == 102
     assert tk.parse_candles([["1", "10", "12", "9", "11", "100", "x"]])[0]["close"] == 11
 
+def test_chart_module_imports():
+    import chart
+    assert hasattr(chart, "render") and callable(chart.render)
+
 def test_aggregated_derivs():
     import aggregated_derivs as ad
     parts = [
