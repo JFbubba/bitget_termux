@@ -170,6 +170,33 @@ def in_active_session(dt):
     return len(trading_sessions(dt)) > 0
 
 
+def sector_rotation_ratio(xly_price, xlp_price):
+    """Ratio rotation sectorielle XLY/XLP (discrétionnaire / staples).
+
+    Ratio élevé / en hausse = appétit pour le risque (risk-on) ; en baisse =
+    défensif (risk-off). Prix fournis par une source externe (Yahoo/FMP).
+    Calcul pur.
+    """
+    if xlp_price <= 0:
+        raise ValueError("sector_rotation_ratio: xlp_price doit être > 0")
+    return float(xly_price) / float(xlp_price)
+
+
+def cot_net_positioning(long_positions, short_positions):
+    """Positionnement net COT (CFTC) : net, net %, biais.
+
+    `long_positions`/`short_positions` : positions ouvertes d'une catégorie
+    (ex. large speculators) issues d'un rapport COT cftc.gov. Calcul pur.
+    """
+    if long_positions < 0 or short_positions < 0:
+        raise ValueError("cot_net_positioning: positions négatives invalides")
+    total = long_positions + short_positions
+    net = long_positions - short_positions
+    net_pct = (net / total * 100.0) if total else 0.0
+    bias = "LONG" if net > 0 else "SHORT" if net < 0 else "FLAT"
+    return {"net": net, "net_pct": net_pct, "bias": bias}
+
+
 def main():
     print("=== PRO INDICATORS (lecture seule) ===")
     print("Module de calcul pur. Voir docs/PRO_INDICATORS.md.")

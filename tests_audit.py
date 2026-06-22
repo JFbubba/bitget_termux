@@ -122,6 +122,18 @@ def test_risk_based_position_size():
     except ValueError:
         pass
 
+def test_sector_rotation_and_cot():
+    import pro_indicators as pro
+    assert abs(pro.sector_rotation_ratio(100.0, 80.0) - 1.25) < 1e-9
+    try:
+        pro.sector_rotation_ratio(100.0, 0.0)
+        assert False
+    except ValueError:
+        pass
+    cot = pro.cot_net_positioning(600.0, 400.0)
+    assert cot["net"] == 200.0 and abs(cot["net_pct"] - 20.0) < 1e-9 and cot["bias"] == "LONG"
+    assert pro.cot_net_positioning(0.0, 0.0)["bias"] == "FLAT"
+
 def test_trading_sessions_brussels():
     import pro_indicators as pro
     from datetime import datetime
@@ -223,6 +235,23 @@ def test_macro_risk_regime():
     assert off["regime"] == "RISK_OFF" and off["score"] < 0
     neutral = mc.compute_risk_regime()
     assert neutral["regime"] == "NEUTRE" and neutral["score"] == 0
+
+
+# ---------- confluence_score (pur, sans réseau) ----------
+
+def test_confluence_score():
+    import confluence_score as c
+    strong = c.confluence_score("LONG", book_imbalance=0.3, cvd=5.0, macro_regime="RISK_ON", volume_bias=2)
+    assert strong["label"] == "FORTE CONFLUENCE" and strong["score"] >= 3
+    against = c.confluence_score("SHORT", book_imbalance=0.3, cvd=5.0, macro_regime="RISK_ON")
+    assert against["score"] < 0
+    mixed = c.confluence_score("LONG")
+    assert mixed["label"] == "MIXTE" and mixed["score"] == 0
+    try:
+        c.confluence_score("NEUTRE")
+        assert False, "aurait dû lever ValueError"
+    except ValueError:
+        pass
 
 
 # ---------- outcome LONG & SHORT ----------

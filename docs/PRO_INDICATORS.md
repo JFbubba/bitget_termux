@@ -21,6 +21,15 @@ Tout reste **aide à la décision** : aucun ordre réel, `can_trade=False`.
 | Ratio de Sharpe | `pro_indicators.sharpe_ratio` | rendements | Sharpe (annualisable) |
 | Sizing par risque capital | `pro_indicators.risk_based_position_size` | capital, risk %, entry, stop | taille, montant risqué |
 | Timing des canaux horaires | `pro_indicators.trading_sessions` | datetime (Bruxelles) | fenêtres actives |
+| Rotation sectorielle XLY/XLP | `pro_indicators.sector_rotation_ratio` | prix XLY, XLP | ratio risk-on/off |
+| Positionnement COT | `pro_indicators.cot_net_positioning` | longs, shorts | net, net %, biais |
+| **Confluence** signal × micro × macro | `confluence_score.confluence_score` | side + carnet/CVD/biais/régime | label + score |
+
+> **Convergence** : `confluence_score.py` réunit le signal, la microstructure
+> (`order_flow` via `bitget_market_data`) et le régime macro (`macro_context`)
+> pour dire si tout est ALIGNÉ avec la direction (LONG/SHORT). Advisory, lecture
+> seule. CLI : `python confluence_score.py BTCUSDT LONG` ; Telegram :
+> `/confluence SYMBOL SIDE`.
 
 ### Risk management du capital (principe encodé)
 > **Le stop-loss ne protège pas une position, il protège le CAPITAL.**
@@ -53,8 +62,8 @@ risk-on / risk-off** au-dessus des signaux crypto.
 | **VIX (spike)** | pic de peur actions → risk-off, corrélé aux purges crypto | FRED (`VIXCLS`), Yahoo `^VIX` |
 | **Yield curve** (2s10s) | inversion = stress macro / récession | FRED (`T10Y2Y`) |
 | **Marché actions + rotation sectorielle** | appétit pour le risque, mécanisme *forward-looking* | ETFs sectoriels via FMP / Yahoo |
-| **XLY − XLP** (discrétionnaire − staples) | ratio risk-on/off : XLY>XLP = appétit risque | Yahoo `XLY`,`XLP` (calculer le ratio) |
-| **COT reports** (CFTC) | positionnement hebdo des gros acteurs (futures, incl. crypto) | **cftc.gov** (téléchargement public gratuit) |
+| **XLY − XLP** (discrétionnaire − staples) | ratio risk-on/off : XLY>XLP = appétit risque | Yahoo `XLY`,`XLP` → `pro_indicators.sector_rotation_ratio` |
+| **COT reports** (CFTC) | positionnement hebdo des gros acteurs (futures, incl. crypto) | **cftc.gov** → `pro_indicators.cot_net_positioning` |
 | **Order book / CBOT (profondeur)** | murs d'achat/vente, déséquilibre de carnet | API Bitget (depth) ; MCP CoinDesk (orderbook metrics) |
 | **Tape / Time & Sales** | flux de trades, gros prints, agressivité acheteur/vendeur | API Bitget (trades) ; MCP CoinDesk (trades) |
 

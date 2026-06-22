@@ -122,11 +122,14 @@ def macro_snapshot():
         if ref:
             dxy_change = (last / ref - 1.0) * 100.0
 
+    oil = latest_value(_safe_series("DCOILWTICO"))  # WTI, contexte inflation/énergie
+
     regime = compute_risk_regime(vix, yield_2s10s, dxy_change)
     return {
         "vix": vix,
         "yield_2s10s": yield_2s10s,
         "dxy_change_pct": dxy_change,
+        "oil_wti": oil,
         "regime": regime["regime"],
         "score": regime["score"],
         "notes": regime["notes"],
@@ -141,6 +144,7 @@ def build_report(snap):
         f"VIX          : {fmt(snap['vix'])}",
         f"Courbe 2s10s : {fmt(snap['yield_2s10s'])}",
         f"DXY (var.)   : {fmt(snap['dxy_change_pct'], '%')}",
+        f"Pétrole WTI  : {fmt(snap.get('oil_wti'))}",
         f"RÉGIME       : {snap['regime']} (score {snap['score']:+d})",
     ]
     for note in snap["notes"]:
