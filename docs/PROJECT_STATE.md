@@ -139,9 +139,14 @@ Exposés à l'assistant : outils `get_technicals` + `get_liquidity_clusters`.
 À FAIRE (multi-exchange) : funding agrégé OI-pondéré 8h, OI agrégé en bougies
 (Binance+Bybit+Bitget ou MCP CoinDesk). Vision charts : option Gemini/Claude.
 
-**Prochaine action** : tester sur le VPS (la clé ANTHROPIC y est) avec
-`python assistant/agent.py "..."`, puis itérer (bridge Telegram dédié + mémoire
-de conversation + plus d'outils ; brancher l'option OpenAI/Kimi avec outils).
+**Prochaine action** : l'assistant est **LIVE et fonctionnel sur le VPS** via
+**Groq gratuit** (`LLM_BASE_URL=https://api.groq.com/openai/v1`,
+`LLM_MODEL=llama-3.3-70b-versatile`). Testé : appelle les outils + synthétise en
+quelques secondes. (Ollama `qwen2.5:7b` local marche aussi mais trop lent en CPU
+8 Go → réservé au 100 % local patient, via `LLM_TIMEOUT` élevé.)
+Itérer ensuite : bridge Telegram (`/ask` depuis le tél, besoin du token Telegram),
+mémoire de conversation, outils news/prix (clés CryptoPanic+CoinGecko déjà là),
+multi-exchange (funding/OI agrégés), vision charts (Gemini/Claude).
 
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
