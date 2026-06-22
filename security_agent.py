@@ -71,6 +71,7 @@ FILES_TO_SCAN = [
     "assistant/tools.py",
     "assistant/agent.py",
     "assistant/memory.py",
+    "assistant/vision.py",
 ]
 
 

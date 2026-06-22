@@ -365,6 +365,16 @@ def test_assistant_openai_loop():
     assert text == "Réponse OpenAI." and seq["n"] == 2
     assert any(isinstance(m, dict) and m.get("role") == "tool" for m in msgs)
 
+def test_vision_build_messages():
+    from assistant import vision
+    msgs = vision.build_messages("analyse", "QkFTRTY0", "image/png")
+    assert msgs[0]["role"] == "system" and "LECTURE SEULE" in msgs[0]["content"]
+    parts = msgs[1]["content"]
+    assert msgs[1]["role"] == "user"
+    assert parts[0]["type"] == "text" and parts[0]["text"] == "analyse"
+    assert parts[1]["type"] == "image_url"
+    assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,QkFTRTY0")
+
 def test_assistant_memory():
     import pathlib
     import tempfile

@@ -117,6 +117,7 @@ def handle_command(text):
             "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
             "/ask QUESTION - assistant IA (langage naturel, lecture seule)\n"
             "/forget - efface la mémoire de conversation de l'assistant\n"
+            "📷 envoie une PHOTO de chart -> analyse vision automatique\n"
             "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
@@ -673,6 +674,30 @@ def handle_command(text):
     )
 
 
+def download_telegram_file(file_id):
+    """Récupère un fichier Telegram et renvoie (base64, media_type)."""
+    import base64
+    info = requests.get(f"https://api.telegram.org/bot{TOKEN}/getFile",
+                        params={"file_id": file_id}, timeout=15)
+    info.raise_for_status()
+    file_path = info.json()["result"]["file_path"]
+    blob = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30)
+    blob.raise_for_status()
+    media = "image/jpeg" if file_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+    return base64.b64encode(blob.content).decode(), media
+
+
+def handle_photo(photo, caption):
+    """Analyse une photo (chart) envoyée sur Telegram via le module vision."""
+    try:
+        file_id = photo[-1]["file_id"]  # plus grande résolution
+        image_b64, media = download_telegram_file(file_id)
+        from assistant import vision
+        return "🖼️ " + vision.analyze_image(caption, image_b64, media)
+    except Exception as exc:
+        return f"❌ vision: {type(exc).__name__}: {str(exc)[:300]}"
+
+
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
     print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
@@ -701,6 +726,12 @@ def main():
 
             if chat_id != str(ALLOWED_CHAT_ID):
                 print(f"Message refusé depuis chat_id non autorisé: {chat_id}")
+                continue
+
+            photo = message.get("photo")
+            if photo:
+                print("Photo reçue -> analyse vision")
+                send_telegram_message(handle_photo(photo, message.get("caption", "")))
                 continue
 
             print(f"Commande reçue: {text}")

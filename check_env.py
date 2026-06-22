@@ -32,6 +32,7 @@ OPTIONAL = {
     ],
     "Telegram (2e bot assistant)": ["COMMAND_BOT_TOKEN"],
     "Assistant conversationnel (LLM)": ["ANTHROPIC_API_KEY", "LLM_MODEL", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY"],
+    "Vision (charts par image, Gemini)": ["VISION_API_KEY", "VISION_MODEL", "VISION_BASE_URL"],
     "Data (cles gratuites)": [
         "COINGECKO_API_KEY", "CRYPTOPANIC_API_TOKEN", "FMP_API_KEY", "FINNHUB_API_KEY",
         "FRED_API_KEY", "BIRDEYE_API_KEY", "HELIUS_API_KEY", "NEYNAR_API_KEY",
