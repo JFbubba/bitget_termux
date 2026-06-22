@@ -114,6 +114,11 @@ def _tradfi_macro(**_):
     return macro_data.fetch_macro()
 
 
+def _cross_exchange(symbol="BTCUSDT", **_):
+    import ccxt_markets
+    return ccxt_markets.cross_exchange(str(symbol).upper())
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -135,6 +140,7 @@ TOOL_FUNCS = {
     "get_economic_calendar": _economic_calendar,
     "get_arbitrage": _arbitrage,
     "get_tradfi_macro": _tradfi_macro,
+    "get_cross_exchange": _cross_exchange,
 }
 
 TOOLS = [
@@ -237,6 +243,11 @@ TOOLS = [
         "name": "get_tradfi_macro",
         "description": "Contexte macro TradFi en quasi-temps réel (yfinance) : VIX, indice dollar DXY, S&P 500, rendement 10 ans US, or, pétrole WTI, BTC, + régime risk-on/off. Complète get_macro (FRED). Lecture seule.",
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_cross_exchange",
+        "description": "Prix spot multi-exchange via CCXT (Binance/Bybit/OKX/KuCoin/Gate/Bitget) + meilleur écart inter-exchange. Couverture plus large que get_arbitrage. Écart BRUT hors frais, lecture seule. Nécessite ccxt installé sur le serveur.",
+        "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
     },
 ]
 

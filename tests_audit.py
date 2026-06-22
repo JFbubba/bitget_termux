@@ -779,6 +779,39 @@ def test_macro_data_degrades_without_lib(monkeypatch=None):
         md._available = orig
 
 
+# ---------- ccxt multi-exchange (purs + dégradation) ----------
+
+def test_ccxt_symbol_conversion():
+    import ccxt_markets as cm
+    assert cm._to_spot("BTCUSDT") == "BTC/USDT"
+    assert cm._to_swap("ETHUSDT") == "ETH/USDT:USDT"
+    assert cm._to_spot("SOL/USDT:USDT") == "SOL/USDT"
+    assert cm._split("BTCUSDC") == ("BTC", "USDC")
+
+def test_ccxt_degrades_without_lib():
+    import ccxt_markets as cm
+    orig = cm.available
+    cm.available = lambda: False
+    try:
+        assert "error" in cm.fetch_spot_prices("BTCUSDT")
+        assert cm.cross_exchange("BTCUSDT").get("error")
+    finally:
+        cm.available = orig
+
+def test_ccxt_cross_exchange_aggregates():
+    import ccxt_markets as cm
+    orig_av, orig_fp = cm.available, cm.fetch_spot_prices
+    cm.available = lambda: True
+    cm.fetch_spot_prices = lambda s, exchanges=None: {"binance": 100.0, "okx": 101.0, "bybit": None}
+    try:
+        out = cm.cross_exchange("BTCUSDT")
+        assert out["venues"] == 2
+        assert out["spread"]["buy_at"] == "binance" and out["spread"]["sell_at"] == "okx"
+        assert abs(out["spread"]["spread_pct"] - 1.0) < 1e-6
+    finally:
+        cm.available, cm.fetch_spot_prices = orig_av, orig_fp
+
+
 # ---------- sécurité ----------
 
 def test_security_keyword_coverage():

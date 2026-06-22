@@ -127,6 +127,7 @@ def handle_command(text):
             "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
             "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
             "/tradfi - macro TradFi temps quasi-réel (VIX/DXY/SPX/10Y/or/pétrole)\n"
+            "/cross [SYMBOL] - prix spot multi-exchange + écart (ccxt)\n"
             "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
@@ -399,6 +400,12 @@ def handle_command(text):
     if text.startswith("/tradfi"):
         result = subprocess.run(["python", "macro_data.py"], capture_output=True, text=True, timeout=60)
         return result.stdout if result.returncode == 0 else f"❌ macro_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/cross"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "ccxt_markets.py", sym], capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ ccxt_markets.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -776,7 +783,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /tradfi /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /tradfi /cross /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

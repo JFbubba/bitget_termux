@@ -66,6 +66,7 @@ FILES_TO_SCAN = [
     "technicals.py",
     "chart.py",
     "aggregated_derivs.py",
+    "ccxt_markets.py",
     "polymarket_data.py",
     "risk_manager.py",
     "swarm_brain.py",
