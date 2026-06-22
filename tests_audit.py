@@ -403,6 +403,9 @@ def test_assistant_openai_tools_format():
 
 def test_technicals_pure():
     import technicals as tk
+    assert tk._norm_granularity("1h") == "1H" and tk._norm_granularity("1H") == "1H"
+    assert tk._norm_granularity("15m") == "15m" and tk._norm_granularity("4h") == "4H"
+    assert tk._norm_granularity("1d") == "1D" and tk._norm_granularity("1M") == "1M"
     candles = [
         {"ts": 1, "open": 10, "high": 12, "low": 9, "close": 11, "volume": 100},
         {"ts": 2, "open": 11, "high": 13, "low": 10, "close": 12, "volume": 200},

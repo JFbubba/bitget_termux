@@ -20,6 +20,19 @@ import bitget_market_data as bmd
 import config
 import indicators
 
+# Bitget veut les heures/jours/semaines en MAJUSCULE (1H, 4H, 1D, 1W) ; la minute
+# reste en minuscule (1m) car 1M = 1 mois. On normalise pour accepter toute casse.
+_UNIT = {"m": "m", "M": "M", "h": "H", "H": "H", "d": "D", "D": "D", "w": "W", "W": "W"}
+
+
+def _norm_granularity(g):
+    import re
+    mt = re.match(r"^(\d+)([a-zA-Z])$", str(g).strip())
+    if not mt:
+        return str(g).strip()
+    num, unit = mt.groups()
+    return f"{num}{_UNIT.get(unit, unit)}"
+
 
 # ---------- réseau ----------
 
@@ -27,7 +40,7 @@ def fetch_candles(symbol, granularity="15m", limit=200, product_type=None):
     raw = bmd._get("/api/v2/mix/market/candles", {
         "symbol": symbol,
         "productType": product_type or config.PRODUCT_TYPE,
-        "granularity": granularity,
+        "granularity": _norm_granularity(granularity),
         "limit": str(limit),
     })
     return parse_candles(raw)
