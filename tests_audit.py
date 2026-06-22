@@ -266,6 +266,47 @@ def test_confluence_score():
         pass
 
 
+# ---------- readers keyless (parseurs purs, sans réseau) ----------
+
+def test_sentiment_parse():
+    import sentiment_index as si
+    fng = si.parse_fear_greed({"data": [{"value": "20", "value_classification": "Extreme Fear", "timestamp": "1"}]})
+    assert fng["value"] == 20 and "Fear" in fng["classification"]
+    assert si.parse_fear_greed({"data": []}) is None
+
+def test_defi_parse():
+    import defi_data as dd
+    s = dd.parse_chains([{"name": "Ethereum", "tvl": 39e9, "tokenSymbol": "ETH"},
+                         {"name": "BSC", "tvl": 5e9}], top=2)
+    assert s["chain_count"] == 2 and s["top_chains"][0]["name"] == "Ethereum"
+    assert abs(s["total_tvl"] - 44e9) < 1
+
+def test_token_safety():
+    import token_safety as ts
+    gp = ts.parse_goplus({"result": {"0xabc": {"is_honeypot": "1", "buy_tax": "0.5",
+        "sell_tax": "0.9", "is_open_source": "0", "holder_count": "10"}}}, "0xABC")
+    assert gp["honeypot"] is True and "HONEYPOT" in gp["flags"] and "CLOSED_SOURCE" in gp["flags"]
+    hp = ts.parse_honeypot({"honeypotResult": {"isHoneypot": True}, "simulationResult": {"buyTax": 1, "sellTax": 2}})
+    assert hp["honeypot"] is True
+    rc = ts.parse_rugcheck({"token": {"mintAuthority": "X", "freezeAuthority": None},
+        "risks": [{"name": "High holder concentration"}], "score": 500})
+    assert "MINT_AUTHORITY_ACTIVE" in rc["flags"] and "HIGH_HOLDER_CONCENTRATION" in rc["flags"]
+    assert ts.risk_level(["HONEYPOT"]) == "CRITICAL"
+    assert ts.risk_level(["MINT_AUTHORITY_ACTIVE"]) == "HIGH"
+    assert ts.risk_level([], honeypot=False, taxes=(15, 1)) == "HIGH"
+    assert ts.risk_level([]) == "LOW"
+
+def test_dex_parse():
+    import dex_scanner as ds
+    pairs = ds.parse_pairs({"pairs": [
+        {"chainId": "solana", "dexId": "ray", "baseToken": {"symbol": "AAA", "name": "A", "address": "x"},
+         "priceUsd": "1", "liquidity": {"usd": 1000}, "volume": {"h24": 50}},
+        {"chainId": "base", "dexId": "aero", "baseToken": {"symbol": "BBB"},
+         "liquidity": {"usd": 5000}, "volume": {"h24": 10}},
+    ]}, top=2)
+    assert pairs[0]["symbol"] == "BBB" and pairs[0]["liquidity_usd"] == 5000
+
+
 # ---------- outcome LONG & SHORT ----------
 
 def _sig(side, entry, sl, tp, t):

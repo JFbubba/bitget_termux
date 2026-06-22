@@ -58,6 +58,10 @@ FILES_TO_SCAN = [
     "macro_context.py",
     "confluence_score.py",
     "dashboard/server.py",
+    "sentiment_index.py",
+    "defi_data.py",
+    "token_safety.py",
+    "dex_scanner.py",
 ]
 
 
