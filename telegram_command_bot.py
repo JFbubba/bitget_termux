@@ -12,7 +12,7 @@ from telegram_notifier import send_telegram_message
 
 load_dotenv(dotenv_path=Path(".env"))
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("COMMAND_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 if not TOKEN:
