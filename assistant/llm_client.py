@@ -25,6 +25,7 @@ except Exception:
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MODEL = os.getenv("LLM_MODEL") or "claude-haiku-4-5"
+TIMEOUT = int(os.getenv("LLM_TIMEOUT") or "120")  # secondes ; monter pour Ollama CPU
 
 
 class LLMError(Exception):
@@ -45,7 +46,8 @@ def _anthropic_key():
     return key
 
 
-def anthropic_chat(system, messages, tools=None, model=None, max_tokens=2048, timeout=60):
+def anthropic_chat(system, messages, tools=None, model=None, max_tokens=2048, timeout=None):
+    timeout = timeout or TIMEOUT
     """Un appel à l'API Anthropic Messages. Retourne le JSON brut (dict)."""
     headers = {
         "x-api-key": _anthropic_key(),
@@ -83,8 +85,9 @@ def to_openai_tools(tools):
     return out
 
 
-def openai_chat(messages, tools=None, model=None, max_tokens=2048, timeout=90):
+def openai_chat(messages, tools=None, model=None, max_tokens=2048, timeout=None):
     """Un appel chat/completions OpenAI-compatible. Retourne le JSON brut (dict)."""
+    timeout = timeout or TIMEOUT
     base = (os.getenv("LLM_BASE_URL") or "").rstrip("/")
     if not base:
         raise LLMError("LLM_BASE_URL manquant pour le provider OpenAI-compatible")
