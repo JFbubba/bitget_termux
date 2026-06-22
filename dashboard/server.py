@@ -130,7 +130,8 @@ def build_state(symbol=None):
     def _candles():
         import technicals
         cs = technicals.fetch_candles(symbol, "5m", 60)
-        return [[c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in cs]
+        # [time_s, open, high, low, close, volume] — time requis par Lightweight Charts
+        return [[int(c["ts"] // 1000), c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in cs]
 
     def _book():
         import bitget_market_data as bmd
@@ -185,6 +186,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json; charset=utf-8", body)
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
+        elif parsed.path.startswith("/vendor/") and parsed.path.endswith(".js"):
+            # sert les libs front vendorisées (ex. Lightweight Charts), sans traversée
+            target = (STATIC_DIR / parsed.path.lstrip("/")).resolve()
+            vendor = (STATIC_DIR / "vendor").resolve()
+            if str(target).startswith(str(vendor) + os.sep) and target.is_file():
+                self._send(200, "application/javascript; charset=utf-8", target.read_bytes())
+            else:
+                self._send(404, "text/plain; charset=utf-8", b"not found")
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 

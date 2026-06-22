@@ -84,6 +84,7 @@
   .vbar i{position:absolute;top:0;bottom:0;border-radius:3px}
   @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
 </style>
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -123,7 +124,7 @@
 
     <div class="panel" style="position:relative">
       <h2>BTC · 5M · <span id="c-price">—</span></h2>
-      <canvas id="chart" height="230"></canvas>
+      <div id="chart" style="height:230px;width:100%"></div>
       <div class="tip" id="chart-tip"></div>
       <div class="ind-bar" id="ind-bar" title="clic = afficher/masquer · double-clic = isoler">
         <span class="ind on" data-ind="candles"><span class="sw" style="background:var(--accent)"></span>Bougies</span>
@@ -236,71 +237,73 @@ function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100
 
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
-let _candles=[],_chartGeo=null;
+let _candles=[],chart=null,series={};
 
 function emaSeries(vals,period){
   const out=vals.map(()=>null);if(vals.length<period)return out;
   const k=2/(period+1);let prev=0;for(let i=0;i<period;i++)prev+=vals[i];prev/=period;out[period-1]=prev;
   for(let i=period;i<vals.length;i++){prev=vals[i]*k+prev*(1-k);out[i]=prev;}return out;
 }
-function vwapSeries(candles){let pv=0,vv=0;return candles.map(k=>{const tp=(k[1]+k[2]+k[3])/3,v=k[4]||0;pv+=tp*v;vv+=v;return vv?pv/vv:null;});}
-function drawLine(ctx,series,xAt,yAt,color){
-  ctx.strokeStyle=color;ctx.lineWidth=1.3;ctx.beginPath();let started=false;
-  series.forEach((p,i)=>{if(p==null){started=false;return;}const x=xAt(i),y=yAt(p);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);});
-  ctx.stroke();ctx.lineWidth=1;
+// indices candle : [time, open, high, low, close, volume]
+function vwapSeries(candles){let pv=0,vv=0;return candles.map(k=>{const tp=(k[2]+k[3]+k[4])/3,v=k[5]||0;pv+=tp*v;vv+=v;return vv?pv/vv:null;});}
+function _lineData(vals){const out=[];vals.forEach((v,i)=>{if(v!=null)out.push({time:_candles[i][0],value:v});});return out;}
+
+function initChart(){
+  if(!window.LightweightCharts){$("chart").innerHTML="<div class='dim' style='padding:20px'>graphique indisponible (lib non chargée)</div>";return;}
+  const el=$("chart");
+  chart=LightweightCharts.createChart(el,{
+    width:el.clientWidth,height:230,
+    layout:{background:{color:"transparent"},textColor:"#5b6675",fontSize:10,fontFamily:"monospace"},
+    grid:{vertLines:{color:"#10151d"},horzLines:{color:"#10151d"}},
+    rightPriceScale:{borderColor:"#19202b"},
+    timeScale:{borderColor:"#19202b",timeVisible:true,secondsVisible:false},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal,
+      vertLine:{color:"#33415a",labelBackgroundColor:"#1b2330"},
+      horzLine:{color:"#33415a",labelBackgroundColor:"#1b2330"}},
+  });
+  series.candles=chart.addCandlestickSeries({upColor:"#2ec27e",downColor:"#f5566b",borderVisible:false,wickUpColor:"#2ec27e",wickDownColor:"#f5566b"});
+  const lopt={lineWidth:1.4,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false};
+  series.ema20=chart.addLineSeries(Object.assign({color:"#4ea1ff"},lopt));
+  series.ema50=chart.addLineSeries(Object.assign({color:"#b083f0"},lopt));
+  series.vwap=chart.addLineSeries(Object.assign({color:"#f0b429"},lopt));
+  series.volume=chart.addHistogramSeries({priceScaleId:"vol",priceFormat:{type:"volume"}});
+  series.volume.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
+  applyChartLayers();
+  new ResizeObserver(()=>chart.applyOptions({width:el.clientWidth})).observe(el);
+  chart.subscribeCrosshairMove(handleCrosshair);
+}
+
+function applyChartLayers(){
+  if(!chart)return;
+  Object.keys(LAYERS).forEach(k=>{if(series[k])series[k].applyOptions({visible:!!LAYERS[k]});});
 }
 
 function drawChart(candles){
   if(candles)_candles=candles;
-  const c=$("chart"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
-  ctx.clearRect(0,0,w,h);
-  if(!_candles.length){_chartGeo=null;return;}
-  const closes=_candles.map(k=>k[3]);
-  const ema20=emaSeries(closes,20),ema50=emaSeries(closes,50),vwap=vwapSeries(_candles);
-  // l'échelle de prix englobe les couches actives pour qu'elles restent visibles
-  const vals=[];_candles.forEach(k=>{vals.push(k[1],k[2]);});
-  if(LAYERS.vwap)vwap.forEach(v=>v!=null&&vals.push(v));
-  if(LAYERS.ema20)ema20.forEach(v=>v!=null&&vals.push(v));
-  if(LAYERS.ema50)ema50.forEach(v=>v!=null&&vals.push(v));
-  const lo=Math.min(...vals),hi=Math.max(...vals),rng=(hi-lo)||1;
-  const n=_candles.length,cw=w/n,bw=Math.max(1,cw*0.6);
-  const volH=LAYERS.volume?Math.round(h*0.22):0,top=8,bot=h-8-volH;
-  const y=p=>bot-((p-lo)/rng)*(bot-top),xAt=i=>i*cw+cw/2;
-  _chartGeo={lo,hi,rng,cw,n,top,bot,volH,h,w,ema20,ema50,vwap,y,xAt};
-  if(LAYERS.volume){
-    const mv=Math.max(1,..._candles.map(k=>k[4]||0));
-    _candles.forEach((k,i)=>{const vh=((k[4]||0)/mv)*(volH-4),x=xAt(i),up=k[3]>=k[0];
-      ctx.fillStyle=up?"rgba(46,194,126,.35)":"rgba(245,86,107,.35)";ctx.fillRect(x-bw/2,h-8-vh,bw,vh);});
-  }
-  if(LAYERS.candles){
-    _candles.forEach((k,i)=>{const o=k[0],hg=k[1],lw=k[2],cl=k[3],x=xAt(i),up=cl>=o,col=up?"#2ec27e":"#f5566b";
-      ctx.strokeStyle=col;ctx.beginPath();ctx.moveTo(x,y(hg));ctx.lineTo(x,y(lw));ctx.stroke();
-      ctx.fillStyle=col;const yo=y(o),yc=y(cl);ctx.fillRect(x-bw/2,Math.min(yo,yc),bw,Math.max(Math.abs(yc-yo),1));});
-  }
-  if(LAYERS.ema20)drawLine(ctx,ema20,xAt,y,"#4ea1ff");
-  if(LAYERS.ema50)drawLine(ctx,ema50,xAt,y,"#b083f0");
-  if(LAYERS.vwap)drawLine(ctx,vwap,xAt,y,"#f0b429");
-  const last=closes[n-1];
-  ctx.strokeStyle="#3a3f4a";ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(0,y(last));ctx.lineTo(w,y(last));ctx.stroke();ctx.setLineDash([]);
+  if(!chart||!_candles.length)return;
+  series.candles.setData(_candles.map(k=>({time:k[0],open:k[1],high:k[2],low:k[3],close:k[4]})));
+  const closes=_candles.map(k=>k[4]);
+  series.ema20.setData(_lineData(emaSeries(closes,20)));
+  series.ema50.setData(_lineData(emaSeries(closes,50)));
+  series.vwap.setData(_lineData(vwapSeries(_candles)));
+  series.volume.setData(_candles.map(k=>({time:k[0],value:k[5]||0,
+    color:k[4]>=k[1]?"rgba(46,194,126,.45)":"rgba(245,86,107,.45)"})));
 }
 
-function chartHover(ev){
-  const g=_chartGeo;if(!g||!_candles.length)return;
-  const c=$("chart"),rect=c.getBoundingClientRect();
-  let i=Math.floor((ev.clientX-rect.left)/g.cw);i=Math.max(0,Math.min(g.n-1,i));
-  drawChart();                                  // redessine la base puis le crosshair
-  const ctx=c.getContext("2d"),x=g.xAt(i);
-  ctx.strokeStyle="rgba(120,140,170,.45)";ctx.setLineDash([2,3]);
-  ctx.beginPath();ctx.moveTo(x,g.top);ctx.lineTo(x,g.bot);ctx.stroke();ctx.setLineDash([]);
-  const k=_candles[i],parts=[`O ${fmt(k[0])}  H ${fmt(k[1])}`,`L ${fmt(k[2])}  C ${fmt(k[3])}`,`Vol ${human(k[4])}`];
-  if(LAYERS.ema20&&g.ema20[i]!=null)parts.push(`<span class="blue">EMA20 ${fmt(g.ema20[i])}</span>`);
-  if(LAYERS.ema50&&g.ema50[i]!=null)parts.push(`<span class="purple">EMA50 ${fmt(g.ema50[i])}</span>`);
-  if(LAYERS.vwap&&g.vwap[i]!=null)parts.push(`<span class="amber">VWAP ${fmt(g.vwap[i])}</span>`);
-  const tip=$("chart-tip");tip.innerHTML=parts.join("<br>");tip.style.display="block";
-  let tx=x+14;if(tx+130>g.w)tx=x-140;
-  tip.style.left=(c.offsetLeft+Math.max(0,tx))+"px";tip.style.top=(c.offsetTop+g.top+2)+"px";
+function handleCrosshair(param){
+  const tip=$("chart-tip"),el=$("chart");
+  if(!param.point||!param.time||param.point.x<0){tip.style.display="none";return;}
+  const c=param.seriesData.get(series.candles);
+  if(!c){tip.style.display="none";return;}
+  const parts=[`O ${fmt(c.open)}  H ${fmt(c.high)}`,`L ${fmt(c.low)}  C ${fmt(c.close)}`];
+  const e20=param.seriesData.get(series.ema20);if(LAYERS.ema20&&e20)parts.push(`<span class="blue">EMA20 ${fmt(e20.value)}</span>`);
+  const e50=param.seriesData.get(series.ema50);if(LAYERS.ema50&&e50)parts.push(`<span class="purple">EMA50 ${fmt(e50.value)}</span>`);
+  const vw=param.seriesData.get(series.vwap);if(LAYERS.vwap&&vw)parts.push(`<span class="amber">VWAP ${fmt(vw.value)}</span>`);
+  const vo=param.seriesData.get(series.volume);if(LAYERS.volume&&vo)parts.push(`Vol ${human(vo.value)}`);
+  tip.innerHTML=parts.join("<br>");tip.style.display="block";
+  let x=param.point.x+14;if(x+140>el.clientWidth)x=param.point.x-150;
+  tip.style.left=(el.offsetLeft+Math.max(0,x))+"px";tip.style.top=(el.offsetTop+8)+"px";
 }
-function chartLeave(){$("chart-tip").style.display="none";drawChart();}
 
 // distingue clic simple (toggle) et double-clic (isoler) sur un même élément
 function bindClickDbl(el,single,double){
@@ -453,8 +456,8 @@ async function tick(){
 // --- barre d'indicateurs du graphique : clic = toggle, double-clic = isoler ---
 function applyIndUI(){document.querySelectorAll("#ind-bar .ind").forEach(el=>el.classList.toggle("on",!!LAYERS[el.dataset.ind]));}
 document.querySelectorAll("#ind-bar .ind").forEach(el=>bindClickDbl(el,
-  ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();drawChart();},
-  ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();drawChart();}));
+  ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();applyChartLayers();},
+  ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();applyChartLayers();}));
 
 // --- légende du graphe : clic = toggle d'une couche, double-clic = isoler ---
 function applyLegendUI(){document.querySelectorAll("#g-legend .lg").forEach(el=>el.classList.toggle("off",!CLS_ON[el.dataset.cls]));}
@@ -462,10 +465,8 @@ document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
   ()=>{CLS_ON[el.dataset.cls]=!CLS_ON[el.dataset.cls];applyLegendUI();},
   ()=>{const k=el.dataset.cls;Object.keys(CLS_ON).forEach(x=>CLS_ON[x]=(x===k));applyLegendUI();}));
 
-// --- crosshair + tooltip OHLC sur le graphique ---
-const _chartEl=$("chart");
-_chartEl.addEventListener("mousemove",chartHover);
-_chartEl.addEventListener("mouseleave",chartLeave);
+// graphique pro (Lightweight Charts) : crosshair + tooltip OHLC gérés nativement
+initChart();
 
 setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
 tick();setInterval(tick,5000);
