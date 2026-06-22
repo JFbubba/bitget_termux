@@ -288,6 +288,85 @@ def update_weights(weights, agent_correct):
     return w
 
 
+def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
+    """Pondération EARCP complète (arXiv:2603.14651). Pur.
+
+    Combine PERFORMANCE et COHÉRENCE : chacune normalisée en [0,1], puis
+    `s_i = β·P̃_i + (1−β)·C̃_i`, `w_i ∝ exp(η·s_i)`, **plancher** `w_min`
+    (= exploration : aucun agent ne meurt), renormalisation (somme = 1).
+    β≈0.7 favorise la performance ; η règle la concentration ; regret O(√(T·logM)).
+    """
+    names = list(perf)
+    if not names:
+        return {}
+    import math
+
+    def _norm(d):
+        vals = [float(d.get(n, 0.0)) for n in names]
+        lo, hi = min(vals), max(vals)
+        rng = (hi - lo) or 1.0
+        return {n: (float(d.get(n, 0.0)) - lo) / rng for n in names}
+
+    M = len(names)
+    if w_min * M >= 1.0:                         # garde-fou : plancher réalisable
+        w_min = 0.5 / M
+    P, C = _norm(perf), _norm(coherence)
+    s = {n: beta * P[n] + (1.0 - beta) * C[n] for n in names}
+    mx = max(s.values())                         # softmax stable numériquement
+    ex = {n: math.exp(eta * (s[n] - mx)) for n in names}
+    tot = sum(ex.values()) or 1.0
+    sm = {n: ex[n] / tot for n in names}
+    free = 1.0 - w_min * M                       # plancher garanti + somme = 1
+    return {n: round(w_min + free * sm[n], 4) for n in names}
+
+
+def _coherence_scores(entries):
+    """Cohérence EARCP : fréquence d'accord de chaque agent avec le consensus. Pur."""
+    agree, total = {}, {}
+    for e in entries:
+        cons = e.get("consensus", 0) or 0
+        if cons == 0:
+            continue
+        for name, vote in (e.get("votes") or {}).items():
+            if not vote:
+                continue
+            total[name] = total.get(name, 0) + 1
+            if (vote > 0) == (cons > 0):
+                agree[name] = agree.get(name, 0) + 1
+    return {n: agree.get(n, 0) / total[n] for n in total}
+
+
+def volatility_regime(closes, short=14, long=100):
+    """Coupure de régime de volatilité (CVIX-like). Pur.
+
+    Compare la vol réalisée court terme à sa baseline longue -> ratio, régime, et
+    un `scale`[0..1] qui escompte la conviction. VOLONTAIREMENT peu restrictif :
+    pleine confiance en régime normal/calme, escompte SEULEMENT en stress/extrême,
+    et ne descend jamais sous 0.6 (le risque ne doit pas brider la passation
+    d'ordres — il la module). >1 = vol qui monte (instabilité), <1 = vol qui tombe.
+    """
+    if len(closes) < short + 2:
+        return {"ratio": 1.0, "regime": "n/a", "scale": 1.0}
+    import statistics
+    rets = [(closes[i] - closes[i - 1]) / closes[i - 1]
+            for i in range(1, len(closes)) if closes[i - 1]]
+    if len(rets) < short + 1:
+        return {"ratio": 1.0, "regime": "n/a", "scale": 1.0}
+    v_now = statistics.pstdev(rets[-short:]) or 1e-12
+    base = rets[-long:] if len(rets) >= long else rets
+    v_base = statistics.pstdev(base) or 1e-12
+    ratio = v_now / v_base
+    if ratio >= 2.5:
+        regime, scale = "extreme", 0.6
+    elif ratio >= 1.8:
+        regime, scale = "stressed", 0.85
+    elif ratio <= 0.5:
+        regime, scale = "calm", 1.0
+    else:
+        regime, scale = "normal", 1.0
+    return {"ratio": round(ratio, 3), "regime": regime, "scale": scale}
+
+
 # ---------- persistance ----------
 
 def load_weights():
@@ -352,7 +431,12 @@ def learn(symbol, price_now, weights):
         changed = True
     if correctness:
         agent_correct = {n: (sum(v) / len(v) >= 0.5) for n, v in correctness.items()}
-        weights = update_weights(weights, agent_correct)
+        perf_w = update_weights(weights, agent_correct)         # mémoire de performance (Hedge borné)
+        coherence = _coherence_scores(log)                      # accord avec le consensus
+        coh = {n: coherence.get(n, 0.5) for n in perf_w}        # neutre (0.5) si pas d'historique
+        ew = earcp_weights(perf_w, coh)                         # EARCP : performance + cohérence
+        avg = (sum(ew.values()) / len(ew)) if ew else 1.0
+        weights = {k: round(v / avg, 3) for k, v in ew.items()}  # remise à moyenne ~1.0 (convention)
         save_weights(weights)
     if changed:
         _write_log(log)
@@ -369,13 +453,28 @@ def gather_votes(symbol):
     return votes
 
 
-def _attach_cognition(result, votes, weights):
-    """Ajoute la méta-cognition et une conviction escomptée par la prudence."""
+def _attach_cognition(result, votes, weights, closes=None):
+    """Ajoute la méta-cognition, le régime de volatilité (CVIX) et une conviction
+    escomptée par la prudence × le scale de volatilité (peu restrictif)."""
     cog = cognition(votes, weights, result.get("consensus", 0.0))
     result["cognition"] = cog
-    result["adjusted_conviction"] = round(result.get("conviction", 0.0) * cog["prudence"], 3)
+    scale = 1.0
+    if closes:
+        vr = volatility_regime(closes)
+        result["volatility"] = vr
+        scale = vr["scale"]
+    result["adjusted_conviction"] = round(result.get("conviction", 0.0) * cog["prudence"] * scale, 3)
     result["notes"] = {n: v.get("note") for n, v in votes.items()}
     return result
+
+
+def _series(symbol):
+    """Petite série de clôtures pour le régime de volatilité (best-effort)."""
+    try:
+        import technicals as tk
+        return [c["close"] for c in tk.fetch_candles(symbol, "15m", 120)]
+    except Exception:
+        return None
 
 
 def peek(symbol="BTCUSDT"):
@@ -389,7 +488,7 @@ def peek(symbol="BTCUSDT"):
     result = aggregate(votes, weights)
     result["symbol"] = symbol
     result["weights"] = weights
-    return _attach_cognition(result, votes, weights)
+    return _attach_cognition(result, votes, weights, _series(symbol))
 
 
 def read(symbol="BTCUSDT", do_learn=True):
@@ -407,7 +506,7 @@ def read(symbol="BTCUSDT", do_learn=True):
         result["price"] = price
     except Exception:
         pass
-    return _attach_cognition(result, votes, weights)
+    return _attach_cognition(result, votes, weights, _series(symbol))
 
 
 def build_report(r):
@@ -426,7 +525,11 @@ def build_report(r):
         gt = "  ⚠️ GROUPTHINK (prudence)" if cog.get("groupthink") else ""
         lines.append(f"Cognition : accord {cog['agreement'] * 100:.0f}% · entropie poids "
                      f"{cog['weight_entropy']:.2f} · dispersion {cog['dispersion']:.2f}{gt}")
-        lines.append(f"Conviction ajustée (prudence) : {r.get('adjusted_conviction', r['conviction']):.2f}")
+        vr = r.get("volatility")
+        if vr:
+            lines.append(f"Volatilité (CVIX) : régime {vr['regime']} · ratio {vr['ratio']} · "
+                         f"scale {vr['scale']:.2f}")
+        lines.append(f"Conviction ajustée (prudence×vol) : {r.get('adjusted_conviction', r['conviction']):.2f}")
     lines.append("")
     lines.append("Aide à la décision adaptative, LECTURE SEULE. Aucun ordre. VERDICT: SAFE")
     return "\n".join(lines)

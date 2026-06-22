@@ -654,6 +654,48 @@ def test_brain_update_weights_clamped():
     assert w["good"] > w["bad"]
     assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
 
+def test_brain_earcp_weights():
+    import swarm_brain as sb
+    perf = {"a": 3.0, "b": 1.0, "c": 0.3, "d": 1.0}
+    coh = {"a": 0.9, "b": 0.5, "c": 0.2, "d": 0.5}
+    w = sb.earcp_weights(perf, coh)
+    assert abs(sum(w.values()) - 1.0) < 1e-3            # normalisé
+    assert w["a"] == max(w.values())                    # meilleur perf+cohérence domine
+    assert all(v >= 0.05 - 1e-9 for v in w.values())    # plancher garanti (exploration)
+    # β règle l'arbitrage perf vs cohérence ; "a" domine sur les deux ici
+    assert max(sb.earcp_weights(perf, coh, beta=1.0), key=lambda k: sb.earcp_weights(perf, coh, beta=1.0)[k]) == "a"
+    assert sb.earcp_weights({}, {}) == {}               # vide -> vide, ne lève pas
+    # plancher infaisable (w_min*M>=1) -> garde-fou, ne lève pas
+    big = {str(i): 1.0 for i in range(30)}
+    wb = sb.earcp_weights(big, big, w_min=0.05)
+    assert abs(sum(wb.values()) - 1.0) < 1e-2
+
+def test_brain_volatility_regime():
+    import swarm_brain as sb, random
+    random.seed(0)
+    calm = [100.0]
+    for _ in range(150):
+        calm.append(calm[-1] * (1 + random.uniform(-0.002, 0.002)))
+    turb = calm[:120]
+    for _ in range(30):
+        turb.append(turb[-1] * (1 + random.uniform(-0.03, 0.03)))
+    assert sb.volatility_regime(calm)["scale"] == 1.0            # calme -> pleine confiance
+    vt = sb.volatility_regime(turb)
+    assert vt["regime"] in ("stressed", "extreme")
+    assert 0.6 <= vt["scale"] < 1.0                              # escompte, mais jamais < 0.6
+    assert sb.volatility_regime([100, 101, 102])["scale"] == 1.0  # court -> non bloquant
+
+def test_brain_coherence_scores():
+    import swarm_brain as sb
+    log = [
+        {"consensus": 0.5, "votes": {"x": 0.4, "y": -0.3}},   # consensus LONG
+        {"consensus": 0.3, "votes": {"x": 0.2, "y": -0.1}},
+        {"consensus": -0.4, "votes": {"x": -0.2, "y": 0.5}},  # consensus SHORT
+    ]
+    c = sb._coherence_scores(log)
+    assert c["x"] == 1.0    # x toujours d'accord avec le consensus
+    assert c["y"] == 0.0    # y toujours en désaccord
+
 
 # ---------- cerveau : agent divergent + cognition ----------
 
