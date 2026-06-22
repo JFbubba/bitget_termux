@@ -306,6 +306,14 @@ def test_dex_parse():
     ]}, top=2)
     assert pairs[0]["symbol"] == "BBB" and pairs[0]["liquidity_usd"] == 5000
 
+def test_check_env_masks_value():
+    import check_env
+    line = check_env.status_line("X_API_KEY", "supersecretvalue123", optional=True)
+    assert "supersecretvalue123" not in line  # ne revele JAMAIS la valeur
+    assert "OK" in line and "19" in line
+    assert "non defini" in check_env.status_line("X_API_KEY", None, optional=True)
+    assert "MANQUANT" in check_env.status_line("BITGET_API_KEY", "", optional=False)
+
 
 # ---------- outcome LONG & SHORT ----------
 

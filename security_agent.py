@@ -62,6 +62,7 @@ FILES_TO_SCAN = [
     "defi_data.py",
     "token_safety.py",
     "dex_scanner.py",
+    "check_env.py",
 ]
 
 

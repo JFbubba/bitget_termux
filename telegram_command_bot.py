@@ -119,6 +119,7 @@ def handle_command(text):
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
             "/dexsearch REQUETE - recherche de paires DEX (DexScreener)\n"
+            "/envcheck - quelles clés API sont configurées (sans révéler les valeurs)\n"
             "/signals - propositions d’ordres sans exécution\n"
             "/preorders - pré-ordres verrouillés sans exécution\n"
             "/approve_preorder ID - approuve un pré-ordre en simulation uniquement\n"
@@ -155,6 +156,7 @@ def handle_command(text):
             "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot\n"
             "/dexsearch REQUETE - paires DEX (DexScreener)\n"
+            "/envcheck - clés API configurées (longueurs seulement)\n"
             "/signals - génère les propositions d’ordres\n"
             "/preorders - affiche les pré-ordres verrouillés\n"
             "/approve_preorder ID - validation simulée, aucun ordre réel\n"
@@ -339,6 +341,10 @@ def handle_command(text):
             return "Usage: /dexsearch REQUETE\nex. /dexsearch SOL"
         result = subprocess.run(["python", "dex_scanner.py", parts[1]], capture_output=True, text=True)
         return result.stdout if result.returncode == 0 else f"❌ dex_scanner.py\n{result.stderr[-1500:]}"
+
+    if text == "/envcheck":
+        result = subprocess.run(["python", "check_env.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ check_env.py\n{result.stderr[-1500:]}"
 
     if text == "/macro":
         result = subprocess.run(
@@ -629,7 +635,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /feargreed /defi /rugcheck /dexsearch /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
