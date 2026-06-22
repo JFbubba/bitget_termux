@@ -65,6 +65,7 @@ FILES_TO_SCAN = [
     "technicals.py",
     "chart.py",
     "aggregated_derivs.py",
+    "polymarket_data.py",
     "coingecko_data.py",
     "news_feed.py",
     "check_env.py",

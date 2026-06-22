@@ -426,6 +426,20 @@ def test_chart_module_imports():
     import chart
     assert hasattr(chart, "render") and callable(chart.render)
 
+def test_polymarket_parse():
+    import polymarket_data as pm
+    data = [
+        {"question": "Will BTC hit 100k?", "outcomes": '["Yes","No"]', "outcomePrices": '["0.62","0.38"]',
+         "volumeNum": 1234567, "slug": "btc-100k", "endDate": "2026-12-31"},
+        {"question": "Will USA win World Cup?", "outcomes": '["Yes","No"]', "outcomePrices": '["0.04","0.96"]',
+         "volumeNum": 999, "slug": "usa-wc"},
+    ]
+    rows = pm.parse_markets(data, query="btc", limit=5)
+    assert len(rows) == 1 and rows[0]["question"].startswith("Will BTC")
+    assert rows[0]["outcomes"][0] == {"name": "Yes", "prob_pct": 62.0}
+    assert "polymarket.com/market/btc-100k" in rows[0]["url"]
+    assert len(pm.parse_markets(data, limit=5)) == 2
+
 def test_aggregated_derivs():
     import aggregated_derivs as ad
     parts = [

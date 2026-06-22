@@ -121,6 +121,7 @@ def handle_command(text):
             "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
+            "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
             "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
@@ -359,6 +360,12 @@ def handle_command(text):
         sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         result = subprocess.run(["python", "aggregated_derivs.py", sym], capture_output=True, text=True, timeout=30)
         return result.stdout if result.returncode == 0 else f"❌ aggregated_derivs.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/poly"):
+        parts = text.split(maxsplit=1)
+        args = ["python", "polymarket_data.py"] + ([parts[1]] if len(parts) > 1 else [])
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ polymarket_data.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -736,7 +743,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

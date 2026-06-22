@@ -81,6 +81,11 @@ def _aggregated_derivs(symbol="BTCUSDT", **_):
     return aggregated_derivs.fetch_aggregate(str(symbol).upper())
 
 
+def _prediction_markets(query=None, **_):
+    import polymarket_data
+    return polymarket_data.fetch_markets(query)
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -96,6 +101,7 @@ TOOL_FUNCS = {
     "get_prices": _prices,
     "get_market_overview": _market_overview,
     "get_aggregated_derivs": _aggregated_derivs,
+    "get_prediction_markets": _prediction_markets,
 }
 
 TOOLS = [
@@ -168,6 +174,11 @@ TOOLS = [
         "name": "get_aggregated_derivs",
         "description": "Funding & open interest AGRÉGÉS multi-exchange (Binance+Bybit+Bitget) : OI total en USD et funding 8h pondéré par l'OI. Pour jauger le positionnement des dérivés.",
         "input_schema": {"type": "object", "properties": {"symbol": {"type": "string", "description": "ex. BTCUSDT, ETHUSDT"}}, "required": ["symbol"]},
+    },
+    {
+        "name": "get_prediction_markets",
+        "description": "Cotes des marchés de prédiction Polymarket (probabilités implicites) — sentiment sur des événements (Fed, BTC, élections...). Lecture seule. Optionnel : un mot-clé de recherche.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string", "description": "ex. bitcoin, fed, election (optionnel)"}}},
     },
 ]
 
