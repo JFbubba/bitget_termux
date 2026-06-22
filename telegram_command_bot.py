@@ -116,6 +116,8 @@ def handle_command(text):
             "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
             "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
             "/ask QUESTION - assistant IA (langage naturel, lecture seule)\n"
+            "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
+            "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
@@ -155,6 +157,7 @@ def handle_command(text):
             "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
             "/ask QUESTION - assistant IA conversationnel (lecture seule)\n"
+            "/price SYMBOLES · /news [DEVISES] - prix & news\n"
             "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot\n"
             "/dexsearch REQUETE - paires DEX (DexScreener)\n"
@@ -329,6 +332,19 @@ def handle_command(text):
             capture_output=True, text=True, timeout=180,
         )
         return result.stdout if result.returncode == 0 else f"❌ assistant\n{result.stderr[-1500:]}"
+
+    if text.startswith("/news"):
+        parts = text.split()
+        args = ["python", "news_feed.py"] + ([parts[1]] if len(parts) > 1 else [])
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ news_feed.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/price"):
+        parts = text.split()
+        if len(parts) < 2:
+            return "Usage: /price BTC ETH SOL"
+        result = subprocess.run(["python", "coingecko_data.py"] + parts[1:], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ coingecko_data.py\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -647,7 +663,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /price /news /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

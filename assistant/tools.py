@@ -60,6 +60,22 @@ def _liquidity(symbol="BTCUSDT", **_):
     return technicals.book_liquidity(str(symbol).upper())
 
 
+def _news(currencies=None, filter=None, **_):
+    import news_feed
+    return news_feed.fetch_news(currencies=currencies, filter_=filter)
+
+
+def _prices(coins="BTC", **_):
+    import coingecko_data
+    toks = [c.strip() for c in str(coins).replace(" ", ",").split(",") if c.strip()]
+    return coingecko_data.fetch_markets(toks or ["BTC"])
+
+
+def _market_overview(**_):
+    import coingecko_data
+    return coingecko_data.fetch_global()
+
+
 TOOL_FUNCS = {
     "get_order_flow": _order_flow,
     "get_macro": _macro,
@@ -71,6 +87,9 @@ TOOL_FUNCS = {
     "get_trade_stats": _trade_stats,
     "get_technicals": _technicals,
     "get_liquidity_clusters": _liquidity,
+    "get_news": _news,
+    "get_prices": _prices,
+    "get_market_overview": _market_overview,
 }
 
 TOOLS = [
@@ -122,6 +141,21 @@ TOOLS = [
     {
         "name": "get_trade_stats",
         "description": "Statistiques des résultats finalisés (TP/SL, taux de réussite) du moteur paper.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_news",
+        "description": "Dernières news crypto (CryptoPanic). Optionnel : filtrer par devises et par sentiment.",
+        "input_schema": {"type": "object", "properties": {"currencies": {"type": "string", "description": "ex. BTC,ETH (optionnel)"}, "filter": {"type": "string", "enum": ["hot", "rising", "bullish", "bearish", "important"]}}},
+    },
+    {
+        "name": "get_prices",
+        "description": "Prix, variation 24h, market cap et volume (CoinGecko) pour un ou plusieurs actifs.",
+        "input_schema": {"type": "object", "properties": {"coins": {"type": "string", "description": "symboles séparés par des virgules, ex. BTC,ETH,SOL"}}, "required": ["coins"]},
+    },
+    {
+        "name": "get_market_overview",
+        "description": "Vue d'ensemble du marché crypto (CoinGecko) : market cap totale, dominance BTC, variation 24h.",
         "input_schema": {"type": "object", "properties": {}},
     },
 ]

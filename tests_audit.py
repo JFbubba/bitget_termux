@@ -389,6 +389,22 @@ def test_technicals_pure():
     assert lc["bid_walls"][0]["price"] == 99 and lc["ask_walls"][0]["price"] == 102
     assert tk.parse_candles([["1", "10", "12", "9", "11", "100", "x"]])[0]["close"] == 11
 
+def test_coingecko_parse():
+    import coingecko_data as cg
+    assert cg.resolve_id("btc") == "bitcoin" and cg.resolve_id("solana") == "solana"
+    m = cg.parse_markets([{"id": "bitcoin", "symbol": "btc", "name": "Bitcoin",
+        "current_price": 64000, "market_cap": 1e12, "price_change_percentage_24h": -1.5, "total_volume": 3e10}])
+    assert m[0]["symbol"] == "BTC" and m[0]["price"] == 64000 and m[0]["change_24h"] == -1.5
+    g = cg.parse_global({"data": {"total_market_cap": {"usd": 2.3e12},
+        "market_cap_percentage": {"btc": 54.2}, "market_cap_change_percentage_24h_usd": 0.8}})
+    assert g["btc_dominance"] == 54.2 and g["total_market_cap_usd"] == 2.3e12
+
+def test_news_parse():
+    import news_feed
+    rows = news_feed.parse_news({"results": [{"title": "BTC pumps", "source": {"title": "CoinDesk"},
+        "published_at": "2026-01-01", "currencies": [{"code": "BTC"}], "url": "http://x"}]}, limit=5)
+    assert rows[0]["title"] == "BTC pumps" and rows[0]["source"] == "CoinDesk" and rows[0]["currencies"] == ["BTC"]
+
 def test_check_env_masks_value():
     import check_env
     line = check_env.status_line("X_API_KEY", "supersecretvalue123", optional=True)
