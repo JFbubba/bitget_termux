@@ -30,8 +30,13 @@ def _clamp(x, lo=-1.0, hi=1.0):
 
 def technical_signal(window):
     """Vote technique [-1..1] depuis une fenêtre de bougies. Miroir de
-    swarm_brain.agent_technicals, recalculé sur l'historique."""
+    swarm_brain.agent_technicals, recalculé sur l'historique. Les clôtures sont
+    débruitées (Savitzky–Golay) avant calcul des indicateurs (arXiv:2506.05764)."""
     closes = [c["close"] for c in window]
+    try:
+        closes = indicators.savitzky_golay(closes, window=11, poly=2)
+    except Exception:
+        pass
     vote = 0.0
     try:
         if indicators.ema(closes, 20)[-1] > indicators.ema(closes, 50)[-1]:

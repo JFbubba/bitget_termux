@@ -43,6 +43,22 @@ def test_indicators_raise_on_short_data():
         except ValueError:
             pass
 
+def test_savitzky_golay_denoise():
+    import indicators
+    # intérieur exact pour une droite (poly>=1 reproduit l'affine)
+    lin = [2 * i + 3 for i in range(20)]
+    sm = indicators.savitzky_golay(lin, window=11, poly=2)
+    assert len(sm) == len(lin)
+    assert all(abs(sm[i] - lin[i]) < 1e-6 for i in range(5, len(lin) - 5))
+    # réduction du bruit : variation totale plus faible
+    noisy = [i + (1.0 if i % 2 == 0 else -1.0) for i in range(60)]
+    sm2 = indicators.savitzky_golay(noisy, window=11, poly=2)
+    tv = lambda s: sum(abs(s[i + 1] - s[i]) for i in range(len(s) - 1))
+    assert tv(sm2) < tv(noisy)
+    # fenêtre trop courte -> identité, ne lève pas
+    assert indicators.savitzky_golay([1, 2], window=11) == [1.0, 2.0]
+    assert indicators.savitzky_golay([]) == []
+
 def test_atr_length():
     candles = [{"high": 10 + i, "low": 9 + i, "close": 9.5 + i} for i in range(30)]
     a = indicators.calculate_atr(candles, 14)

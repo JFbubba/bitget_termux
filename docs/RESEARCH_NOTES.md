@@ -92,7 +92,10 @@ souvent plus robustes en live. → conforte l'approche ensemble + poids en ligne
 - [x] **PBO / CSCV + walk-forward** dans `backtest_brain.py` (garde-fou anti-
       surapprentissage ; sur BTC 1H le signal technique seul sort PBO≈0.46 et
       0/5 tranches gagnantes → confirmé non déployable, honnêtement).
-- [ ] Débruitage Savitzky–Golay des features techniques (§1).
+- [x] Débruitage **Savitzky–Golay** des clôtures avant indicateurs (§1), dans
+      `technical_signal` et `divergent_score`. Mesure honnête BTC 1H : Sharpe
+      −0.31→+0.12, edge −6.0%→−1.8%, DD −8.4%→−6.5%, tranches gagnantes 0%→40% ;
+      MAIS PBO reste élevé (~0.77) → meilleures features, edge encore non robuste.
 - [ ] Si « plus d'apprentissage » : régression logistique / gradient boosting sur
       bonnes features (jamais un deep net en premier — §1).
 

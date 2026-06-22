@@ -114,6 +114,11 @@ def divergent_score(closes):
     if len(closes) < 20:
         return 0.0
     import statistics
+    try:
+        import indicators
+        closes = indicators.savitzky_golay(closes, window=11, poly=2)  # débruitage (arXiv:2506.05764)
+    except Exception:
+        pass
     window = closes[-20:]
     mean = sum(window) / len(window)
     sd = statistics.pstdev(window) or 1e-9
