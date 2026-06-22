@@ -48,6 +48,30 @@ def test_atr_length():
     a = indicators.calculate_atr(candles, 14)
     assert len(a) == (len(candles) - 1) - 14 + 1
 
+def test_volume_anchored_level():
+    candles = [
+        {"open": 10, "close": 11, "high": 12, "low": 9, "volume": 100},
+        {"open": 11, "close": 10, "high": 11, "low": 9, "volume": 500},  # plus gros volume
+        {"open": 10, "close": 12, "high": 13, "low": 10, "volume": 200},
+    ]
+    assert indicators.volume_anchored_level(candles, lookback=20) == 10.0
+
+def test_volume_bias_score_direction():
+    bull = [{"open": i, "close": i + 1, "volume": 100 + i} for i in range(5)]
+    bear = [{"open": i + 1, "close": i, "volume": 100 + i} for i in range(5)]
+    flat = [{"open": 5, "close": 5, "volume": 100} for _ in range(5)]
+    assert indicators.volume_bias_score(bull) > 0
+    assert indicators.volume_bias_score(bear) < 0
+    assert indicators.volume_bias_score(flat) == 0
+
+def test_volume_indicators_validate_input():
+    for fn in (indicators.volume_anchored_level, indicators.volume_bias_score):
+        try:
+            fn([], 5) if fn is indicators.volume_anchored_level else fn([{"open": 1, "close": 2, "volume": 1}], 0)
+            assert False, "aurait dû lever ValueError"
+        except ValueError:
+            pass
+
 
 # ---------- outcome LONG & SHORT ----------
 

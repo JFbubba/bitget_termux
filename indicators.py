@@ -81,3 +81,50 @@ def calculate_atr(candles, period=14):
     for tr in true_ranges[period:]:
         atr_values.append(((atr_values[-1] * (period - 1)) + tr) / period)
     return atr_values
+
+
+def volume_anchored_level(candles, lookback=20):
+    """Niveau S/R ancré au volume : clôture de la bougie au plus gros volume
+    sur les `lookback` dernières bougies.
+
+    Concept réimplémenté indépendamment d'après "Unbiased Level Pro"
+    (cf. docs/EXTERNAL_TOOLS.md). Bougies : {"close", "volume", ...}.
+    SAFE : calcul pur, aucune I/O, aucun ordre.
+    """
+    if lookback <= 0:
+        raise ValueError(f"volume_anchored_level: lookback invalide ({lookback})")
+    if not candles:
+        raise ValueError("volume_anchored_level: aucune bougie fournie")
+    window = candles[-lookback:]
+    top = max(window, key=lambda c: float(c.get("volume", 0.0)))
+    return float(top["close"])
+
+
+def volume_bias_score(candles, lookback=20):
+    """Score de biais directionnel pondéré par le volume sur `lookback` bougies.
+
+    Pour chaque bougie : sens (close vs open) et volume en hausse vs la
+    précédente. Conviction :
+      haussière + volume en hausse -> +3 ; haussière + volume en baisse -> +1
+      baissière + volume en hausse -> -3 ; baissière + volume en baisse -> -1
+      close == open (doji) -> 0
+    Score net > 0 = biais acheteur, < 0 = biais vendeur.
+
+    Concept réimplémenté d'après "Unbiased Level Pro". SAFE : calcul pur.
+    """
+    if lookback <= 0:
+        raise ValueError(f"volume_bias_score: lookback invalide ({lookback})")
+    window = candles[-lookback:]
+    score = 0
+    prev_volume = None
+    for candle in window:
+        volume = float(candle.get("volume", 0.0))
+        close = float(candle["close"])
+        open_price = float(candle.get("open", close))
+        weight = 3 if (prev_volume is not None and volume > prev_volume) else 1
+        if close > open_price:
+            score += weight
+        elif close < open_price:
+            score -= weight
+        prev_volume = volume
+    return score

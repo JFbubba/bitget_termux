@@ -36,10 +36,18 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 
 - Backtest offline simple
 - Journal des signaux ignores
+- [x] Indicateurs volume : niveau ancre + biais (concept Unbiased Level Pro)
 - [x] Statistiques par symbole (stats_report.py + /stats)
 - [x] Statistiques long/short (stats_report.py + /stats)
 - [x] Ratio TP/SL (stats_report.py + /stats)
 - Gestion des signaux ambigus
+
+## Outils externes
+
+Revue curee des sources externes (data, MCP, skills, Polymarket) et plan
+d'adoption SAFE : voir [docs/EXTERNAL_TOOLS.md](docs/EXTERNAL_TOOLS.md).
+Prochaines adoptions : prediction-mcp (Polymarket, cote PC), module
+CVD/order-flow + zones de liquidation, squelette de skill "analyse".
 
 ## Interdit
 

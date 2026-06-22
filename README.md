@@ -11,6 +11,8 @@ Agent local Termux Android pour monitoring Bitget Futures en mode paper / dry-ru
 - **PC (Claude Code + Bitget Agent Hub)** — pont MCP vers l'exchange Bitget,
   capable de trading réel. Installation : voir [pc/BITGET_AGENT_HUB.md](pc/BITGET_AGENT_HUB.md).
 
+Revue des outils/sources externes et plan d'adoption : [docs/EXTERNAL_TOOLS.md](docs/EXTERNAL_TOOLS.md).
+
 ## Etat stable
 
 - Tag stable : stable-paper-dryrun-20260620
