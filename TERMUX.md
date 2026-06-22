@@ -53,7 +53,8 @@ nohup python telegram_command_bot.py >> telegram_bot.log 2>&1 & # en arrière-pl
 ```
 
 Commandes Telegram utiles : `/status` `/git_version` `/system_health`
-`/watchdog` `/stats` `/security` `/signals` `/preorders` `/pause` `/resume` `/help`.
+`/watchdog` `/orderflow` `/macro` `/confluence` `/stats` `/security`
+`/signals` `/preorders` `/pause` `/resume` `/help`.
 
 ---
 

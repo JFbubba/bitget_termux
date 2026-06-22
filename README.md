@@ -80,6 +80,9 @@ bash safe_push_check.sh    # controle avant git push (secrets, ordres, tests)
 - /git_version : commit, branche, dernier tag, etat du depot
 - /system_health : bilan de sante (fichiers, fraicheur, can_trade=False, pause)
 - /watchdog : etat de la boucle agent_loop (PID, /proc, fraicheur du scan)
+- /orderflow [SYMBOL] : microstructure (carnet, CVD, open interest, funding)
+- /macro : contexte macro risk-on/off (VIX, courbe 2s10s, DXY)
+- /confluence SYMBOL SIDE : signal vs carnet/CVD/macro (FORTE CONFLUENCE...CONTRE-SIGNAL)
 - /stats : statistiques TP/SL par symbole et sens (resultats finalises)
 - /security : audit securite (VERDICT SAFE attendu)
 - /status : rapport compact

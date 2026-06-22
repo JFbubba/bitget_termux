@@ -38,6 +38,8 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 - Journal des signaux ignores
 - [x] Indicateurs volume : niveau ancre + biais (concept Unbiased Level Pro)
 - [x] Indicateurs pro calculables : momentum, volume profile, Sharpe, sizing risque capital, timing horaire (pro_indicators.py)
+- [x] Microstructure (order_flow.py + /orderflow) + contexte macro (macro_context.py + /macro)
+- [x] Confluence signal x microstructure x macro branchee dans le scoring (/confluence)
 - [x] Statistiques par symbole (stats_report.py + /stats)
 - [x] Statistiques long/short (stats_report.py + /stats)
 - [x] Ratio TP/SL (stats_report.py + /stats)

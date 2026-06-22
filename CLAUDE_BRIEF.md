@@ -26,6 +26,8 @@ Aucun ordre réel ne doit être envoyé.
 
 3. order_signal_engine.py
    - transforme les signaux en propositions d’ordres
+   - annote chaque proposition d’un score de confluence (order-flow + macro,
+     advisory, fail-safe, n’écrase jamais le filtre sécurité)
    - écrit order_signals_report.txt
 
 4. preorder_engine.py
