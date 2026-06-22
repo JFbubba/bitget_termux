@@ -102,3 +102,32 @@ Le projet est **lecture seule / analyse / détection / paper**. Règles dures :
 ## 9. Données — voir `docs/DATA_SOURCES.md`
 Liste complète des sources (keyless construites, à-clé en attente, MCP dispo) et
 le verdict de couverture des 32 liens de `outils_trading.md`.
+
+## 10. État courant / point de reprise (2026-06-22)
+**En cours** : mise en place du VPS et du `.env` par l'utilisateur.
+- SSH : l'avertissement « REMOTE HOST IDENTIFICATION HAS CHANGED » a été résolu
+  (`ssh-keygen -R 187.77.67.45` puis acceptation de la nouvelle empreinte
+  ED25519 `SHA256:g1ilpIgrH9P9wkRkWAEAOlwK8Vq4pbieENlRkuMs5Bo`).
+- Blocage actuel : `Permission denied (publickey,password)` malgré reset du mot
+  de passe root. Causes probables : `PermitRootLogin prohibit-password` (login
+  root par mot de passe désactivé en SSH), reset pas encore appliqué (reboot),
+  ou clavier/typo. **Contournement conseillé** : utiliser le **terminal
+  navigateur Hostinger** (hPanel → VPS → Console) qui contourne SSH, pour faire
+  le `.env` directement ; puis mettre en place des **clés SSH** (ssh-keygen sur
+  le PC → coller la clé publique dans `~/.ssh/authorized_keys` du VPS).
+- Étapes `.env` : `cp .env.example .env` → `nano .env` (coller clés) →
+  `python check_env.py` (ou `/envcheck`). Clés X = optionnelles.
+
+**Prochaine action de dev (quand l'utilisateur dit « go »)** : construire
+l'**assistant conversationnel** (bot Telegram « assistant » → Claude Haiku par
+défaut, agnostique via `LLM_BASE_URL`/`LLM_MODEL`) avec accès en outils aux
+readers read-only existants. Nécessite `ANTHROPIC_API_KEY` dans `.env`.
+
+**Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
+`.env.example` pour garder l'option Kimi/Ollama ouverte.
+
+**Historique des commits de la session** (branche `claude/beautiful-heisenberg-c5aoqu`) :
+dashboard web → readers keyless (Fear&Greed/DeFi/token-safety/DEX) → câblage
+Telegram + panneau marché → outillage env (.env.example/check_env/ENV_SETUP) →
+docs de continuité (PROJECT_STATE/DATA_SOURCES). Tests 49/49, SAFE, push OK.
+
