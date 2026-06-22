@@ -306,6 +306,43 @@ def test_dex_parse():
     ]}, top=2)
     assert pairs[0]["symbol"] == "BBB" and pairs[0]["liquidity_usd"] == 5000
 
+def test_assistant_tools_schema():
+    from assistant import tools
+    assert len(tools.TOOLS) >= 6
+    names = {t["name"] for t in tools.TOOLS}
+    for t in tools.TOOLS:
+        assert t["name"] and t["description"]
+        assert t["input_schema"]["type"] == "object"
+        assert t["name"] in tools.TOOL_FUNCS
+    assert "get_order_flow" in names and "check_token_safety" in names
+    assert "inconnu" in tools.dispatch("nope", {})  # outil inconnu -> message, pas d'exception
+
+def test_assistant_agent_loop():
+    from assistant import agent, llm_client, tools
+    seq = {"n": 0}
+
+    def fake_chat(system, messages, tools=None, **kw):
+        seq["n"] += 1
+        if seq["n"] == 1:
+            return {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "t1", "name": "get_fear_greed", "input": {}}]}
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Réponse finale."}]}
+
+    orig_chat, orig_dispatch = llm_client.anthropic_chat, tools.dispatch
+    llm_client.anthropic_chat = fake_chat
+    tools.dispatch = lambda name, args: "RESULT_OK"
+    try:
+        text, msgs = agent.run("test question")
+    finally:
+        llm_client.anthropic_chat = orig_chat
+        tools.dispatch = orig_dispatch
+    assert text == "Réponse finale." and seq["n"] == 2
+    assert any(
+        isinstance(m.get("content"), list)
+        and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in m["content"])
+        for m in msgs
+    )
+
 def test_check_env_masks_value():
     import check_env
     line = check_env.status_line("X_API_KEY", "supersecretvalue123", optional=True)

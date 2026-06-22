@@ -30,7 +30,7 @@ OPTIONAL = {
     "X / Twitter (lecture sentiment)": [
         "X_BEARER_TOKEN", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET",
     ],
-    "Assistant conversationnel (LLM)": ["ANTHROPIC_API_KEY"],
+    "Assistant conversationnel (LLM)": ["ANTHROPIC_API_KEY", "LLM_MODEL", "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY"],
     "Data (cles gratuites)": [
         "COINGECKO_API_KEY", "CRYPTOPANIC_API_TOKEN", "FMP_API_KEY", "FINNHUB_API_KEY",
         "FRED_API_KEY", "BIRDEYE_API_KEY", "HELIUS_API_KEY", "NEYNAR_API_KEY",

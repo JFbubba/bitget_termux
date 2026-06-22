@@ -115,6 +115,7 @@ def handle_command(text):
             "/orderflow [SYMBOL] - microstructure: carnet, CVD, OI, funding (lecture seule)\n"
             "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
             "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
+            "/ask QUESTION - assistant IA (langage naturel, lecture seule)\n"
             "/feargreed - indice Fear & Greed crypto\n"
             "/defi - TVL DeFi + top chaines (DefiLlama)\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
@@ -153,6 +154,7 @@ def handle_command(text):
             "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
             "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
+            "/ask QUESTION - assistant IA conversationnel (lecture seule)\n"
             "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
             "/rugcheck ADRESSE [chain] - détection rug/honeypot\n"
             "/dexsearch REQUETE - paires DEX (DexScreener)\n"
@@ -317,6 +319,16 @@ def handle_command(text):
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
         return result.stdout
+
+    if text.startswith("/ask"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return "Usage: /ask ta question\nex. /ask analyse l'order flow de BTC et le sentiment"
+        result = subprocess.run(
+            ["python", "assistant/agent.py", parts[1]],
+            capture_output=True, text=True, timeout=180,
+        )
+        return result.stdout if result.returncode == 0 else f"❌ assistant\n{result.stderr[-1500:]}"
 
     if text == "/feargreed":
         result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
@@ -635,7 +647,7 @@ def handle_command(text):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()

@@ -63,6 +63,9 @@ FILES_TO_SCAN = [
     "token_safety.py",
     "dex_scanner.py",
     "check_env.py",
+    "assistant/llm_client.py",
+    "assistant/tools.py",
+    "assistant/agent.py",
 ]
 
 

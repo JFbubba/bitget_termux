@@ -118,10 +118,20 @@ le verdict de couverture des 32 liens de `outils_trading.md`.
 - Étapes `.env` : `cp .env.example .env` → `nano .env` (coller clés) →
   `python check_env.py` (ou `/envcheck`). Clés X = optionnelles.
 
-**Prochaine action de dev (quand l'utilisateur dit « go »)** : construire
-l'**assistant conversationnel** (bot Telegram « assistant » → Claude Haiku par
-défaut, agnostique via `LLM_BASE_URL`/`LLM_MODEL`) avec accès en outils aux
-readers read-only existants. Nécessite `ANTHROPIC_API_KEY` dans `.env`.
+**Assistant conversationnel : SQUELETTE CONSTRUIT** (`assistant/`).
+- `assistant/llm_client.py` : appel Anthropic Messages (Haiku par défaut) +
+  point d'extension OpenAI-compatible (`LLM_BASE_URL`, Kimi/Ollama, texte seul).
+- `assistant/tools.py` : 8 outils LECTURE SEULE (order-flow, macro, confluence,
+  check_token_safety, defi, search_dex, fear_greed, trade_stats). Aucun ordre.
+- `assistant/agent.py` : boucle agentique (tool_use) + CLI
+  `python assistant/agent.py "question"`. Nécessite `ANTHROPIC_API_KEY`.
+- Telegram : commande `/ask QUESTION` (subprocess vers agent.py).
+- `.env.example` : `LLM_MODEL/LLM_PROVIDER/LLM_BASE_URL/LLM_API_KEY` ajoutés.
+- Testé : outils en réel, boucle via LLM factice (51/51), security SAFE.
+
+**Prochaine action** : tester sur le VPS (la clé ANTHROPIC y est) avec
+`python assistant/agent.py "..."`, puis itérer (bridge Telegram dédié + mémoire
+de conversation + plus d'outils ; brancher l'option OpenAI/Kimi avec outils).
 
 **Option en attente proposée** : ajouter `LLM_BASE_URL` / `LLM_MODEL` à
 `.env.example` pour garder l'option Kimi/Ollama ouverte.
