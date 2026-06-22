@@ -53,6 +53,7 @@ FILES_TO_SCAN = [
     "watchdog.py",
     "stats_report.py",
     "pro_indicators.py",
+    "order_flow.py",
 ]
 
 

@@ -59,8 +59,10 @@ risk-on / risk-off** au-dessus des signaux crypto.
 | **Tape / Time & Sales** | flux de trades, gros prints, agressivité acheteur/vendeur | API Bitget (trades) ; MCP CoinDesk (trades) |
 
 ### Plan de branchement (ordre prévu, SAFE)
-1. **CVD / order-flow + zones de liquidation** depuis l'API Bitget (depth +
-   trades + OI/funding) → microstructure (order book / tape) en lecture seule.
+1. **[couche de calcul faite]** CVD / order-flow + zones de liquidation →
+   `order_flow.py` (`cumulative_volume_delta`, `order_book_imbalance`,
+   `liquidation_levels`), purs et testés. Reste à brancher le *reader* réseau
+   (API Bitget depth/trades + OI/funding) qui alimentera ces fonctions.
 2. **COT hebdo** depuis cftc.gov → positionnement.
 3. **Couche macro** (DXY, VIX, yield curve, XLY/XLP) via FRED + un connecteur
    crypto (FMP) ou les serveurs MCP de contexte → flag risk-on/off.

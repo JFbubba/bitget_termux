@@ -131,6 +131,48 @@ def test_trading_sessions_brussels():
     assert pro.in_active_session(datetime(2026, 1, 1, 1, 30)) is True
 
 
+# ---------- order_flow (microstructure, purs) ----------
+
+def test_cumulative_volume_delta():
+    import order_flow as of
+    trades = [
+        {"side": "buy", "size": 3.0},
+        {"side": "sell", "size": 1.0},
+        {"side": "buy", "size": 2.0},
+    ]
+    r = of.cumulative_volume_delta(trades)
+    assert r["cvd"] == 4.0
+    assert r["buy_volume"] == 5.0 and r["sell_volume"] == 1.0
+    assert r["series"][-1] == 4.0
+    try:
+        of.cumulative_volume_delta([])
+        assert False
+    except ValueError:
+        pass
+
+def test_order_book_imbalance():
+    import order_flow as of
+    bids = [[100.0, 40.0], [99.0, 20.0]]   # 60
+    asks = [[101.0, 30.0], [102.0, 10.0]]  # 40
+    r = of.order_book_imbalance(bids, asks)
+    assert abs(r["imbalance"] - 0.2) < 1e-9
+    assert r["bid_volume"] == 60.0 and r["ask_volume"] == 40.0
+
+def test_liquidation_levels():
+    import order_flow as of
+    longs = of.liquidation_levels(100.0, [10, 5], side="long", maintenance_margin=0.0)
+    prices = {lv["leverage"]: lv["price"] for lv in longs}
+    assert abs(prices[10] - 90.0) < 1e-9   # 10x long -> -10%
+    assert abs(prices[5] - 80.0) < 1e-9    # 5x long  -> -20%
+    shorts = of.liquidation_levels(100.0, [10], side="short", maintenance_margin=0.0)
+    assert abs(shorts[0]["price"] - 110.0) < 1e-9
+    try:
+        of.liquidation_levels(0.0, [10])
+        assert False
+    except ValueError:
+        pass
+
+
 # ---------- outcome LONG & SHORT ----------
 
 def _sig(side, entry, sl, tp, t):
