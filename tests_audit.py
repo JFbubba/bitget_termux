@@ -798,6 +798,14 @@ def test_strategy_lab():
     # optimiseur évolutionnaire (sep-CMA-ES) -> stratégie ema valide & reconstructible
     ename, esig, _ = L.improve_ema(candles, max_gen=4)
     assert ename.startswith("ema_cross_") and L.build_named(ename, candles) == esig
+    # évolution généralisée (split train/test) reconstructible via préfixe evo_
+    for fam in ("bollinger", "rsi_reversion"):
+        nm, sg = L.evolve(fam, candles, max_gen=3)
+        assert L.build_named("evo_" + nm, candles) == sg
+    # « coordinateur évolué » : ensemble pondéré, poids lisibles, reconstructible via wens_
+    wn, ws = L.evolve_ensemble(candles, max_gen=3)
+    assert wn.startswith("wens_") and L.build_named(wn, candles) == ws and set(ws) <= {-1, 0, 1}
+    assert set(L.weighted_ensemble(candles, weights=[1, 0, 0, 0, 0])) <= {-1, 0, 1}
     # backtest : métriques + score présents, edge calculé
     r = L.backtest(sig, candles)
     assert "sharpe" in r and "edge" in r and "score" in r and "trades" in r

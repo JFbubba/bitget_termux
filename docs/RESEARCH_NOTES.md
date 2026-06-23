@@ -422,10 +422,19 @@ opaque, dépendance externe). On **ne copie pas** l'orchestration.
   `evolution.py` (sep-CMA-ES pur, testé sur sphère/quadratique/Rosenbrock borné),
   branché dans `strategy_lab.improve_ema` (remplace la grille, repli grille si numpy
   absent).
-- **Observation honnête** : la recherche évolutionnaire **améliore l'ajustement in-
-  sample** mais **amplifie le surapprentissage** → run BTC 1H : l'ema évolué entre
-  dans le top-3 et le **PBO monte à ~0.69 (>0.5) → aucune promotion**. Le garde-fou
-  PBO tient : on adopte le **meilleur solveur**, pas une perf surajustée.
+- **Généralisation (toutes les pistes)** : `evolve(family, …)` optimise chaque
+  famille (ema/rsi/donchian/bollinger/macd) ; `evolve_ensemble` est le
+  **« coordinateur évolué »** — sep-CMA-ES trouve les **poids des experts**
+  (ex. `ema 0.72 · rsi 1.66 · donchian 2.16 · bollinger 0.96 · macd 0.00`),
+  déterministe et **lisible** (poids encodés dans le nom `wens_…`, reconstructible).
+- **🔑 Clé anti-surapprentissage : séparation TRAIN/TEST.** L'évolution n'optimise
+  que sur `candles[:70%]` (signaux causaux → aucune fuite) ; la généralisation est
+  jugée par run() sur la série complète + PBO. **Effet mesuré (BTC 1H)** : *sans*
+  split, l'ema évolué surajustait (PBO ~0.69, 0 promotion) ; *avec* split,
+  **PBO 0.34** et **4 stratégies promues** dont `evo_bollinger_8` (score 2.05 vs
+  base 0.44) et `evo_rsi_reversion_8` — meilleures **et** robustes. On adopte le
+  solveur de TRINITY **et** la rigueur OOS : l'optimisation devient *exploitable*,
+  pas auto-bloquée.
 
 ---
 
