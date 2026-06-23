@@ -1,0 +1,35 @@
+{
+  "source": "trading/package",
+  "folder_id": "16fYrJsQcVAKU9kasZ9-GZ4gV5EIAtxmX",
+  "updated": "2026-06-23T01:32:21",
+  "totals": {
+    "declared_total": null,
+    "declared_folders": null
+  },
+  "entries": [
+    {
+      "id": "16fYrJsQcVAKU9kasZ9-GZ4gV5EIAtxmX",
+      "title": "package",
+      "type": "folder",
+      "folder": "trading",
+      "subject": "racine",
+      "relevant": true,
+      "notes": "dossier cible à scanner",
+      "ts": "2026-06-23T01:32:21",
+      "action": "pending",
+      "status": "à-faire"
+    },
+    {
+      "id": "1vCI24tArbp1TltrjgldZ7jUBQEoh5TVc",
+      "title": "Wyckoff — Indicateurs et Stratégies — TradingView_files",
+      "type": "folder",
+      "folder": "package",
+      "subject": "wyckoff",
+      "relevant": true,
+      "notes": "sous-dossier (sources Wyckoff)",
+      "ts": "2026-06-23T01:32:21",
+      "action": "pending",
+      "status": "à-faire"
+    }
+  ]
+}

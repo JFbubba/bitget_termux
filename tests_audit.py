@@ -725,6 +725,38 @@ def test_black_scholes():
     except ValueError:
         pass
 
+def test_drive_triage():
+    import drive_triage as dt
+    # normalisation de sujet + hash
+    assert dt.norm_subject("  Wyckoff Réaccumulation ") == "wyckoff-reaccumulation"
+    assert dt.sha1_of("abc") == dt.sha1_of(b"abc")
+    reg = dt.new_registry()
+    # upsert + statut + is_processed (par id et par titre)
+    dt.upsert(reg, {"id": "A", "title": "doc1.pdf", "type": "pdf", "subject": "Orderflow",
+                    "relevant": True, "status": "traité", "action": "learned"})
+    assert dt.is_processed(reg, file_id="A") is True
+    assert dt.is_processed(reg, title="doc1.pdf") is True
+    assert dt.is_processed(reg, file_id="ZZ") is False
+    # upsert idempotent par id : fusion sans clobber (status/action préservés)
+    dt.upsert(reg, {"id": "A", "notes": "résumé"})
+    assert len(reg["entries"]) == 1
+    assert reg["entries"][0]["notes"] == "résumé"
+    assert reg["entries"][0]["status"] == "traité" and reg["entries"][0]["action"] == "learned"
+    # détection de doublon par SUJET (mêmes sujets normalisés, parmi les pertinents)
+    dt.upsert(reg, {"id": "B", "title": "doc2.pdf", "type": "pdf", "subject": "Orderflow",
+                    "relevant": True, "status": "à-faire"})
+    assert any(e["id"] == "A" for e in dt.subject_duplicates(reg, "orderflow", exclude_id="B"))
+    # doublon EXACT par hash de contenu
+    h = dt.sha1_of("contenu")
+    dt.upsert(reg, {"id": "C", "title": "x", "sha1": h})
+    dt.upsert(reg, {"id": "D", "title": "y", "sha1": h})
+    assert {e["id"] for e in dt.hash_duplicates(reg, h)} == {"C", "D"}
+    # compteurs
+    c = dt.counters(reg)
+    assert c["seen"] == 4 and c["processed"] == 1 and c["pdfs"] == 2 and "learned" in c["by_action"]
+    # rapport markdown : ne lève pas, contient l'en-tête
+    assert "Triage Drive" in dt.summary_md(reg)
+
 def test_runtime_cache():
     import runtime_cache as rc
     # decide() est pur : miss / fresh / stale
