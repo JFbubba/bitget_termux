@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -225,10 +225,58 @@ def agent_divergent(symbol):
             "note": f"anticipation/divergence {vote:+.2f}"}
 
 
+def agent_structure(symbol):
+    """Agent STRUCTURE (SMC + Volume Profile) — issu de l'intake Drive package/PDF.
+
+    Combine la structure de marché (BOS/CHoCH), la position vs Value Area du Volume
+    Profile (fade des extrêmes), et une confirmation chandelier (faible). Les
+    patterns sont des CONFIRMATEURS, jamais des déclencheurs isolés."""
+    import technicals as tk
+    import price_action as pa
+    candles = tk.fetch_candles(symbol, "15m", 120)
+    if len(candles) < 30:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+    highs = [c["high"] for c in candles]
+    lows = [c["low"] for c in candles]
+    closes = [c["close"] for c in candles]
+    vote = 0.0
+    parts = []
+    try:
+        ms = pa.market_structure(highs, lows, closes)
+        if ms["event"] == "BOS":
+            vote += 0.5 * ms["event_dir"]; parts.append(f"BOS{ms['event_dir']:+d}")
+        elif ms["event"] == "CHoCH":
+            vote += 0.4 * ms["event_dir"]; parts.append(f"CHoCH{ms['event_dir']:+d}")
+        elif ms["bias"]:
+            vote += 0.2 * ms["bias"]; parts.append(ms["trend"])
+    except Exception:
+        pass
+    try:
+        import pro_indicators as pi
+        vp = pi.volume_profile(candles)
+        price = closes[-1]
+        if price > vp["value_area_high"]:
+            vote -= 0.3; parts.append("aboveVA")
+        elif price < vp["value_area_low"]:
+            vote += 0.3; parts.append("belowVA")
+    except Exception:
+        pass
+    try:
+        pats = pa.candlestick_patterns(candles)
+        d = sum(p["dir"] for p in pats)
+        if d:
+            vote += 0.1 * _clamp(d); parts.append("/".join(p["name"] for p in pats)[:18])
+    except Exception:
+        pass
+    vote = _clamp(vote)
+    return {"vote": vote, "confidence": min(abs(vote) * 1.2, 1.0),
+            "note": "struct " + (" ".join(parts) if parts else "neutre")}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
-    "divergent": agent_divergent,
+    "divergent": agent_divergent, "structure": agent_structure,
 }
 
 

@@ -207,6 +207,27 @@ Lecture de 4 PDF du dossier **`package/PDF`** (périmètre strict : `package` on
   des agents via `up_fraction`/CVIX, **SPA test** + **placebo-reversal** dans le
   backtest, **kill-switch multi-trigger** dans le risque. Rien déployé à l'aveugle.
 
+## §10 — Méthodes de marché (intake Drive `package/PDF`) -> agent STRUCTURE
+Extraites des PDF Wyckoff, Volume Profile, ICT/SMC, chandeliers. **Règle d'or :
+un pattern/structure isolé n'a PAS d'edge — ce sont des CONFIRMATEURS pondérés
+par le contexte, jamais des déclencheurs uniques.**
+- **Volume Profile** (déjà codé : `pro_indicators.volume_profile`) — POC = aimant,
+  Value Area (≈70 % du volume) = *fair value* ; fade aux extrêmes (prix > VAH ->
+  léger short ; < VAL -> léger long), LVN = vide -> cassure rapide.
+- **SMC / ICT** -> `price_action.market_structure` : pivots fractals -> tendance
+  (HH/HL vs LH/LL) ; **BOS** (break of structure = continuation) vs **CHoCH**
+  (change of character = retournement). **FVG** (`fair_value_gaps`) = imbalance
+  3 bougies (support/résistance). Breaker block = OB invalidé re-testé (noté, non
+  codé : trop discrétionnaire).
+- **Chandeliers** -> `price_action.candlestick_patterns` : engulfing, hammer,
+  shooting star, doji — **pondération FAIBLE**, gate par contexte.
+- **Wyckoff** (spring/UTAD, SOS/SOW, phases) — concepts notés ; la détection
+  robuste de *spring* est discrétionnaire -> reportée (pas de faux signal codé à
+  l'aveugle).
+- → **Décision** : nouvel **`agent_structure`** dans l'essaim (8ᵉ agent) =
+  structure (BOS/CHoCH) + position Volume Profile (fade Value Area) + confirmation
+  chandelier (faible). `price_action.py` pur + testé.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

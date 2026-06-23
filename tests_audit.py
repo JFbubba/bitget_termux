@@ -725,6 +725,32 @@ def test_black_scholes():
     except ValueError:
         pass
 
+def test_price_action():
+    import price_action as pa
+    # bullish engulfing
+    ohlc = [{"open": 10, "high": 10.1, "low": 8.9, "close": 9.0},
+            {"open": 8.9, "high": 10.2, "low": 8.8, "close": 10.1}]
+    assert any(p["name"] == "bullish_engulfing" and p["dir"] == 1 for p in pa.candlestick_patterns(ohlc))
+    # hammer (mèche basse longue, petit corps en haut)
+    assert any(p["name"] == "hammer" for p in pa.candlestick_patterns([{"open": 10, "high": 10.3, "low": 9.0, "close": 10.2}]))
+    # doji (corps minuscule)
+    assert any(p["name"] == "doji" for p in pa.candlestick_patterns([{"open": 10, "high": 10.5, "low": 9.5, "close": 10.02}]))
+    assert pa.candlestick_patterns([]) == []
+    # swing points : pivots fractals
+    highs = [1, 2, 3, 2, 1, 2, 4, 3, 2]
+    sw = pa.swing_points(highs, [h - 0.5 for h in highs], k=2)
+    assert (2, 3.0, "H") in sw
+    # market structure : up-trend HH/HL puis cassure haussière = BOS+
+    H = [1, 2, 1.5, 3, 2.5, 4, 3.5, 5]
+    L = [0.5, 1.5, 1.0, 2.5, 2.0, 3.5, 3.0, 4.5]
+    ms = pa.market_structure(H, L, H[:-1] + [6.0], k=1)
+    assert ms["trend"] == "up" and ms["event"] == "BOS" and ms["event_dir"] == 1
+    # fair value gap haussier (high[i-2] < low[i])
+    cd = [{"open": 1, "high": 2, "low": 0.5, "close": 1.8},
+          {"open": 1.9, "high": 2.5, "low": 1.9, "close": 2.4},
+          {"open": 2.6, "high": 3, "low": 2.2, "close": 2.9}]
+    assert any(g["dir"] == 1 for g in pa.fair_value_gaps(cd))
+
 def test_regime_features():
     import regime_features as rf, random
     # up_fraction : régime de dérive (arXiv 2511.12490)
