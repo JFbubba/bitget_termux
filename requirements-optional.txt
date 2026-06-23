@@ -1,0 +1,12 @@
+# Dépendances OPTIONNELLES — le système fonctionne SANS elles (il dégrade
+# proprement). Elles débloquent des fonctions supplémentaires.
+# Sur le VPS :  pip install -r requirements-optional.txt
+#
+# yfinance : macro_data.py — contexte TradFi (VIX/DXY/SPX/10Y/or/pétrole),
+#            commande /tradfi + agent macro du cerveau plus réactif.
+#            (tire pandas/numpy comme sous-dépendances)
+yfinance
+#
+# ccxt : ccxt_markets.py — prix spot + funding/OI multi-exchange (100+ venues),
+#        commande /cross. Méthodes de LECTURE uniquement.
+ccxt

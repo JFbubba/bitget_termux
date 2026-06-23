@@ -21,6 +21,11 @@
 *_old.csv
 .env
 .env.*
+!.env.example
+brain_log.json
+brain_weights.json
+conversation_state.json
+.runtime_cache.json
 __pycache__/
 agent_loop.pid
 claude_export/
@@ -34,3 +39,4 @@ paper_positions.json
 pending_orders.json
 signals_journal.csv
 telegram_offset.txt
+strategies_out/

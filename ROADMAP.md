@@ -17,29 +17,40 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 
 ## Priorite 2  Exploitation Termux
 
-- Ajouter bootstrap_termux.sh
-- Ajouter rotation des journaux
-- Ajouter commande Telegram /git_version
-- Ajouter verification de processus agent_loop.py
-- Ajouter procedure restart propre
+- [x] Ajouter bootstrap_termux.sh
+- [x] Ajouter rotation des journaux (rotate_logs.sh)
+- [x] Ajouter commande Telegram /git_version
+- [x] Ajouter verification de processus agent_loop.py (watchdog.py + /watchdog)
+- [x] Ajouter procedure restart propre (restart_agent.sh + agent_loop.pid)
 
 ## Priorite 3  Observabilite
 
-- Resume sante systeme
-- Dernier commit Git
-- Dernier tag stable
-- Taille des journaux
-- Nombre de pre-ordres pending/rejected/dry-run
-- Statut pause/resume
+- [x] Resume sante systeme (/system_health)
+- [x] Dernier commit Git (/git_version)
+- [x] Dernier tag stable (/git_version)
+- [x] Taille des journaux (/system_health)
+- [x] Nombre de pre-ordres pending/rejected/dry-run (/system_health)
+- [x] Statut pause/resume (/pause_status)
 
 ## Priorite 4  Qualite strategie
 
 - Backtest offline simple
 - Journal des signaux ignores
-- Statistiques par symbole
-- Statistiques long/short
-- Ratio TP/SL
+- [x] Indicateurs volume : niveau ancre + biais (concept Unbiased Level Pro)
+- [x] Indicateurs pro calculables : momentum, volume profile, Sharpe, sizing risque capital, timing horaire (pro_indicators.py)
+- [x] Microstructure (order_flow.py + /orderflow) + contexte macro (macro_context.py + /macro)
+- [x] Confluence signal x microstructure x macro branchee dans le scoring (/confluence)
+- [x] Statistiques par symbole (stats_report.py + /stats)
+- [x] Statistiques long/short (stats_report.py + /stats)
+- [x] Ratio TP/SL (stats_report.py + /stats)
 - Gestion des signaux ambigus
+
+## Outils externes
+
+Revue curee des sources externes (data, MCP, skills, Polymarket) et plan
+d'adoption SAFE : voir [docs/EXTERNAL_TOOLS.md](docs/EXTERNAL_TOOLS.md).
+Prochaines adoptions : prediction-mcp (Polymarket, cote PC), module
+CVD/order-flow + zones de liquidation, squelette de skill "analyse".
 
 ## Interdit
 

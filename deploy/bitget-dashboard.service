@@ -1,0 +1,16 @@
+[Unit]
+Description=Bitget read-only web dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 dashboard/server.py
+Environment=DASH_HOST=127.0.0.1
+Environment=DASH_PORT=8787
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

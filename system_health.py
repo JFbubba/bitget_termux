@@ -25,6 +25,7 @@ try:
     load_dotenv()
 except Exception:
     pass
+import json
 import time
 from pathlib import Path
 
@@ -39,6 +40,21 @@ PAUSE_FILE = Path("agent_paused.flag")
 
 EXPECTED_FILES = [a["file"] for a in AGENTS]
 
+ARCHIVE_DIR = Path("logs/archive")
+EXECUTION_JOURNAL = Path("execution_dry_run_journal.jsonl")
+
+# Journaux/logs dont on affiche la taille (lecture seule).
+JOURNAL_FILES = [
+    "agent_loop.log",
+    config.SIGNALS_JOURNAL_FILE,
+    config.OPEN_STATE_FILE,
+    config.FINAL_OUTCOMES_FILE,
+    "execution_dry_run_journal.jsonl",
+    "preorder_approvals_journal.jsonl",
+    "preorder_guard_journal.jsonl",
+    "paper_positions_journal.jsonl",
+]
+
 
 def file_age_minutes(path):
     if not path.exists():
@@ -51,6 +67,56 @@ def count_csv_rows(path):
         return 0
     with path.open("r", encoding="utf-8", errors="ignore") as f:
         return max(sum(1 for _ in f) - 1, 0)  # -1 pour l'entête
+
+
+def file_size_kb(path):
+    p = Path(path)
+    if not p.exists():
+        return None
+    return p.stat().st_size / 1024.0
+
+
+def count_pending_orders():
+    """Compte les pré-ordres par statut (lecture seule). Retourne (counts, blocked)."""
+    counts = {}
+    blocked = 0
+    if not PENDING_ORDERS_FILE.exists():
+        return counts, blocked
+    try:
+        data = json.loads(PENDING_ORDERS_FILE.read_text(encoding="utf-8", errors="ignore"))
+    except (ValueError, OSError):
+        return counts, blocked
+    for order in data.get("orders", []):
+        status = order.get("status", "UNKNOWN")
+        counts[status] = counts.get(status, 0) + 1
+        if order.get("guard_status") == "OBSERVATION_BLOCKED":
+            blocked += 1
+    return counts, blocked
+
+
+def scan_execution_journal():
+    """Compte les exécutions dry-run et VÉRIFIE qu'aucun ordre réel n'a été envoyé.
+
+    Retourne (dry_run_count, real_order_sent_count). real_order_sent doit
+    rester à 0 : c'est la garantie 'aucun ordre réel'.
+    """
+    dry_run = 0
+    real_sent = 0
+    if not EXECUTION_JOURNAL.exists():
+        return dry_run, real_sent
+    for line in EXECUTION_JOURNAL.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("action") == "EXECUTION_DRY_RUN":
+            dry_run += 1
+        if event.get("real_order_sent") is True:
+            real_sent += 1
+    return dry_run, real_sent
 
 
 def main():
@@ -107,6 +173,32 @@ def main():
 
     # Pause
     print(f"État pause: {'EN PAUSE' if PAUSE_FILE.exists() else 'ACTIF'}")
+    print()
+
+    # Tailles des journaux
+    print("Tailles des journaux:")
+    for name in JOURNAL_FILES:
+        kb = file_size_kb(name)
+        print(f"- {name}: {'absent' if kb is None else f'{kb:.1f} Ko'}")
+    archive_count = len([p for p in ARCHIVE_DIR.glob("*") if p.is_file()]) if ARCHIVE_DIR.is_dir() else 0
+    print(f"- archives (logs/archive): {archive_count}")
+    print()
+
+    # Pré-ordres
+    counts, blocked = count_pending_orders()
+    print("Pré-ordres (pending_orders.json):")
+    if counts:
+        for status in sorted(counts):
+            print(f"- {status}: {counts[status]}")
+        print(f"- bloqués OBSERVATION: {blocked}")
+    else:
+        print("- aucun pré-ordre")
+
+    dry_run, real_sent = scan_execution_journal()
+    print(f"- exécutions dry-run journalisées: {dry_run}")
+    print(f"- ordres réels envoyés: {real_sent} (doit rester 0)")
+    if real_sent:
+        issues.append(f"{real_sent} ordre(s) reel(s) detecte(s) dans le journal d'execution")
     print()
 
     if issues:

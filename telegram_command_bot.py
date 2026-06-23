@@ -12,7 +12,7 @@ from telegram_notifier import send_telegram_message
 
 load_dotenv(dotenv_path=Path(".env"))
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("COMMAND_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 if not TOKEN:
@@ -108,6 +108,33 @@ def handle_command(text):
             "/agents - liste des agents\n"
             "/security - audit sécurité\n"
             "/getagent_audit - audit du skill GetAgent\n"
+            "/git_version - version Git du dépôt (lecture seule)\n"
+            "/system_health - bilan de santé du système (lecture seule)\n"
+            "/watchdog - état de la boucle agent_loop (lecture seule)\n"
+            "/stats - statistiques TP/SL par symbole et sens (lecture seule)\n"
+            "/orderflow [SYMBOL] - microstructure: carnet, CVD, OI, funding (lecture seule)\n"
+            "/macro - contexte macro risk-on/off: VIX, courbe 2s10s, DXY (lecture seule)\n"
+            "/confluence SYMBOL SIDE - signal vs carnet/CVD/macro (lecture seule)\n"
+            "/ask QUESTION - assistant IA (langage naturel, lecture seule)\n"
+            "/forget - efface la mémoire de conversation de l'assistant\n"
+            "📷 envoie une PHOTO de chart -> analyse vision automatique\n"
+            "/price SYMBOLES - prix & market cap (ex. /price BTC ETH)\n"
+            "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
+            "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
+            "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
+            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 6 agents\n"
+            "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
+            "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
+            "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
+            "/tradfi - macro TradFi temps quasi-réel (VIX/DXY/SPX/10Y/or/pétrole)\n"
+            "/cross [SYMBOL] - prix spot multi-exchange + écart (ccxt)\n"
+            "/backtest [SYMBOL] [TF] - backtest du signal technique du cerveau\n"
+            "/chart SYMBOL [TF] - le bot DESSINE et envoie le graphique\n"
+            "/feargreed - indice Fear & Greed crypto\n"
+            "/defi - TVL DeFi + top chaines (DefiLlama)\n"
+            "/rugcheck ADRESSE [chain] - détection rug/honeypot d’un token\n"
+            "/dexsearch REQUETE - recherche de paires DEX (DexScreener)\n"
+            "/envcheck - quelles clés API sont configurées (sans révéler les valeurs)\n"
             "/signals - propositions d’ordres sans exécution\n"
             "/preorders - pré-ordres verrouillés sans exécution\n"
             "/approve_preorder ID - approuve un pré-ordre en simulation uniquement\n"
@@ -134,6 +161,19 @@ def handle_command(text):
             "/agents - affiche le manifest des agents\n"
             "/security - lance le Security Agent\n"
             "/getagent_audit - audite le skill GetAgent\n"
+            "/git_version - affiche la version Git (commit, branche, tag, état)\n"
+            "/system_health - affiche le bilan de santé (lecture seule)\n"
+            "/watchdog - vérifie si agent_loop tourne (lecture seule)\n"
+            "/stats - statistiques des résultats finalisés (TP/SL)\n"
+            "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
+            "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
+            "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
+            "/ask QUESTION - assistant IA conversationnel (lecture seule)\n"
+            "/price SYMBOLES · /news [DEVISES] - prix & news\n"
+            "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
+            "/rugcheck ADRESSE [chain] - détection rug/honeypot\n"
+            "/dexsearch REQUETE - paires DEX (DexScreener)\n"
+            "/envcheck - clés API configurées (longueurs seulement)\n"
             "/signals - génère les propositions d’ordres\n"
             "/preorders - affiche les pré-ordres verrouillés\n"
             "/approve_preorder ID - validation simulée, aucun ordre réel\n"
@@ -220,6 +260,231 @@ def handle_command(text):
         if result.returncode != 0:
             return (
                 "❌ Erreur security_agent.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/git_version":
+        result = subprocess.run(
+            ["python", "git_version.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur git_version.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/system_health":
+        result = subprocess.run(
+            ["python", "system_health.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur system_health.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text.startswith("/orderflow"):
+        parts = text.split(maxsplit=1)
+        symbol = parts[1].strip().upper() if len(parts) > 1 else "BTCUSDT"
+
+        result = subprocess.run(
+            ["python", "bitget_market_data.py", symbol],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur bitget_market_data.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text.startswith("/confluence"):
+        parts = text.split()
+        if len(parts) < 3:
+            return "Usage: /confluence SYMBOL SIDE\nex. /confluence BTCUSDT LONG"
+        symbol, side = parts[1].upper(), parts[2].upper()
+        result = subprocess.run(
+            ["python", "confluence_score.py", symbol, side],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return (
+                "❌ Erreur confluence_score.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+        return result.stdout
+
+    if text == "/forget":
+        result = subprocess.run(["python", "assistant/agent.py", "--reset"], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ {result.stderr[-1500:]}"
+
+    if text.startswith("/ask"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return "Usage: /ask ta question\nex. /ask analyse l'order flow de BTC et le sentiment"
+        result = subprocess.run(
+            ["python", "assistant/agent.py", parts[1]],
+            capture_output=True, text=True, timeout=180,
+        )
+        return result.stdout if result.returncode == 0 else f"❌ assistant\n{result.stderr[-1500:]}"
+
+    if text.startswith("/news"):
+        parts = text.split()
+        args = ["python", "news_feed.py"] + ([parts[1]] if len(parts) > 1 else [])
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ news_feed.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/price"):
+        parts = text.split()
+        if len(parts) < 2:
+            return "Usage: /price BTC ETH SOL"
+        result = subprocess.run(["python", "coingecko_data.py"] + parts[1:], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ coingecko_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/deriv"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "aggregated_derivs.py", sym], capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ aggregated_derivs.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/poly"):
+        parts = text.split(maxsplit=1)
+        args = ["python", "polymarket_data.py"] + ([parts[1]] if len(parts) > 1 else [])
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ polymarket_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/brain"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "swarm_brain.py", sym], capture_output=True, text=True, timeout=60)
+        return result.stdout if result.returncode == 0 else f"❌ swarm_brain.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/liq"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
+        return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/calendar") or text.startswith("/eco"):
+        parts = text.split()
+        result = subprocess.run(["python", "econ_calendar.py"] + [p.upper() for p in parts[1:]],
+                                capture_output=True, text=True, timeout=30)
+        return result.stdout if result.returncode == 0 else f"❌ econ_calendar.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/arb"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "arbitrage.py", sym], capture_output=True, text=True, timeout=50)
+        return result.stdout if result.returncode == 0 else f"❌ arbitrage.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/tradfi"):
+        result = subprocess.run(["python", "macro_data.py"], capture_output=True, text=True, timeout=60)
+        return result.stdout if result.returncode == 0 else f"❌ macro_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/cross"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "ccxt_markets.py", sym], capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ ccxt_markets.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/backtest"):
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        tf = parts[2] if len(parts) > 2 else "1H"
+        result = subprocess.run(["python", "backtest_brain.py", sym, tf], capture_output=True, text=True, timeout=70)
+        return result.stdout if result.returncode == 0 else f"❌ backtest_brain.py\n{result.stderr[-1500:]}"
+
+    if text == "/feargreed":
+        result = subprocess.run(["python", "sentiment_index.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ sentiment_index.py\n{result.stderr[-1500:]}"
+
+    if text == "/defi":
+        result = subprocess.run(["python", "defi_data.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ defi_data.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/rugcheck"):
+        parts = text.split()
+        if len(parts) < 2:
+            return "Usage: /rugcheck ADRESSE [chain]\nex. /rugcheck 0x... eth\n/rugcheck <mint> solana"
+        address = parts[1]
+        chain = parts[2] if len(parts) > 2 else "eth"
+        result = subprocess.run(["python", "token_safety.py", address, chain], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ token_safety.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/dexsearch"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            return "Usage: /dexsearch REQUETE\nex. /dexsearch SOL"
+        result = subprocess.run(["python", "dex_scanner.py", parts[1]], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ dex_scanner.py\n{result.stderr[-1500:]}"
+
+    if text == "/envcheck":
+        result = subprocess.run(["python", "check_env.py"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else f"❌ check_env.py\n{result.stderr[-1500:]}"
+
+    if text == "/macro":
+        result = subprocess.run(
+            ["python", "macro_context.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur macro_context.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/stats":
+        result = subprocess.run(
+            ["python", "stats_report.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur stats_report.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/watchdog":
+        result = subprocess.run(
+            ["python", "watchdog.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur watchdog.py\n\n"
                 f"STDOUT:\n{result.stdout[-2500:]}\n\n"
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
@@ -426,7 +691,7 @@ def handle_command(text):
         return "\n".join(output)
 
     if text == "/run_once":
-        send_telegram_message("▶️ Cycle manuel lancé. Attends le rapport de fin.")
+        reply_text("▶️ Cycle manuel lancé. Attends le rapport de fin.")
         result = subprocess.run(
             ["python", "agent_control.py"],
             capture_output=True,
@@ -465,9 +730,68 @@ def handle_command(text):
     )
 
 
+def reply_text(text):
+    """Répond par le bot QUI reçoit le message (son propre token)."""
+    if not text:
+        return
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                  data={"chat_id": ALLOWED_CHAT_ID, "text": text}, timeout=30)
+
+
+def reply_photo(path, caption=""):
+    with open(path, "rb") as fh:
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+                      data={"chat_id": ALLOWED_CHAT_ID, "caption": caption[:1000]},
+                      files={"photo": fh}, timeout=60)
+
+
+def handle_chart(text):
+    """Dessine le graphique (bougies + indicateurs) et l'envoie en photo."""
+    parts = text.split()
+    symbol = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+    granularity = parts[2] if len(parts) > 2 else "1H"
+    try:
+        import chart
+        import technicals
+        path = chart.render(symbol, granularity)
+        t = technicals.technicals(symbol, granularity)
+        cap = f"{symbol} {granularity}"
+        if t.get("vwap"):
+            cap += f" · VWAP {t['vwap']:.0f}"
+        if t.get("rsi14") is not None:
+            cap += f" · RSI {t['rsi14']:.1f}"
+        reply_photo(path, cap)
+    except Exception as exc:
+        reply_text(f"❌ chart: {type(exc).__name__}: {str(exc)[:250]}")
+
+
+def download_telegram_file(file_id):
+    """Récupère un fichier Telegram et renvoie (base64, media_type)."""
+    import base64
+    info = requests.get(f"https://api.telegram.org/bot{TOKEN}/getFile",
+                        params={"file_id": file_id}, timeout=15)
+    info.raise_for_status()
+    file_path = info.json()["result"]["file_path"]
+    blob = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}", timeout=30)
+    blob.raise_for_status()
+    media = "image/jpeg" if file_path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+    return base64.b64encode(blob.content).decode(), media
+
+
+def handle_photo(photo, caption):
+    """Analyse une photo (chart) envoyée sur Telegram via le module vision."""
+    try:
+        file_id = photo[-1]["file_id"]  # plus grande résolution
+        image_b64, media = download_telegram_file(file_id)
+        from assistant import vision
+        return "🖼️ " + vision.analyze_image(caption, image_b64, media)
+    except Exception as exc:
+        return f"❌ vision: {type(exc).__name__}: {str(exc)[:300]}"
+
+
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
@@ -495,10 +819,21 @@ def main():
                 print(f"Message refusé depuis chat_id non autorisé: {chat_id}")
                 continue
 
+            photo = message.get("photo")
+            if photo:
+                print("Photo reçue -> analyse vision")
+                reply_text(handle_photo(photo, message.get("caption", "")))
+                continue
+
+            if text.startswith("/chart"):
+                print("Chart demandé")
+                handle_chart(text)
+                continue
+
             print(f"Commande reçue: {text}")
 
             reply = handle_command(text)
-            send_telegram_message(reply)
+            reply_text(reply)
 
         time.sleep(1)
 

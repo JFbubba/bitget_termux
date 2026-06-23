@@ -1,0 +1,15 @@
+# Dependances Python runtime du Bitget Termux Agent (paper / dry-run only).
+#
+# Audit AST du depot : seules DEUX dependances tierces sont reellement
+# importees par le code. Tout le reste appartient a la bibliotheque
+# standard Python.
+#
+#   requests      -> appels HTTP (API publique Bitget + Telegram)
+#   python-dotenv -> chargement du .env local (jamais versionne)
+#
+# Installation (Termux ou poste local) :
+#   pip install -r requirements.txt
+#
+# NE PAS executer "pip install --upgrade pip" sous Termux (instable/interdit).
+requests>=2.31.0
+python-dotenv>=1.0.0

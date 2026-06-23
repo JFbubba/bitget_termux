@@ -81,3 +81,103 @@ def calculate_atr(candles, period=14):
     for tr in true_ranges[period:]:
         atr_values.append(((atr_values[-1] * (period - 1)) + tr) / period)
     return atr_values
+
+
+def volume_anchored_level(candles, lookback=20):
+    """Niveau S/R ancré au volume : clôture de la bougie au plus gros volume
+    sur les `lookback` dernières bougies.
+
+    Concept réimplémenté indépendamment d'après "Unbiased Level Pro"
+    (cf. docs/EXTERNAL_TOOLS.md). Bougies : {"close", "volume", ...}.
+    SAFE : calcul pur, aucune I/O, aucun ordre.
+    """
+    if lookback <= 0:
+        raise ValueError(f"volume_anchored_level: lookback invalide ({lookback})")
+    if not candles:
+        raise ValueError("volume_anchored_level: aucune bougie fournie")
+    window = candles[-lookback:]
+    top = max(window, key=lambda c: float(c.get("volume", 0.0)))
+    return float(top["close"])
+
+
+def volume_bias_score(candles, lookback=20):
+    """Score de biais directionnel pondéré par le volume sur `lookback` bougies.
+
+    Pour chaque bougie : sens (close vs open) et volume en hausse vs la
+    précédente. Conviction :
+      haussière + volume en hausse -> +3 ; haussière + volume en baisse -> +1
+      baissière + volume en hausse -> -3 ; baissière + volume en baisse -> -1
+      close == open (doji) -> 0
+    Score net > 0 = biais acheteur, < 0 = biais vendeur.
+
+    Concept réimplémenté d'après "Unbiased Level Pro". SAFE : calcul pur.
+    """
+    if lookback <= 0:
+        raise ValueError(f"volume_bias_score: lookback invalide ({lookback})")
+    window = candles[-lookback:]
+    score = 0
+    prev_volume = None
+    for candle in window:
+        volume = float(candle.get("volume", 0.0))
+        close = float(candle["close"])
+        open_price = float(candle.get("open", close))
+        weight = 3 if (prev_volume is not None and volume > prev_volume) else 1
+        if close > open_price:
+            score += weight
+        elif close < open_price:
+            score -= weight
+        prev_volume = volume
+    return score
+
+
+def _mat_inv(a):
+    """Inverse d'une petite matrice carrée par Gauss-Jordan. Pur."""
+    n = len(a)
+    m = [list(row) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate(a)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(m[r][col]))
+        if abs(m[piv][col]) < 1e-12:
+            raise ValueError("matrice singulière")
+        m[col], m[piv] = m[piv], m[col]
+        pv = m[col][col]
+        m[col] = [x / pv for x in m[col]]
+        for r in range(n):
+            if r != col:
+                f = m[r][col]
+                m[r] = [x - f * y for x, y in zip(m[r], m[col])]
+    return [row[n:] for row in m]
+
+
+def savitzky_golay(values, window=11, poly=2):
+    """Lissage Savitzky–Golay (ajuste un polynôme local par moindres carrés). Pur.
+
+    Réduit le bruit haute fréquence tout en préservant les tendances/courbures —
+    le levier de débruitage le plus efficace pour les features de microstructure
+    (cf. arXiv:2506.05764). Longueur préservée ; bords gérés par réplication.
+    Retombe sur l'entrée si la fenêtre est trop courte. SAFE : calcul pur.
+    """
+    values = [float(v) for v in values]
+    n = len(values)
+    if n == 0:
+        return []
+    if window % 2 == 0:
+        window += 1
+    if window > n:
+        window = n if n % 2 else n - 1
+    if window < 3 or poly >= window:
+        return list(values)
+    m = window // 2
+    A = [[float(j ** k) for k in range(poly + 1)] for j in range(-m, m + 1)]
+    ata = [[sum(A[r][i] * A[r][j] for r in range(len(A))) for j in range(poly + 1)]
+           for i in range(poly + 1)]
+    inv = _mat_inv(ata)
+    # poids de lissage du point central = ligne 0 de (AᵀA)⁻¹Aᵀ
+    weights = [sum(inv[0][k] * A[j][k] for k in range(poly + 1)) for j in range(len(A))]
+    out = []
+    for i in range(n):
+        acc = 0.0
+        for off in range(-m, m + 1):
+            idx = min(max(i + off, 0), n - 1)        # réplication des bords
+            acc += weights[off + m] * values[idx]
+        out.append(acc)
+    return out
