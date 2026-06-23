@@ -86,6 +86,10 @@ les limites.*
   taille après une perte sans **nouveau signal indépendant** (edge négatif, ruine
   sous tail risk). Profils d'**agressivité 1..5** (`aggressiveness_profile`) :
   >3 refusé sans override humain.
+- **Anti prompt-injection** — `prompt_guard.py` : le texte externe (message
+  utilisateur, résultats d'outils news/DEX, vision) est **scanné, assaini et
+  encapsulé** comme données ; le system prompt de l'assistant est **durci**. Tout
+  contenu externe = DONNÉES, jamais instructions ; l'assistant reste lecture seule.
 - **Garde-fous sur le code** — `security_agent.py` (SAFE/RISKY) +
   `safe_push_check.sh` avant tout push.
 

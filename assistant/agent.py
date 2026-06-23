@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from assistant import llm_client, memory, tools  # noqa: E402
+import prompt_guard  # noqa: E402  (anti prompt-injection, racine du repo)
 
 SYSTEM = (
     "Tu es l'assistant de trading crypto de l'utilisateur, en FRANÇAIS.\n"
@@ -31,7 +32,13 @@ SYSTEM = (
     "(order-flow, macro, confluence, détection rug/honeypot, DeFi, DEX, sentiment, "
     "stats). Sois concret, chiffré et concis. Si on te demande de passer un ordre, "
     "rappelle que tu es en lecture seule et propose plutôt une analyse."
-)
+) + prompt_guard.SYSTEM_HARDENING
+
+
+def _safe_tool_out(name, out):
+    """Encapsule les sorties d'outils TEXTUELLES comme données externes non fiables
+    (anti prompt-injection) ; laisse les structures (dict/list) telles quelles."""
+    return prompt_guard.wrap_untrusted(out, source=name) if isinstance(out, str) else out
 
 MAX_ITERS = 6
 
@@ -51,7 +58,7 @@ def _run_anthropic(user_message, history, max_iters):
                     results.append({
                         "type": "tool_result",
                         "tool_use_id": block.get("id"),
-                        "content": out,
+                        "content": _safe_tool_out(block.get("name"), out),
                     })
             messages.append({"role": "user", "content": results})
             continue
@@ -85,7 +92,8 @@ def _run_openai(user_message, history, max_iters):
                 except Exception:
                     args = {}
                 out = tools.dispatch(fn.get("name"), args)
-                messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": out})
+                messages.append({"role": "tool", "tool_call_id": call.get("id"),
+                                 "content": _safe_tool_out(fn.get("name"), out)})
             continue
         return (msg.get("content") or "").strip() or "(réponse vide)", messages
     return "(limite d'itérations atteinte — reformule ta question)", messages
@@ -96,6 +104,7 @@ def run(user_message, history=None, max_iters=MAX_ITERS, use_memory=True):
 
     use_memory=True charge l'historique de conversation et y enregistre le tour.
     """
+    user_message = prompt_guard.sanitize(user_message)  # neutralise contrôle/zero-width/marqueurs
     if history is None and use_memory:
         history = memory.load_messages()
     if llm_client.use_openai():

@@ -379,6 +379,24 @@ stratégies.
     promue (Sharpe 1.47, edge +37 %, folds+ 80 %, PBO 0.36) ; donchian/structure
     rejetées (Sharpe négatif). À re-valider en paper avant tout capital.
 
+## §17 — Défense anti prompt-injection (`prompt_guard.py`)
+L'assistant LLM (`assistant/`) ingère du texte EXTERNE non fiable : message
+utilisateur (potentiellement relayé de Telegram), **résultats d'outils** (news,
+sentiment, DEX, tokens), vision. Risque : détourner le raisonnement, exfiltrer le
+system prompt, induire une action. **Defense in depth** (l'assistant est DÉJÀ en
+lecture seule — aucun ordre possible) :
+- **`prompt_guard.py`** (pur, testé) : `scan` (signatures : override/exfil/secret/
+  jailbreak/role-marker/zero-width/oversize → risk low/med/high), `sanitize`
+  (retire contrôle/zero-width/marqueurs de rôle, NFKC, tronque), `wrap_untrusted`
+  (encapsule un contenu externe en `<donnees_externes>` avec **provenance assainie**),
+  `assess`, et `SYSTEM_HARDENING` (clause système anti-injection).
+- **Câblage `assistant/agent.py`** (3 points) : (1) system prompt **durci** ;
+  (2) message utilisateur **assaini** au point d'entrée `run()` → couvre TOUT
+  appelant (CLI, Telegram, dashboard) ; (3) sorties d'outils **textuelles
+  encapsulées** comme données externes (les structures dict/list restent intactes).
+- Principe : tout contenu externe est traité comme **DONNÉES, jamais instructions** ;
+  l'assistant n'obéit qu'à son system prompt et reste **lecture seule**.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
