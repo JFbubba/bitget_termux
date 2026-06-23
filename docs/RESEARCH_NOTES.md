@@ -459,6 +459,60 @@ des institutions, adaptée crypto.
   est sous S0 à drift nul (cohérent avec Black-Scholes §8). Sortie BTC 1 an (base) :
   P5 −66 % … P95 +147 %, prob_up 0.44 — l'éventail crypto est ÉNORME, c'est le message.
 
+## §20 — Sources institutionnelles temps réel + couplage réel du futurtester
+**Demande** : « trouver des sources externes qui donnent l'info dès la première
+publication publique, se connecter aux institutionnels pour suivre leur actualité »,
+puis brancher des **entrées réelles**, **coupler au cerveau**, **fan-chart au
+dashboard**, **calibrer σ/sauts par actif**.
+
+**Réalité d'architecture** (rappel) : le bot tourne sur VPS et **ne peut pas** appeler
+mes outils MCP (Bigdata.com, CoinDesk…) — ceux-ci sont MES outils de recherche.
+Pour que le bot suive l'actualité institutionnelle *au runtime*, il faut des **API/RSS
+publiques gratuites** qu'il interroge lui-même. J'ai donc vérifié, en direct, des
+sources **gratuites et SANS CLÉ** :
+- **FRED** (`fredgraph.csv`, St. Louis Fed) — séries officielles, **aucune clé** :
+  `NFCI` (conditions financières), `T10Y2Y` (pente 10a-2a), `VIXCLS`, `BAMLH0A0HYM2`
+  (spread High-Yield OAS), `FEDFUNDS`. Param `cosd` pour limiter la charge.
+- **RSS presse Fed + BCE** — actualité brute des banques centrales (titres seulement,
+  **assainis par `prompt_guard`** : un titre externe n'est jamais une instruction).
+- (déjà en place) CoinGecko `/global`, alternative.me Fear & Greed.
+
+**`macro_sentinel.py` — « Sentinel Macro Analyst »** (note .docx fournie, réalisée en
+code DÉTERMINISTE, aucun NN) : `regime_nowcast` classe le **régime macro dominant**
+(les 4 mêmes régimes que §19 : expansion/slowdown/recession/recovery) à partir des
+niveaux **ET** variations (NFCI, pente, VIX, spread HY) avec des seuils
+**recherche-fondés** (inversion 10a-2a = avance de récession ; HY OAS >5 % = stress de
+crédit ; NFCI >0 = conditions serrées). Sortie : régime + scores + `drivers` explicites
++ `stress`/`confidence`. Tout via `runtime_cache` (TTL 6 h), best-effort, ne lève jamais.
+
+**Couplage du futurtester** (`futuretester.py`) :
+1. **Entrées réelles** — `from_market(symbol)` : σ et sauts **calibrés sur l'actif**
+   (drift par défaut **NUL** = baseline honnête « sans edge »).
+2. **Cerveau** — `stress_brain` / `stress_assessment(bias, conviction, scenarios)` :
+   confronte le biais du cerveau aux scénarios. Biais **LONG** -> le risque est la
+   **queue basse** (P5) du pire scénario adverse ; **SHORT** -> queue haute (P95).
+   Drapeau si forte conviction **et** queue adverse sévère. Réponse directe à « si je
+   suis LONG, quel P5 en crise ? ».
+3. **Fan-chart dashboard** — bloc `future` (panneau « Futur · Éventail ») : éventail SVG
+   P5/P25/P50/P75/P95 en rendement, table des scénarios, badge de régime Sentinel,
+   drapeau de stress. Projection Monte Carlo cachée 300 s (coûteuse).
+4. **Calibration par actif** — `calibrate(closes)` : σ diffusive annualisée + sauts
+   Merton par la **méthode du seuil robuste (MAD)** (un rendement > 3.5·σ_robuste = saut).
+   `macro_outlook` : `macro_markov_path` **part du régime courant détecté** (Sentinel),
+   plus d'origine arbitraire.
+
+**Évaluation honnête du stack SEC EDGAR / EdgarTools / OpenInsider (fourni par l'user)** :
+- `EdgarTools` (pip), **SEC EDGAR** (API publique gratuite, `fair-access` UA requis),
+  **OpenInsider** : excellents, mais **orientés ACTIONS** (10-K/10-Q, achats d'initiés).
+  Le bot vise le **crypto-futures** : la pertinence directe est **faible** (pas de 10-K
+  pour BTC). Le canal institutionnel à **haute** valeur pour le crypto, c'est le **MACRO**
+  (liquidité/taux/régime de risque) — d'où le choix FRED + banques centrales ci-dessus.
+- **Décision** (non sur-ingénierie) : je n'ajoute **pas** un pipeline actions lourd qui
+  diverge du cœur crypto. Point d'extension laissé propre : `macro_sentinel.FRED_SERIES`
+  est extensible, et un futur `edgar_signals.py` optionnel (pip `edgartools`) pourrait
+  alimenter un actor-detection data-driven (§19) pour les sociétés crypto-exposées
+  (MSTR, COIN, mineurs) **si** un besoin réel émerge — à n'activer qu'à ce moment-là.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

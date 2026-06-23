@@ -173,6 +173,159 @@ def run_all(S0, T=1.0, n=20000, seed=0):
     return {name: run_scenario(name, S0, T, n, seed) for name in SCENARIOS}
 
 
+# ---------- calibration depuis l'historique (étape 4 : σ/sauts par actif) ----------
+
+def calibrate(closes, periods_per_year=365.0, jump_k=3.5):
+    """Calibre σ diffusive ANNUALISÉE + paramètres de sauts (Merton) depuis un
+    historique de clôtures. PUR. Méthode du seuil robuste (MAD) :
+      • un rendement au-delà de jump_k·σ_robuste est classé « saut » (Merton) ;
+      • le reste donne la volatilité diffusive ; les sauts donnent prob/μ/σ.
+    Retourne {sigma, jump_prob, jump_mu, jump_sigma, mu_hist, n}. Crypto = 365 j/an.
+
+    ⚠️ `mu_hist` (drift historique annualisé) est FOURNI mais NON recommandé comme
+    prévision (le passé n'est pas le futur) : par défaut on simule à drift nul."""
+    pts = [float(c) for c in closes if c and c > 0]
+    if len(pts) < 5:
+        return {"sigma": 0.0, "jump_prob": 0.0, "jump_mu": 0.0, "jump_sigma": 0.0,
+                "mu_hist": 0.0, "n": len(pts)}
+    rets = [math.log(pts[i] / pts[i - 1]) for i in range(1, len(pts))]
+    arr = np.asarray(rets, dtype=float)
+    med = float(np.median(arr))
+    mad = float(np.median(np.abs(arr - med)))
+    robust_sigma = 1.4826 * mad if mad > 0 else float(np.std(arr))
+    if robust_sigma <= 0:
+        robust_sigma = 1e-9
+    thr = jump_k * robust_sigma
+    is_jump = np.abs(arr - med) > thr
+    diff = arr[~is_jump]
+    jumps = arr[is_jump]
+    sqp = math.sqrt(periods_per_year)
+    sigma = float(np.std(diff)) * sqp if diff.size >= 2 else float(np.std(arr)) * sqp
+    jprob = float(jumps.size) / arr.size * periods_per_year
+    jmu = float(np.mean(jumps)) if jumps.size >= 1 else 0.0
+    jsig = float(np.std(jumps)) if jumps.size >= 2 else float(thr)
+    mu_hist = float(np.mean(arr)) * periods_per_year
+    return {"sigma": round(sigma, 4), "jump_prob": round(jprob, 3),
+            "jump_mu": round(jmu, 4), "jump_sigma": round(jsig, 4),
+            "mu_hist": round(mu_hist, 4), "n": int(arr.size)}
+
+
+def _daily_closes(symbol, limit=200):
+    """Clôtures journalières résilientes (cachées), best-effort. Ne lève jamais."""
+    import runtime_cache as rc
+
+    def fetch():
+        try:
+            import market_sources as ms
+            cs = ms.candles(symbol, "1d", limit)
+            cl = [row[4] for row in cs if len(row) >= 5]
+            if len(cl) >= 30:
+                return cl
+        except Exception:
+            pass
+        try:
+            import technicals as tk
+            return [float(c["close"]) for c in tk.fetch_candles(symbol, "1d", limit)]
+        except Exception:
+            return []
+    return rc.get(f"future_daily:{symbol.upper()}", 3600, fetch, fallback=[])
+
+
+def from_market(symbol="BTCUSDT", T=1.0, n=20000, seed=0, mu=0.0):
+    """Projection d'éventail à partir des ENTRÉES RÉELLES de l'actif (étape 1) :
+    σ et sauts calibrés sur l'historique journalier, drift `mu` par défaut NUL
+    (baseline honnête « sans edge »). Best-effort : renvoie {} si pas de données."""
+    closes = _daily_closes(symbol)
+    if len(closes) < 30:
+        return {}
+    cal = calibrate(closes)
+    S0 = closes[-1]
+    term = simulate_terminal(S0, mu, cal["sigma"], T, n,
+                             cal["jump_prob"], cal["jump_mu"], cal["jump_sigma"], seed)
+    st = fan_stats(term, S0)
+    st["symbol"] = symbol.upper()
+    st["calibration"] = cal
+    st["mu_used"] = mu
+    st["note"] = "σ/sauts calibrés sur l'historique ; drift imposé (def. 0 = sans edge)"
+    return st
+
+
+# ---------- couplage au CERVEAU (étape 2 : stress-test du biais) ----------
+
+def stress_assessment(bias, conviction, scenarios):
+    """Confronte le BIAIS du cerveau aux scénarios futurs. PUR.
+
+    `bias` ∈ {LONG, SHORT, NEUTRE}. Pour un biais LONG, le RISQUE est la queue
+    BASSE (P5) des scénarios adverses ; pour SHORT, la queue HAUTE (P95). On
+    expose la pire issue plausible et un drapeau si la conviction est forte alors
+    que la queue adverse est sévère. Retourne {worst_scenario, worst_tail_pct, flag, lines}."""
+    b = str(bias).upper()
+    adverse_key = "p5_return_pct" if b == "LONG" else "p95_return_pct" if b == "SHORT" else None
+    lines = []
+    worst_scn, worst_tail = None, None
+    for name, s in scenarios.items():
+        p5 = s.get("p5_return_pct"); p95 = s.get("p95_return_pct")
+        lines.append({"scenario": name, "p5_pct": p5, "median_pct": s.get("median_return_pct"),
+                      "p95_pct": p95, "prob_up": s.get("prob_up")})
+        if adverse_key is None:
+            continue
+        tail = s.get(adverse_key)
+        if tail is None:
+            continue
+        if worst_tail is None or (b == "LONG" and tail < worst_tail) or (b == "SHORT" and tail > worst_tail):
+            worst_tail, worst_scn = tail, name
+    flag = False
+    severe = (worst_tail is not None) and (
+        (b == "LONG" and worst_tail < -30.0) or (b == "SHORT" and worst_tail > 30.0))
+    if severe and float(conviction or 0) >= 0.4:
+        flag = True
+    return {"bias": b, "conviction": round(float(conviction or 0), 3),
+            "worst_scenario": worst_scn, "worst_tail_pct": worst_tail,
+            "high_conviction_vs_severe_tail": flag, "scenarios": lines}
+
+
+def stress_brain(symbol="BTCUSDT", T=1.0, n=20000, seed=0):
+    """Lit le biais du cerveau (peek) et le stress-teste contre tous les scénarios
+    (S0 = prix réel). Best-effort. Réponse à « si je suis LONG, quel P5 en crise ? »."""
+    bias, conviction, S0 = "NEUTRE", 0.0, 100.0
+    try:
+        import swarm_brain
+        r = swarm_brain.peek(symbol)
+        bias = r.get("bias", "NEUTRE")
+        conviction = r.get("adjusted_conviction", r.get("conviction", 0.0))
+    except Exception:
+        pass
+    closes = _daily_closes(symbol)
+    if closes:
+        S0 = closes[-1]
+    scen = run_all(S0, T, n, seed)
+    out = stress_assessment(bias, conviction, scen)
+    out["symbol"] = symbol.upper()
+    out["S0"] = round(float(S0), 4)
+    return out
+
+
+# ---------- couplage MACRO (étape 1 : macro pilotée par les données) ----------
+
+def macro_outlook(n_steps=12, seed=0):
+    """Trajectoire macro projetée DEPUIS le régime courant détecté (Sentinel),
+    et non un point de départ arbitraire. Best-effort. Réponse à « entrées réelles »."""
+    start, regime, conf = 0, "n/a", 0.0
+    try:
+        import macro_sentinel as msx
+        nc = msx.nowcast()
+        regime = nc.get("regime", "n/a")
+        conf = nc.get("confidence", 0.0)
+        start = msx.regime_index(regime)
+    except Exception:
+        pass
+    path = macro_markov_path(DEFAULT_P, n_steps, start=start, seed=seed)
+    # part de temps passé dans chaque régime sur la trajectoire
+    dist = {r: round(path.count(r) / len(path), 3) for r in REGIME_NAMES}
+    return {"current_regime": regime, "confidence": conf, "path": path,
+            "time_in_regime": dist}
+
+
 def main():
     import json
     import sys

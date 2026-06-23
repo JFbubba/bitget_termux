@@ -185,6 +185,32 @@ def build_state(symbol=None, tf="5m"):
         ob = bmd.parse_orderbook(bmd.fetch_orderbook(symbol, limit=20))
         return {"bids": ob["bids"][:12], "asks": ob["asks"][:12]}
 
+    def _future(brain):
+        """Éventail d'issues futures (futurtester) : fan calibré sur l'actif +
+        scénarios typés + régime macro Sentinel + stress-test du biais du cerveau.
+        Best-effort, pur côté maths. Réutilise `brain` déjà lu (pas d'appel en plus)."""
+        import futuretester as ft
+        T = 0.25  # horizon ~3 mois, pertinent pour le trading
+        fan = ft.from_market(symbol, T=T, n=8000)
+        S0 = fan.get("S0", 100.0) if fan else 100.0
+        scen = ft.run_all(S0, T=T, n=8000)
+        scen_sum = {n: {"p5": s["p5_return_pct"], "median": s["median_return_pct"],
+                        "p95": s["p95_return_pct"], "prob_up": s["prob_up"], "note": s["note"]}
+                    for n, s in scen.items()}
+        macro = {}
+        try:
+            import macro_sentinel as msx
+            nc = msx.nowcast()
+            macro = {"regime": nc.get("regime"), "confidence": nc.get("confidence"),
+                     "stress": nc.get("stress"), "drivers": nc.get("drivers")}
+        except Exception:
+            pass
+        bias = (brain or {}).get("bias", "NEUTRE")
+        conv = (brain or {}).get("adjusted_conviction", (brain or {}).get("conviction", 0.0))
+        stress = ft.stress_assessment(bias, conv, scen)
+        return {"horizon_years": T, "fan": fan, "scenarios": scen_sum,
+                "macro": macro, "stress": stress}
+
     def _brain():
         import swarm_brain
         return swarm_brain.peek(symbol)
@@ -208,6 +234,8 @@ def build_state(symbol=None, tf="5m"):
     state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
     state["tf"] = tf
     state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
+    # futurtester : projection coûteuse (Monte Carlo) -> cache long, best-effort
+    state["future"] = _cached(f"fut:{symbol}", 300, lambda: _safe(lambda: _future(brain), {}))
     return state
 
 

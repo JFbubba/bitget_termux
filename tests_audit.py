@@ -1553,6 +1553,103 @@ def test_preorder_guard_blocks_pending_when_observation():
             preorder_guard.PENDING_ORDERS_FILE = old_pending
             preorder_guard.PREORDER_GUARD_JOURNAL_FILE = old_journal
 
+
+# ---------- Sentinel macro (nowcast déterministe, parsing FRED/RSS) ----------
+
+def test_macro_sentinel_parse_fred_csv():
+    import macro_sentinel as ms
+    csv = "observation_date,X\n2025-01-01,.\n2025-01-02,0.32\n2025-01-03,-0.05"
+    pts = ms.parse_fred_csv(csv)
+    assert pts == [("2025-01-02", 0.32), ("2025-01-03", -0.05)]  # '.' manquant ignoré
+    assert ms.parse_fred_csv("header\n") == []
+
+
+def test_macro_sentinel_series_summary():
+    import macro_sentinel as ms
+    pts = [("d1", 0.5), ("d2", 0.4), ("d3", 0.1)]
+    s = ms.series_summary(pts, lookback=2)
+    assert s["last"] == 0.1 and s["prev"] == 0.5 and s["change"] == -0.4 and s["n"] == 3
+    assert ms.series_summary([])["last"] is None
+
+
+def test_macro_sentinel_parse_rss_titles():
+    import macro_sentinel as ms
+    xml = ("<rss><channel><title>Fed Press</title>"
+           "<item><title>FOMC holds rates</title></item>"
+           "<item><title><![CDATA[Speech on liquidity]]></title></item></channel></rss>")
+    titles = ms.parse_rss_titles(xml)
+    assert titles == ["FOMC holds rates", "Speech on liquidity"]  # titre de canal sauté
+
+
+def test_macro_sentinel_regime_nowcast_classes():
+    import macro_sentinel as ms
+    rec = ms.regime_nowcast(dict(nfci=0.7, nfci_chg=0.2, curve=-0.4, curve_chg=-0.1,
+                                 vix=34, hy=9.0, hy_chg=1.5))
+    assert rec["regime"] == "recession"
+    exp = ms.regime_nowcast(dict(nfci=-0.4, nfci_chg=-0.05, curve=0.9, curve_chg=0.1,
+                                 vix=13, hy=3.0, hy_chg=-0.2))
+    assert exp["regime"] == "expansion" and exp["stress"] == 0.0
+    # robuste aux manques : dict vide -> ne lève pas, renvoie un régime valide
+    out = ms.regime_nowcast({})
+    assert out["regime"] in ms._REGIME_INDEX and 0.0 <= out["confidence"] <= 1.0
+
+
+def test_macro_sentinel_regime_index_and_mapping():
+    import macro_sentinel as ms
+    assert ms.regime_index("recession") == 2 and ms.regime_index("expansion") == 0
+    assert ms.regime_index("inconnu") == 0  # défaut sûr
+    dash = {"NFCI": {"last": 0.3, "change": 0.1}, "T10Y2Y": {"last": -0.2, "change": -0.05},
+            "VIXCLS": {"last": 28.0}, "BAMLH0A0HYM2": {"last": 6.0, "change": 0.4}}
+    ind = ms._dashboard_to_indicators(dash)
+    assert ind["nfci"] == 0.3 and ind["curve"] == -0.2 and ind["vix"] == 28.0 and ind["hy"] == 6.0
+
+
+# ---------- futurtester : calibration, stress du biais, couplage ----------
+
+def test_futuretester_calibrate_detects_jump():
+    import futuretester as ft
+    import numpy as np
+    rng = np.random.default_rng(3)
+    rets = rng.normal(0.0, 0.02, 300)
+    rets[150] = -0.20  # saut planté
+    closes = [100.0]
+    for r in rets:
+        closes.append(closes[-1] * float(np.exp(r)))
+    cal = ft.calibrate(closes)
+    assert cal["sigma"] > 0 and cal["jump_prob"] > 0  # saut détecté
+    assert cal["jump_mu"] < 0  # le saut planté est baissier
+    assert ft.calibrate([100.0, 101.0])["sigma"] == 0.0  # trop court -> neutre
+
+
+def test_futuretester_stress_assessment_directional():
+    import futuretester as ft
+    scen = ft.run_all(100.0, T=1.0, n=3000, seed=0)
+    sa = ft.stress_assessment("LONG", 0.6, scen)
+    # biais LONG -> la queue adverse est la BASSE (P5) la pire des scénarios
+    assert sa["worst_scenario"] == "tail_crisis" and sa["worst_tail_pct"] < 0
+    assert sa["high_conviction_vs_severe_tail"] is True  # forte conviction + queue sévère
+    sb = ft.stress_assessment("SHORT", 0.05, scen)
+    assert sb["worst_tail_pct"] > 0  # biais SHORT -> queue HAUTE (P95)
+    assert sb["high_conviction_vs_severe_tail"] is False  # conviction faible -> pas de drapeau
+    sn = ft.stress_assessment("NEUTRE", 0.9, scen)
+    assert sn["worst_scenario"] is None  # pas de direction -> pas de queue adverse
+
+
+def test_futuretester_from_market_offline_via_cache():
+    import futuretester as ft
+    import runtime_cache as rc
+    import numpy as np
+    rng = np.random.default_rng(5)
+    cl = [30000.0]
+    for r in rng.normal(0.0, 0.03, 120):
+        cl.append(cl[-1] * float(np.exp(r)))
+    rc._MEM["future_daily:TESTUSDT"] = {"ts": 9e18, "val": cl}  # frais (ts très futur)
+    fan = ft.from_market("TESTUSDT", T=0.25, n=4000)
+    assert fan and fan["symbol"] == "TESTUSDT"
+    assert "calibration" in fan and fan["mu_used"] == 0.0
+    assert fan["p5"] < fan["p50"] < fan["p95"]
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
