@@ -303,6 +303,53 @@ Docx « agressivité 3/5 & 5/5 », « Martingale », « Black Protocole », « T
 - → cibles d'intégration des garde-fous : `risk_manager`/`risk_limits`/
   `config_guard_agent` (pipeline d'ordres) — fonctions pures fournies & testées.
 
+## §14 — Outils Bitget / MCP / Telegram / on-chain (intake Drive) — surtout dédup
+Constat dominant : **déjà couvert** par le repo, ou **hors scope**. Pas d'import en
+bloc (anti-doublon).
+- **Code Bitget** (`Python/` = 27 `bitget_*.py`, `bitget-bot-v4-hardened/`) : ce sont
+  des **ancêtres** du repo, très redondants. Le repo a sa surface stable
+  (`execution_gateway`, `bitget_balance_reader`, …). **Action** : n'aller piocher
+  qu'un **cas précis** s'il manque (ex. SL natif TP/SL en hedge mode →
+  `bitget_native_sl.py`/`bitget_hedge_sl.py`), l'adapter, le tester — pas d'import
+  global. Les `backtest_*.py` de v4-hardened encodent des **règles testées**
+  (CTA, grid, fear&greed-accumulation, volume-profile, scalp) : à récupérer comme
+  *règles*, pas comme code, si on veut une nouvelle stratégie. MT5 = hors scope.
+- **MCP servers** (12 référencés : alpaca, dexscreener, tradingview, mcp-trader…) :
+  **on en consomme** (via Claude), on **n'en expose pas** tant qu'il n'y a pas de
+  besoin. Si un jour Bitget-MCP propre : `create-mcp-server/` (scaffolding),
+  `tradingview-mcp/` (exemple charts). `mcp-crypto-price` inutile (Bitget direct
+  plus précis).
+- **Signaux Telegram** : un **collecteur read-only** (MTProto/Telethon) qui logge ce
+  que disent les canaux et le **compare ex-post** à nos décisions (audit, anti-FOMO).
+  ⚠️ **signaux publics = sans edge** → usage *proxy de sentiment* / benchmark, jamais
+  source de décision. À isoler de `telegram_command_bot.py` (émission). Roadmap.
+- **Smart money on-chain** : futur agent `smart_money_flow ∈ [-1,1]` — scoring de
+  wallets (PnL/frais/winrate), **flux nets** CEX plutôt que solde, **fenêtre roulante**
+  (un wallet smart ne le reste pas), **interdiction de copy-trading aveugle**.
+  Nécessite un feed on-chain (Nansen/Arkham) → roadmap, hors scope actuel.
+- **DEX (DexScreener/GMGN)** : niche très risquée, **hors scope** crypto-futures.
+
+## §15 — Sources de vérité : catalogue par famille de signal (intake Drive)
+Cartographie 2026 + listes d'acteurs (`outils_trading.md`, `SOURCE… acteurs crypto`).
+**Principe** : pour chaque famille de signal, **une source de vérité prioritaire** ;
+on n'ajoute une dépendance que pour ce qu'on **utilise vraiment**.
+- **Orderflow / microstructure** : **Bitget** (primaire) ; pro (abo) : Kaiko, Amberdata.
+- **Dérivés** (funding/OI) : Bitget ; MCP CoinDesk ; (Coinglass en référence).
+- **On-chain** : Glassnode, CryptoQuant, Nansen, Arkham, DeFiLlama, Dune, Token
+  Terminal — **roadmap** (pas de feed branché ; cf. agent `smart_money_flow` §14).
+- **Macro** : **FRED** (utilisé), **yfinance** (utilisé), **TradingEconomics** (à
+  évaluer). Or = proxy risk-off (§13).
+- **News / sentiment** : **Fear & Greed** (utilisé) ; marchés de prédiction
+  **Kalshi / Polymarket** (sentiment dur) ; Telegram = proxy faible (§14).
+- **Curation outillage** : claudemarketplaces.com, mcpmarket.com (skills + MCP).
+- **Hors scope** (filtrés) : Bloomberg/Reuters terminals, Vanguard/Franklin (equity
+  TradFi), sniper bots Solana/pumpfun.
+- ⚠️ **`grok_report.pdf`** (généré par LLM) : **vérifier toute affirmation chiffrée**
+  et citer la **source d'origine**, jamais le rapport Grok lui-même. Laissé `pending`.
+- → cible : `assistant/tools.py` (wrappers read-only pour CoinGecko/Bitget déjà
+  utilisés ; ajout Glassnode/CryptoQuant **seulement si abonnement**). Les liens
+  bruts restent dans `outils_trading.md` côté Drive (anti-rot).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
