@@ -228,6 +228,36 @@ par le contexte, jamais des déclencheurs uniques.**
   structure (BOS/CHoCH) + position Volume Profile (fade Value Area) + confirmation
   chandelier (faible). `price_action.py` pur + testé.
 
+## §11 — Canon & cadre mental opérationnel (intake Drive `package/PDF`)
+Leçons des classiques, distillées en **règles** reliées à nos mécanismes.
+- **Douglas, *Trading in the Zone*** — penser en **probabilités** (l'edge est sur N
+  trades, pas 1) ; **discipline mécanique** : pas d'override humain d'un signal
+  validé sans donnée nouvelle. → garde-fou de décision (préambule des agents
+  décideurs ; journaliser tout overruling et son coût).
+- **Schwager, *Market Wizards*** — invariants des gagnants : **risque ≤ 1-2 %/trade**,
+  edge défini + patience, **stops non négociables**, peu de paris bien choisis,
+  journalisation froide. → conforme à nos défauts (`position_sizer` = 1 %/trade ;
+  `risk_manager`/`risk_limits` plafonnent positions/perte journalière).
+- **Graham, *Investisseur intelligent*** — **marge de sécurité** : en crypto =
+  buffer prix↔stop absorbant le bruit normal -> **distance au stop ≥ k×ATR**
+  (k fonction du régime CVIX), pas un % fixe. → conforme aux stops ATR existants.
+- **Soros, *Alchimie de la finance*** — **réflexivité** : le sentiment façonne les
+  fondamentaux ; surveiller les **divergences narrative/réalité**. → piste :
+  feature `sentiment_vs_realized` (Fear&Greed vs vol réalisée 30 j) pour l'agent
+  sentiment/macro.
+- **Dalio, *Principles*** — **believability-weighted decisions** : pondérer chaque
+  voix par son track-record vérifié = exactement notre **mixture-of-experts + EARCP**
+  (perf+cohérence). Systèmes causaux à délais. → justifie nos hedge weights.
+- **Malkiel, *Random Walk*** — beaucoup de « signaux » techniques sont du **bruit
+  rationalisé** : antidote à l'overfit -> exiger pour toute feature une **validation
+  OOS** (PBO + SPA + placebo-reversal). → renforce §4/§8.
+- **Lewis, *Flash Boys*** — le **carnet est un produit, pas une vérité** (spoofing/
+  layering ; en perp = wash trades + chasse aux liquidations) -> croiser **depth +
+  trades agressifs (CVD)** et exposer un signal de *liquidation hunt*. → conforte
+  `agent_orderflow` + `agent_liquidations`.
+- **Greenblatt, *Magic Formula*** — **skipped** (value investing equities long
+  horizon, hors scope crypto intraday/swing).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

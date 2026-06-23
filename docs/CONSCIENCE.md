@@ -28,9 +28,21 @@
 s'abstenir.*
 - `aggregate()` → consensus pondéré, **biais** LONG/SHORT/NEUTRE avec **zone
   morte** (|consensus| < 0.2 = on ne force rien).
-- Sept agents aux angles différents (orderflow, technicals, macro, sentiment,
-  derivs, liquidations, **divergent**) : un point de vue, pas un réflexe.
+- **Huit agents** aux angles différents (orderflow, technicals, macro, sentiment,
+  derivs, liquidations, **divergent**, **structure** SMC/Volume-Profile) : un
+  point de vue, pas un réflexe.
 - `cognition()` → escompte la conviction quand l'accord est suspect (voir §3).
+- **Principes du canon** (RESEARCH_NOTES §11), gravés dans le cadre mental :
+  - **Penser en probabilités** (Douglas) : l'edge est sur N trades, pas un seul.
+  - **Discipline mécanique** : pas d'override humain d'un signal validé sans
+    donnée nouvelle (tout overruling est journalisé et coûté).
+  - **Marge de sécurité** (Graham) : distance au stop ≥ k×ATR, pas un % fixe.
+  - **Believability-weighting** (Dalio) : chaque expert pondéré par son
+    track-record = notre mixture-of-experts + EARCP.
+  - **Réflexivité** (Soros) : croiser le sentiment avec une mesure dure (réalisé),
+    jamais le prendre isolément.
+  - **Humilité anti-overfit** (Malkiel) : un beau backtest est suspect tant qu'il
+    n'a pas passé PBO + validation OOS.
 
 ### 2. Conscience MATHÉMATIQUE (rigueur)
 *Ne pas se raconter d'histoires : valider statistiquement avant de croire.*
