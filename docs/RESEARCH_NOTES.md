@@ -152,6 +152,26 @@ ChartingLens, Tickeron, MQL5, FXReplay, TradeStation-alts, TDLib, arXiv, Reddit)
   4. priorité au **local fiable** (Bitget) sur le chemin chaud ; yfinance/MCP/
      Telegram = enrichissement qui peut échouer en silence.
 
+## §8 — Black-Scholes : la volatilité comme objet central
+**Black & Scholes (1973), Merton (1973).** EDP : `∂V/∂t + ½σ²S²·∂²V/∂S² +
+rS·∂V/∂S − rV = 0` ; forme fermée `C = S·N(d1) − K·e^{−rT}·N(d2)`.
+- On ne trade **pas** d'options ici — mais BS formalise **la** quantité qui
+  compte : la **volatilité σ** (seule inconnue). On en tire deux outils
+  directement utiles à un bot directionnel, dans `black_scholes.py` (pur, testé
+  contre des valeurs connues : call ATM = 7.9656, parité call-put, greeks) :
+  1. **N(d2) = P(S_T > K)** (lognormal) → **probabilité d'atteindre un niveau**.
+     `prob_touch` (réflexion, drift nul) estime la « force d'aimantation » vers un
+     cluster de liquidation.
+  2. **Mouvement attendu ≈ S·σ·√T** → **bandes ±1σ** (cône de volatilité) =
+     exactement les **bandes de régime CVIX**, avec une largeur fondée.
+- → **Décisions appliquées** (dashboard) : projection Black-Scholes côté serveur
+  (`_projection`) ; sur le graphique : **bandes ±1σ** colorées par régime CVIX,
+  **aimants de liquidation** annotés de leur **probabilité d'atteinte**, et
+  **multi-timeframe** (5m/15m/1h — la bande s'élargit en √T, vérifié : ±0.53 %
+  → ±1.88 %). La 3ᵉ image (écosystème *trade surveillance*) n'est pas une
+  équation : c'est la couche risque/compliance, dont notre analogue est
+  `security_agent` + `risk_manager`.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

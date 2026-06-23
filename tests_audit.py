@@ -696,6 +696,35 @@ def test_brain_coherence_scores():
     assert c["x"] == 1.0    # x toujours d'accord avec le consensus
     assert c["y"] == 0.0    # y toujours en désaccord
 
+def test_black_scholes():
+    import black_scholes as bs, math
+    # call ATM connu : S=K=100, σ=0.2, T=1, r=0 -> 7.9656
+    assert abs(bs.call_price(100, 100, 0.2, 1.0) - 7.9656) < 1e-3
+    # parité call-put : C − P = S − K·e^{−rT}
+    S, K, sig, T, r = 100, 110, 0.25, 0.5, 0.03
+    lhs = bs.call_price(S, K, sig, T, r) - bs.put_price(S, K, sig, T, r)
+    assert abs(lhs - (S - K * math.exp(-r * T))) < 1e-9
+    # greeks : delta call ∈ ]0,1[, delta put < 0, gamma>0, vega>0
+    assert 0 < bs.delta(100, 100, 0.2, 1) < 1
+    assert bs.delta(100, 100, 0.2, 1, kind="put") < 0
+    assert bs.gamma(100, 100, 0.2, 1) > 0 and bs.vega(100, 100, 0.2, 1) > 0
+    # probabilités lognormales : monotonie + complémentarité + bornes
+    assert bs.prob_above(100, 90, 0.2, 1) > bs.prob_above(100, 110, 0.2, 1)
+    assert abs(bs.prob_above(100, 105, 0.2, 1) + bs.prob_below(100, 105, 0.2, 1) - 1.0) < 1e-12
+    pt = bs.prob_touch(100, 103, 0.2, 1)
+    assert bs.prob_above(100, 103, 0.2, 1) <= pt <= 1.0
+    # mouvement attendu ~1σ = S·σ·√T
+    assert abs(bs.expected_move(100, 0.01, 25) - 100 * 0.01 * 5) < 1e-9
+    # vol réalisée : nulle si rendement constant, positive si variable
+    assert bs.realized_vol([100 * (1.001 ** i) for i in range(10)]) < 1e-12  # rendement constant -> ~0
+    assert bs.realized_vol([100, 101, 100.4, 102, 101, 103, 101.5]) > 0
+    # entrées invalides -> ValueError
+    try:
+        bs.d1_d2(100, 100, 0.0, 1)
+        assert False
+    except ValueError:
+        pass
+
 def test_runtime_cache():
     import runtime_cache as rc
     # decide() est pur : miss / fresh / stale

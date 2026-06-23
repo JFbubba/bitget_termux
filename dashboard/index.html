@@ -65,6 +65,8 @@
   .ind.on{color:var(--accent);border-color:#33415a;background:#10151d}
   .ind .sw{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:5px;vertical-align:middle;opacity:.35}
   .ind.on .sw{opacity:1}
+  .tfbtn{cursor:pointer;font-size:11px;font-weight:400;padding:2px 8px;margin-left:4px;border-radius:5px;color:var(--dim);background:#1a1f2b}
+  .tfbtn.on{color:#fff;background:var(--accent)}
   .tip{position:absolute;pointer-events:none;z-index:5;background:rgba(8,10,14,.94);border:1px solid var(--line);
     border-radius:4px;padding:5px 7px;font-size:10px;line-height:1.5;display:none;white-space:nowrap}
   /* cerveau / essaim */
@@ -123,7 +125,11 @@
     </div>
 
     <div class="panel" style="position:relative">
-      <h2>BTC · 5M · <span id="c-price">—</span></h2>
+      <h2>BTC · <span id="c-tf">5M</span> · <span id="c-price">—</span>
+        <span id="tf-bar" style="float:right">
+          <span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="1h">1h</span>
+        </span>
+      </h2>
       <div id="chart" style="height:230px;width:100%"></div>
       <div class="tip" id="chart-tip"></div>
       <div class="ind-bar" id="ind-bar" title="clic = afficher/masquer · double-clic = isoler">
@@ -239,6 +245,7 @@ function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
 let _candles=[],chart=null,series={};
+let TF="5m",projLines=[];
 
 function emaSeries(vals,period){
   const out=vals.map(()=>null);if(vals.length<period)return out;
@@ -303,6 +310,34 @@ function markBrainOnChart(b){
   series.candles.setMarkers([{time:t,position:long?"belowBar":"aboveBar",
     color:long?"#2ec27e":"#f5566b",shape:long?"arrowUp":"arrowDown",
     text:`${bias} ${cons}${vol}`}]);
+}
+
+function clearProjLines(){
+  if(series.candles){projLines.forEach(l=>{try{series.candles.removePriceLine(l);}catch(e){}});}
+  projLines=[];
+}
+// bandes de régime CVIX (mouvement attendu ±1σ Black-Scholes) + aimants de liquidation (proba d'atteinte)
+function drawProjection(proj,liq){
+  if(!chart||!series.candles)return;
+  clearProjLines();
+  if(proj&&proj.high&&proj.low){
+    const reg=proj.regime||"normal";
+    const col=reg==="extreme"?"#f5566b":reg==="stressed"?"#f0b429":"#4ea1ff";
+    const pct=(proj.exp_move_pct!=null)?(" ±"+(+proj.exp_move_pct).toFixed(2)+"%"):"";
+    projLines.push(series.candles.createPriceLine({price:proj.high,color:col,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"+1σ"+pct}));
+    projLines.push(series.candles.createPriceLine({price:proj.low,color:col,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"−1σ"+pct}));
+  }
+  const mid=proj&&proj.price,cls=(liq&&liq.clusters)||[];
+  if(mid!=null){
+    cls.slice().sort((a,b)=>(b.notional_usd||0)-(a.notional_usd||0)).slice(0,4).forEach(c=>{
+      if(c.distance_pct==null)return;
+      const K=mid*(1+c.distance_pct/100),up=c.side==="short";
+      const p=(c.prob!=null)?(" P"+Math.round(c.prob*100)+"%"):"";
+      projLines.push(series.candles.createPriceLine({price:K,color:up?"#2ec27e":"#f5566b",
+        lineWidth:1,lineStyle:3,axisLabelVisible:true,
+        title:"⬢"+(c.distance_pct>=0?"+":"")+c.distance_pct.toFixed(1)+"%"+p}));
+    });
+  }
 }
 
 function handleCrosshair(param){
@@ -438,7 +473,7 @@ function renderLiq(d){
 async function tick(){
   const t0=performance.now();
   try{
-    const st=await(await fetch("/api/state")).json();const lat=Math.round(performance.now()-t0);
+    const st=await(await fetch("/api/state?tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
     $("mode").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
     const win=(s.win_rate==null)?null:s.win_rate;
@@ -459,7 +494,8 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);markBrainOnChart(st.brain||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
+    if(st.tf)$("c-tf").textContent=st.tf.toUpperCase();
     const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
     $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
     $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";
@@ -485,6 +521,14 @@ function applyLegendUI(){document.querySelectorAll("#g-legend .lg").forEach(el=>
 document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
   ()=>{CLS_ON[el.dataset.cls]=!CLS_ON[el.dataset.cls];applyLegendUI();},
   ()=>{const k=el.dataset.cls;Object.keys(CLS_ON).forEach(x=>CLS_ON[x]=(x===k));applyLegendUI();}));
+
+// --- sélecteur de timeframe (5m / 15m / 1h) : change TF et rafraîchit ---
+document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("click",()=>{
+  TF=el.dataset.tf;
+  document.querySelectorAll("#tf-bar .tfbtn").forEach(x=>x.classList.toggle("on",x===el));
+  $("c-tf").textContent=TF.toUpperCase();
+  tick();
+}));
 
 // graphique pro (Lightweight Charts) : crosshair + tooltip OHLC gérés nativement
 initChart();

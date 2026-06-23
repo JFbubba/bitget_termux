@@ -86,8 +86,12 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None
     }
 
 
-def build_state(symbol=None):
+ALLOWED_TF = ("5m", "15m", "1h")
+
+
+def build_state(symbol=None, tf="5m"):
     symbol = symbol or DEFAULT_SYMBOL
+    tf = tf if tf in ALLOWED_TF else "5m"
 
     def _stats():
         import stats_report
@@ -130,13 +134,45 @@ def build_state(symbol=None):
     def _candles():
         # source résiliente : Bitget (primaire) -> CoinGecko (repli), cachée
         import market_sources
-        cs = market_sources.candles(symbol, "5m", 60)
+        cs = market_sources.candles(symbol, tf, 60)
         if cs:
             return cs
         # repli ultime : ancien chemin direct (au cas où market_sources indisponible)
         import technicals
-        raw = technicals.fetch_candles(symbol, "5m", 60)
+        raw = technicals.fetch_candles(symbol, tf, 60)
         return [[int(c["ts"] // 1000), c["open"], c["high"], c["low"], c["close"], c["volume"]] for c in raw]
+
+    def _projection(candles, brain, liq):
+        """Projection Black-Scholes : bandes ±1σ (mouvement attendu) + proba
+        d'atteinte des clusters de liquidation. Pur côté maths, best-effort."""
+        try:
+            import black_scholes as bs
+        except Exception:
+            return {}
+        cl = [c[4] for c in (candles or []) if len(c) >= 5]
+        if len(cl) < 10:
+            return {}
+        S = cl[-1]
+        sigma = bs.realized_vol(cl)            # σ par bougie (cohérent avec le TF affiché)
+        horizon = 24                           # ~ 24 bougies devant
+        try:
+            em = bs.expected_move(S, sigma, horizon)
+        except Exception:
+            return {}
+        regime = ((brain or {}).get("volatility") or {}).get("regime", "n/a")
+        # enrichit chaque cluster de liquidation d'une proba d'atteinte (aimant)
+        if sigma > 0 and isinstance(liq, dict):
+            for c in (liq.get("clusters") or []):
+                try:
+                    K = S * (1.0 + (c.get("distance_pct", 0) or 0) / 100.0)
+                    c["prob"] = round(bs.prob_touch(S, K, sigma, horizon), 3)
+                except Exception:
+                    pass
+        return {
+            "price": round(S, 2), "sigma": round(sigma, 6), "horizon": horizon,
+            "exp_move": round(em, 2), "exp_move_pct": round(em / S * 100, 3) if S else 0.0,
+            "low": round(S - em, 2), "high": round(S + em, 2), "regime": regime,
+        }
 
     def _book():
         import bitget_market_data as bmd
@@ -155,7 +191,7 @@ def build_state(symbol=None):
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
     market = _cached("market", 600, lambda: _safe(_market, {}))
-    candles = _cached(f"cd:{symbol}", 20, lambda: _safe(_candles, []))
+    candles = _cached(f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, []))
     book = _cached(f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []}))
     # le cerveau réinterroge 6 agents (réseau) : cache plus long pour le polling.
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
@@ -163,7 +199,10 @@ def build_state(symbol=None):
     health = _safe(_health, {})
     symbols = _safe(_symbols, [symbol])
 
-    return assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
+    state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
+    state["tf"] = tf
+    state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
+    return state
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -187,7 +226,8 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/state":
             qs = parse_qs(parsed.query)
             symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
-            body = json.dumps(build_state(symbol)).encode("utf-8")
+            tf = (qs.get("tf", ["5m"])[0] or "5m").lower()
+            body = json.dumps(build_state(symbol, tf)).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")

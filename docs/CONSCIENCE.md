@@ -42,6 +42,10 @@ s'abstenir.*
   polynomiaux) : de meilleures entrées valent mieux qu'un modèle plus gros.
 - Indicateurs **purs** qui **lèvent une erreur** sur données insuffisantes
   (pas de valeur fausse silencieuse).
+- **Black-Scholes** — `black_scholes.py` : on ne trade pas d'options, mais on en
+  reprend le cœur probabiliste (la volatilité). `N(d2)` = probabilité d'atteindre
+  un niveau (aimants de liquidation) ; **mouvement attendu S·σ·√T** = bandes ±1σ
+  (cône de volatilité) affichées sur le graphique et colorées par le régime CVIX.
 
 ### 3. Conscience des RISQUES (garde-fous durs + méta-cognition)
 *Savoir quand se méfier de soi-même, et ne jamais laisser un trade contourner
