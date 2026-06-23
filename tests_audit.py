@@ -725,6 +725,27 @@ def test_black_scholes():
     except ValueError:
         pass
 
+def test_regime_features():
+    import regime_features as rf, random
+    # up_fraction : régime de dérive (arXiv 2511.12490)
+    assert rf.up_fraction([1, 2, 3, 4, 5]) == 1.0
+    assert rf.up_fraction([5, 4, 3, 2, 1]) == 0.0
+    assert abs(rf.up_fraction([1, 2, 1, 2, 1, 2, 1]) - 0.5) < 0.2
+    assert rf.up_fraction([1]) == 0.0
+    # slope_to_prob : pente -> proba bornée [0,1] (arXiv 2511.08571)
+    assert rf.slope_to_prob(list(range(1, 11))) > 0.7
+    assert rf.slope_to_prob(list(range(10, 0, -1))) < 0.3
+    assert abs(rf.slope_to_prob([5, 5, 5, 5, 5]) - 0.5) < 1e-9
+    assert rf.slope_to_prob([1, 2]) == 0.5            # trop court -> neutre
+    # orderflow_entropy : déterministe ~0, aléatoire ~1 (arXiv 2512.15720)
+    periodic = [i % 5 for i in range(100)]
+    random.seed(0)
+    rnd = [random.randint(0, 4) for _ in range(2000)]
+    ep = rf.orderflow_entropy(periodic, n_states=5)
+    er = rf.orderflow_entropy(rnd, n_states=5)
+    assert ep < 0.05 and er > 0.85 and ep < er
+    assert rf.orderflow_entropy([3], n_states=5) == 1.0   # trop court -> max (pas d'info)
+
 def test_drive_triage():
     import drive_triage as dt
     # normalisation de sujet + hash

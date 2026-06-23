@@ -174,6 +174,39 @@ rS·∂V/∂S − rV = 0` ; forme fermée `C = S·N(d1) − K·e^{−rT}·N(d2)`
   *trade surveillance*) n'est pas une équation : c'est la couche risque/
   compliance, dont notre analogue est `security_agent` + `risk_manager`.
 
+## §9 — Intake Drive `package/PDF` (papiers analysés)
+Lecture de 4 PDF du dossier **`package/PDF`** (périmètre strict : `package` only).
+- **Order-flow entropy — « Hidden Order in Trades » (arXiv 2512.15720)** ⭐ 5/5.
+  L'entropie de la matrice de transition d'order-flow (15 états = signe ΔP ×
+  quintile de volume, fenêtre 120 s) prédit la **MAGNITUDE** des moves, **pas la
+  direction** (invariance par permutation de signe). Basse entropie -> gros move
+  imminent. → **implémenté** `regime_features.orderflow_entropy()` ; futur **agent
+  de gating-magnitude** distinct des agents directionnels (module taille/timing).
+  Placebos à ajouter à notre batterie : permutation des labels, scrambling
+  temporel, random-entry, correction Bonferroni.
+- **Forecast-to-Fill (arXiv 2511.08571)** 4/5 — or, pas crypto, chiffres suspects
+  (Sharpe 2.88 incohérent en interne), MAIS squelette d'ingénierie réutilisable :
+  mapping **pente standardisée -> proba [0,1]** (`regime_features.slope_to_prob()`),
+  blend convexe `0.6·trend + 0.4·momentum`, vol-targeting EWMA capé, et surtout un
+  **protocole de validation** qui complète notre PBO : **test SPA/Reality-Check
+  (White-Hansen)** sur grille de configs, **placebo par inversion du signal**,
+  stress latence T+1/T+2 et coûts 0.5×–2×, gel des paramètres.
+- **Drift-regime factor (arXiv 2511.12490 ; fichier « 13-Sharpe »)** 3/5 — actions
+  cross-section (≠ notre crypto directionnel), Sharpe 13 invraisemblable (biais de
+  survie admis). Techniques extraites : **régime-gating binaire** (activer/désactiver
+  un agent selon le régime, pas seulement le pondérer) ; **UpFraction** (fraction de
+  jours positifs sur 63) -> `regime_features.up_fraction()` ; **kill-switch
+  multi-trigger** (drawdown abs −30 %, rolling-63j −10 %, vol-spike 3×, corr-break
+  |ρ|>0.5) à ajouter à `risk_manager`.
+- **ECLIPSE — hallucinations LLM (arXiv 2512.03107)** 1/5 — **skipped** : hors de
+  notre architecture (pas de LLM génératif dans le cerveau). À garder en réserve
+  seulement si un pipeline news-LLM est ajouté (insight : haute confiance = facteur
+  de RISQUE, pas de sécurité).
+- → **Décisions** : `regime_features.py` (pur, testé) pose 3 primitives ; pistes
+  d'intégration : agent **orderflow-entropy** (gating-magnitude), **régime-gating**
+  des agents via `up_fraction`/CVIX, **SPA test** + **placebo-reversal** dans le
+  backtest, **kill-switch multi-trigger** dans le risque. Rien déployé à l'aveugle.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
