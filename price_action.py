@@ -106,6 +106,24 @@ def market_structure(highs, lows, closes, k=2):
             "last_swing_high": last_sh, "last_swing_low": last_sl}
 
 
+def is_likely_trap(candles, level, direction, lookback=3, tol=0.001):
+    """Détecte un probable PIÈGE (fake breakout / stop hunt) pour un breakout
+    ATTENDU dans `direction` (+1 haussier, -1 baissier) au-dessus/sous `level`. Pur.
+
+    Vrai si une bougie récente a MÈCHÉ au-delà du niveau dans le sens du breakout
+    MAIS a CLÔTURÉ revenue du mauvais côté (faux move balayant les stops — « Black
+    Protocole », SMC liquidity sweep). Sert de FILTRE avant une entrée breakout."""
+    if not candles or level is None or not direction:
+        return False
+    for c in candles[-lookback:]:
+        hi, lo, cl = float(c["high"]), float(c["low"]), float(c["close"])
+        if direction > 0 and hi > level * (1 + tol) and cl < level:    # faux breakout haussier
+            return True
+        if direction < 0 and lo < level * (1 - tol) and cl > level:    # faux breakout baissier
+            return True
+    return False
+
+
 def fair_value_gaps(candles):
     """Fair Value Gaps (imbalances sur 3 bougies). Pur.
 

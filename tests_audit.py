@@ -751,6 +751,29 @@ def test_price_action():
           {"open": 2.6, "high": 3, "low": 2.2, "close": 2.9}]
     assert any(g["dir"] == 1 for g in pa.fair_value_gaps(cd))
 
+def test_risk_profiles():
+    import risk_profiles as rp
+    assert rp.aggressiveness_profile(3)["max_risk_pct"] == 2.0
+    assert rp.aggressiveness_profile(3)["acceptable"] is True
+    assert rp.aggressiveness_profile(5)["acceptable"] is False     # 5/5 borne haute -> refus
+    assert rp.aggressiveness_profile(99)["level"] == 5 and rp.aggressiveness_profile(0)["level"] == 1
+    # garde anti-martingale
+    assert rp.martingale_guard(True, 10, 20, False)[0] is False    # escalade après perte sans signal
+    assert rp.martingale_guard(True, 10, 20, True)[0] is True       # nouveau signal indépendant -> ok
+    assert rp.martingale_guard(True, 10, 5, False)[0] is True       # réduire -> ok
+    assert rp.martingale_guard(False, 10, 20, False)[0] is True     # après gain -> ok
+
+def test_price_action_trap():
+    import price_action as pa
+    # piège haussier : mèche au-dessus du niveau, clôture revenue dessous
+    assert pa.is_likely_trap([{"open": 100, "high": 105, "low": 99, "close": 100.5}], 103, +1) is True
+    # breakout haussier propre : clôture au-dessus -> pas un piège
+    assert pa.is_likely_trap([{"open": 100, "high": 105, "low": 99, "close": 104}], 103, +1) is False
+    # piège baissier
+    assert pa.is_likely_trap([{"open": 100, "high": 101, "low": 95, "close": 99.5}], 97, -1) is True
+    assert pa.is_likely_trap([{"open": 100, "high": 101, "low": 95, "close": 96}], 97, -1) is False
+    assert pa.is_likely_trap([], 100, 1) is False
+
 def test_regime_features():
     import regime_features as rf, random
     # up_fraction : régime de dérive (arXiv 2511.12490)

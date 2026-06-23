@@ -82,6 +82,10 @@ les limites.*
   directionnel**, **dispersion**, drapeau **groupthink** (cohérence adverse :
   quand tout le monde est d'accord sur une erreur, l'erreur s'amplifie) →
   **facteur de prudence** qui escompte la conviction.
+- **🚫 Martingale bannie** — `risk_profiles.martingale_guard` : aucune hausse de
+  taille après une perte sans **nouveau signal indépendant** (edge négatif, ruine
+  sous tail risk). Profils d'**agressivité 1..5** (`aggressiveness_profile`) :
+  >3 refusé sans override humain.
 - **Garde-fous sur le code** — `security_agent.py` (SAFE/RISKY) +
   `safe_push_check.sh` avant tout push.
 

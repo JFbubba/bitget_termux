@@ -284,6 +284,25 @@ Les docx « cadre multi-agents / orchestrateur / écosystème autodidacte / Alad
   est sur **VPS**) ; contraintes à respecter côté signal-provider (task-keeper après
   kill, persistance hors `/tmp`, batterie).
 
+## §13 — Stratégies : agressivité, anti-martingale, pièges (intake Drive)
+Docx « agressivité 3/5 & 5/5 », « Martingale », « Black Protocole », « TSLA/XAU/BTC ».
+- **Profils d'agressivité** (`risk_profiles.aggressiveness_profile`) : un curseur
+  **1..5** contraint sizing/RR/levier/fréquence d'un coup. 3/5 = compromis sain
+  (≤2 %/trade, RR≥1.5, levier≤5×). **>3 = `acceptable=False`** (override humain
+  requis) ; 5/5 sert de **borne haute** / test de stress du risk manager.
+- **🚫 Martingale BANNIE** (`risk_profiles.martingale_guard`) : doubler après une
+  perte a un **edge négatif** et converge vers la **ruine** sous tail risk. Règle
+  dure : **aucune** hausse de taille après perte **sans nouveau signal indépendant**.
+- **Pièges de marché** (`price_action.is_likely_trap`) : faux breakouts / stop hunts
+  (mèche au-delà d'un niveau puis clôture revenue du mauvais côté). **Filtre**
+  branché dans `agent_structure` : un BOS qui ressemble à un piège est **escompté**
+  (0.2 au lieu de 0.5). « Voir le piège, trader le retournement post-piège. »
+- **Univers borné** (TSLA/XAU/BTC) : valide `portfolio_scanner` (univers restreint,
+  pas de drift) ; or = proxy risk-off (`macro_context`, si source dispo). Renzo
+  (restaking ETH) **skipped** (hors scope crypto futures).
+- → cibles d'intégration des garde-fous : `risk_manager`/`risk_limits`/
+  `config_guard_agent` (pipeline d'ordres) — fonctions pures fournies & testées.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

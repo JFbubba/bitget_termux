@@ -243,8 +243,12 @@ def agent_structure(symbol):
     parts = []
     try:
         ms = pa.market_structure(highs, lows, closes)
+        # filtre « piège » : un BOS qui ressemble à un faux breakout est escompté
+        broken = ms["last_swing_high"] if ms["event_dir"] > 0 else ms["last_swing_low"]
+        trap = pa.is_likely_trap(candles, broken, ms["event_dir"]) if ms["event"] == "BOS" else False
         if ms["event"] == "BOS":
-            vote += 0.5 * ms["event_dir"]; parts.append(f"BOS{ms['event_dir']:+d}")
+            vote += (0.2 if trap else 0.5) * ms["event_dir"]
+            parts.append(f"BOS{ms['event_dir']:+d}" + ("(trap?)" if trap else ""))
         elif ms["event"] == "CHoCH":
             vote += 0.4 * ms["event_dir"]; parts.append(f"CHoCH{ms['event_dir']:+d}")
         elif ms["bias"]:
