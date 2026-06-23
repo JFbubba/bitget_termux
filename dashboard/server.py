@@ -208,8 +208,14 @@ def build_state(symbol=None, tf="5m"):
         bias = (brain or {}).get("bias", "NEUTRE")
         conv = (brain or {}).get("adjusted_conviction", (brain or {}).get("conviction", 0.0))
         stress = ft.stress_assessment(bias, conv, scen)
+        esm_a = {}
+        try:
+            import esm
+            esm_a = esm.analyze(symbol)
+        except Exception:
+            pass
         return {"horizon_years": T, "fan": fan, "scenarios": scen_sum,
-                "macro": macro, "stress": stress}
+                "macro": macro, "stress": stress, "esm": esm_a}
 
     def _brain():
         import swarm_brain

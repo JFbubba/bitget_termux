@@ -243,6 +243,8 @@
           <div class="dim" id="fu-fanlabel" style="font-size:9.5px;margin-top:2px">—</div>
         </div>
         <div style="flex:1;min-width:240px">
+          <div class="row"><span class="k">ESM · état marché (1–8)</span><span id="fu-esm" class="amber">—</span></div>
+          <div class="row"><span class="k">ESM · signal directionnel</span><span id="fu-esmsig">—</span></div>
           <div class="row"><span class="k">biais cerveau</span><span id="fu-bias">—</span></div>
           <div class="row"><span class="k">pire scénario (queue adverse)</span><span id="fu-worst" class="red">—</span></div>
           <div class="row"><span class="k">conviction vs queue sévère</span><span id="fu-flag">—</span></div>
@@ -520,6 +522,11 @@ function renderFuture(f){
   svg+=`<text x="${(W-padX-26).toFixed(1)}" y="${H-4}" fill="#5b6675" font-size="9">+${p95.toFixed(0)}%</text>`;
   $("fu-fan").innerHTML=svg;
   $("fu-fanlabel").textContent="P5 "+p5.toFixed(0)+"% · méd "+(p50>=0?"+":"")+p50.toFixed(0)+"% · P95 +"+p95.toFixed(0)+"% · P(↑) "+(fan.prob_up!=null?Math.round(fan.prob_up*100)+"%":"—")+" · horizon "+(f.horizon_years||0.25)+"a";
+  const es=f.esm||{};
+  if(es.state!=null){$("fu-esm").textContent=es.state+" — "+(es.state_label||"");$("fu-esm").className=es.state>=7?"green":es.state<=2?"red":"amber";}
+  else $("fu-esm").textContent="—";
+  if(es.signal){$("fu-esmsig").textContent=(es.signal_name||"")+" ("+(es.signal_bias>0?"↑":es.signal_bias<0?"↓":"·")+")";$("fu-esmsig").className=es.signal_bias>0?"green":es.signal_bias<0?"red":"dim";}
+  else $("fu-esmsig").textContent="—";
   $("fu-bias").textContent=st.bias||"—";
   $("fu-worst").textContent=(st.worst_scenario||"—")+(st.worst_tail_pct!=null?(" ("+st.worst_tail_pct.toFixed(0)+"%)"):"");
   const flag=!!st.high_conviction_vs_severe_tail;

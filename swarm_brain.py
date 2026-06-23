@@ -221,8 +221,17 @@ def agent_divergent(symbol):
     if len(closes) < 20:
         return {"vote": 0, "confidence": 0, "note": "n/a"}
     vote = divergent_score(closes)
-    return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0),
-            "note": f"anticipation/divergence {vote:+.2f}"}
+    # apport ESM (inspiré Han & Keen) : nudge anticipatoire borné ±0.2, best-effort.
+    # L'agent divergent EST l'agent d'anticipation -> les signaux de retournement
+    # (divergence NED↔prix) et de preneurs informés le renforcent sans le dominer.
+    try:
+        import esm
+        nudge = esm.anticipation_nudge(symbol)
+    except Exception:
+        nudge = 0.0
+    vote = _clamp(vote + nudge)
+    note = f"anticipation/divergence {vote:+.2f}" + (f" · ESM {nudge:+.2f}" if nudge else "")
+    return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0), "note": note}
 
 
 def agent_structure(symbol):

@@ -513,6 +513,41 @@ crédit ; NFCI >0 = conditions serrées). Sortie : régime + scores + `drivers` 
   alimenter un actor-detection data-driven (§19) pour les sociétés crypto-exposées
   (MSTR, COIN, mineurs) **si** un besoin réel émerge — à n'activer qu'à ce moment-là.
 
+## §21 — Extended Samuelson Model (ESM) : états & signaux (`esm.py`)
+Source : *Equity Market Price Changes Are Predictable — A Natural Science Approach*
+(Han 2025 ; fondé sur Han & Keen 2021, *Heliyon*). Thèse : le marché n'est pas un
+bruit stochastique mais un système **causal dynamique** :
+`d·ln(p)/dt = H·[(D−S)/(D+S)] + M`, où **NED = (D−S)/(D+S)** (Demande Excédentaire
+Normalisée ∈ [−1,1]) capte les preneurs de liquidité et `M` les fournisseurs.
+
+**Ce qu'on PEUT exploiter** (l'apport structurel, pas l'estimateur propriétaire) :
+- **8 états de marché** = signe du NED sur 3 échelles (court/moyen/long) :
+  `état = 1 + (court>0) + 2·(moyen>0) + 4·(long>0)`. État 1 (tout −) = creux/le plus
+  pessimiste, État 8 (tout +) = sommet/le plus euphorique. (Sommets ↔ S8, creux ↔ S1.)
+- **6 signaux directionnels** = divergences NED↔prix : tendance (1/2), **retournements
+  par divergence** (3 = prix higher-low + NED lower-low → reverse to uptrend ; 4 =
+  symétrique baissier), **preneurs informés** aux extrêmes (5 = distribution au sommet,
+  6 = accumulation au creux). Ce sont des signaux **anticipatoires** (ex. signal 10 j
+  avant Black Monday 1987 ; reversals intraday validés 90–95 % à 7 j chez les auteurs).
+- **Compatibilité temporelle** : le fin contient le grossier (multi-timeframe).
+
+**Ce qu'on NE PEUT PAS reproduire honnêtement** : l'estimateur exact du NED (données
+propriétaires Han & Keen non publiées). → `esm.py` en construit un **proxy
+transparent et observable** depuis l'OHLCV : *money-flow* de Chaikin
+(Close-Location-Value pondéré volume), borné [−1,1] comme le NED. **Étiqueté
+« inspiré », jamais présenté comme l'original.**
+
+**Intégration (non invasive)** :
+- `esm.py` pur/testé : `ned_proxy`, `market_state` (1..8), `directional_signal`
+  (1..6), `analyze(symbol)` multi-TF (5m/15m/1h) résilient+caché.
+- **Agent divergent** (= l'agent d'ANTICIPATION) : `anticipation_nudge` ajoute un biais
+  **borné ±0.2**, guardé (best-effort→0), issu des signaux 3/4/5/6. `divergent_score`
+  inchangé (tests intacts) → renforce sans destabiliser le cerveau validé.
+- **Dashboard** : panneau « Futur · Éventail » expose l'état ESM (1–8) + le signal
+  directionnel courant.
+- Pistes futures (à activer si utile) : 9ᵉ agent ESM dédié sous EARCP ; turning-points
+  T2/T4 (niveaux de prix où le NED change de signe) comme garde-fous de risque.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

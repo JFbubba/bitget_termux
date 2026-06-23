@@ -1650,6 +1650,55 @@ def test_futuretester_from_market_offline_via_cache():
     assert fan["p5"] < fan["p50"] < fan["p95"]
 
 
+# ---------- ESM (inspiré Han & Keen) : NED-proxy, 8 états, 6 signaux ----------
+
+def test_esm_clv_and_ned_bounds():
+    import esm
+    assert esm.clv(10, 0, 10) == 1.0 and esm.clv(10, 0, 0) == -1.0
+    assert abs(esm.clv(10, 0, 5)) < 1e-9          # clôture au milieu -> 0
+    assert esm.clv(5, 5, 5) == 0.0                # barre plate -> 0 (pas de division)
+    # NED-proxy borné [−1,1] ; clôtures au plus haut avec volume -> proche +1
+    up = [[i, 1, 10, 0, 10, 100] for i in range(6)]
+    dn = [[i, 1, 10, 0, 0, 100] for i in range(6)]
+    assert esm.ned_proxy(up) == 1.0 and esm.ned_proxy(dn) == -1.0
+    assert -1.0 <= esm.ned_proxy([[0, 1, 10, 0, 3, 50]]) <= 1.0
+    assert esm.ned_proxy([]) == 0.0
+
+
+def test_esm_market_state_table1():
+    import esm
+    # state = 1 + (court>0) + 2(moyen>0) + 4(long>0) — Table 1 de l'ESM
+    assert esm.market_state(-0.1, -0.1, -0.1) == 1   # tout négatif = creux
+    assert esm.market_state(0.1, 0.1, 0.1) == 8       # tout positif = sommet
+    assert esm.market_state(0.1, -0.1, -0.1) == 2     # court+ seulement
+    assert esm.market_state(-0.1, -0.1, 0.1) == 5     # long+ seulement
+    assert esm.market_state(0.1, 0.1, -0.1) == 4
+
+
+def test_esm_directional_signals():
+    import esm
+    # Signal 3 (retournement haussier) : prix higher-low MAIS NED lower-low
+    #   prix : creux à 100 puis creux plus haut à 102 ; NED : creux plus BAS
+    price = [110, 100, 108, 112, 102, 109, 113]
+    ned   = [0.2, -0.30, 0.10, 0.25, -0.45, 0.15, 0.30]
+    no, name, bias = esm.directional_signal(ned, price, w=1)
+    assert no == 3 and bias == 1
+    # Signal 4 (retournement baissier) : prix lower-high MAIS NED higher-high
+    price2 = [100, 112, 104, 99, 109, 103, 98]
+    ned2   = [0.0, 0.30, -0.1, 0.0, 0.45, -0.1, 0.0]
+    n2, _, b2 = esm.directional_signal(ned2, price2, w=1)
+    assert n2 == 4 and b2 == -1
+    # série trop courte -> aucun signal, pas de crash
+    assert esm.directional_signal([0.1, 0.2], [1, 2])[0] == 0
+
+
+def test_esm_anticipation_nudge_bounded():
+    import esm
+    # le nudge passé à l'agent divergent est borné dans [−0.2, 0.2] (best-effort)
+    n = esm.anticipation_nudge("DOESNOTEXISTUSDT")
+    assert -0.2 <= n <= 0.2
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
