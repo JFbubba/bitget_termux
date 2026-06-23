@@ -174,6 +174,13 @@
         <div class="dim">conviction <span id="br-convp">—</span></div>
         <div class="dim" style="margin-top:4px">consensus <span id="br-cons" class="accent">—</span></div>
         <div class="dim" id="br-cog" style="margin-top:6px;font-size:9.5px;line-height:1.5">—</div>
+        <div id="br-bsdir" style="margin-top:7px;font-size:9.5px" title="Black-Scholes : probabilité que le prix finisse au-dessus / en dessous du prix actuel à l'horizon (drift nul)">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span class="dim">delta dir. <span style="font-size:8px;opacity:.7">BS ±1σ</span></span>
+            <span><span class="green" id="br-pup">—</span> ↑ · ↓ <span class="red" id="br-pdn">—</span></span>
+          </div>
+          <div class="bar" style="margin-top:3px;background:#f5566b33"><i id="br-pbar" style="background:#2ec27e"></i></div>
+        </div>
       </div>
       <div class="agents" id="br-agents"></div>
     </div>
@@ -320,6 +327,7 @@ function clearProjLines(){
 function drawProjection(proj,liq){
   if(!chart||!series.candles)return;
   clearProjLines();
+  // bandes de régime CVIX = mouvement attendu ±1σ Black-Scholes (tirets, couleur = régime)
   if(proj&&proj.high&&proj.low){
     const reg=proj.regime||"normal";
     const col=reg==="extreme"?"#f5566b":reg==="stressed"?"#f0b429":"#4ea1ff";
@@ -327,16 +335,18 @@ function drawProjection(proj,liq){
     projLines.push(series.candles.createPriceLine({price:proj.high,color:col,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"+1σ"+pct}));
     projLines.push(series.candles.createPriceLine({price:proj.low,color:col,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"−1σ"+pct}));
   }
+  // aimants de liquidation (proba d'atteinte) — décombrés : proches (≤6%), top 3 par notionnel, pointillés
   const mid=proj&&proj.price,cls=(liq&&liq.clusters)||[];
   if(mid!=null){
-    cls.slice().sort((a,b)=>(b.notional_usd||0)-(a.notional_usd||0)).slice(0,4).forEach(c=>{
-      if(c.distance_pct==null)return;
-      const K=mid*(1+c.distance_pct/100),up=c.side==="short";
-      const p=(c.prob!=null)?(" P"+Math.round(c.prob*100)+"%"):"";
-      projLines.push(series.candles.createPriceLine({price:K,color:up?"#2ec27e":"#f5566b",
-        lineWidth:1,lineStyle:3,axisLabelVisible:true,
-        title:"⬢"+(c.distance_pct>=0?"+":"")+c.distance_pct.toFixed(1)+"%"+p}));
-    });
+    cls.filter(c=>c.distance_pct!=null&&Math.abs(c.distance_pct)<=6)
+       .sort((a,b)=>(b.notional_usd||0)-(a.notional_usd||0)).slice(0,3)
+       .forEach(c=>{
+         const K=mid*(1+c.distance_pct/100),up=c.side==="short";
+         const p=(c.prob!=null)?(" "+Math.round(c.prob*100)+"%"):"";
+         projLines.push(series.candles.createPriceLine({price:K,color:up?"#2ec27e":"#f5566b",
+           lineWidth:1,lineStyle:1,axisLabelVisible:false,
+           title:"⬢"+(c.distance_pct>=0?"+":"")+c.distance_pct.toFixed(1)+"%"+p}));
+       });
   }
 }
 
@@ -495,6 +505,9 @@ async function tick(){
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
     drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
+    const pj=st.projection||{};
+    if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
+    else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
     if(st.tf)$("c-tf").textContent=st.tf.toUpperCase();
     const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
     $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";

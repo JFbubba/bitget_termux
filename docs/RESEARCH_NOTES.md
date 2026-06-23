@@ -168,9 +168,11 @@ rS·∂V/∂S − rV = 0` ; forme fermée `C = S·N(d1) − K·e^{−rT}·N(d2)`
   (`_projection`) ; sur le graphique : **bandes ±1σ** colorées par régime CVIX,
   **aimants de liquidation** annotés de leur **probabilité d'atteinte**, et
   **multi-timeframe** (5m/15m/1h — la bande s'élargit en √T, vérifié : ±0.53 %
-  → ±1.88 %). La 3ᵉ image (écosystème *trade surveillance*) n'est pas une
-  équation : c'est la couche risque/compliance, dont notre analogue est
-  `security_agent` + `risk_manager`.
+  → ±1.88 %). **Delta directionnel** dans le panneau cerveau : `P(↑)=N(d2|K=S)`
+  / `P(↓)` à l'horizon — légèrement < 50 % par *volatility drag* (dérive −σ²/2),
+  d'autant plus marqué que σ√T est grand (honnête). La 3ᵉ image (écosystème
+  *trade surveillance*) n'est pas une équation : c'est la couche risque/
+  compliance, dont notre analogue est `security_agent` + `risk_manager`.
 
 ---
 

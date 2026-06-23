@@ -168,10 +168,16 @@ def build_state(symbol=None, tf="5m"):
                     c["prob"] = round(bs.prob_touch(S, K, sigma, horizon), 3)
                 except Exception:
                     pass
+        # delta directionnel : P(prix final > / < prix actuel) à l'horizon (drift nul)
+        try:
+            p_up = bs.prob_above(S, S, sigma, horizon) if sigma > 0 else 0.5
+        except Exception:
+            p_up = 0.5
         return {
             "price": round(S, 2), "sigma": round(sigma, 6), "horizon": horizon,
             "exp_move": round(em, 2), "exp_move_pct": round(em / S * 100, 3) if S else 0.0,
             "low": round(S - em, 2), "high": round(S + em, 2), "regime": regime,
+            "p_up": round(p_up, 4), "p_down": round(1.0 - p_up, 4),
         }
 
     def _book():
