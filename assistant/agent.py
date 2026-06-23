@@ -36,9 +36,11 @@ SYSTEM = (
 
 
 def _safe_tool_out(name, out):
-    """Encapsule les sorties d'outils TEXTUELLES comme données externes non fiables
-    (anti prompt-injection) ; laisse les structures (dict/list) telles quelles."""
-    return prompt_guard.wrap_untrusted(out, source=name) if isinstance(out, str) else out
+    """Encapsule les sorties d'outils TEXTUELLES comme données externes non fiables ;
+    assainit les champs texte des sorties STRUCTURÉES (dict/list) — anti prompt-injection."""
+    if isinstance(out, str):
+        return prompt_guard.wrap_untrusted(out, source=name)
+    return prompt_guard.sanitize_obj(out)
 
 MAX_ITERS = 6
 
@@ -111,6 +113,7 @@ def run(user_message, history=None, max_iters=MAX_ITERS, use_memory=True):
         text, msgs = _run_openai(user_message, history, max_iters)
     else:
         text, msgs = _run_anthropic(user_message, history, max_iters)
+    text = prompt_guard.redact_secrets(text)  # anti-exfiltration : masque toute clé en sortie
     if use_memory:
         memory.save_turn(user_message, text)
     return text, msgs

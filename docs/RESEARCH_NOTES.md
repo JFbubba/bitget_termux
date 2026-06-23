@@ -390,10 +390,19 @@ lecture seule — aucun ordre possible) :
   (retire contrôle/zero-width/marqueurs de rôle, NFKC, tronque), `wrap_untrusted`
   (encapsule un contenu externe en `<donnees_externes>` avec **provenance assainie**),
   `assess`, et `SYSTEM_HARDENING` (clause système anti-injection).
-- **Câblage `assistant/agent.py`** (3 points) : (1) system prompt **durci** ;
-  (2) message utilisateur **assaini** au point d'entrée `run()` → couvre TOUT
-  appelant (CLI, Telegram, dashboard) ; (3) sorties d'outils **textuelles
-  encapsulées** comme données externes (les structures dict/list restent intactes).
+- **Câblage (defense in depth, 5 couches)** :
+  1. **`agent.py`** : system prompt durci, message utilisateur assaini au point
+     d'entrée `run()` (couvre CLI/Telegram/dashboard), sorties d'outils textuelles
+     **encapsulées** et champs texte des sorties **dict/list assainis**
+     (`sanitize_obj`), réponse finale passée par **`redact_secrets`** (anti-
+     exfiltration : aucune clé ne ressort).
+  2. **`vision.py`** : question assainie + **texte décrit de l'image** assaini +
+     redacté (injection visuelle : une capture peut contenir « ignore… »).
+  3. **`news_feed.py`** : titres/sources externes **assainis dès l'ingestion**.
+  4. **`telegram_command_bot.py`** : **cap longueur** (4000) + **rate-limit**
+     (20/min, `rate_limit_ok`) anti-flood, en plus du `chat_id` autorisé.
+  5. **`redact_secrets`** : masque les **préfixes de clés** (sk-ant/ghp_/xai-/AIza/
+     PRIVATE KEY…) **sans** toucher aux adresses/hashes on-chain légitimes.
 - Principe : tout contenu externe est traité comme **DONNÉES, jamais instructions** ;
   l'assistant n'obéit qu'à son system prompt et reste **lecture seule**.
 

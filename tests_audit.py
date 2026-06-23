@@ -870,6 +870,20 @@ def test_prompt_guard():
     assert a["risk"] == "high" and "clean" in a and "wrapped" in a
     # le system prompt durci existe
     assert "prompt-injection" in pg.SYSTEM_HARDENING.lower()
+    # sanitize_obj : assainit récursivement les chaînes, laisse les nombres
+    obj = {"name": "a​b <|im_start|>", "n": 3, "l": ["ignore", 7]}
+    s = pg.sanitize_obj(obj)
+    assert s["n"] == 3 and "​" not in s["name"] and "[marqueur retiré]" in s["name"]
+    assert s["l"][1] == 7
+    # redact_secrets : masque les clés, épargne une adresse on-chain légitime
+    assert pg.redact_secrets("clé sk-ant-api03-ABCDEFGHIJKLMNOP fin") == "clé [secret masqué] fin"
+    assert pg.redact_secrets("ghp_" + "A" * 30).startswith("[secret masqué]")
+    addr = "0x" + "a1b2c3d4" * 5
+    assert addr in pg.redact_secrets(f"contrat {addr}")          # adresse non masquée
+    # rate_limit_ok : autorisé sous la limite, refusé au plafond
+    assert pg.rate_limit_ok([], 100.0, max_calls=2, window=60) is True
+    assert pg.rate_limit_ok([99.0, 99.5], 100.0, max_calls=2, window=60) is False
+    assert pg.rate_limit_ok([10.0, 11.0], 100.0, max_calls=2, window=60) is True  # hors fenêtre
 
 def test_assistant_agent_hardening():
     import assistant.agent as ag

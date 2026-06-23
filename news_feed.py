@@ -13,6 +13,8 @@ import sys
 
 import requests
 
+import prompt_guard  # anti prompt-injection : on assainit les titres externes à la source
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -26,8 +28,9 @@ def parse_news(data, limit=10):
     out = []
     for p in (data.get("results") or [])[:limit]:
         out.append({
-            "title": p.get("title"),
-            "source": (p.get("source") or {}).get("title"),
+            # titres/sources = texte EXTERNE non fiable -> assaini dès l'ingestion
+            "title": prompt_guard.sanitize(p.get("title") or "", max_len=300),
+            "source": prompt_guard.sanitize((p.get("source") or {}).get("title") or "", max_len=120),
             "published_at": p.get("published_at"),
             "currencies": [c.get("code") for c in (p.get("currencies") or [])],
             "url": p.get("url"),
