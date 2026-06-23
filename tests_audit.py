@@ -764,6 +764,22 @@ def _synthetic_candles(n=160, seed=0):
     return out
 
 
+def test_evolution():
+    import evolution as ev
+    import numpy as np
+    # minimise la sphère -> proche de 0 (sep-CMA-ES, TRINITY)
+    _, fb, _ = ev.sep_cma_es(lambda v: float(np.sum(np.square(v))), x0=[3.0, -4.0],
+                             sigma0=2.0, max_gen=70, seed=1)
+    assert fb < 1e-2
+    # maximise -(x-2)^2 -> optimum en 2
+    x2, fb2, _ = ev.sep_cma_es(lambda p: -((p[0] - 2) ** 2), x0=[0.0], sigma0=2.0,
+                               max_gen=70, seed=2, maximize=True)
+    assert abs(x2[0] - 2) < 0.2 and fb2 > -1e-2
+    # bornes respectées
+    x3, _, _ = ev.sep_cma_es(lambda p: float(p[0] ** 2), x0=[0.0], sigma0=1.0,
+                             bounds=([-1], [1]), max_gen=30, seed=3)
+    assert -1.0 <= x3[0] <= 1.0
+
 def test_strategy_lab():
     import strategy_lab as L
     candles = _synthetic_candles()
@@ -779,6 +795,9 @@ def test_strategy_lab():
     for name in ("macd_12_26_9", "bollinger_20"):
         s = L.build_named(name, candles)
         assert len(s) == len(candles) and set(s) <= {-1, 0, 1}
+    # optimiseur évolutionnaire (sep-CMA-ES) -> stratégie ema valide & reconstructible
+    ename, esig, _ = L.improve_ema(candles, max_gen=4)
+    assert ename.startswith("ema_cross_") and L.build_named(ename, candles) == esig
     # backtest : métriques + score présents, edge calculé
     r = L.backtest(sig, candles)
     assert "sharpe" in r and "edge" in r and "score" in r and "trades" in r

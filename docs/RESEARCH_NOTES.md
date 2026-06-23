@@ -406,6 +406,27 @@ lecture seule — aucun ordre possible) :
 - Principe : tout contenu externe est traité comme **DONNÉES, jamais instructions** ;
   l'assistant n'obéit qu'à son system prompt et reste **lecture seule**.
 
+## §18 — Coordinateurs LLM (Sakana) : ce qu'on prend, ce qu'on laisse
+Lecture de **TRINITY** (ICLR 2026, arXiv:2512.04695) et **Conductor / Learning to
+Orchestrate Agents** (arXiv:2512.04388). Les deux orchestrent des **LLM frontières**
+— **hors de notre cerveau déterministe** (pas de LLM dans la décision : lent, cher,
+opaque, dépendance externe). On **ne copie pas** l'orchestration.
+- **Conductor** : un LLM entraîné par RL conçoit des **topologies de communication**
+  agent↔agent + prompt-engineering. Idée intéressante (les agents ne sont pas
+  forcément indépendants) mais **RL = opaque** → on garde notre **gating
+  déterministe** (prudence de `cognition`, régime-gating du labo). Non adopté.
+- **TRINITY — LA pépite** : ils prouvent que **sep-CMA-ES** (évolution dérivée-libre,
+  covariance diagonale) bat RL / grille / random search dans **NOTRE régime exact** :
+  objectif **scalaire bruité** (score de backtest), **sans gradient**, **évals
+  coûteuses** (un backtest/essai), params faiblement corrélés. → **adopté** :
+  `evolution.py` (sep-CMA-ES pur, testé sur sphère/quadratique/Rosenbrock borné),
+  branché dans `strategy_lab.improve_ema` (remplace la grille, repli grille si numpy
+  absent).
+- **Observation honnête** : la recherche évolutionnaire **améliore l'ajustement in-
+  sample** mais **amplifie le surapprentissage** → run BTC 1H : l'ema évolué entre
+  dans le top-3 et le **PBO monte à ~0.69 (>0.5) → aucune promotion**. Le garde-fou
+  PBO tient : on adopte le **meilleur solveur**, pas une perf surajustée.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

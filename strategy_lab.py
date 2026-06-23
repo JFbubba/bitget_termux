@@ -229,18 +229,39 @@ def build_named(name, candles):
     raise ValueError(f"stratégie inconnue: {name}")
 
 
-def improve_ema(candles):
-    """Recherche de paramètres robuste pour ema_cross : meilleur score. Pur-ish."""
-    best, best_name, best_sig = None, None, None
-    for fast in (10, 20, 30):
-        for slow in (40, 50, 100):
-            if fast >= slow:
-                continue
-            sig = strat_ema_cross(candles, fast, slow)
-            r = backtest(sig, candles)
-            if best is None or r["score"] > best["score"]:
-                best, best_name, best_sig = r, f"ema_cross_{fast}_{slow}", sig
-    return best_name, best_sig, best
+def improve_ema(candles, max_gen=20):
+    """Optimise (fast, slow) d'ema_cross. sep-CMA-ES (TRINITY, arXiv:2512.04695) si
+    disponible, sinon repli sur une recherche en grille.
+
+    ⚠️ La recherche (évolutionnaire ou grille) AMPLIFIE le surapprentissage : la
+    stratégie produite reste soumise au garde-fou PBO/walk-forward de run()."""
+    def _make(f, s):
+        f = max(2, int(round(f)))
+        s = int(round(s))
+        if s <= f:
+            s = f + 5
+        return f, s, strat_ema_cross(candles, f, s)
+    try:
+        import evolution
+        def fitness(p):
+            _, _, sig = _make(p[0], p[1])
+            return backtest(sig, candles)["score"]
+        x, _, _ = evolution.sep_cma_es(fitness, x0=[15, 55], sigma0=10,
+                                       bounds=([5, 30], [40, 150]), max_gen=max_gen,
+                                       seed=0, maximize=True)
+        f, s, sig = _make(x[0], x[1])
+        return f"ema_cross_{f}_{s}", sig, backtest(sig, candles)
+    except Exception:
+        best, best_name, best_sig = None, None, None
+        for fast in (10, 20, 30):
+            for slow in (40, 50, 100):
+                if fast >= slow:
+                    continue
+                sig = strat_ema_cross(candles, fast, slow)
+                r = backtest(sig, candles)
+                if best is None or r["score"] > best["score"]:
+                    best, best_name, best_sig = r, f"ema_cross_{fast}_{slow}", sig
+        return best_name, best_sig, best
 
 
 def compose(registry, candles):
