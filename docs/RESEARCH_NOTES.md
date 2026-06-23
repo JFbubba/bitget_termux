@@ -350,6 +350,31 @@ on n'ajoute une dépendance que pour ce qu'on **utilise vraiment**.
   utilisés ; ajout Glassnode/CryptoQuant **seulement si abonnement**). Les liens
   bruts restent dans `outils_trading.md` côté Drive (anti-rot).
 
+## §16 — Base de connaissances + agent backtester autonome (intake Drive)
+Le dossier trié devient **exploitable**, et un agent **fabrique/teste/promeut** des
+stratégies.
+- **`knowledge_base.py`** : charge les fiches `extraction/*.md` (frontmatter
+  `source/category/action/target` + valeur) dans **`knowledge.json`** (persisté →
+  survit à la suppression d'`extraction/`). Interrogeable par les agents :
+  `kb.rules_for("volume_profile")`, `kb.query(category="method")`. 70 fiches.
+- **`strategy_lab.py`** — agent **backtester autonome** :
+  - **stratégies pures & causales** (aucun look-ahead) : ema_cross, rsi_reversion,
+    donchian, vp_fade, structure_bos ; **composition** : régime-gating
+    (`up_fraction`) + ensemble (vote majoritaire) ; **amélioration** : recherche de
+    params (`improve_ema`).
+  - **évaluation HONNÊTE** (réutilise `backtest_brain`) : frais, Sharpe, edge vs
+    buy&hold, **walk-forward**, **PBO** sur l'ensemble des stratégies.
+  - **score** = Sharpe × (tranches gagnantes), pénalisé si edge≤0 ou trop peu de
+    trades. **`build_named`** reconstruit chaque stratégie depuis son nom → le code
+    promu reproduit EXACTEMENT la stratégie testée.
+  - **promotion** : seulement si Sharpe≥0.3, edge>0, walk-forward≥60 % gagnant,
+    trades≥20, **PBO<0.5** → écrit un **rapport** `.md` + un **fichier code prêt à
+    l'emploi** `.py` sous `strategies_out/` (signal advisory, aucun ordre).
+  - **honnête par construction** : la plupart des stratégies ÉCHOUENT la barre — on
+    ne promeut pas du surappris (cf. §4/§8/§11). Run BTC 1H : `rsi_reversion_14`
+    promue (Sharpe 1.47, edge +37 %, folds+ 80 %, PBO 0.36) ; donchian/structure
+    rejetées (Sharpe négatif). À re-valider en paper avant tout capital.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

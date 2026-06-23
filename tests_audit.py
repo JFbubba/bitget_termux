@@ -751,6 +751,51 @@ def test_price_action():
           {"open": 2.6, "high": 3, "low": 2.2, "close": 2.9}]
     assert any(g["dir"] == 1 for g in pa.fair_value_gaps(cd))
 
+def _synthetic_candles(n=160, seed=0):
+    import random
+    random.seed(seed)
+    out, p = [], 100.0
+    for _ in range(n):
+        p *= (1 + 0.001 + random.uniform(-0.012, 0.012))
+        o = p * (1 + random.uniform(-0.003, 0.003))
+        hi = max(o, p) * (1 + abs(random.uniform(0, 0.004)))
+        lo = min(o, p) * (1 - abs(random.uniform(0, 0.004)))
+        out.append({"open": o, "high": hi, "low": lo, "close": p, "volume": random.uniform(1, 5)})
+    return out
+
+
+def test_strategy_lab():
+    import strategy_lab as L
+    candles = _synthetic_candles()
+    # signaux causaux : EMA cross -> 0 avant 'slow', valeurs dans {-1,0,1}
+    sig = L.strat_ema_cross(candles, 20, 50)
+    assert len(sig) == len(candles) and set(sig) <= {-1, 0, 1}
+    assert all(s == 0 for s in sig[:50])
+    # build_named reconstruit exactement (zéro divergence backtest/code promu)
+    assert L.build_named("ema_cross_20_50", candles) == sig
+    assert set(L.build_named("rsi_reversion_14", candles)) <= {-1, 0, 1}
+    assert set(L.build_named("ensemble_trend_rev_struct", candles)) <= {-1, 0, 1}
+    # backtest : métriques + score présents, edge calculé
+    r = L.backtest(sig, candles)
+    assert "sharpe" in r and "edge" in r and "score" in r and "trades" in r
+    # composition
+    assert len(L.regime_gated(sig, candles)) == len(candles)
+    # barre de promotion : honnête (rejette le médiocre, accepte le robuste)
+    bad = {"sharpe": 0.1, "edge": -0.01, "frac_folds_pos": 0.4, "trades": 5}
+    good = {"sharpe": 1.0, "edge": 0.1, "frac_folds_pos": 0.8, "trades": 30}
+    assert L._passes(bad, 0.3) is False
+    assert L._passes(good, 0.3) is True
+    assert L._passes(good, 0.9) is False        # PBO trop élevé -> refus
+
+def test_knowledge_base():
+    import knowledge_base as kb
+    base = kb.load()
+    assert base.get("count", 0) >= 50            # le tri Drive est chargé
+    assert any(e.get("category") == "canon" for e in base["entries"])
+    assert kb.rules_for("martingale", kb=base)   # un agent retrouve les règles d'un sujet
+    assert kb.query(category="method", kb=base)
+    assert isinstance(kb.categories(base), dict) and kb.categories(base)
+
 def test_risk_profiles():
     import risk_profiles as rp
     assert rp.aggressiveness_profile(3)["max_risk_pct"] == 2.0

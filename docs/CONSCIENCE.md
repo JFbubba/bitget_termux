@@ -153,9 +153,24 @@ les limites.*
   (différé). Les « outils IA » web (Tickeron…) n'ont pas d'API gratuite → non
   branchables, noté honnêtement.
 
+### 8. Conscience de RECHERCHE DE PERFORMANCE (laboratoire de stratégies)
+*Ne pas attendre l'inspiration : fabriquer, tester, classer, promouvoir — sans se
+mentir.*
+- **Base de connaissances** — `knowledge_base.py` : le tri Drive (`extraction/`)
+  devient une **DB interrogeable** (`knowledge.json`, 70 fiches) que les agents et
+  le labo consultent (`kb.rules_for("volume_profile")`).
+- **Agent backtester autonome** — `strategy_lab.py` : compose des stratégies
+  **pures et causales** (trend, reversion, Volume-Profile, structure, ensembles,
+  régime-gating), les **améliore** (recherche de params), les **évalue honnêtement**
+  (frais + walk-forward + **PBO**), les **classe**, et **promeut** les robustes en
+  écrivant un **rapport** + un **fichier code prêt à l'emploi** (`strategies_out/`).
+- **Honnête par construction** : barre de promotion exigeante (Sharpe, edge>0,
+  walk-forward, PBO<0.5) → la plupart échouent ; on ne promeut **pas** du surappris.
+  `build_named` garantit que le code promu = la stratégie testée (zéro divergence).
+
 ---
 
-> **Cette liste est une base, pas une clôture.** Sept facettes aujourd'hui ;
+> **Cette liste est une base, pas une clôture.** Huit facettes aujourd'hui ;
 > d'autres viendront (perception on-chain, conscience inter-marchés, mémoire
 > épisodique des régimes…). Le principe reste : chaque facette = du **code réel,
 > testé, auditable**, jamais une promesse.

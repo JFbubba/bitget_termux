@@ -1,0 +1,566 @@
+{
+  "built": "2026-06-23T06:21:28",
+  "count": 70,
+  "entries": [
+    {
+      "id": "docx_agent_onchain_cahier_conception",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Agent on-chain — design »)",
+      "source": "package/agent_ia_trading_onchain_cahier_de_conception.docx",
+      "body": "## Sujet\nCahier de conception d'un **agent IA on-chain** : sources, features, scoring,\nboucle de décision.\n\n## Valeur extraite\n- Recense les **features on-chain** utiles (flows CEX/DEX, MVRV, SOPR, hash rate,\n  active addresses, exchange netflow).\n- Boucle : pull on-chain → normaliser → score → vote dans le brain.\n- Mention des **délais de mise à jour** par source — important : ne pas mixer\n  une feature 24h-lag avec une décision intraday.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Agent on-chain — design » avec la liste des\n  features et leurs latences.\n- Quand on instancie cet agent : un nouveau module dans le repo, vote pondéré dans\n  `swarm_brain.py`, faible poids initial."
+    },
+    {
+      "id": "docx_agent_orchestrateur",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "agent_hub.py, agent_control.py, agent_loop.py",
+      "source": "package/Agent Orchestrateur_.docx (+ `Markdown/_Agent Orchestrateur .md`)",
+      "body": "## Sujet\nConcept d'**agent orchestrateur** central qui pilote la boucle de tous les autres\nagents (collecte → analyse → décision → exécution simulée → reporting).\n\n## Valeur extraite\n- Ce qu'on a déjà sous `agent_hub.py` + `agent_control.py` + `agent_loop.py`\n  **est** un orchestrateur — la doc valide l'archi.\n- Idées supplémentaires : **heartbeat** explicite, kill-switch global (déjà chez\n  nous via risk_manager), **journal de décisions** structuré (JSONL pour rejouer).\n\n## Cible d'intégration\n- `agent_hub.py` — vérifier que le journal des décisions est rejouable\n  (`replay` test). Sinon, ouvrir un ticket.\n- `agent_loop.py` — confirmer présence d'un heartbeat avec dernier ts visible."
+    },
+    {
+      "id": "docx_agents_trading_cadre_llm_multiagents",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Cadre multi-agents »), agent_hub.py, swarm_brain.py",
+      "source": "package/Agents de trading _ Cadre de trading financier LLM multi-agents.docx (+ `1.docx`)",
+      "body": "## Sujet\nDocument long sur un **cadre multi-agents LLM** pour la finance (rôles spécialisés :\nanalyste fondamental, technique, news, risk, exécution, supervisor).\n\n## Valeur extraite\n- **Pattern d'orchestration** : un supervisor route les requêtes vers des sub-agents\n  spécialisés ; chacun a son outillage propre (read-only par défaut).\n- **Aggregation** : vote pondéré ou consensus minimal, exactement la philosophie\n  de `swarm_brain.py` — bonne validation que l'archi du repo converge.\n- **Anti-LLM-hallucination** : chaque sub-agent doit citer la **donnée brute**\n  qu'il a lue (timestamp, source), pas reformuler de mémoire.\n\n## Cible d'intégration\n- `agent_hub.py` — vérifier la séparation supervisor / sub-agents et la traçabilité\n  des données utilisées par chaque décision.\n- `swarm_brain.py` — voir si on peut **ajouter** un sub-agent \"news\" / \"fondamental\"\n  comme expert pondéré (faible poids initial, ajusté online).\n- `docs/RESEARCH_NOTES.md` — § « Cadre multi-agents » avec les patterns valides."
+    },
+    {
+      "id": "docx_amelioration_ecosysteme_agents",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Roadmap agents »)",
+      "source": "package/Amélioration Écosystème Agents IA.docx (+ `.gdoc` pointer + `Markdown/Amélioration Écosystème Agents IA.md`)",
+      "body": "## Sujet\nPlan d'**amélioration** de l'écosystème d'agents IA — pistes d'évolution.\n\n## Valeur extraite\n- Roadmap des chantiers : nouveaux experts (sentiment news, options flow), boucle\n  d'apprentissage online plus rapide, traçabilité, observabilité.\n- Beaucoup de redondance avec ce qui est déjà en cours dans le repo.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Roadmap agents » distillé en 5-10 items\n  prioritaires, le reste écarté."
+    },
+    {
+      "id": "docx_analyse_video_strategie",
+      "category": "strategy-doc",
+      "action": "pending",
+      "target": "—",
+      "source": "package/Analyse la vidéo stratégie.docx (+ `Markdown/Analyse la vidéo stratégie.md`)",
+      "body": "## Sujet\nAnalyse d'une vidéo de stratégie (auteur/sujet non précisés dans le titre).\n\n## Valeur extraite\n- À ouvrir pour savoir s'il y a un **système concret** (règles entrée/SL/TP)\n  ou juste un commentaire général.\n- Si système concret, le formaliser en règles et l'ajouter à `order_signal_engine`.\n\n## Cible\nTBD après lecture."
+    },
+    {
+      "id": "docx_black_protocole",
+      "category": "strategy-doc",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Pièges du marché »)",
+      "source": "package/Black Protocole et critique du marché du trading.docx (+ `BLACK PROTOCOL - See the trap, strike the core_260612_062438.txt`)",
+      "body": "## Sujet\n« Black Protocole » — critique du marché du trading retail et identification des\n**pièges récurrents** (manipulation, fake breakouts, chasse aux stops).\n\n## Valeur extraite\n- Liste de **pièges** opérationnels : faux breakouts en bas/haut de range,\n  stop hunts près des niveaux ronds, gap fills systématiques, divergence\n  prix/volume ignorée.\n- Posture : \"voir le piège, frapper le cœur\" — ne pas trader le piège, trader le\n  retournement post-piège (similaire au pattern SMC liquidity sweep).\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Pièges du marché » qui catalogue ces signatures\n  et les transforme en **filtres** (ex. retarder l'entrée breakout de N bougies\n  pour invalider le faux move).\n- `order_signal_engine.py` — ajouter un filtre `is_likely_trap(ohlc, level)` avant\n  toute entrée breakout."
+    },
+    {
+      "id": "docx_cahier_charges_investingcom",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Source secondaire — Investing.com »)",
+      "source": "package/Cahier des Charges Investing.com _ Analyse Détaill....docx",
+      "body": "## Sujet\nCahier des charges pour intégrer **Investing.com** comme source d'analyse (news,\ncalendrier économique, sentiment analystes).\n\n## Valeur extraite\n- Inventaire des **données extractibles** d'Investing.com (calendrier macro, news,\n  sentiment, idées analystes).\n- Approche : scraping vs API non-officielle vs broker des données.\n- **Risque légal/ToS** : scraping a souvent un coût juridique caché.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court « Investing.com : utile pour calendrier\n  macro, à éviter pour le sentiment (biaisé/notoire) ».\n- Si on a besoin du calendrier macro, préférer une source à API propre\n  (TradingEconomics, FRED, BLS) plutôt qu'Investing."
+    },
+    {
+      "id": "docx_choisir_canal_telegram",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Évaluer un signal externe »)",
+      "source": "package/Choisir un canal Telegram de trading.docx (+ `Markdown/Choisir un canal Telegram de trading.md`)",
+      "body": "## Sujet\nCritères pour **évaluer un canal Telegram** de signaux (qualité, transparence,\nhistorique vérifiable).\n\n## Valeur extraite (critères opérationnels)\n- Track-record **horodaté** (chaque signal daté avant outcome).\n- Mention systématique entry/SL/TP (sinon pas de RR mesurable).\n- Pas de **survivor bias** dans les \"captures\" (montrer aussi les perdants).\n- Taille d'échantillon (≥ 100 signaux) avant de juger.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Évaluer un signal externe » avec cette checklist.\n- À appliquer au module `telegram_signal_listener` (cf. fiche\n  `pdf_guide_signaux_telegram.md`) pour décider quels canaux on log."
+    },
+    {
+      "id": "docx_ecosysteme_agents_autodidacte",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Apprentissage online »), swarm_brain.py",
+      "source": "package/Écosystème d'Agents IA Autodidacte.docx (+ `.gdoc` pointer)",
+      "body": "## Sujet\nIdée d'un **écosystème autodidacte** — les agents apprennent en continu (online)\nde leurs décisions et de leurs erreurs.\n\n## Valeur extraite\n- **Hedge weights** (déjà chez nous dans swarm_brain) = brique de base de\n  l'autoamélioration.\n- Étendre à la **sélection de features** : marquer la pertinence locale de chaque\n  feature et la dégrader en cas de non-information mutuelle prolongée.\n- **Garde-fou** : ne JAMAIS auto-changer les seuils de risque (kill-switch,\n  position cap, stop distance) — l'auto-apprentissage s'applique aux **votes**,\n  pas aux limites de sécurité.\n\n## Cible d'intégration\n- `swarm_brain.py` — ajouter (si pas déjà) un score de pertinence par feature qui\n  décroît si la feature n'apporte rien sur N décisions.\n- `risk_manager.py` — vérifier que ses seuils ne sont **pas** modifiables par\n  l'apprentissage online (seulement par config humaine).\n- `docs/RESEARCH_NOTES.md` — § « Apprentissage online : ce qui apprend vs ce qui\n  est figé » avec la frontière claire."
+    },
+    {
+      "id": "docx_smart_money_wallet_tracking",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Smart money on-chain »), futur agent on-chain",
+      "source": "package/Smart Money Wallet Tracking.docx (+ doublons `(2).docx` et `Markdown/Smart Money Wallet Tracking*.md`)",
+      "body": "## Sujet\n**Suivi de wallets smart-money** : repérer les wallets qui surperforment, tracker\nleurs mouvements en temps réel comme signal directionnel.\n\n## Valeur extraite\n- Méthodes d'identification : ranking PnL on-chain (Nansen, Arkham), filtres\n  d'activité (frais payés > X, % trades gagnants).\n- Lecture : **flux nets** (entrée/sortie d'exchange centralisé) plutôt que solde brut.\n- Limite : un wallet « smart » aujourd'hui ne l'est pas demain → fenêtre roulante.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Smart money on-chain » : règles de scoring de\n  wallets, fenêtres roulantes, garde-fous (interdiction de copy-trading aveugle).\n- Si volet on-chain s'ouvre : futur agent qui produit un vote\n  `smart_money_flow ∈ [-1, 1]` à intégrer à `swarm_brain.py`."
+    },
+    {
+      "id": "docx_strategie_agressivite_3sur5",
+      "category": "strategy-doc",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Profils d'agressivité »), config_guard_agent.py",
+      "source": "package/strategie_trading_agressivite_3_sur_5.docx (+ `-1.docx` doublon)",
+      "body": "## Sujet\nStratégie cible avec un **niveau d'agressivité 3/5** (modérée) — sizing, fréquence,\ntype de signaux acceptés.\n\n## Valeur extraite\n- Concept de **profil d'agressivité** (1 à 5) pilotant : taille position max,\n  nombre trades/jour, RR min, distance stop, levier autorisé.\n- Profil 3/5 = compromis sain (≤ 2 %/trade, RR ≥ 1.5, levier ≤ 5x).\n\n## Cible d'intégration\n- `config_guard_agent.py` — exposer un paramètre `aggressiveness ∈ {1..5}` qui\n  contraint les autres params (au lieu de tous les régler à la main).\n- `docs/RESEARCH_NOTES.md` — § « Profils d'agressivité » avec la grille\n  (1→5) → (sizing, RR, levier, fréquence)."
+    },
+    {
+      "id": "docx_strategie_agressivite_5sur5",
+      "category": "strategy-doc",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Profils d'agressivité »)",
+      "source": "package/strategie_trading_agressivite_5_sur_5.docx (+ `-1.docx` doublon)",
+      "body": "## Sujet\nVariante **5/5** (max agressivité) du même cadre — utile pour borner *ce qu'on\nn'autorise PAS*.\n\n## Valeur extraite\n- Définit la **borne haute** : ce profil n'est PAS souhaité en exploitation, mais\n  doit être un **garde-fou** explicite (refus si config trop agressive sauf\n  override humain explicite).\n- Sert de **test stress** : avec ces params, est-ce que le risk manager refuse\n  bien ? bon test à écrire.\n\n## Cible d'intégration\n- `config_guard_agent.py` + `risk_manager.py` — ajouter un test qui simule un\n  profil 5/5 et vérifie que les limites dures (drawdown cap, max positions)\n  bloquent bien avant la ruine.\n- `docs/RESEARCH_NOTES.md` — mention dans le § « Profils d'agressivité »."
+    },
+    {
+      "id": "docx_strategie_fr_mise_en_page",
+      "category": "strategy-doc",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/strategie_trading_fr_mise_en_page*.docx (4 fichiers — `_A4_corrigee`, `-1`, `-2`)",
+      "body": "## Sujet\n**4 versions** d'un même document FR de stratégie, différences uniquement de\n**mise en page** (A4 corrigée, etc.).\n\n## Action\n- `skipped` — c'est du polissage de présentation, pas du contenu nouveau.\n- Si on veut récupérer le contenu : prendre la **dernière** version uniquement,\n  l'extraire vers `docs/RESEARCH_NOTES.md`, et marquer les 3 autres comme doublons."
+    },
+    {
+      "id": "docx_strategie_martingale",
+      "category": "strategy-doc",
+      "action": "extracted",
+      "target": "risk_manager.py / risk_limits.py (interdire), docs/RESEARCH_NOTES.md",
+      "source": "package/Stratégie _ Martingale.docx (+ `Markdown/Stratégie _ Martingale.md`)",
+      "body": "## Sujet\nStratégie **martingale** : doubler la mise après chaque perte pour récupérer.\n\n## Valeur extraite (négative — c'est une anti-référence)\n- Mathématiquement : edge attendu **négatif** pour tout capital fini ; converge\n  vers la ruine en présence de tail risk (et le marché en a).\n- **Aucune** variante (\"anti-martingale\", \"demi-martingale\", \"Kelly inversée\n  bricolée\") ne sauve un système sans edge réel.\n\n## Cible d'intégration\n- `risk_limits.py` / `risk_manager.py` — règle dure : **interdire** toute\n  augmentation de taille après perte sans **nouveau signal indépendant**. Test à\n  écrire (le rejet doit être visible dans le journal).\n- `docs/RESEARCH_NOTES.md` — § court « Pourquoi la martingale est bannie »\n  (avec lien vers cette fiche)."
+    },
+    {
+      "id": "docx_strategie_tsla_xau_btc",
+      "category": "strategy-doc",
+      "action": "extracted",
+      "target": "portfolio_scanner.py, macro_context.py",
+      "source": "package/strategie_trading_TSLA_XAU_BTC.docx",
+      "body": "## Sujet\nStratégie tri-asset **TSLA / XAU (or) / BTC** — diversification entre tech, valeur\nrefuge et crypto.\n\n## Valeur extraite\n- L'idée d'**univers fixe restreint** (3-5 actifs corrélés différemment) est\n  saine — c'est exactement ce que fait `portfolio_scanner.py` (BTC, ETH, SOL,\n  XRP, XAUT).\n- Cross-asset : utiliser le mouvement XAU comme **signal risk-off** indirect.\n- TSLA n'est pas sur Bitget — à transposer en proxy (ex. corrélation BTC/SP500).\n\n## Cible d'intégration\n- `portfolio_scanner.py` — confirmer que l'univers est bien borné (pas de drift\n  vers 50 symboles).\n- `macro_context.py` — feature `gold_30d_change` comme proxy risk-off (si\n  alimentable via une source externe).\n- Pas de nouveau code structurel."
+    },
+    {
+      "id": "docx_synthese_archi_trading_android",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Contraintes Android »), `pc/` ou `deploy/`",
+      "source": "package/Synthèse Architecture Trading Android.docx",
+      "body": "## Sujet\nSynthèse d'une **architecture trading sur Android** (Termux), contraintes et\nchoix techniques.\n\n## Valeur extraite\n- Contraintes : pas de daemon système, batterie, killer process Android,\n  proot-distro pour avoir un Linux complet.\n- Recommandations : **task-keeper** (script qui relance après kill), logs dans\n  une zone persistante (pas en `/tmp`), backup périodique via Drive Desktop.\n- **Pertinent pour nous** : c'est exactement le terrain de jeu du repo (cf. nom\n  `bitget_termux`).\n\n## Cible d'intégration\n- Si pas déjà fait, ajouter à `pc/` (ou `deploy/`) un md `android-termux.md`\n  consolidant ces points + nos commandes actuelles.\n- `docs/RESEARCH_NOTES.md` — § court « contraintes Android » (kill, batterie,\n  persistance) à respecter."
+    },
+    {
+      "id": "docx_synthese_renzo",
+      "category": "crypto-onchain",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/Synthese_Conversation_Renzo_Protocol.docx (+ `Markdown/Synthese_Conversation_Renzo_Protocol.md`)",
+      "body": "## Sujet\nSynthèse d'une conversation sur **Renzo Protocol** (liquid restaking ETH).\n\n## Valeur extraite\n- Note de veille DeFi spécifique à un protocole ETH staking.\n- Aucun lien direct avec le cerveau Bitget futures actuel.\n\n## Cible\n- `skipped` pour cette passe.\n- Si on ouvre un volet DeFi ETH, ressortir la note à ce moment."
+    },
+    {
+      "id": "docx_technique_dexscreener_gmgn",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "assistant/tools.py (futur wrapper DexScreener / GMGN, si on ouvre volet DEX)",
+      "source": "package/Technique_DexScreener_GMGN.docx",
+      "body": "## Sujet\nTechnique de scan **DexScreener + GMGN** pour repérer des tokens DEX émergents.\n\n## Valeur extraite\n- Filtres clés : âge token, liquidity locked, holders top10 %, volume/liq ratio.\n- Cross-check **GMGN** : score wallet creator, distribution snipers.\n- Pratique très **niche** et risquée — sortie de portefeuille typique très négative.\n\n## Cible d'intégration\n- Hors scope crypto-futures Bitget actuel.\n- Si volet DEX un jour : `assistant/tools.py` → wrappers DexScreener/GMGN read-only."
+    },
+    {
+      "id": "epub_lewis_flash_boys",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Microstructure & HFT — ce qui survit en crypto »)",
+      "source": "package/[12] Lewis, Michael - Flash Boys A Wall Street Revolt.epub",
+      "body": "## Leçon canonique\n- **HFT / co-location / front-running** sur l'équité US — ce qui nous concerne :\n  - l'**ordre book n'est pas une vérité, c'est un produit** (spoofing, layering).\n  - sur Bitget perp, l'analogue = **wash trades + chasse aux liquidations**.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court : « le book affiche, il ne décrit pas ;\n  croiser depth + trades agressifs (CVD) pour estimer le vrai flux ».\n- futur agent « microstructure » dans `swarm_brain.py` (déjà mentionné dans\n  pdf_arxiv_2512_15720) — exposer un signal de **liquidation hunt** quand un cluster\n  de stops est balayé."
+    },
+    {
+      "id": "folder_agent_hub",
+      "category": "agent-architecture",
+      "action": "tool-adapted (déjà couvert)",
+      "target": "agent_hub.py (déjà dans le repo)",
+      "source": "package/agent hub/ et package/agent_hub/",
+      "body": "## Contenu\n- Deux dossiers quasi-identiques (un avec espace, un avec underscore).\n- Tous deux ont structure pnpm/Node : `package.json`, `pnpm-workspace.yaml`,\n  `packages/`, `scripts/`, `tests/`, `docs/`.\n- `agent_hub/` a en plus `node_modules/` (installé) et `start-bitget-mcp.mjs`.\n\n## Valeur extraite\n- C'est une **autre implémentation** d'un agent hub (Node/TypeScript) — pas la\n  nôtre (la nôtre est Python `agent_hub.py` au root).\n- Intérêt limité : la nôtre est en place, en Python, intégrée au reste du repo.\n- À regarder seulement si on cherche une référence d'**API HTTP** ou de **schéma\n  de tools** pour LLM côté Node — sinon on s'évite la stack pnpm.\n\n## Cible d'intégration\n- Aucun code à recopier.\n- Si on a besoin d'inspiration MCP, voir `start-bitget-mcp.mjs` (le seul fichier\n  un peu spécifique) — sinon `skipped`."
+    },
+    {
+      "id": "folder_agent_matrix",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Prompts système d'agents »)",
+      "source": "package/agent matrix/",
+      "body": "## Contenu\n- `AGENTS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `SOUL.md`,\n  `TOOLS.md`, `USER.md`.\n- `trading/` (sous-dossier — à explorer si besoin).\n\n## Valeur extraite\n- Pattern « OS d'agents » : un set de prompts système modulaires qui définissent\n  identité, outils, heartbeat, bootstrap. Inspiration pour structurer nos\n  *system prompts* d'agents.\n- Notre repo n'a pas (encore) cette séparation — chez nous chaque agent Python\n  porte son prompt en dur.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court « Décomposer le prompt système d'un agent en\n  modules (identité, outils, heartbeat) » — à éventuellement adopter quand on\n  multiplie les agents LLM.\n- Pas de code à porter pour l'instant."
+    },
+    {
+      "id": "folder_agent_trading_arena",
+      "category": "agent-architecture",
+      "action": "pending",
+      "target": "—",
+      "source": "package/Agent-Trading-Arena/",
+      "body": "## Contenu\n- `README.md`, `requirement.txt`, sous-dossier `Agent-Trading-Arena/` imbriqué.\n\n## Valeur extraite\n- Probablement un framework de **compétition d'agents** de trading (arène).\n- À évaluer : si on veut benchmarker plusieurs agents (le nôtre vs un baseline),\n  ça peut servir de squelette.\n\n## Cible\n- Lire `README.md` pour décider `tool-adapted` (récupérer un test-harness\n  benchmark) ou `skipped`."
+    },
+    {
+      "id": "folder_ai_trader",
+      "category": "agent-architecture",
+      "action": "pending",
+      "target": "(à évaluer après lecture du README)",
+      "source": "package/AI-Trader/",
+      "body": "## Contenu\n- `README.md` (EN) + `README_ZH.md` (中文) — projet bilingue.\n- Stack Node/TypeScript : `package.json`, `tsconfig.json`, `service/`, `skills/`,\n  `docs/`, `assets/`.\n\n## Valeur extraite\n- À évaluer : si c'est une distrib AI-trader notable (avec skills LLM Anthropic),\n  voir si `skills/` apporte des patterns réutilisables côté `assistant/`.\n- Sinon, juste une référence externe.\n\n## Cible\n- Lire `README.md` pour décider entre `tool-adapted` (extraire 1-2 patterns de\n  `skills/`) ou `skipped`."
+    },
+    {
+      "id": "folder_aladdin_jasmyne",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Vision Crypto-Aladdin perso »)",
+      "source": "package/Aladdin - Jasmyne/",
+      "body": "## Contenu (∼25 fichiers)\n- docx multiples : `Aladd.docx`, `Aladdin.docx`, `Aladdin_iyiiu.docx`,\n  `NERVA2 brouillon.docx`, `dossier_portefeuille_algorithmique_essaim_black_protocol.docx`,\n  `echange_complet_trading_aladdin_jasmyne*.docx`, `info strategie.docx`,\n  `Structure_et_Formules_Aladdin_Crypto.docx`,\n  `Spécifications et Architecture d'un Crypto-Aladdin Personnel.docx` (+ .md).\n- xlsx : `Crypto Aladdin - Architecture et Modèles.xlsx`, `Crypto-Aladdin -\n  Modélisation et Risque.xlsx` (+ doublons).\n- pdf : `Aladdin _260503_055302.pdf`, `Mapping…2026 Structured Guide.pdf` (doublon\n  du `Mapping…2026 — data sources.pdf` racine), `jasmyne_cahier_des_charges_style_arxiv.pdf`.\n- pptx : `presentation_aladdin_blackrock_cahier_des_charges-1.pptx` et `-2.pptx`.\n- stratégies : `strategie_trading_aladdin_style_agressivite_3_sur_5*.docx` et\n  `5_sur_5*.docx` (doublons du root).\n\n## Valeur extraite (consolidée)\n- C'est **la même vision** que celle déjà tracée par `pdf_jasmyne_cdc_arxiv.md` :\n  un BlackRock-Aladdin personnel pour la crypto (risque portefeuille + agents).\n- Beaucoup de **doublons** entre docx et entre versions — vrai contenu utile ≤ 5\n  documents distincts.\n- Les xlsx contiennent vraisemblablement des **formules** (sizing, risque) à\n  comparer avec `position_sizer.py` / `risk_manager.py` — à ouvrir séparément.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Vision Crypto-Aladdin perso » + checklist (voir\n  `pdf_jasmyne_cdc_arxiv.md`).\n- Ouvrir les xlsx en mode **lecture seule** pour extraire les formules\n  intéressantes ; ne pas importer le xlsx tel quel dans le repo.\n- pptx = matériel de présentation, pas pour le repo."
+    },
+    {
+      "id": "folder_bitget_bot_v4_hardened",
+      "category": "bitget-tooling",
+      "action": "tool-adapted",
+      "target": "extraire stratégies / backtests utiles ; pas d'import en bloc",
+      "source": "package/bitget-bot-v4-hardened/ (et `C--Users-jeanf-Desktop-package-bitget-bot-v4-hardened/`)",
+      "body": "## Contenu (extrait)\n- `agent_hub_bitget_scalp.py`, `auto_manager.py`, `multi_asset_orchestrator.py`\n- `basket_optimizer.py`, `btc_accumulator.py`, `coingecko_feed.py`\n- `listing_sniper.py`, `mean_reversion.py`, `market_signals.py`\n- **backtests** : `backtest_cta.py`, `backtest_feargreed_accum.py`,\n  `backtest_grid.py`, `backtest_grid_breakout.py`, `backtest_scalp_live.py`,\n  `backtest_top5_getagent.py`, `backtest_volume_profile.py`\n- MT5 : `mt5_backtest.py`, `mt5_connect_test.py`, `mt5_gold_bot.py`\n- scripts : `install_termux.sh`, `archive_cleanup.sh`, `list_markets.py`\n\n## Valeur extraite\n- C'est un **ancêtre direct** du bot du repo, version « hardened v4 ».\n- Les `backtest_*.py` sont précieux : ils encodent les **règles testées** pour\n  chaque stratégie (CTA, grid, fear&greed accumulation, volume profile, scalp).\n- `basket_optimizer.py` = sizing multi-actifs, possible inspiration pour\n  `position_sizer.py`.\n\n## Cible d'intégration\n- Ouvrir un par un les `backtest_*.py` pour récupérer **les règles** (pas le code\n  brut). Les formaliser dans `docs/RESEARCH_NOTES.md` ou dans\n  `order_signal_engine.py` selon le cas.\n- `backtest_volume_profile.py` est particulièrement intéressant (cf. fiche\n  `pdf_volume_profile_insiders_guide.md`).\n- MT5 = hors scope (pas de MT5 dans le repo) → `skipped`."
+    },
+    {
+      "id": "folder_bitget_radar",
+      "category": "bitget-tooling",
+      "action": "tool-adapted",
+      "target": "nouveau module `radar/` ou fusion avec `journal_scanner.py`",
+      "source": "package/Bitget/ (« exchange_intel_radar »)",
+      "body": "## Contenu\n- Projet Python autonome : `main.py`, `exchange_intel_radar.py`, `radar_config.py`,\n  `terminal_dashboard.py`, `simulate_events.py`.\n- Modules : `alerts/`, `collectors/`, `normalizers/`, `scoring/`, `scripts/`,\n  `src/`, `storage/`, `tests/`, `docs/`, `files/`.\n- Configuration : `setup_bitget_env.ps1`, `requirements.txt`.\n- Storage : `radar.sqlite3` (déjà des données collectées).\n- `llm_provider.py` — wrapper LLM générique.\n\n## Valeur extraite\n- **Architecture intéressante** : collecteur → normaliseur → scoring → alertes.\n  C'est une variante du `journal_scanner.py` du repo, avec en plus une couche\n  alerte et un terminal dashboard.\n- `terminal_dashboard.py` peut inspirer un mode terminal (ASCII) du dashboard\n  existant.\n- `simulate_events.py` est précieux pour les tests (rejouer des événements).\n\n## Cible d'intégration\n- Comparer la **logique de scoring** avec ce que produit `journal_scanner.py` /\n  `order_signal_engine.py` ; piocher 1-2 idées si meilleures (ex. normaliseurs\n  par source).\n- Pas d'import direct du projet ; **extraire** les fichiers/idées utiles dans\n  des modules du repo."
+    },
+    {
+      "id": "folder_bitget_skill",
+      "category": "bitget-tooling",
+      "action": "pending",
+      "target": "assistant/tools.py (si skill LLM réutilisable)",
+      "source": "package/bitget-skill/",
+      "body": "## Contenu\n- `references/` (à explorer).\n- (autrement quasi vide à ce niveau).\n\n## Valeur extraite\n- Probablement un **Claude skill** lié à Bitget — vérifier `references/` pour\n  voir s'il y a une `SKILL.md` ou un manifeste.\n\n## Cible\n- Si c'est une skill structurée et utile (lecture compte, lecture marché), à\n  comparer à ce qu'on a déjà côté `assistant/` ou MCP. Sinon `skipped`."
+    },
+    {
+      "id": "folder_documents_trading",
+      "category": "bitget-tooling",
+      "action": "tool-adapted",
+      "target": "risk_manager.py (ATR_RISK_MANAGER), comparaison `BITGET_MASTER_SYSTEM-10.py`",
+      "source": "package/documents-trading/",
+      "body": "## Contenu\n- `ATR_RISK_MANAGER.py` — risk manager basé ATR.\n- `BITGET_MASTER_SYSTEM-10.py` — gros script trading \"tout-en-un\" version 10.\n- `crypto-wealth-management-v1-application-complète-prête-au-déploiement (1).md`\n  — doc app wealth management.\n- `Sans titre.canvas` (Obsidian canvas).\n\n## Valeur extraite\n- `ATR_RISK_MANAGER.py` à **comparer ligne à ligne** avec `risk_manager.py` du\n  repo — vérifier qu'on n'a rien oublié (trailing stop ATR, gap stop, etc.).\n- `BITGET_MASTER_SYSTEM-10.py` = version monolithique probable d'une stratégie ;\n  intérêt limité car le repo est éclaté en modules ; à ouvrir seulement si on\n  cherche une règle particulière manquante.\n- Le `.canvas` Obsidian est un schéma visuel — pas exploitable hors Obsidian.\n\n## Cible d'intégration\n- `risk_manager.py` — diff conceptuel avec `ATR_RISK_MANAGER.py` et patcher si\n  manque (souvent : trailing ATR dynamique).\n- `docs/RESEARCH_NOTES.md` — § court si on récupère une règle."
+    },
+    {
+      "id": "folder_getagent_strategies",
+      "category": "bitget-tooling",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Stratégies GetAgent »)",
+      "source": "package/getagent-strategies/ (et `C--Users-jeanf-Desktop-package-getagent-strategies/`)",
+      "body": "## Contenu\n- `btc-ema-cross-demo/` — démo cross EMA sur BTC.\n- `btc-ema-cross-demo.tar.gz` — archive du même.\n- `run_result.json` — résultat d'une exécution.\n\n## Valeur extraite\n- Une **stratégie GetAgent** packagée : EMA cross BTC.\n- Le `run_result.json` permet de voir le **format de sortie** attendu par la\n  plateforme GetAgent (Bitget) — utile si on publie nous-mêmes une stratégie.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court « Format GetAgent (Bitget) » avec un\n  squelette : nom, version, fonction principale, paramètres, format de retour.\n- Pas de code à incorporer ; l'EMA cross est trop trivial pour le repo et\n  servait juste de démo."
+    },
+    {
+      "id": "folder_markdown",
+      "category": "agent-architecture / strategy-doc / crypto-onchain (mixte)",
+      "action": "extracted (consolidé)",
+      "target": "docs/RESEARCH_NOTES.md (selon le sujet de chaque .md)",
+      "source": "package/Markdown/ (∼48 fichiers .md)",
+      "body": "## Contenu (extrait, ∼48 .md)\n- **Agents** : `AGENTS.md`, `agent.md`, `agent_defi.md`, `agent_security.md`,\n  `agent_tax_be.md`, `agent_trading.md`, `_Agent Orchestrateur .md`,\n  `HERMES_SKILL1.md`, `bitget_skill.md`.\n- **Aladdin / Nerva** : `Aladd.md`, `NERVA2 brouillon.md`, `Nerva 1.md`,\n  `Amélioration Écosystème Agents IA.md`.\n- **Contexte** : `CRYPTO_CONTEXT.md`, `CRYPTO_DEFI_CONTEXT.md`,\n  `Acteurs Clés Du Monde De La Finance Et De La Crypto En 2026.md`,\n  `acteurs finance.md`.\n- **Stratégies** : `Stratégie _ Martingale.md`, `Synthese_Conversation_Renzo_Protocol.md`,\n  `Synthèse Architecture Trading Android.md`, `conversation_strategie_trading_bitget*.md`.\n- **Memecoin / on-chain** : `Smart Money Wallet Tracking*.md`, `meme coin.md`,\n  `meme pool.md`, `crypto pour enfants.md`.\n- **Outils** : `bitget_dashboard.md`, `outils-trading-tries.md`,\n  `prompt-tradingagents-fable5*.md`,\n  `script-python-final-collecte-analyse-et-génération-de-signaux-de-trading-crypto.md`.\n- **Algo / Quant** : `algo.md`, `alch.md`, `alchemy.md`, `gravia.md`, `gestion-de-patrimoine-crypto-…institutionnels-et-baleines.md`.\n- **Misc** : `Guide Obsidian.md`, `RESUME_SESSION_2026-05-07.md`,\n  `compass_artifact_wf-…_text_markdown.md`, `info strategie.md`, `noeuds val.md`,\n  `zennbot.md`.\n\n## Valeur extraite (méthode)\n- Beaucoup de **doublons** avec les `.docx` racine (mêmes contenus exportés en md).\n- Le **vrai signal** est dans :\n  - `agent_defi.md`, `agent_security.md`, `agent_tax_be.md`,\n    `agent_trading.md` — design d'agents spécialisés ;\n  - `prompt-tradingagents-fable5*.md` — prompts d'agents (ressource précieuse pour\n    `assistant/` si on construit un agent généraliste) ;\n  - `script-python-final-collecte-analyse-et-génération-de-signaux-de-trading-crypto.md`\n    — squelette de pipeline ;\n  - `gestion-de-patrimoine-crypto-théorie-algorithmes-et-stratégies-pour-les-institutionnels-et-baleines.md`\n    — long-form quant-portfolio (à fouiller).\n\n## Cible d'intégration\n- Plutôt qu'une fiche par .md (du bruit), traiter chaque famille **groupée** :\n  - agents → consolider dans `docs/RESEARCH_NOTES.md` § agents spécialisés (defi,\n    security, tax-be, trading) avec, pour chacun, 5 lignes : rôle, outils, garde-fous.\n  - prompts fable5 → si on construit un agent généraliste, partir de ce template.\n  - script collecte/analyse → cross-check avec `journal_scanner.py`.\n- Doublons des .docx déjà fichés ici → ignorer."
+    },
+    {
+      "id": "folder_mcp_server",
+      "category": "mcp-server",
+      "action": "extracted",
+      "target": "assistant/tools.py ou nouveau dossier `mcp/` si on expose notre propre serveur",
+      "source": "package/MCP Server/",
+      "body": "## Contenu (12 sous-dossiers)\n- `alpaca-mcp-server/` — broker US equity (hors scope crypto-futures).\n- `dexscreener-mcp-server/` — DEX (hors scope actuel).\n- `kospi-kosdaq-stock-server/` — bourse coréenne (hors scope).\n- `mcp-crypto-price/` — prix crypto (chevauche notre stack).\n- `mcp-trader/` — trader générique.\n- `trade-it-mcp/`, `tradingview-mcp/` — exécution / TradingView.\n- `maverick-mcp/`, `masumi-mcp-server/`, `create-mcp-server/`,\n  `mcp/`, `ansible/`.\n\n## Valeur extraite\n- Inventaire **utile** : tour d'horizon de ce qui existe en MCP côté trading.\n- Pour le repo : on ne consomme pas (encore) ces MCP. Si un jour on en expose un\n  **Bitget MCP** propre, regarder :\n  - `create-mcp-server/` pour le scaffolding ;\n  - `tradingview-mcp/` pour un exemple de serveur orienté charts.\n- `mcp-crypto-price` ne sert pas (Bitget direct est plus précis pour nous).\n\n## Cible d'intégration\n- Pas d'import. Référence pour quand on construira notre **propre** MCP server.\n- `docs/RESEARCH_NOTES.md` — § court « MCP server : on en consomme via Claude\n  Desktop / Code, on n'en expose pas tant qu'il n'y a pas de besoin »."
+    },
+    {
+      "id": "folder_python_bitget",
+      "category": "bitget-tooling",
+      "action": "tool-adapted (déjà couvert par le repo)",
+      "target": "code Bitget existant du repo",
+      "source": "package/Python/ (27 fichiers `bitget_*.py` + `auto_trading_system.py`)",
+      "body": "## Contenu (extrait)\n- `auto_trading_system.py`\n- `bitget_api.py`, `bitget_sdk.py`, `bitget_official.py`, `bitget_v2.py`\n- `bitget_direct.py`, `bitget_complete.py`, `bitget_pro.py`, `bitget_ultra.py`,\n  `bitget_final.py`, `bitget_working.py`\n- `bitget_hedge.py`, `bitget_hedge_mode.py`, `bitget_hedge_sl.py`,\n  `bitget_switch_mode.py`\n- `bitget_sl_tp.py`, `bitget_embedded_sl.py`, `bitget_native_sl.py`,\n  `bitget_tpsl_fix.py`\n- `bitget_check.py`, `bitget_check2.py`, `bitget_test.py`, `bitget_fix.py`\n- `bitget_analysis.py`, `bitget_positions_full.py`, `bitget_close.py`,\n  `bitget_tasks.py`\n\n## Valeur extraite\n- **27 itérations** sur le même problème (interaction Bitget REST/SDK) — pile\n  technique éparpillée, beaucoup de doublons d'idée.\n- Le repo a déjà sa surface stabilisée (`bitget_balance_reader.py`,\n  `execution_gateway.py`, etc.) — ces fichiers sont surtout intéressants pour\n  **récupérer un cas d'usage** précis qui manquerait (ex. switch hedge/one-way,\n  pose SL natif vs embedded).\n\n## Cible d'intégration\n- **Pas d'import en bloc.** Si on a un trou fonctionnel (ex. SL natif TP/SL en\n  hedge mode), aller piocher la version qui marche dans `bitget_hedge_sl.py` ou\n  `bitget_native_sl.py`, l'adapter, et la mettre dans la surface stable du repo.\n- Aucune action immédiate."
+    },
+    {
+      "id": "folder_repo_clones",
+      "category": "repo-clone",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/{ccxt, freqtrade, openbb-terminal, hummingbot, Glassnode/glassnode-api-python-client, goat, OctoBot, OctoBot-Trading, OpenBB, AI-Trader/, trading-frameworks/{OpenBB, TradingAgents}, …}",
+      "body": "## Contenu\n- **Frameworks crypto trading OSS clonés** :\n  - `ccxt/` (~29 Mo) — librairie exchange (déjà en pip dep).\n  - `freqtrade/` — bot Python (clone partiel).\n  - `openbb-terminal/`, `OpenBB.git-*` — terminal quant.\n  - `hummingbot/` — market-maker DEX.\n  - `OctoBot/`, `OctoBot.git-*`, `OctoBot-Trading.git-*` — bot Python crypto.\n  - `goat/` — agentic framework on-chain.\n  - `Glassnode/glassnode-api-python-client/` — wrapper officiel.\n  - `TradingAgents.git-*` + `TradingAgents/` — voir `folder_tradingagents.md`.\n- **Git metadata éclatés** : `*.git-HEAD`, `*.git-config`, `*.git-index`,\n  `*.git-logs-*`, `*.git-packed-refs`, `*.git-refs-*`, `*.git-shallow`.\n\n## Pourquoi skip\n- Code public, déjà à jour upstream → cloner via `pip install` / `git clone` au\n  besoin, ne **pas** importer du code dans le repo.\n- Les fichiers `.git-*` éclatés viennent probablement d'un export raté de\n  `.git/` dans le Drive (Drive Desktop ne gère pas les dotfiles → ils ressortent\n  préfixés). Inutiles tels quels, polluent l'arborescence.\n\n## Cible d'intégration\n- Aucune.\n- Suggestion (hors scope cette passe) : déplacer tous ces clones et `*.git-*`\n  dans `package/_oss_clones/` côté Drive pour faire le tri visuel, ou les\n  supprimer du Drive si déjà publics ailleurs."
+    },
+    {
+      "id": "folder_scratch",
+      "category": "bitget-tooling",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/_scratch/",
+      "body": "## Contenu\n- `bitget_*` (analyses, tests, klines), `strategy_ai_agents_bitget_v*.py`,\n  `user_input_files_*`, `stop_grid_module*.py`, `TimeBasedNAS_EA.mq5`,\n  `btc_*.json` (snapshots de marché).\n\n## Valeur extraite\n- Brouillons + résultats d'exécution stockés ; pas une source de vérité.\n- `strategy_ai_agents_bitget_v4.py` est éventuellement intéressant (probablement\n  l'ancêtre du système d'agents actuel) — à ouvrir si on cherche un comportement\n  perdu.\n\n## Cible d'intégration\n- `skipped` par défaut.\n- Si besoin d'archéologie sur l'ancienne version v4 → ouverture ponctuelle, sinon\n  rien."
+    },
+    {
+      "id": "folder_tradingagents",
+      "category": "repo-clone",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Cadre multi-agents — référence externe »)",
+      "source": "package/TradingAgents/",
+      "body": "## Contenu\n- Repo Python complet : `LICENSE`, `README.md`, `pyproject.toml`, `cli/`, `main.py`,\n  `test.py`, `tradingagents/`, `uv.lock`.\n- C'est très probablement le repo **TauricResearch/TradingAgents** (cf. l'HTML\n  associé dans `package/`).\n\n## Valeur extraite\n- **Référence publique** ; on n'incorpore pas son code (LICENSE à respecter, et on\n  a déjà notre propre stack).\n- Lecture utile : voir comment **eux** structurent leurs sub-agents (analyste,\n  trader, risk, etc.) et leur boucle ; comparer à `agent_hub.py` / `swarm_brain.py`.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Cadre multi-agents — référence externe » avec\n  un lien (publique) et 3 points de comparaison.\n- Pas de code copié."
+    },
+    {
+      "id": "md_octobot_termux_nextrade",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "README du repo (déjà aligné), `pc/` si setup, `assistant/` si prompts",
+      "source": "package/OctoBot on Termux - NexTrade — Documentation complète de session & Prompt Claude Code.md",
+      "body": "## Sujet\nREADME **NexTrade** (le nom donné au bot) — bot algo crypto, Bitget, Termux/Android,\nTelegram, dashboard Flask, ccxt. **C'est l'ancêtre / la vision** du projet `bitget_termux`.\n\n## Valeur extraite\n- **Confirmation d'archi** : EMA 20/50/200, RSI 14, MACD, Bollinger 20, conf\n  multi-indicateurs, RR ≥ 1:2, **2 % max** par trade, drawdown 10 % → kill, max 3\n  positions, pause macro (FOMC/CPI/NFP), `DRY_RUN=true` par défaut.\n- **Stratégies** mentionnées : EMA cross, Bollinger, RSI+MACD, Fibonacci.\n- **Pipeline Termux** : pkg → proot-distro Ubuntu → venv → ccxt etc.\n- **Telegram commands** stables : `/start /status /prix /portefeuille /trades /stop /aide`.\n\n## Cible d'intégration\n- Vérifier que le README du repo `bitget_termux` reflète **toutes** ces règles\n  dures (2 %/trade, RR ≥ 2, max 3 positions, DD 10 %, pause macro). Sinon, mise à\n  jour à prévoir (hors scope de cette passe).\n- `telegram_command_bot.py` — vérifier que la liste de commandes correspond.\n- `docs/RESEARCH_NOTES.md` — § « Règles dures NexTrade » directement reprenables.\n\n## Note vie privée\nLe fichier mentionne « Jean-François Minet — Entrepreneur indépendant — Liège,\nBelgique » dans la section *Auteur*. Pas un secret, mais à savoir si on partage\npubliquement le README."
+    },
+    {
+      "id": "md_octobot_termux_short",
+      "category": "agent-architecture",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/OctoBot on Termux.md",
+      "body": "## Sujet\nVersion courte / précédente du même README NexTrade.\n\n## Action\nDoublon condensé de `md_octobot_termux_nextrade.md`. La version longue est plus\ncomplète → garder seulement la longue, ignorer celle-ci."
+    },
+    {
+      "id": "md_outils_trading_liens",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Sources de vérité » — liens)",
+      "source": "package/outils_trading.md",
+      "body": "## Sujet\nBookmark dump : 32 liens vers des outils trading (InvestingLive, TradingEconomics,\nTradingster, Imprimante, TradingView scripts, GitHub bots, marketplaces de skills,\nMCP servers, etc.).\n\n## Valeur extraite\n- Liens utiles à conserver :\n  - **TradingEconomics** (macro indicators)\n  - **TradingView script « Unbiased Level Pro »** (à évaluer)\n  - **claudemarketplaces.com / mcpmarket.com** (skills + MCP curation)\n- Beaucoup de **sniper bots Solana** / Maestro / pumpfun → hors scope actuel.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Sources de vérité » : garder les 5-8 liens\n  pertinents (TradingEconomics + 1 marketplace skills + 1 marketplace MCP).\n- Aucun lien interactif copié ici pour éviter le rot ; tout reste dans\n  `outils_trading.md` côté Drive."
+    },
+    {
+      "id": "md_source_acteurs_crypto",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Acteurs & sources »), `assistant/tools.py`",
+      "source": "package/SOURCE d'informations - acteurs crypto.md",
+      "body": "## Sujet\n**Liste brute** d'acteurs majeurs (DeFiLlama, Dune, Keyrock, Pendle, JPMorgan\nEquity, Morpho, Yearn, Franklin Templeton, Vanguard, CryptoQuant, Arkham,\nMcKinsey, BlackRock, Kalshi, Polymarket, etc.) + propose une démarche\n(classifier par spécialité, lister sites, construire un prompt d'agent).\n\n## Valeur extraite\n- Bonne **base de départ** pour le catalogue d'acteurs/sources du § \"Sources de\n  vérité\" (cf. `pdf_data_sources_mapping_2026.md`).\n- Beaucoup d'acteurs **hors-scope** crypto-futures (BBG terminal, Reuters terminal,\n  Vanguard…) — à filtrer.\n\n## Cible d'intégration\n- Fusionner avec `pdf_data_sources_mapping_2026.md` dans un seul § \"Acteurs &\n  sources\" de `docs/RESEARCH_NOTES.md`, avec tag par famille (DEX, on-chain,\n  derivatives, macro, news).\n- `assistant/tools.py` — n'ajouter des wrappers que pour les sources qu'on\n  utilise vraiment (CoinGecko, Bitget, peut-être Glassnode/CryptoQuant si abo)."
+    },
+    {
+      "id": "pdf_arxiv_2511_08571_forecast_to_fill",
+      "category": "research",
+      "action": "extracted",
+      "target": "swarm_brain.py (slope_to_prob), docs/RESEARCH_NOTES.md",
+      "source": "package/2511.08571v1.PDF (+ doublon `2511.08571v1 (1).pdf`)",
+      "body": "## Sujet\narXiv 2511.08571 — *Forecast-to-Fill (or)* : conversion d'une pente prédite en\nprobabilité d'exécution / atteinte d'un niveau, validée par protocole **SPA +\nplacebo-reversal**.\n\n## Valeur extraite (déjà tracée dans drive_triage)\n- **feature** : `slope_to_prob` — mapping pente → proba (fonction monotone, calibrée).\n- **protocole de validation** : SPA (Hansen) + test placebo en inversant les\n  labels — utile pour invalider les features qui passent SPA par chance.\n- **garde-fou** : les chiffres de performance du papier sont suspects → ne pas\n  reprendre les Sharpe annoncés tels quels ; ré-évaluer localement.\n\n## Cible d'intégration\n- `swarm_brain.py` — exposer un vote `slope_to_prob` (poids appris via hedge).\n- `docs/RESEARCH_NOTES.md` — § dédié au protocole SPA+placebo-reversal réutilisable\n  pour toute future feature.\n\n## Doublon\n`2511.08571v1 (1).pdf` = même contenu, déjà marqué `duplicate_of` dans le registre."
+    },
+    {
+      "id": "pdf_arxiv_2512_03107_eclipse_skipped",
+      "category": "research",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/2512.03107v1.PDF",
+      "body": "## Sujet\narXiv 2512.03107 — *ECLIPSE* : étude/correction d'hallucinations dans des LLMs\ngénératifs.\n\n## Pourquoi skipped\nHors-scope : notre cerveau (`swarm_brain.py` + agents) **n'utilise pas de LLM\ngénératif pour décider**. Les LLM ici sont utilisés pour de la lecture (assistant,\nscrapers) où l'enjeu d'hallucination est gérable par garde-fous applicatifs.\n\n## Action\n- aucune intégration.\n- la fiche existe pour qu'on ne le redécouvre pas dans une future passe."
+    },
+    {
+      "id": "pdf_arxiv_2512_15720_orderflow_entropy",
+      "category": "research",
+      "action": "learned",
+      "target": "regime_features (orderflow_entropy), futur agent « gating-magnitude »",
+      "source": "package/2512.15720v1.PDF",
+      "body": "## Sujet\narXiv 2512.15720 — entropie de l'order flow comme **mesure de magnitude** (et pas\nde direction) du déséquilibre flux acheteur/vendeur.\n\n## Valeur extraite\n- **feature** : `regime_features.orderflow_entropy` — entropie de Shannon sur les\n  bins de signed volume, fenêtre roulante.\n- **lecture** : une entropie *basse* = flux unidirectionnel concentré (alignement\n  agressif) ; *haute* = bruit indécis.\n- **usage** : NE PAS s'en servir pour prédire la direction ; s'en servir comme\n  **gate** pour augmenter/diminuer la conviction d'autres signaux directionnels.\n\n## Cible d'intégration\n- nouveau champ `regime_features.orderflow_entropy` dans le pipeline régime.\n- futur agent dédié « gating-magnitude » : pondère les votes directionnels selon\n  l'entropie courante (haute entropie → vote -> hedge_weight × facteur < 1).\n- mention dans `docs/RESEARCH_NOTES.md` (déjà fait selon le registre)."
+    },
+    {
+      "id": "pdf_beginners_guide_unknown",
+      "category": "canon",
+      "action": "pending",
+      "target": "—",
+      "source": "package/PDF/A Beginner's Guide to Learn .pdf",
+      "body": "## Sujet\nGuide débutant — sujet non précisé dans le nom de fichier.\n\n## Action\n- À ouvrir pour identifier (probablement crypto basics ou TA pour débutant).\n- A priori `skipped` car le repo cible un niveau bien plus avancé ; reconfirmer\n  après lecture."
+    },
+    {
+      "id": "pdf_candlestick_cheatsheet",
+      "category": "method",
+      "action": "extracted",
+      "target": "order_signal_engine.py (détecteur patterns), docs/RESEARCH_NOTES.md",
+      "source": "package/Candlestick Pattern Cheat Sheet.pdf",
+      "body": "## Sujet\nCheat-sheet des patterns chandeliers (hammer, engulfing, harami, doji,\nmorning/evening star, three white soldiers / black crows, etc.).\n\n## Valeur extraite\n- **liste exhaustive** + règles de formation simples → facile à coder en détecteur.\n- **important** : un pattern seul n'a pas d'edge ; il faut un **contexte**\n  (niveau VP, divergence RSI, sweep, etc.). À utiliser comme **confirmateur**, pas\n  comme déclencheur unique.\n\n## Cible d'intégration\n- `order_signal_engine.py` — détecteur `candlestick_patterns(ohlc)` retournant la\n  liste des patterns détectés à la dernière bougie.\n- `swarm_brain.py` — pondération **faible** par défaut (gate par contexte).\n- `docs/RESEARCH_NOTES.md` — § court : « les patterns chandeliers sont des\n  confirmateurs, pas des signaux »."
+    },
+    {
+      "id": "pdf_dalio_principles",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Principes opérationnels »), agent_hub.py",
+      "source": "package/Principles - Ray Dalio.pdf (+ `Principles Ray Dalio.pdf` dans PDF/)",
+      "body": "## Leçon canonique\n- **Tout est un système** : décompose le marché en machines causales (taux, crédit,\n  productivité, démographie, sentiment). Cherche les **dependencies** et leurs\n  délais.\n- **Radical truth + radical transparency** : nommer les erreurs, journaliser, ne\n  pas masquer un drawdown.\n- **Believability-weighted decisions** : pondérer les voix par leur track-record\n  vérifié — exactement la philosophie *mixture of experts* qu'on a déjà.\n\n## Cible d'intégration\n- `agent_hub.py` / `swarm_brain.py` — confirmer que **chaque expert** a un score\n  de believability (track record local) qui pondère son vote.\n- `docs/RESEARCH_NOTES.md` — § court qui justifie les hedge weights par\n  référence à Dalio."
+    },
+    {
+      "id": "pdf_data_sources_mapping_2026",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "assistant/tools.py (catalogue de sources), docs/RESEARCH_NOTES.md",
+      "source": "package/Mapping Key Financial and Crypto Actors 2026 — data sources.pdf",
+      "body": "## Sujet\nCartographie 2026 des **acteurs et sources de données** crypto+finance\n(exchanges, on-chain analytics, terminaux, dashboards, dataroom).\n\n## Valeur extraite\n- Inventaire structuré (DeFi Llama, Dune, CryptoQuant, Glassnode, Token Terminal,\n  Kaiko, Amberdata, etc.) → matière première pour un **catalogue de tools** LLM.\n- Croise avec `md_source_acteurs_crypto.md` (liste manuscrite) et\n  `md_outils_trading_liens.md` (liens).\n\n## Cible d'intégration\n- `assistant/tools.py` — ajouter des wrappers (read-only) pour les sources qu'on\n  utilise déjà (CoinGecko, Bitget, peut-être Glassnode/CryptoQuant si abonnement).\n- `docs/RESEARCH_NOTES.md` — § « Sources de vérité » : pour chaque famille de\n  signal (orderflow, on-chain, dérivés, macro), quelle source on consulte en priorité."
+    },
+    {
+      "id": "pdf_factor_drift_oos_sharpe13",
+      "category": "research",
+      "action": "extracted",
+      "target": "swarm_brain.py (up_fraction), risk_manager.py (kill-switch multi-trigger)",
+      "source": "package/Discovery of a 13-Sharpe OOS Factor Drift.PDF",
+      "body": "## Sujet\nNote de recherche (référence arXiv 2511.12490) — un facteur de **drift de régime**\nmesuré par la fraction de jours haussiers (`up_fraction`) sur une fenêtre. Le\nrésultat « 13-Sharpe » est suspect mais l'idée du gating régime est solide.\n\n## Valeur extraite\n- **feature** : `up_fraction` — proportion de barres / jours haussiers sur fenêtre\n  N ; comme proxy ultra-simple de régime.\n- **garde-fou** : **regime-gating** des stratégies (n'activer telle stratégie que\n  si `up_fraction ∈ [a,b]`).\n- **kill-switch multi-trigger** : combiner plusieurs déclencheurs (vol > seuil,\n  drawdown > seuil, up_fraction sort de bande) pour arrêter le trading.\n\n## Cible d'intégration\n- `swarm_brain.py` ou `macro_context.py` — exposer `up_fraction` comme feature.\n- `risk_manager.py` — implémenter le kill-switch multi-trigger (plusieurs\n  conditions, n'importe laquelle suffit à couper).\n- `docs/RESEARCH_NOTES.md` — § sur regime-gating et illustration du Sharpe suspect."
+    },
+    {
+      "id": "pdf_graham_intelligent_investor",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Marge de sécurité »)",
+      "source": "package/L'investisseur intelligent - Graham.pdf (+ `Linvestisseur-…Benjamin.pdf` dans PDF/)",
+      "body": "## Leçon canonique\n- **Mr Market** : le marché est un partenaire bipolaire ; on ne lui obéit pas, on\n  utilise ses excès.\n- **Marge de sécurité** : prix d'entrée tel que même un scénario pessimiste reste\n  acceptable — appliqué à la crypto, c'est un **buffer entre prix et stop**\n  suffisant pour absorber le bruit normal du marché.\n- **distinction investisseur / spéculateur** : assumer laquelle des deux casquettes\n  on porte sur un trade donné.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Marge de sécurité » traduit en règle de sizing :\n  distance au stop ≥ k×ATR, avec k dépendant du régime de volatilité.\n- `position_sizer.py` — vérifier que la distance entrée→stop est calibrée sur ATR\n  et pas sur un % fixe."
+    },
+    {
+      "id": "pdf_greenblatt_little_book",
+      "category": "canon",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/Little Book That Beats the Market - Greenblatt.pdf (+ `little-book-…` dans PDF/)",
+      "body": "## Leçon canonique\n*Magic Formula* : trier les actions par couple (yield earnings × ROIC), acheter le\ntop, rééquilibrer annuellement.\n\n## Pourquoi skip (pour nous, maintenant)\n- C'est de l'**equity value investing long horizon** — orthogonal au scope crypto\n  futures intraday/swing du repo.\n- À recycler le jour où on ouvre un volet equities ; sinon, ne rien intégrer.\n\n## Cible d'intégration\n- Aucune. Fiche gardée pour ne pas le redécouvrir."
+    },
+    {
+      "id": "pdf_grok_report",
+      "category": "research",
+      "action": "pending",
+      "target": "docs/RESEARCH_NOTES.md (si signal exploitable)",
+      "source": "package/PDF/grok_report (1).pdf",
+      "body": "## Sujet\nRapport généré par Grok (xAI) — contenu non identifié sans lecture.\n\n## Action\n- Risque LLM-genereé sans citations → vérifier toutes les affirmations chiffrées\n  avant intégration.\n- Si on garde quoi que ce soit, citer la source originelle, pas le rapport Grok."
+    },
+    {
+      "id": "pdf_guide_agent_trading_claude_alpaca",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "assistant/agent.py, assistant/tools.py",
+      "source": "package/Guide_Agent_Trading_Claude_Alpaca.pdf",
+      "body": "## Sujet\nGuide pas-à-pas : agent trading avec **Claude + Alpaca** (broker US equities).\n\n## Valeur extraite\n- Patron d'**outils** (tool definitions) pour LLM de trading : `get_quote`,\n  `get_positions`, `place_order`, `cancel_order`, `get_history`.\n- Boucle agent : observation → décision → tool call → observation → ... (ReAct).\n- Le broker (Alpaca) n'est pas le nôtre, mais l'**architecture des tools** est\n  directement réutilisable pour Bitget.\n\n## Cible d'intégration\n- `assistant/agent.py` — vérifier qu'on a la même surface d'outils (`get_*`, `place_*`,\n  `cancel_*`) mappée sur Bitget paper.\n- `assistant/tools.py` — comparer la **granularité** des outils (rester read-only\n  par défaut, write derrière un flag explicite)."
+    },
+    {
+      "id": "pdf_guide_signaux_telegram",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "telegram_command_bot.py (notif), nouveau module `telegram_signal_listener`",
+      "source": "package/guide_recuperation_signaux_telegram.pdf",
+      "body": "## Sujet\nGuide récupération de signaux depuis **canaux Telegram** (lecture, parsing).\n\n## Valeur extraite\n- Approches : bot membre du canal vs MTProto (Pyrogram/Telethon) en compte\n  utilisateur — celle-ci permet de lire des canaux publics sans bot officiel.\n- Parsing : regex robustes sur formats hétérogènes (symbol/entry/SL/TP), gestion\n  des éditions et des suppressions.\n- Risque : signaux **publics = sans edge** ; à n'utiliser que comme **proxy de\n  sentiment** ou pour benchmarker nos signaux internes.\n\n## Cible d'intégration\n- Pas un nouveau moteur de signal — mais un **collecteur** read-only qui logge ce\n  que les canaux disent et le **compare** ex-post à nos décisions (audit, anti-FOMO).\n- `telegram_command_bot.py` est déjà côté **émission** ; ce module serait côté\n  **réception**, à isoler pour ne pas confondre les rôles."
+    },
+    {
+      "id": "pdf_guide_trading_bot_bitget_android",
+      "category": "bitget-tooling",
+      "action": "extracted",
+      "target": "README / OctoBot on Termux md (déjà présent), `pc/` setup",
+      "source": "package/Guide_Trading_Bot_Bitget_Android.pdf",
+      "body": "## Sujet\nGuide bot Bitget sur **Android** (Termux + Python) — exactement le contexte du repo.\n\n## Valeur extraite\n- Astuces installation Termux/proot-distro pour Python 3.13, ccxt, cryptography.\n- Variables d'environnement Bitget (key/secret/passphrase) + mode hedge vs one-way.\n- Stratégies recommandées pour bot autonome longue durée (peu d'appels API,\n  cache local, journalisation).\n\n## Cible d'intégration\n- Croiser avec `md_octobot_termux_nextrade.md` et `md_octobot_termux_short.md`\n  (déjà présents dans `package/Markdown/`).\n- Si le repo a un `pc/setup.md` ou équivalent, y consolider les commandes Termux.\n- Pas de code à recopier, c'est de la doc d'installation."
+    },
+    {
+      "id": "pdf_ict_breaker_block",
+      "category": "method",
+      "action": "extracted",
+      "target": "order_signal_engine.py (pattern « breaker »), docs/RESEARCH_NOTES.md",
+      "source": "package/ICT-Breaker-Block-2.pdf",
+      "body": "## Sujet\nICT (Inner Circle Trader) — **breaker block** : un order block qui s'est invalidé\n(prix l'a cassé) puis qui est re-testé dans l'autre sens et **fait support/résistance\ninversé**.\n\n## Valeur extraite\n- **règle** : repérer un OB haussier cassé → quand le prix revient dessus, il doit\n  agir en **résistance** (et inversement).\n- **timeframe** : recommandé sur HTF d'abord (1H/4H) puis exécution LTF (5m/15m).\n- **filtre** : valide surtout après un **liquidity sweep** (faux move balayant les\n  stops opposés).\n\n## Cible d'intégration\n- `order_signal_engine.py` — règle « breaker » : si OB cassé puis re-test, proposer\n  une entrée contraire avec SL au-delà du wick du sweep.\n- `docs/RESEARCH_NOTES.md` — § ICT minimal (breaker + sweep) — pas tout l'écosystème\n  ICT, qui est large et propice au noise (cf. `txt_smc_9_concepts.md`)."
+    },
+    {
+      "id": "pdf_jasmyne_cdc_arxiv",
+      "category": "agent-architecture",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Vision Crypto-Aladdin perso »)",
+      "source": "package/Aladdin - Jasmyne/jasmyne_cahier_des_charges_style_arxiv.pdf",
+      "body": "## Sujet\nCahier des charges (style arXiv) d'un « Crypto-Aladdin personnel » pour le\nprojet Jasmyne — vision du système de référence visé.\n\n## Valeur extraite\n- **Cibles fonctionnelles** (analyse risque portefeuille, scoring, monitoring,\n  alertes, exécution paper d'abord puis live).\n- **Architecture multi-modules** : on retrouve la même partition que notre repo\n  (agents, brain, risk, dashboard, paper trading).\n- Validation : notre architecture actuelle **converge** déjà avec ce cahier.\n  Sert de checklist pour ne pas oublier de capacités (ex. stress-test régime,\n  what-if scenarios).\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Vision Crypto-Aladdin perso » avec la checklist\n  fonctionnelle à cocher au fil des releases.\n- À croiser avec `folder_aladdin_jasmyne.md` (le dossier complet contient docx,\n  xlsx, pptx du même chantier)."
+    },
+    {
+      "id": "pdf_malkiel_random_walk",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Antidote à l'overfit »)",
+      "source": "package/A Random Walk Down Wall Street.pdf (+ `a-random-walk-down-wall-street.pdf` et `Une Marche Au Hasard…` dans PDF/)",
+      "body": "## Leçon canonique\n- **EMH faible** : un grand nombre de signaux techniques ressemblent à du bruit\n  bien rationalisé — antidote pour ne pas surinterpréter une backtest sympathique.\n- **Diversification + faibles frais** > stock-picking malin pour la plupart.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court « antidote à l'overfit » : exiger pour toute\n  nouvelle feature un **protocole de validation hors-échantillon** (SPA + placebo\n  reversal — déjà tracé via 2511.08571), sinon on s'invente des signaux.\n- Aucun code direct à toucher : c'est un garde-fou méthodologique."
+    },
+    {
+      "id": "pdf_market_wizards",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Invariants des traders gagnants »)",
+      "source": "package/THE MARKET WIZARDS.pdf",
+      "body": "## Leçon canonique à extraire\nInterviews de top traders (Schwager) — les **invariants** récurrents :\n- **risque par trade < 1-2 %** du capital.\n- **edge clairement défini** + **patience** pour n'agir que quand l'edge est présent.\n- **stops non-négociables** ; **scaling** rationnel hors-émotion.\n- **journaliser** chaque décision et la revoir froidement.\n- **diversifier le risque, pas le bruit** (peu de paris, mais bien choisis).\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § court avec ces invariants comme **règles dures**\n  du moteur risque.\n- `risk_manager.py` / `risk_limits.py` — vérifier que les seuils par défaut\n  respectent ces invariants (≤2 %/trade, drawdown cap, max positions)."
+    },
+    {
+      "id": "pdf_memecoin_sniper_cours",
+      "category": "crypto-onchain",
+      "action": "extracted",
+      "target": "(futur module memecoin / sniper) — pas dans le scope actuel du repo",
+      "source": "package/PDF/879185495-Cours-Ultime-Memecoin-Sniper-Edition-Pour-Charles.pdf",
+      "body": "## Sujet\nCours « sniper memecoin » — entry rapide sur token Solana neuf, bundling, MEV.\n\n## Valeur extraite\n- Heuristiques **anti-rug** (lp lock, mint authority renounced, creator wallet\n  history) — au moins ces 3 checks avant tout achat.\n- Concept de **bundle** (acheter dans le même bloc que le créateur pour éviter le\n  slippage du herd) — réservé à des stratégies très spécifiques.\n- À risque réputationnel ET financier : pertes typiques massives, edge mince.\n\n## Cible d'intégration\n- **Pas dans le scope actuel** (cerveau Bitget futures, pas sniping Solana).\n- Si on ouvre un volet « sniper », créer un module à part avec ses propres\n  guardrails ; la fiche restera la base de départ pour les checks anti-rug."
+    },
+    {
+      "id": "pdf_soros_alchimie_finance",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ « Réflexivité »), macro_context.py",
+      "source": "package/L'alchimie de la finance - Soros.pdf (+ `L'alchimie de la finance PDF.pdf` dans PDF/)",
+      "body": "## Leçon canonique\n- **Réflexivité** : les participants modifient ce qu'ils observent → les fondamentaux\n  ne sont pas exogènes, ils sont influencés par l'opinion sur eux-mêmes.\n- **Boom-bust** : une narrative auto-renforçante crée une bulle, jusqu'au\n  retournement (twilight zone).\n- en pratique : surveiller les **divergences narrative / réalité** (sentiment qui\n  ignore une dégradation, ou inversement).\n\n## Cible d'intégration\n- `macro_context.py` — feature `sentiment_vs_realized` (ex. fear&greed vs vol\n  réalisée 30j, ou flux ETF vs prix on-chain).\n- `docs/RESEARCH_NOTES.md` — § « Réflexivité » : pourquoi le sentiment doit être\n  croisé avec une mesure dure (réalisé) plutôt que pris isolément."
+    },
+    {
+      "id": "pdf_trading_in_the_zone_douglas",
+      "category": "canon",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md, agents (préambule système des agents-décideurs)",
+      "source": "package/Trading in the Zone - Mark Douglas.pdf (+ `…(2001) A202.pdf` dans PDF/)",
+      "body": "## Leçon canonique à extraire (résumé exploitable)\n- **Penser en probabilités**, pas en certitudes : chaque trade est un échantillon\n  d'une distribution. Edge = écart positif sur N trades, pas sur 1.\n- **Cinq vérités fondamentales** : n'importe quoi peut arriver ; tu n'as pas\n  besoin de savoir ce qui va arriver pour gagner ; il y a une distribution\n  aléatoire entre gains et pertes pour toute série ; un edge n'est qu'une probabilité ;\n  chaque instant de marché est unique.\n- **Discipline mécanique** : suivre le système, pas l'émotion ; les overrides\n  manuels détruisent l'attente mathématique.\n\n## Cible d'intégration\n- `docs/RESEARCH_NOTES.md` — § « Cadre mental opérationnel » : règles dérivées\n  (no-override sur signal validé, journaliser chaque overruling, mesurer le coût).\n- préambule système des agents décideurs (`preorder_approval.py`, `agent_control.py`) :\n  rejet de toute « urgence » humaine qui contredit un signal sans nouvelle donnée."
+    },
+    {
+      "id": "pdf_trading_smart_unknown",
+      "category": "method",
+      "action": "pending",
+      "target": "—",
+      "source": "package/PDF/TRADING SMART  .pdf",
+      "body": "## Sujet\nTitre générique « TRADING SMART » — contenu non identifié sans lecture.\n\n## Action\n- À ouvrir manuellement pour décider entre `extracted` et `skipped`.\n- Si redondant avec Wyckoff/SMC/Volume Profile déjà extraits → `skipped`.\n- Sinon, créer la fiche dédiée et compléter `docs/RESEARCH_NOTES.md`.\n\n## Cible\nTBD après lecture."
+    },
+    {
+      "id": "pdf_volume_profile_insiders_guide",
+      "category": "method",
+      "action": "extracted",
+      "target": "swarm_brain.py (vote VP), order_signal_engine.py, docs/RESEARCH_NOTES.md",
+      "source": "package/VOLUME-PROFILE-The-insiders-guide.pdf (+ `…-v-1.2.pdf` dans PDF/)",
+      "body": "## Sujet\nVolume Profile — distribution du volume par **niveau de prix** (et non par temps) :\nPOC (point of control), VAH/VAL (value area), HVN/LVN (high/low volume nodes),\nsingle prints.\n\n## Valeur extraite\n- **POC** = aimant ; le prix tend à y revenir.\n- **VAH/VAL** = bornes statistiques du *fair value* (≈ 70 % du volume).\n- **LVN** = vide de liquidité — cassure rapide attendue, ou rejet net.\n- **single prints** = signature de mouvement panique → souvent re‑testé.\n\n## Cible d'intégration\n- `swarm_brain.py` — vote VP : retourne `{distance_to_POC, in_value_area, lvn_ahead}`.\n- `order_signal_engine.py` — règles : entrée fade aux extrêmes value area, breakout\n  validé à travers un LVN, target = POC suivant.\n- `docs/RESEARCH_NOTES.md` — § Volume Profile avec définitions et règles d'entrée\n  test­ables.\n\n## Doublon\nLa méthode est aussi évoquée dans plusieurs HTML « Darkpool / Investing /\nTradingView » → skip (cf. `skip_html_scrap_and_assets.md`)."
+    },
+    {
+      "id": "pdf_wyckoff_method",
+      "category": "method",
+      "action": "extracted",
+      "target": "swarm_brain.py (vote « structure »), order_signal_engine.py, docs/RESEARCH_NOTES.md",
+      "source": "package/Wyckoff-Method-Wyckoff-Analytics-English-V2.pdf (+ doublon dans PDF/)",
+      "body": "## Sujet\nMéthode Wyckoff — lecture **volume + structure** : phases\nAccumulation / Markup / Distribution / Markdown, **springs**, **upthrusts**,\n**SOS/SOW** (sign of strength / weakness), **last point of support/supply**.\n\n## Valeur extraite\n- **règles concrètes activables** :\n  - détection de **range** (PS, SC, AR, ST), puis **spring** (faux casse sous le\n    creux suivi d'un retour rapide dans le range).\n  - test de la résistance (UT/UTAD) — confirmation de distribution.\n  - SOS = bougie d'expansion volumique vers le haut au sortir d'un creux secondaire.\n- **volume** : un mouvement de prix sans volume = signal faible ; un creux à\n  volume sec = candidat accumulation.\n\n## Cible d'intégration\n- nouveau « vote structure » dans `swarm_brain.py` : retourne\n  `{phase, spring/ut, confidence}` à partir d'OHLCV+volume.\n- `order_signal_engine.py` — utiliser le spring confirmé pour proposer un signal\n  long avec SL sous le creux du spring.\n- `docs/RESEARCH_NOTES.md` — § « Wyckoff opérationnel » avec définitions et seuils\n  testables (longueur de range min, retracement spring, ratio volume).\n\n## Doublon\n`Wyckoff — Indicateurs et Stratégies — TradingView.html` + `_files/` couvre le\nmême sujet en moins dense → skip (cf. `skip_html_scrap_and_assets.md`)."
+    },
+    {
+      "id": "pdf_wyckoff_strategy_txt",
+      "category": "method",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (consolide avec pdf_wyckoff_method.md)",
+      "source": "package/719389714-Wyckoff-trading-strategy.txt",
+      "body": "## Sujet\nVariante texte d'un cours Wyckoff (transcription / notes — ~186 ko).\n\n## Valeur extraite\nRedondant avec `pdf_wyckoff_method.md` mais propose souvent des **exemples chiffrés**\n(niveaux, ratios) et un vocabulaire plus opérationnel (ex. checklist d'entrée).\n\n## Cible d'intégration\nÀ fusionner dans le § Wyckoff de `docs/RESEARCH_NOTES.md` : récupérer uniquement les\n**règles numérisables** (seuils, ratios) qui complètent la fiche méthode principale.\nNe pas dupliquer la théorie déjà extraite."
+    },
+    {
+      "id": "secrets_leak",
+      "category": "secret-leak",
+      "action": "extracted",
+      "target": "(hors repo) — rotation immédiate + nettoyage Drive",
+      "source": "G:/Mon Drive/Trading/package/{xcom.md, token github.txt, SMSPool_Account_6283598794835383.txt, OctoBot.git-*, OctoBot-Trading.git-*, OpenBB.git-*, TradingAgents.git-*}",
+      "body": "## ⚠️ CRITIQUE — clés / tokens en clair dans `package/`\n\nLe fichier `xcom.md` à la racine de `package/` contient en clair :\n\n- bearer token + clé/secret consommateur **X / Twitter API**\n- ID + secret **client OAuth 2.0 X**\n- clé **xAI** (`xai-…`)\n- clé **Anthropic** (`sk-ant-api03-…`)\n- token **bot Discord**\n- clé API **Hostinger** + bloc `mcpServers` Hostinger\n\nAutres fichiers à risque :\n- `token github.txt` (93 octets — quasi sûrement un PAT GitHub)\n- `SMSPool_Account_6283598794835383.txt` (compte SMSPool)\n- les blocs `*.git-*` extraits (config, packed-refs, logs) — peuvent fuiter des\n  remotes privés ou des chemins locaux\n\n## Pourquoi c'est pertinent pour nous\n\nDrive Desktop est synchronisé sur la machine, et ce dossier est régulièrement scanné\npar des agents. Toute clé qui transite par un LLM (chez Anthropic, OpenAI, autre)\ndoit être considérée comme **compromise** dès qu'elle est lue en contexte.\n\n## Cible / action\n\n- **Hors repo** : `extraction/` n'embarque AUCUNE des valeurs (volontairement).\n- **À faire côté utilisateur, MAINTENANT** :\n  1. Révoquer / régénérer **chaque** clé listée ci-dessus chez son fournisseur.\n  2. Supprimer ou chiffrer `xcom.md`, `token github.txt`, `SMSPool_Account_*.txt`\n     dans le Drive (et vider la corbeille).\n  3. Si le compte X / Anthropic / xAI / Discord / Hostinger a des logs d'usage,\n     vérifier l'absence d'activité non reconnue depuis la création des clés.\n  4. Centraliser les secrets dans un store dédié (`.env` local + `secrets/` gitignoré,\n     ou gestionnaire type 1Password / Bitwarden).\n\n## Lien avec DRIVE_TRIAGE\n\nCe point n'est pas du « learned / extracted / skipped » classique : c'est un\n**garde-fou sécurité** qui passe avant tout triage. Aucune passe d'analyse ne doit\nrecopier le contenu de ces fichiers dans le repo ni le coller dans un prompt."
+    },
+    {
+      "id": "skip_duplicates",
+      "category": "skip-noise",
+      "action": "skipped",
+      "target": "—",
+      "source": "doublons multiples dans package/",
+      "body": "## Doublons identifiés (échantillon)\n\n### PDF déjà tracés dans `drive_triage.json`\n- `2511.08571v1 (1).pdf` = `2511.08571v1.PDF` — marqué duplicate_of dans le registre.\n- `PDF/2511.08571v1*.PDF`, `PDF/2512.03107v1.PDF`, `PDF/2512.15720v1.PDF`,\n  `PDF/Discovery of a 13-Sharpe OOS Factor Drift.PDF`,\n  `PDF/Wyckoff-Method-Wyckoff-Analytics-English-V2.pdf`,\n  `PDF/VOLUME-PROFILE…-v-1.2.pdf` — doublons dans le sous-dossier `PDF/`.\n\n### Docx multiples versions\n- `Agents de trading _ Cadre… multi-agents.docx` + `…1.docx` + version `Aa dossi/`\n- `strategie_trading_agressivite_3_sur_5.docx` + `-1.docx` (+ variantes Aladdin)\n- `strategie_trading_agressivite_5_sur_5.docx` + `-1.docx` (+ variantes Aladdin)\n- `strategie_trading_fr_mise_en_page_A4_corrigee.docx` + `-1.docx` + `-2.docx`\n- `Smart Money Wallet Tracking.docx` + `(2).docx`\n- `STRATEGY GENERATION.docx` + `(1).docx`\n- `dossier_tradingagents_echange_complet.docx` + `(1).docx`\n- `echange_complet_trading_aladdin_jasmyne.docx` + `(1).docx`\n- `conversation_strategie_trading_bitget.md` + `(1).md`\n- `prompt-tradingagents-fable5.md` + `(1).md` + `(2).md`\n\n### Aa dossi/ (READMEs/LICENSEs/SECURITY dupliqués)\n- `README(1).md`, `README(2).md`, `README(3).md`, `README(4).md`, `README.md` — 5 copies\n- `LICENSE(1).txt`, `(2).txt`, `(3).txt`, `ThirdPartyNoticeText.txt`\n- `SECURITY(1).md`, `SECURITY.md`, `(1).gitignore`, `(2).gitignore`, `(3).gitignore`, `(4).gitignore`\n- + tas de pages HTML \"about/accounts/advanced_evaluator_config/advanced_index/advanced_layout\"\n  qui sont une sauvegarde de docs (peut-être OctoBot).\n\n### Screenshots\n- `Screenshot_20260621_094107_Instagram.jpg` + `… - Copie.jpg` (mêmes octets).\n\n## Cible d'intégration\nAucune. Doublons à supprimer côté Drive lors d'une future passe de cleanup\n(hors scope ici)."
+    },
+    {
+      "id": "skip_gdoc_gsheet_pointers",
+      "category": "skip-noise",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/*.gdoc (3 fichiers), package/*.gsheet (4 fichiers)",
+      "body": "## Détail\n\nFichiers Google natifs **vus comme des stubs de 191 octets** par Drive Desktop\n(`.gdoc` / `.gsheet`). Ils ne contiennent **pas** le document — juste un lien\nvers Google Docs/Sheets.\n\nListe :\n- `Amélioration Écosystème Agents IA.gdoc`\n- `STRATEGY GENERATION.gdoc`\n- `Écosystème d'Agents IA Autodidacte.gdoc`\n- `Crypto Aladdin   Architecture et Modèles.gsheet`\n- `Crypto Aladdin _ Architecture et Modèles.gsheet`\n- `Crypto-Aladdin   Modélisation et Risque.gsheet`\n- `Crypto-Aladdin _ Modélisation et Risque.gsheet`\n\n## Pourquoi skip\n- Inexploitables hors-ligne / hors compte Google.\n- Tous ont un équivalent **`.docx` / `.xlsx`** dans le même dossier (export local)\n  qui contient le vrai contenu — déjà couvert ailleurs (cf.\n  `docx_amelioration_ecosysteme_agents.md`,\n  `docx_ecosysteme_agents_autodidacte.md`, `folder_aladdin_jasmyne.md`).\n\n## Cible d'intégration\nAucune."
+    },
+    {
+      "id": "skip_html_scrap_and_assets",
+      "category": "skip-noise",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/*.html (≈ 90 fichiers) + tous les `* _files/` (≈ 80 dossiers d'assets)",
+      "body": "## Pourquoi skip en bloc\n\nCe sont des \"Save As Webpage, Complete\" depuis Chrome / Edge : un `.html` + un\ndossier `<nom>_files/` avec CSS/JS/PNG. Caractéristiques :\n\n- **Stale** dès le moment de la sauvegarde.\n- **Faible signal** : la page d'origine (live URL) est plus pertinente.\n- **Lourd** : un seul export pèse souvent > 1 Mo (avec les assets).\n- **Bruit** : pollue le diff de tout outil qui indexe le dossier.\n\nExemples du dump (non-exhaustif) :\n- Docs Anthropic, marketplaces de skills, Capafy, Skills4All, Vincent Flibustier,\n  Curated Skills, Claude Skills Directory…\n- Tutoriels crypto (Binance Academy, Binance Square, Investing.com, Hyperliquid).\n- Pages GitHub de repos (déjà visibles via les URLs).\n- Pages MCP market, IBKR Campus, LSEG, FMP, etc.\n- `0XFNZE~2.HTM` & co : noms 8.3 = copies Windows tronquées (souvent doublons\n  d'autres .html).\n\n## Cible d'intégration\n- Aucune. Si un sujet d'une page reste pertinent, **bookmarker l'URL** plutôt\n  que garder le `.html` + `_files/` (cf. `md_outils_trading_liens.md`).\n- Suggestion (hors scope cette passe) : déplacer tout ce bloc dans\n  `package/_html_archive/` côté Drive pour reprendre le contrôle visuel."
+    },
+    {
+      "id": "skip_screenshots_and_misc",
+      "category": "skip-noise",
+      "action": "skipped",
+      "target": "—",
+      "source": "package/Screenshot_*.jpg (7 fichiers Instagram), package/*.exe, `desktop.ini`,",
+      "body": "## Détail\n\n- **Screenshots Instagram** (7 .jpg, juin 2026) : captures de posts pédagogiques\n  trading. Faible signal réutilisable (image bruyante, pas de texte structuré).\n- **`mt5tester.setup (1).exe` (11 Mo)** : installateur MT5 ; aucun intérêt pour\n  un repo Bitget/Python. **Ne pas** committer (binaire, viral risk).\n- **`desktop.ini`** : présents dans chaque sous-dossier (créés par Windows). Bruit.\n- **`auto_trading.log` / `.pid`** : logs/PID d'une exécution passée, périmés.\n- **`gemini-code-1781361361215.txt`** : 1370 octets — probablement un token de\n  device auth Gemini périmé. À supprimer.\n- **`package_dedup_plan.txt`**, **`package_inventory.py`** : outils internes d'un\n  triage antérieur — on a maintenant `drive_triage.json` + `extraction/` qui les\n  remplacent.\n- **`source.txt`** : 502 ko de texte non identifié ; à ouvrir une fois pour\n  décider, sinon `skipped`.\n\n## Cible d'intégration\nAucune. Ces items polluent l'arborescence sans rien apporter."
+    },
+    {
+      "id": "txt_smc_9_concepts",
+      "category": "method",
+      "action": "extracted",
+      "target": "docs/RESEARCH_NOTES.md (§ SMC consolidé avec pdf_ict_breaker_block.md)",
+      "source": "package/702646104-9-Smart-Money-Concepts-that-Every-Trader-Must-Know.txt",
+      "body": "## Sujet\nListe « 9 SMC concepts » — order block, fair value gap, breaker, mitigation block,\nliquidity pool, BOS/CHoCH, premium/discount, optimal trade entry, market structure.\n\n## Valeur extraite\n- **glossaire normalisé** : nom canonique de chaque concept, à reprendre dans le\n  code (slugs identiques entre features et logs).\n- **BOS vs CHoCH** : distinction utile (continuation vs reversal de structure).\n- **premium/discount** : zone supérieure / inférieure d'un range — règle directionnelle\n  simple (vendre en premium, acheter en discount, si trend confirmé).\n\n## Cible d'intégration\n- fusionner dans `docs/RESEARCH_NOTES.md` avec la fiche ICT breaker — un seul § SMC\n  unifié, focus sur ce qui est mécanisable (BOS/CHoCH, OB, FVG, breaker).\n- alimenter `order_signal_engine.py` avec un détecteur de structure (HH/HL/LH/LL)."
+    }
+  ]
+}
