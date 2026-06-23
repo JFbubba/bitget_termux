@@ -436,6 +436,29 @@ opaque, dépendance externe). On **ne copie pas** l'orchestration.
   solveur de TRINITY **et** la rigueur OOS : l'optimisation devient *exploitable*,
   pas auto-bloquée.
 
+## §19 — « Futurtester » : simulateur d'issues futures (`futuretester.py`)
+L'inverse du backtest : au lieu de tester sur le passé, on **simule des PLAGES
+d'issues futures conditionnelles**. ⚠️ **Pas un prédicteur** — un générateur de
+fourchettes « si ces hypothèses tiennent, voilà l'éventail » (GIGO ; on expose
+toujours P5..P95 + les hypothèses, jamais un point). C'est la *scenario analysis*
+des institutions, adaptée crypto.
+- **Prévisions institutionnelles -> plages** : `project_forecast` (cibles bas/base/
+  haut -> drift triangulaire -> Monte Carlo + vol). `drift_from_forecasts` :
+  `mu = ln(cible/S0)/T`.
+- **Scénarios typés** : `SCENARIOS`/`run_scenario` — base, **convergence_bull**
+  (IA+blockchain↔TradFi, adoption haute, afflux institutionnel), reg_bear,
+  stagnation, tail_crisis. Moteur **Merton** (GBM + sauts) ; `fan_stats` (éventail).
+- **Macro mondiale** : `macro_markov_path` (chaîne de Markov sur régimes
+  expansion/slowdown/recession/recovery).
+- **Évolution des acteurs** : `actor_evolution` (dynamique du **réplicateur** :
+  parts incumbents/challengers/entrants ∝ fitness). ⚠️ la **détection** des vrais
+  futurs acteurs exige des données externes (recherche) — ici on **projette** des
+  candidats fournis, on ne les devine pas.
+- **Adoption techno** : `adoption_logistic` (courbe en S, Bass-like).
+- Honnêteté intégrée : le *volatility drag* lognormal fait que la **médiane** crypto
+  est sous S0 à drift nul (cohérent avec Black-Scholes §8). Sortie BTC 1 an (base) :
+  P5 −66 % … P95 +147 %, prob_up 0.44 — l'éventail crypto est ÉNORME, c'est le message.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

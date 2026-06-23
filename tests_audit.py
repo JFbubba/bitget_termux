@@ -764,6 +764,31 @@ def _synthetic_candles(n=160, seed=0):
     return out
 
 
+def test_futuretester():
+    import futuretester as ft
+    import math
+    # GBM : drift qui compense le vol drag -> médiane ~ S0, prob_up ~ 0.5
+    sig = 0.3
+    st = ft.fan_stats(ft.simulate_terminal(100, 0.5 * sig * sig, sig, 1.0, n=8000, seed=1), 100)
+    assert abs(st["median_return_pct"]) < 3 and abs(st["prob_up"] - 0.5) < 0.06
+    assert st["p5"] < st["p50"] < st["p95"]
+    # drift positif -> rendement médian > 0
+    assert ft.fan_stats(ft.simulate_terminal(100, 0.4, 0.3, 1.0, n=8000, seed=2), 100)["median_return_pct"] > 0
+    # prévisions institutionnelles -> drifts implicites + plage ordonnée
+    ml, mb, mh = ft.drift_from_forecasts(100, 80, 150, 250, 1.0)
+    assert abs(mb - math.log(1.5)) < 1e-9 and ml < mb < mh
+    pf = ft.project_forecast(100, 80, 150, 250, 1.0, sigma=0.5, n=8000)
+    assert pf["p5_return_pct"] < pf["median_return_pct"] < pf["p95_return_pct"]
+    # adoption en S
+    assert abs(ft.adoption_logistic(5, 1, 5, 1) - 0.5) < 1e-9 and ft.adoption_logistic(50, 1, 5, 1) > 0.99
+    # macro Markov (longueur) + réplicateur (fitness haute -> part grossit, somme=1)
+    assert len(ft.macro_markov_path(ft.DEFAULT_P, 20, seed=3)) == 20
+    traj = ft.actor_evolution([0.6, 0.3, 0.1], [1.0, 1.3, 1.6], 8)
+    assert traj[-1][2] > traj[0][2] and abs(traj[-1].sum() - 1) < 1e-9
+    # scénarios typés : convergence > crise
+    a = ft.run_all(100, 1.0, n=6000)
+    assert a["convergence_bull"]["median_return_pct"] > a["tail_crisis"]["median_return_pct"]
+
 def test_evolution():
     import evolution as ev
     import numpy as np
