@@ -775,6 +775,10 @@ def test_strategy_lab():
     assert L.build_named("ema_cross_20_50", candles) == sig
     assert set(L.build_named("rsi_reversion_14", candles)) <= {-1, 0, 1}
     assert set(L.build_named("ensemble_trend_rev_struct", candles)) <= {-1, 0, 1}
+    # nouvelles briques (skim Drive) : MACD (tendance), Bollinger (reversion)
+    for name in ("macd_12_26_9", "bollinger_20"):
+        s = L.build_named(name, candles)
+        assert len(s) == len(candles) and set(s) <= {-1, 0, 1}
     # backtest : métriques + score présents, edge calculé
     r = L.backtest(sig, candles)
     assert "sharpe" in r and "edge" in r and "score" in r and "trades" in r
@@ -839,38 +843,6 @@ def test_regime_features():
     er = rf.orderflow_entropy(rnd, n_states=5)
     assert ep < 0.05 and er > 0.85 and ep < er
     assert rf.orderflow_entropy([3], n_states=5) == 1.0   # trop court -> max (pas d'info)
-
-def test_drive_triage():
-    import drive_triage as dt
-    # normalisation de sujet + hash
-    assert dt.norm_subject("  Wyckoff Réaccumulation ") == "wyckoff-reaccumulation"
-    assert dt.sha1_of("abc") == dt.sha1_of(b"abc")
-    reg = dt.new_registry()
-    # upsert + statut + is_processed (par id et par titre)
-    dt.upsert(reg, {"id": "A", "title": "doc1.pdf", "type": "pdf", "subject": "Orderflow",
-                    "relevant": True, "status": "traité", "action": "learned"})
-    assert dt.is_processed(reg, file_id="A") is True
-    assert dt.is_processed(reg, title="doc1.pdf") is True
-    assert dt.is_processed(reg, file_id="ZZ") is False
-    # upsert idempotent par id : fusion sans clobber (status/action préservés)
-    dt.upsert(reg, {"id": "A", "notes": "résumé"})
-    assert len(reg["entries"]) == 1
-    assert reg["entries"][0]["notes"] == "résumé"
-    assert reg["entries"][0]["status"] == "traité" and reg["entries"][0]["action"] == "learned"
-    # détection de doublon par SUJET (mêmes sujets normalisés, parmi les pertinents)
-    dt.upsert(reg, {"id": "B", "title": "doc2.pdf", "type": "pdf", "subject": "Orderflow",
-                    "relevant": True, "status": "à-faire"})
-    assert any(e["id"] == "A" for e in dt.subject_duplicates(reg, "orderflow", exclude_id="B"))
-    # doublon EXACT par hash de contenu
-    h = dt.sha1_of("contenu")
-    dt.upsert(reg, {"id": "C", "title": "x", "sha1": h})
-    dt.upsert(reg, {"id": "D", "title": "y", "sha1": h})
-    assert {e["id"] for e in dt.hash_duplicates(reg, h)} == {"C", "D"}
-    # compteurs
-    c = dt.counters(reg)
-    assert c["seen"] == 4 and c["processed"] == 1 and c["pdfs"] == 2 and "learned" in c["by_action"]
-    # rapport markdown : ne lève pas, contient l'en-tête
-    assert "Triage Drive" in dt.summary_md(reg)
 
 def test_runtime_cache():
     import runtime_cache as rc

@@ -359,9 +359,13 @@ stratégies.
   `kb.rules_for("volume_profile")`, `kb.query(category="method")`. 70 fiches.
 - **`strategy_lab.py`** — agent **backtester autonome** :
   - **stratégies pures & causales** (aucun look-ahead) : ema_cross, rsi_reversion,
-    donchian, vp_fade, structure_bos ; **composition** : régime-gating
-    (`up_fraction`) + ensemble (vote majoritaire) ; **amélioration** : recherche de
-    params (`improve_ema`).
+    donchian, vp_fade, structure_bos, **macd**, **bollinger** (ajoutées au skim
+    Drive) ; **composition** : régime-gating (`up_fraction`) + ensemble (vote
+    majoritaire) ; **amélioration** : recherche de params (`improve_ema`).
+  - **observation honnête (multi-tests)** : à 9 stratégies, PBO≈0.36 et
+    `rsi_reversion` promue ; à 11 stratégies, PBO passe à **0.53 (>0.5)** → l'agent
+    **refuse toute promotion**. Plus on teste de candidats, plus le risque de chance
+    monte : le garde-fou PBO bloque correctement (correction multi-tests).
   - **évaluation HONNÊTE** (réutilise `backtest_brain`) : frais, Sharpe, edge vs
     buy&hold, **walk-forward**, **PBO** sur l'ensemble des stratégies.
   - **score** = Sharpe × (tranches gagnantes), pénalisé si edge≤0 ou trop peu de

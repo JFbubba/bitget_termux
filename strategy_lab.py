@@ -86,6 +86,29 @@ def strat_donchian_breakout(candles, n=20):
     return sig
 
 
+def strat_macd(candles, fast=12, slow=26, sig=9):
+    """MACD : ligne (EMA_fast − EMA_slow) vs sa ligne signal. Causal. Tendance."""
+    cl = _closes(candles)
+    ef, es = _ema_series(cl, fast), _ema_series(cl, slow)
+    macd = [ef[i] - es[i] for i in range(len(cl))]
+    sigl = _ema_series(macd, sig)
+    return [0 if i < slow else (1 if macd[i] > sigl[i] else -1) for i in range(len(cl))]
+
+
+def strat_bollinger(candles, n=20, k=2.0):
+    """Bandes de Bollinger : mean-reversion (achat sous la bande basse). Causal."""
+    import statistics
+    cl = _closes(candles)
+    out = [0] * len(cl)
+    for i in range(n, len(cl)):
+        w = cl[i - n:i]
+        m = sum(w) / n
+        sd = statistics.pstdev(w) or 1e-9
+        c = cl[i]
+        out[i] = 1 if c < m - k * sd else -1 if c > m + k * sd else 0
+    return out
+
+
 def strat_vp_fade(candles, window=60):
     import pro_indicators as pi
     sig = [0] * len(candles)
@@ -172,7 +195,8 @@ def _passes(r, pbo_val):
 
 def base_registry(candles):
     return {n: build_named(n, candles) for n in
-            ("ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60", "structure_bos")}
+            ("ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
+             "structure_bos", "macd_12_26_9", "bollinger_20")}
 
 
 def build_named(name, candles):
@@ -191,6 +215,11 @@ def build_named(name, candles):
         return strat_vp_fade(candles, int(name.split("_")[2]))
     if name == "structure_bos":
         return strat_structure(candles, 60)
+    if name.startswith("macd_"):
+        _, f, s, g = name.split("_")
+        return strat_macd(candles, int(f), int(s), int(g))
+    if name.startswith("bollinger_"):
+        return strat_bollinger(candles, int(name.split("_")[1]))
     if name.endswith("+regime"):
         return regime_gated(build_named(name[:-len("+regime")], candles), candles)
     if name == "ensemble_trend_rev_struct":

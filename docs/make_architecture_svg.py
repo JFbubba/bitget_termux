@@ -84,14 +84,12 @@ for i, t in enumerate(srcs):
     box(60 + (i % 3) * 180, 150 + (i // 3) * 52, 165, 40, "src", t, fs=11)
 
 cluster(650, 120, 550, 230, "kb", "CONNAISSANCE")
-box(680, 150, 220, 40, "kb", "Drive package/ (trié)", "221 fichiers")
-box(680, 210, 220, 40, "kb", "extraction/*.md", "70 fiches")
+box(680, 175, 220, 44, "kb", "Drive package/ (trié)", "tri + analyse (off-repo)")
 box(940, 150, 230, 40, "kb", "knowledge_base.py", "build / query")
-box(940, 210, 230, 46, "kb", "knowledge.json", "★ LA BASE (DB)")
-box(680, 270, 220, 36, "kb", "drive_triage.json", "registre de tri", fs=11)
-arrow(790, 190, 790, 210)
-arrow(900, 230, 940, 230)
-arrow(940, 175, 900, 175, dash=True)
+box(940, 215, 230, 46, "kb", "knowledge.json", "★ LA BASE (DB)")
+box(680, 270, 490, 36, "kb", "agents & strategy_lab : kb.rules_for(...)", fs=11)
+arrow(900, 197, 940, 180)
+arrow(1055, 190, 1055, 215)
 
 # --- market_sources + cache ---
 box(160, 300, 220, 42, "cache", "market_sources.py", "Bitget→CoinGecko")
