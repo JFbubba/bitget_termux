@@ -96,6 +96,11 @@ les limites.*
   consensus), `s_i = β·P̃_i + (1−β)·C̃_i`, softmax `η`, **plancher d'exploration**
   garanti. Branchée dans `learn()`.
 - `brain_log.json` → journal des décisions, évaluées à maturité (`HORIZON_S`).
+- **🔒 Frontière apprentissage / sécurité (vérifiée)** : l'apprentissage online
+  n'ajuste **que les poids de vote** (`brain_weights.json`). Les **limites de
+  risque** (kill-switch, caps, perte journalière, distance de stop) sont **figées
+  en config/env**, **jamais** modifiées par l'apprentissage. *Ce qui apprend ≠ ce
+  qui protège.*
 
 ### 5. Conscience AUTODIDACTE (recherche & enrichissement)
 *Lire la littérature, en extraire des décisions, garder la trace.*

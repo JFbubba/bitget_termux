@@ -258,6 +258,32 @@ Leçons des classiques, distillées en **règles** reliées à nos mécanismes.
 - **Greenblatt, *Magic Formula*** — **skipped** (value investing equities long
   horizon, hors scope crypto intraday/swing).
 
+## §12 — Architecture multi-agents & apprentissage online (intake Drive)
+Les docx « cadre multi-agents / orchestrateur / écosystème autodidacte / Aladdin »
+**valident notre architecture** plus qu'ils n'ajoutent du neuf :
+- **Mixture-of-experts** (`swarm_brain`) = *believability-weighting* (Dalio, §11) ;
+  **orchestrateur** = `agent_hub`/`agent_control`/`agent_loop` ; **hedge/EARCP** =
+  apprentissage online. La convergence indépendante est un bon signe.
+- **🔒 Frontière de sécurité (VÉRIFIÉE dans le code)** — le principe le plus
+  important : **l'apprentissage online ne touche QUE les poids de vote**
+  (`learn()` → `save_weights()` → `brain_weights.json`). Les **limites de risque**
+  (`risk_manager`/`risk_limits` : kill-switch, caps, perte journalière, levier,
+  distance de stop) viennent **exclusivement de l'env/config** (`os.getenv`) et ne
+  sont **jamais** modifiées par l'apprentissage. *Ce qui apprend = votes/poids ;
+  ce qui est figé = la sécurité.*
+- **Sélection de features** : EARCP dégrade déjà les agents non-informatifs (avec
+  plancher d'exploration) ; extension possible = score de pertinence par feature
+  décroissant sur N décisions sans information mutuelle.
+- **Traçabilité anti-hallucination** : chaque agent expose une `note` (donnée
+  brute) ; piste = systématiser timestamp + source par vote.
+- **Références externes (pas de code copié, LICENSE respectée)** : *TradingAgents*
+  (TauricResearch) comme comparatif d'orchestration ; vision **« Crypto-Aladdin
+  perso »** (Jasmyne) = risque-portefeuille + agents — xlsx de formules à comparer
+  à `position_sizer`/`risk_manager` (suivi, lecture seule).
+- **Android/Termux** : Termux est désormais **fournisseur de signaux** (le principal
+  est sur **VPS**) ; contraintes à respecter côté signal-provider (task-keeper après
+  kill, persistance hors `/tmp`, batterie).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
