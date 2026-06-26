@@ -22,8 +22,23 @@ git clone https://github.com/JFbubba/bitget_termux ~/bitget_termux_repo   # si p
 cd ~/bitget_termux_repo
 git checkout claude/beautiful-heisenberg-c5aoqu
 git pull
-pip install -r requirements.txt   # requests + python-dotenv (pour les readers)
+pip install -r requirements.txt   # requests + python-dotenv + numpy (agents quantitatifs)
 ```
+
+> **numpy est requis** par les agents quantitatifs (simons, savant, futuretester,
+> evolution). Sans lui, ces agents retombent gracieusement en neutre mais ne
+> contribuent pas.
+
+### Mise à jour ultérieure (one-liner)
+
+Pour mettre à jour le VPS après de nouveaux commits (pull + deps + tests + gate
+sécurité + redémarrage des services systemd) :
+
+```bash
+cd ~/bitget_termux_repo && bash update_vps.sh
+```
+
+Le script **ne redémarre les services que si `security_agent` renvoie `VERDICT: SAFE`**.
 
 ## 3. Lancer le dashboard
 
