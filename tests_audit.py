@@ -1817,6 +1817,42 @@ def test_simons_agent_shape_and_brain_registration():
     assert agg["agents"][0]["weight"] == 1.0
 
 
+def test_simons_trend_vote_antisymmetry():
+    import simons_agent as sa
+    # le biais de tendance fade les extrêmes locaux et est ANTISYMÉTRIQUE :
+    # _trend_vote(-1, z) == -_trend_vote(+1, -z) pour tout z (mirroir exact).
+    for z in (-2.0, -0.5, 0.0, 0.5, 2.0):
+        assert abs(sa._trend_vote(-1, z) - (-sa._trend_vote(1, -z))) < 1e-12
+    # sens : en hausse, on allège dans la force (z>0) et on charge dans le creux (z<0)
+    assert sa._trend_vote(1, 1.0) < sa._trend_vote(1, -1.0)
+    # en baisse, on vend les rebonds (z>0 -> plus court) et on couvre la faiblesse (z<0)
+    assert sa._trend_vote(-1, 1.0) < sa._trend_vote(-1, -1.0)
+
+
+def test_load_weights_self_heals_partial_file(tmpfile=None):
+    import json
+    import tempfile
+    from pathlib import Path
+    import swarm_brain as sb
+    old = sb.WEIGHTS_FILE
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"orderflow": 1.2, "macro": 0.8}, f)   # fichier partiel (legacy)
+            sb.WEIGHTS_FILE = Path(f.name)
+        w = sb.load_weights()
+        # tous les AGENTS sont présents (sinon perte silencieuse au prochain learn())
+        for a in sb.AGENTS:
+            assert a in w, f"agent manquant après load_weights: {a}"
+        assert w["orderflow"] == 1.2 and w["macro"] == 0.8   # valeurs existantes préservées
+        assert w["simons"] == 1.0 and w["divergent"] == 1.0  # nouveaux -> défaut 1.0
+    finally:
+        try:
+            Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

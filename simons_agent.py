@@ -241,10 +241,10 @@ def signal(closes, k=3, lookback=30):
         vote = 0.0                                    # retrait : on ne fournit pas d'edge
         conf = 0.1
     elif regime == "trend_up":
-        vote = _bounded(0.3 - 0.2 * math.tanh(z))     # suit la tendance, réversion atténuée
+        vote = _trend_vote(+1, z)                     # suit la hausse, fade des extrêmes locaux
         conf = 0.45
     else:  # trend_down
-        vote = _bounded(-0.3 - 0.2 * math.tanh(z))
+        vote = _trend_vote(-1, z)                     # suit la baisse, fade des extrêmes locaux
         conf = 0.45
 
     # Kelly indicatif : edge ≈ réversion attendue (−z·σ), variance = var récente
@@ -264,6 +264,15 @@ def signal(closes, k=3, lookback=30):
 
 def _bounded(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, x))
+
+
+def _trend_vote(direction, z):
+    """Biais de TENDANCE avec réversion ATTÉNUÉE (pas du momentum). PUR.
+    direction = +1 (hausse) / −1 (baisse) ; base ±0.3 suit la tendance, le terme
+    −0.2·tanh(z) fade les extrêmes locaux (achète les creux / vend les rebonds DANS
+    la tendance). Le terme de réversion n'est PAS multiplié par direction, ce qui
+    garantit l'ANTISYMÉTRIE : _trend_vote(−1, z) == −_trend_vote(+1, −z)."""
+    return _bounded(direction * 0.3 - 0.2 * math.tanh(z))
 
 
 # ---------- évaluation : Rank IC (Spearman) ----------
@@ -327,7 +336,7 @@ def analyze(symbol="BTCUSDT", ttl=45):
                     "note": "données insuffisantes"}
         return signal(closes)
     return rc.get(f"simons:{symbol.upper()}", ttl, fetch,
-                  fallback={"regime": "n/a", "vote": 0.0, "confidence": 0.0})
+                  fallback={"regime": "n/a", "vote": 0.0, "confidence": 0.0, "note": "n/a"})
 
 
 def agent(symbol="BTCUSDT"):

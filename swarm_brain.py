@@ -452,10 +452,19 @@ def volatility_regime(closes, short=14, long=100):
 # ---------- persistance ----------
 
 def load_weights():
+    # Tout agent ABSENT du fichier (nouvel agent, ou agent n'ayant jamais voté)
+    # retombe sur 1.0 ET est PERSISTÉ au prochain learn() : `update_weights` part de
+    # `dict(weights)`, donc fournir tous les AGENTS ici évite la perte silencieuse
+    # d'un agent du fichier de poids (auto-réparation : divergent/structure/simons).
     try:
-        return json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
+        w = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        return {a: 1.0 for a in AGENTS}
+        w = {}
+    if not isinstance(w, dict):
+        w = {}
+    for a in AGENTS:
+        w.setdefault(a, 1.0)
+    return w
 
 
 def save_weights(w):
