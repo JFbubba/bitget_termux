@@ -1853,6 +1853,87 @@ def test_load_weights_self_heals_partial_file(tmpfile=None):
         sb.WEIGHTS_FILE = old
 
 
+# ---------- Agent SAVANT (« autiste digitale ») : rupture de symétrie tensorielle ----------
+
+def _savant_market(n=70, seed=1, last=None):
+    import numpy as np
+    r = np.random.default_rng(seed)
+    px = [100.0]; cs = []
+    for i in range(n):
+        ret = r.normal(0, 0.004); c = px[-1] * float(np.exp(ret))
+        h = max(px[-1], c) * (1 + abs(r.normal(0, 0.002)))
+        l = min(px[-1], c) * (1 - abs(r.normal(0, 0.002)))
+        v = abs(r.normal(1000, 150))
+        cs.append([i, px[-1], h, l, c, v]); px.append(c)
+    if last is not None:  # injecte une dislocation sur la dernière barre : ret signé + vol énorme
+        prev = cs[-2][4]; c = prev * float(np.exp(last))
+        hi, lo = (c * 1.001, prev * 0.999) if last > 0 else (prev * 1.001, c * 0.999)
+        cs[-1] = [cs[-1][0], prev, hi, lo, c, 9000.0]
+    return cs
+
+
+def test_savant_feature_matrix_and_standardize():
+    import numpy as np
+    import savant_agent as sv
+    cs = _savant_market(40, 2)
+    X = sv.feature_matrix(cs)
+    assert X.shape[0] == len(cs) - 1 and X.shape[1] == 5    # T-1 × 5 features
+    Z = sv._standardize(X)
+    assert abs(float(Z.mean())) < 1e-9                       # centré
+    # colonne plate -> std 1 (pas de division par zéro)
+    flat = np.ones((10, 2)); assert np.isfinite(sv._standardize(flat)).all()
+
+
+def test_savant_symmetry_break_detects_dislocation():
+    import savant_agent as sv
+    normal = sv.symmetry_break(sv.feature_matrix(_savant_market(70, 1)))
+    disloc = sv.symmetry_break(sv.feature_matrix(_savant_market(70, 1, last=-0.05)))
+    assert 0.0 <= normal <= 1.0 and 0.0 <= disloc <= 1.0
+    assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
+
+
+def test_savant_signal_fades_dislocation():
+    import savant_agent as sv
+    # flush baissier brutal -> fade -> vote LONG ; spike haussier -> vote SHORT
+    down = sv.signal(_savant_market(70, 1, last=-0.05), fear_greed=50)
+    up = sv.signal(_savant_market(70, 1, last=0.05), fear_greed=50)
+    assert down["vote"] > 0 and up["vote"] < 0
+    # marché normal sous le seuil -> pas de vote directionnel
+    calm = sv.signal(_savant_market(70, 1), fear_greed=50)
+    assert calm["vote"] == 0.0
+    # bornes
+    assert -1.0 <= down["vote"] <= 1.0 and 0.0 <= down["confidence"] <= 1.0
+
+
+def test_savant_noise_immunity_contrarian():
+    import savant_agent as sv
+    cs = _savant_market(70, 3)
+    fear = sv.signal(cs, fear_greed=10)["vote"]
+    greed = sv.signal(cs, fear_greed=90)["vote"]
+    assert fear > greed                                      # FUD->long, FOMO->short (inefficience)
+
+
+def test_savant_value_at_risk_and_erfinv():
+    import numpy as np
+    import savant_agent as sv
+    r = list(np.random.default_rng(7).normal(0, 0.02, 500))
+    var = sv.value_at_risk(r, alpha=0.05)
+    assert var["var_hist"] > 0 and var["var_param"] > 0     # pertes positives
+    assert sv.value_at_risk([0.0] * 3)["var_hist"] is None  # trop court -> None
+    # erfinv : exact à 0, et erfinv(0.9)≈1.163 (quantile normal 5% via √2·erfinv)
+    assert abs(sv._erfinv(0.0)) < 1e-9
+    assert abs(sv._erfinv(0.9) - 1.1631) < 0.02
+
+
+def test_savant_brain_registration():
+    import swarm_brain as sb
+    assert "savant" in sb.AGENTS and "savant" in sb.AGENT_FUNCS
+    assert sb.load_weights().get("savant") == 1.0          # auto-réparation du fichier
+    # le cerveau agrège proprement un vote du savant (poids défaut 1.0)
+    agg = sb.aggregate({"savant": {"vote": -0.5, "confidence": 0.8}}, sb.load_weights())
+    assert agg["bias"] in ("SHORT", "NEUTRE")
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

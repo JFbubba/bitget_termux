@@ -589,6 +589,39 @@ dépendent de la liquidité/sentiment ; **CV purgée + embargo** (López de Prad
 complément du walk-forward/PBO existant ; **NSGA-II** multi-objectif (Sharpe↑, MDD↓,
 coûts↓) en complément du sep-CMA-ES mono-objectif (§18).
 
+## §23 — Agent SAVANT (« autiste digitale ») : rupture de symétrie tensorielle (`savant_agent.py`)
+Source : spec « Architecture cognitive — Autiste Digitale ». Pièce aspirationnelle
+(« Alpha Absolu Infaillible ») dont on extrait l'UNIQUE idée vraiment nouvelle,
+déterministe et dans le cadre, en rejetant explicitement le reste.
+
+**Ce qu'on construit** (`savant_agent.py`, pur/testé/résilient ; 10e agent du cerveau) :
+- **Tenseur synesthésique** : `feature_matrix` fusionne des features hétérogènes
+  (rendement, |rendement|, pression CLV, amplitude, volume) dans un même espace.
+- **Rupture de symétrie = distance de MAHALANOBIS** : `mahalanobis_anomaly` /
+  `symmetry_break` détectent une incohérence avec la STRUCTURE de covariance — un
+  point « normal » feature-par-feature mais incohérent globalement est repéré (la
+  spec « les anomalies BRISENT la symétrie géométrique avant tout calcul numérique »,
+  rendue rigoureuse). Borné [0,1] via `1−exp(−score/2)`.
+- **Signal à CONTRE-COURANT** : on FADE la dislocation (manipulations/flush tendent à
+  se corriger), actif seulement au-dessus d'un seuil (hyper-focalisation).
+- **Immunité au bruit** : Fear & Greed traité comme bruit exploitable à contre-courant
+  (FUD→long, FOMO→short).
+- **VaR (indicative)** : `value_at_risk` historique + paramétrique (erfinv maison).
+- Hook Monte-Carlo : futuretester mobilisable en cas d'anomalie forte.
+
+**Ce qu'on REJETTE (contraintes DURES — dit honnêtement dans le code)** :
+- « Réseau de neurones neuromorphique » : le projet INTERDIT les NN. On garde la
+  moitié « filtres rigides, zéro hallucination/dérive » de la spec = le déterminisme.
+- « Réécrit/recompile son propre code à chaque bloc » : code auto-mutant = risque de
+  sécurité inacceptable ; l'analogue sain (apprentissage en ligne des poids) existe.
+- « Hyper-masking / fragmentation d'ordres / évasion MEV » : ORDRES réels + évasion de
+  détection → hors cadre (paper/advisory). La VaR reste indicative.
+- Nœud archive complet / audit de bytecode / arbitrage cross-chain : infra hors cadre.
+- « Alpha Absolu Infaillible » : impossible. Sortie = signal probabiliste BORNÉ.
+
+Intégration : 10e agent `agent_savant` sous EARCP ; lentille MULTIVARIÉE distincte des
+agents univariés (divergent, structure). Auto-affiché au dashboard.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

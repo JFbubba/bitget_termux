@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -297,10 +297,23 @@ def agent_simons(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
 
 
+def agent_savant(symbol):
+    """Agent SAVANT (« autiste digitale ») — perception TENSORIELLE des ruptures de
+    symétrie de la microstructure (anomalie de Mahalanobis multivariée), immunisé au
+    bruit (FUD/FOMO à contre-courant). Fade les dislocations. Déterministe, aucun NN,
+    aucun ordre, aucune évasion. Voir savant_agent.py."""
+    try:
+        import savant_agent
+        return savant_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
     "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
+    "savant": agent_savant,
 }
 
 
