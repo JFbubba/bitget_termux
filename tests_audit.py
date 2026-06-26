@@ -1699,6 +1699,124 @@ def test_esm_anticipation_nudge_bounded():
     assert -0.2 <= n <= 0.2
 
 
+# ---------- Agent SIMONS (HMM régimes + arbitrage statistique, déterministe) ----------
+
+def _series_two_regimes(seed=0):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    calm = rng.normal(0.0, 0.004, 130)
+    vol = rng.normal(0.005, 0.02, 130)
+    rets = list(calm) + list(vol)
+    closes = [100.0]
+    for r in rets:
+        closes.append(closes[-1] * float(np.exp(r)))
+    return closes
+
+
+def test_simons_hmm_separates_vol_regimes():
+    import numpy as np
+    import simons_agent as sa
+    closes = _series_two_regimes(0)
+    r = np.asarray(sa.log_returns(closes))
+    z = (r - r.mean()) / r.std()
+    pi, A, mu, var, _ = sa.fit_hmm(z, k=3)
+    # le HMM doit créer un état nettement plus volatil qu'un autre
+    assert var.max() > 3.0 * var.min()
+    path = sa.viterbi(z, pi, A, mu, var)
+    assert len(path) == len(z)
+    # 1re moitié (calme) et 2e moitié (vol) dominées par des états différents
+    first = np.bincount(path[:130]).argmax()
+    second = np.bincount(path[130:]).argmax()
+    assert first != second
+
+
+def test_simons_fit_hmm_deterministic():
+    import simons_agent as sa
+    closes = _series_two_regimes(1)
+    r1 = sa.signal(closes)
+    r2 = sa.signal(closes)
+    assert r1 == r2  # init par quantiles -> aucun aléa, reproductible
+
+
+def test_simons_label_regime_gating():
+    import numpy as np
+    import simons_agent as sa
+    mu = np.array([-0.3, 0.0, 0.3]); var = np.array([1.0, 0.5, 1.0])
+    # vol_ratio élevé -> stress quel que soit l'état
+    assert sa.label_regime(2, mu, var, vol_ratio=2.5) == "stress"
+    # sinon : moyenne de l'état -> direction
+    assert sa.label_regime(0, mu, var, vol_ratio=1.0) == "trend_down"
+    assert sa.label_regime(2, mu, var, vol_ratio=1.0) == "trend_up"
+    assert sa.label_regime(1, mu, var, vol_ratio=1.0) == "range"
+
+
+def test_simons_mean_reversion_direction():
+    import numpy as np
+    import simons_agent as sa
+    rng = np.random.default_rng(3)
+    x = 100.0; px = [x]
+    for _ in range(260):
+        x = x + 0.25 * (100.0 - x) + rng.normal(0, 0.5)  # OU vers 100
+        px.append(x)
+    above = list(px); above[-1] += 0.9
+    s = sa.signal(above)
+    assert s["regime"] == "range" and s["vote"] < 0   # au-dessus de la moyenne -> vente
+    below = list(px); below[-1] -= 1.8
+    assert sa.signal(below)["vote"] > 0               # en dessous -> achat
+
+
+def test_simons_stress_stands_aside():
+    import numpy as np
+    import simons_agent as sa
+    rng = np.random.default_rng(5)
+    rr = list(rng.normal(0, 0.004, 200)) + list(rng.normal(0, 0.03, 12))  # explosion de vol
+    cl = [100.0]
+    for r in rr:
+        cl.append(cl[-1] * float(np.exp(r)))
+    s = sa.signal(cl)
+    assert s["regime"] == "stress" and s["vote"] == 0.0  # retrait, pas d'edge
+
+
+def test_simons_half_life_and_kelly():
+    import numpy as np
+    import simons_agent as sa
+    rng = np.random.default_rng(7)
+    ar = [0.0]
+    for _ in range(400):
+        ar.append(0.7 * ar[-1] + rng.normal(0, 1))      # AR(1) réversif
+        px = [100 + a for a in ar]
+    hl = sa.half_life(px)
+    assert hl is not None and 0 < hl < 20               # réversion détectée
+    assert sa.half_life([1, 2, 3, 4, 5] * 20) is None or sa.half_life([1, 2, 3, 4, 5] * 20) > 0
+    # Kelly borné et signé
+    assert sa.kelly_fraction(5.0, 0.0001, cap=0.25) == 0.25
+    assert sa.kelly_fraction(-5.0, 0.0001, cap=0.25) == -0.25
+    assert sa.kelly_fraction(0.0, 0.0) == 0.0
+
+
+def test_simons_rank_ic():
+    import simons_agent as sa
+    assert round(sa.rank_ic([1, 2, 3, 4, 5], [10, 20, 33, 40, 55]), 3) == 1.0
+    assert round(sa.rank_ic([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]), 3) == -1.0
+    assert sa.rank_ic([1], [1]) == 0.0                  # trop court -> 0, pas de crash
+
+
+def test_simons_agent_shape_and_brain_registration():
+    import simons_agent as sa
+    import swarm_brain as sb
+    # adaptateur agent : forme {vote, confidence, note}, bornes correctes
+    closes = _series_two_regimes(2)
+    out = sa.signal(closes)
+    assert -1.0 <= out["vote"] <= 1.0 and 0.0 <= out["confidence"] <= 1.0
+    # le cerveau a bien enregistré le 9e agent
+    assert "simons" in sb.AGENTS and "simons" in sb.AGENT_FUNCS
+    # poids par défaut (sans fichier) inclut le 9e agent ; un poids ABSENT du
+    # fichier existant retombe gracieusement sur 1.0 (comme divergent/structure)
+    assert "simons" in {a: 1.0 for a in sb.AGENTS}
+    agg = sb.aggregate({"simons": {"vote": 0.5, "confidence": 1.0}}, sb.load_weights())
+    assert agg["agents"][0]["weight"] == 1.0
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

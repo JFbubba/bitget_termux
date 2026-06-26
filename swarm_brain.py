@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -286,10 +286,21 @@ def agent_structure(symbol):
             "note": "struct " + (" ".join(parts) if parts else "neutre")}
 
 
+def agent_simons(symbol):
+    """Agent SIMONS (Medallion adapté crypto) — régime caché HMM (Baum-Welch/Viterbi)
+    + arbitrage statistique (retour à la moyenne OU), gating par régime. Réverte en
+    régime CALME, se retire en STRESS. Déterministe, aucun NN. Voir simons_agent.py."""
+    try:
+        import simons_agent
+        return simons_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
-    "divergent": agent_divergent, "structure": agent_structure,
+    "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
 }
 
 

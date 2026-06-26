@@ -548,6 +548,47 @@ transparent et observable** depuis l'OHLCV : *money-flow* de Chaikin
 - Pistes futures (à activer si utile) : 9ᵉ agent ESM dédié sous EARCP ; turning-points
   T2/T4 (niveaux de prix où le NED change de signe) comme garde-fous de risque.
 
+## §22 — Agent SIMONS : régimes cachés + arbitrage statistique (`simons_agent.py`)
+Source : note « Stratégie Simons pour cryptomonnaies » (Renaissance/Medallion).
+On transpose les piliers EXPLOITABLES — **classiques, déterministes, sans réseau de
+neurones** (c'est exactement la boîte à outils de Renaissance : Baum, le « B » de
+Baum-Welch, y a forgé les HMM).
+
+**Ce qu'on implémente** (`simons_agent.py`, pur/testé/résilient) :
+- **Régimes cachés — HMM gaussien (Baum-Welch/EM + Viterbi)** sur log-rendements
+  standardisés. Forward-backward avec **facteurs d'échelle** (stabilité numérique),
+  **init déterministe par quantiles** → 100 % reproductible (aucun aléa). C'est la
+  pièce maîtresse : il décode des états latents non observés.
+- **Arbitrage statistique — retour à la moyenne (OU)** : `zscore` de la déviation,
+  `half_life` via AR(1) (`hl = −ln2/ln(1+b)`). Edge ténu × loi des grands nombres.
+- **Gating par régime** : on RÉVERTE en régime calme (range), on se RETIRE en
+  STRESS (gate robuste = vol récente/vol de fond > 1.8, façon « speedbump ROC > σ »),
+  biais réduit/aligné en tendance. Le HMM porte la **direction**, le gate de stress
+  est **découplé** (pas le ratio fragile des variances d'états).
+- **Kelly fractionnaire** `f = espérance/variance` (demi-Kelly, plafonné) — PUREMENT
+  INDICATIF, ne dimensionne aucun ordre, **aucun levier appliqué**.
+- **Rank IC (Spearman)** : métrique d'évaluation hors-échantillon d'un signal.
+
+**Intégration** : nouvel **agent du cerveau** (9e), `agent_simons`, sous pondération
+EARCP. `AGENTS`/`AGENT_FUNCS` mis à jour ; les poids manquants d'un fichier existant
+retombent gracieusement sur 1.0 (comme divergent/structure). Auto-affiché au
+dashboard (le panneau Cerveau itère les agents).
+
+**Ce qu'on N'implémente PAS, honnêtement** :
+- **Avellaneda-Stoikov + RL (PPO/DDQN)** pour le market-making : exige des ORDRES
+  réels + un réseau de neurones → hors cadre (advisory/paper, sans NN).
+- **Levier 12,5–20×** : contexte institutionnel Medallion ; en crypto retail =
+  risque de ruine. Kelly reste indicatif.
+- **LVR / défense DeFi** (maker priority, speedbumps on-chain) : pertinent seulement
+  pour un LP/market-maker actif — noté pour extension future, pas pour l'advisory.
+- L'« Agent de Code » LLM générateur d'indicateurs : déjà couvert autrement par
+  `strategy_lab` (backtester autonome) sous garde anti-surapprentissage (§16).
+
+Pistes (à activer si utile) : **HMM non-homogène (NHHMM)** dont les transitions
+dépendent de la liquidité/sentiment ; **CV purgée + embargo** (López de Prado) en
+complément du walk-forward/PBO existant ; **NSGA-II** multi-objectif (Sharpe↑, MDD↓,
+coûts↓) en complément du sep-CMA-ES mono-objectif (§18).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
