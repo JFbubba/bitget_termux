@@ -1166,6 +1166,16 @@ toute façon), pas une prédiction — cohérent avec « reversion réelle mais 
 `ACCUM_ST_WEIGHT=0` → score historique inchangé (rétrocompatible). Le réel reste cappé/gaté/double
 verrou ; rien n'est armé.
 
+**Cadence adaptative — testée et REJETÉE (négatif honnête).** Question : acheter *quand* c'est bon
+(intervalle court quand bon marché, long quand cher) bat-il la grille fixe ? Backtest cost-basis
+(15 symboles, IS/OOS) : la cadence adaptative + sizing bat le moteur actuel de ~+1 % OOS sur le panel
+1h, MAIS **pas robuste** : seulement 67-86 % des symboles positifs (vs 93 % pour le sizing), **échoue
+à 15m** (40 % positifs), et surtout **BTC — l'actif accumulé — est NÉGATIF en in-sample** (sign-flip
+IS/OOS = régime-dépendant). Raison STRUCTURELLE : le sizing pondère sans différer le déploiement (on
+reste investi) ; la cadence adaptative DIFFÈRE les achats (« attendre le creux ») → se bat contre la
+dérive haussière séculaire, exactement le pari d'un accumulateur long terme. **Décision : garder
+l'intervalle FIXE.** Le moteur n'est pas modifié. (Outils de backtest en scratch, non committés.)
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
