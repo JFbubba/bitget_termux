@@ -101,16 +101,30 @@ def tick(state, symbols, ts=None):
 
 # ---------- câblage WebSocket (couche fine, best-effort) ----------
 
+def _rest_poll_fallback(symbols, cadence):
+    """Repli BASSE FIDÉLITÉ si websocket-client est absent : poll REST round-robin via
+    microstructure.collect_once. Le service reste UTILE (pas de crash-loop)."""
+    import microstructure
+    print("book_collector: 'websocket-client' absent -> repli REST-poll (basse fidélité). "
+          "Pour la haute fidélité : sudo apt install -y python3-websocket (ou "
+          "pip install --break-system-packages websocket-client), puis redémarrer le service.")
+    while True:
+        for s in symbols:
+            microstructure.collect_once(s)
+        time.sleep(max(1.0, cadence))
+
+
 def run(symbols=("BTCUSDT",), inst_type=DEFAULT_INST_TYPE, cadence=1.0):
     """Boucle WebSocket : connecte, s'abonne, calcule les features à `cadence` (s).
-    Nécessite `websocket-client` (requirements-optional.txt). Reconnexion automatique."""
+    Si `websocket-client` est absent -> repli REST-poll (service jamais en crash-loop).
+    Reconnexion automatique."""
+    symbols = list(symbols)
     try:
         import websocket
     except Exception:
-        raise SystemExit("book_collector: installe 'websocket-client' "
-                         "(pip install websocket-client) — voir requirements-optional.txt")
+        _rest_poll_fallback(symbols, cadence)
+        return
     import threading
-    symbols = list(symbols)
     state = {}
 
     def on_open(ws):
