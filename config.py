@@ -31,6 +31,11 @@ MAX_TOTAL_NOTIONAL_USDT = 300.0            # notionnel AGRÉGÉ max (portefeuill
 MAX_TOTAL_RISK_PERCENT = 5.0               # risque cumulé max (%)
 MIN_SL_DISTANCE_PERCENT = 0.20             # distance stop minimale (anti dust-stop)
 
+# === Accumulation BTC (spot DCA, paper) — s'AJOUTE au bot futures ===
+DCA_BASE_USD = 10.0                         # achat DCA de base par intervalle
+DCA_MAX_MULTIPLIER = 5.0                    # renfort max quand l'opportunité est maximale
+DCA_INTERVAL_H = 24.0                       # un achat au plus toutes les 24 h
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21

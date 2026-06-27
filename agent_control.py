@@ -54,6 +54,10 @@ COMMANDS = [
         "name": "Validation T5 des agents (auto-throttlée ~6h, advisory)",
         "command": ["python", "brain_validation.py"],
     },
+    {
+        "name": "Accumulation BTC (spot DCA paper, ne vend jamais)",
+        "command": ["python", "accumulation_engine.py", "BTCUSDT"],
+    },
 ]
 
 

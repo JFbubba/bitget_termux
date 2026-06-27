@@ -41,3 +41,4 @@ signals_journal.csv
 telegram_offset.txt
 strategies_out/
 .microstructure_buffer.json
+accumulation_ledger.json

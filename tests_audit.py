@@ -2516,6 +2516,42 @@ def test_watchdog_microstructure_fresh_and_halt():
     assert watchdog.should_halt("RUNNING", True, True, 0.0, 25.0)[0] is False    # tout va bien
 
 
+# ---------- accumulation BTC (spot DCA, paper) — ajout, ne remplace rien ----------
+
+def test_accumulation_opportunity_direction():
+    import numpy as np
+    import accumulation_engine as ae
+    cheap = ae.opportunity_score(list(np.linspace(100, 65, 100)), fear_greed=12)   # -35%, peur
+    expensive = ae.opportunity_score(list(np.linspace(60, 100, 100)), fear_greed=85)  # ATH, avidité
+    assert cheap["score"] > expensive["score"]
+    assert cheap["score"] > 0.4 and expensive["score"] < 0.3
+    assert ae.opportunity_score([100, 101], fear_greed=50)["score"] == 0.0  # trop court
+
+
+def test_accumulation_dca_amount_and_throttle():
+    import accumulation_engine as ae
+    # DCA croît avec le score, toujours >= base, jamais 0 (on accumule toujours un peu)
+    assert ae.dca_amount(0.0, 10, 5) == 10.0
+    assert ae.dca_amount(1.0, 10, 5) == 50.0
+    assert ae.dca_amount(0.5, 10, 5) == 30.0
+    # throttle DCA (intervalle)
+    assert ae.should_buy(None, 1000, 24) is True
+    assert ae.should_buy(1000, 1000 + 23 * 3600, 24) is False
+    assert ae.should_buy(1000, 1000 + 25 * 3600, 24) is True
+
+
+def test_accumulation_rsi_and_ledger():
+    import accumulation_engine as ae
+    assert ae.rsi(list(range(1, 40))) > 70 and ae.rsi(list(range(40, 1, -1))) < 30
+    assert ae.rsi([1, 2, 3]) is None
+    led = {"total_btc": 0.0, "total_cost_usd": 0.0, "avg_price": 0.0, "n_buys": 0,
+           "last_buy_ts": None, "buys": []}
+    led = ae.apply_buy(led, 100.0, 50000.0, ts=1)        # 0.002 BTC
+    led = ae.apply_buy(led, 100.0, 25000.0, ts=2)        # +0.004 -> 0.006, coût 200, moyen 33333
+    assert abs(led["total_btc"] - 0.006) < 1e-9 and led["total_cost_usd"] == 200.0
+    assert led["avg_price"] == 33333.33 and led["n_buys"] == 2          # jamais de vente
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
