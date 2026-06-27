@@ -63,25 +63,36 @@ def _live_row(rep, agent):
     return None
 
 
-def tier_of(row, live_row=None, dsr_min=None, min_n=None):
-    """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
-    sur les VOTES REELS (live) ; replay seul -> PROBATION (prometteur, reste paper)."""
+def _replay_passes(row, dsr_min=None, min_n=None):
+    """L'agent bat-il l'edge REPLAY (backtest) : DSR ≥ seuil ET n ≥ min ET OOS > 0 ? PUR."""
     dsr_min = float(_cfg("MANDATE_FUTURES_DSR_MIN", 0.90) if dsr_min is None else dsr_min)
     min_n = int(_cfg("MANDATE_FUTURES_MIN_SAMPLES", 120) if min_n is None else min_n)
     dsr = float((row or {}).get("dsr", 0) or 0)
     n = int((row or {}).get("n", 0) or 0)
     oos = (row or {}).get("oos_sharpe")
     oos = float(oos) if oos is not None else 0.0
-    replay_live = dsr >= dsr_min and n >= min_n and oos > 0
-    if replay_live and _live_confirms(live_row):
-        return "LIVE"
-    if replay_live:
-        return "PROBATION"                       # replay OK mais live pas (encore) confirme
+    return dsr >= dsr_min and n >= min_n and oos > 0
+
+
+def tier_of(row, live_row=None, dsr_min=None, min_n=None):
+    """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
+    sur les VOTES REELS (live) ; replay seul -> PROBATION (prometteur, reste paper)."""
+    if _replay_passes(row, dsr_min, min_n):
+        return "LIVE" if _live_confirms(live_row) else "PROBATION"  # live pas (encore) confirme
+    dsr = float((row or {}).get("dsr", 0) or 0)
+    n = int((row or {}).get("n", 0) or 0)
     if dsr >= 0.50 and n >= 30:
         return "PROBATION"
     if dsr >= 0.10:
         return "PAPER"
     return "NEGATIVE"
+
+
+def live_pending(row, live_row=None, dsr_min=None, min_n=None):
+    """L'agent bat-il le REPLAY mais PAS (encore) la confirmation live ? PUR.
+    True = « à une confirmation live près du palier LIVE » : purement informatif (observabilité),
+    ne donne AUCUN droit réel. Sert à voir qui approche du réel sans qu'aucun verrou ne bouge."""
+    return bool(_replay_passes(row, dsr_min, min_n) and not _live_confirms(live_row))
 
 
 def agent_tier(agent, report=None):
@@ -111,18 +122,29 @@ def live_agents(report=None):
 
 
 def build_report(report=None):
-    tiers = all_tiers(report)
-    if not tiers:
+    rep = _load(report)
+    ranking = rep.get("ranking", [])
+    if not ranking:
         return ("=== ÉCHELLE D'EDGE (par agent) ===\n"
                 "Aucun rapport de validation encore (lance brain_validation.py).\n"
                 "Aucun agent éligible au réel. VERDICT: SAFE")
+    rows = []
+    for row in ranking:
+        agent = row.get("agent")
+        lr = _live_row(rep, agent)
+        rows.append((agent, tier_of(row, lr), live_pending(row, lr)))
     order = {t: i for i, t in enumerate(TIERS)}
-    rows = sorted(tiers.items(), key=lambda kv: order.get(kv[1], 9))
+    rows.sort(key=lambda r: order.get(r[1], 9))
     lines = ["=== ÉCHELLE D'EDGE (par agent) ==="]
-    for agent, t in rows:
-        lines.append(f"  {agent:<12} {t:<10} (prior ×{_PRIOR[t]})")
-    live = [a for a, t in tiers.items() if t == "LIVE"]
+    for agent, t, pending in rows:
+        suffix = "  ← replay OK, confirmation live en attente" if pending else ""
+        lines.append(f"  {agent:<12} {t:<10} (prior ×{_PRIOR[t]}){suffix}")
+    live = [a for a, t, _ in rows if t == "LIVE"]
+    pend = [a for a, _, p in rows if p]
     lines.append(f"Éligibles RÉEL (palier LIVE) : {', '.join(live) if live else 'aucun'}")
+    if pend:
+        lines.append(f"À une confirmation live près : {', '.join(pend)} "
+                     "(replay OK ; manque échantillon/IC sur les votes réels)")
     lines.append("Promotion par edge mesuré. Lecture seule, aucun ordre. VERDICT: SAFE")
     return "\n".join(lines)
 

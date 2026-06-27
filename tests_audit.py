@@ -3055,6 +3055,13 @@ def test_edge_ladder_tiers_and_priors():
     rep_no_live = {"ranking": rep["ranking"]}
     assert el.agent_tier("geometric", rep_no_live) == "PROBATION"
     assert el.live_agents(rep_no_live) == []
+    # observabilité : « à une confirmation live près » = replay OK mais live pas confirmé
+    assert el.live_pending({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) is True
+    assert el.live_pending({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}, live_ok) is False  # déjà LIVE
+    assert el.live_pending({"dsr": 0.60, "n": 50}) is False                                # replay non battu
+    # le rapport signale les agents en attente de confirmation live, pas les confirmés
+    assert "confirmation live en attente" in el.build_report(rep_no_live)
+    assert "confirmation live en attente" not in el.build_report(rep)
 
 
 # ---------- durcissement réseau best-effort (sources de données, SANS réseau) ----------
