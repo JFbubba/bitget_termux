@@ -1,0 +1,9 @@
+[Unit]
+Description=Bitget audit securite quotidien (VERDICT SAFE attendu)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 security_agent.py
+User=root
+Nice=15

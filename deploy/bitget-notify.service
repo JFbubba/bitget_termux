@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget resume Telegram espace (lecture seule, aucun ordre)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+# Pas de notification si le coupe-circuit d'urgence est pose.
+ExecCondition=/usr/bin/test ! -f /root/bitget_termux_repo/KILL_SWITCH
+ExecStart=/usr/bin/python3 telegram_notifier.py
+User=root
+Nice=15
+TimeoutStartSec=120

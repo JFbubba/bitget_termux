@@ -1819,8 +1819,23 @@ def test_simons_agent_shape_and_brain_registration():
     # poids par défaut (sans fichier) inclut le 9e agent ; un poids ABSENT du
     # fichier existant retombe gracieusement sur 1.0 (comme divergent/structure)
     assert "simons" in {a: 1.0 for a in sb.AGENTS}
-    agg = sb.aggregate({"simons": {"vote": 0.5, "confidence": 1.0}}, sb.load_weights())
-    assert agg["agents"][0]["weight"] == 1.0
+    # auto-reparation deterministe : sur un fichier de poids partiel SANS simons, le
+    # cerveau retombe sur 1.0 -- independant des poids runtime appris sur la machine.
+    import json as _json, tempfile as _tf
+    from pathlib import Path as _Path
+    _old = sb.WEIGHTS_FILE
+    try:
+        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _f:
+            _json.dump({"orderflow": 1.2}, _f)         # partiel : simons absent
+            sb.WEIGHTS_FILE = _Path(_f.name)
+        agg = sb.aggregate({"simons": {"vote": 0.5, "confidence": 1.0}}, sb.load_weights())
+        assert agg["agents"][0]["weight"] == 1.0       # poids auto-repare au defaut 1.0
+    finally:
+        try:
+            _Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = _old
 
 
 def test_simons_trend_vote_antisymmetry():
@@ -1934,10 +1949,25 @@ def test_savant_value_at_risk_and_erfinv():
 def test_savant_brain_registration():
     import swarm_brain as sb
     assert "savant" in sb.AGENTS and "savant" in sb.AGENT_FUNCS
-    assert sb.load_weights().get("savant") == 1.0          # auto-réparation du fichier
-    # le cerveau agrège proprement un vote du savant (poids défaut 1.0)
-    agg = sb.aggregate({"savant": {"vote": -0.5, "confidence": 0.8}}, sb.load_weights())
-    assert agg["bias"] in ("SHORT", "NEUTRE")
+    # auto-reparation deterministe (independante des poids runtime appris) : sur un
+    # fichier de poids partiel SANS savant, le cerveau retombe sur 1.0.
+    import json as _json, tempfile as _tf
+    from pathlib import Path as _Path
+    _old = sb.WEIGHTS_FILE
+    try:
+        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _f:
+            _json.dump({"orderflow": 1.2}, _f)         # partiel : savant absent
+            sb.WEIGHTS_FILE = _Path(_f.name)
+        assert sb.load_weights().get("savant") == 1.0  # auto-repare au defaut 1.0
+        # le cerveau agrege proprement un vote du savant (poids defaut 1.0)
+        agg = sb.aggregate({"savant": {"vote": -0.5, "confidence": 0.8}}, sb.load_weights())
+        assert agg["bias"] in ("SHORT", "NEUTRE")
+    finally:
+        try:
+            _Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = _old
 
 
 # ---------- Agent GÉOMÉTRIQUE (5 papiers d'analyse géométrique) ----------
@@ -2055,7 +2085,22 @@ def test_geometric_signal_and_gates():
 def test_geometric_brain_registration():
     import swarm_brain as sb
     assert "geometric" in sb.AGENTS and "geometric" in sb.AGENT_FUNCS
-    assert sb.load_weights().get("geometric") == 1.0       # auto-réparation des poids
+    # auto-reparation deterministe (independante des poids runtime appris) : sur un
+    # fichier de poids partiel SANS geometric, le cerveau retombe sur 1.0.
+    import json as _json, tempfile as _tf
+    from pathlib import Path as _Path
+    _old = sb.WEIGHTS_FILE
+    try:
+        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _f:
+            _json.dump({"orderflow": 1.2}, _f)         # partiel : geometric absent
+            sb.WEIGHTS_FILE = _Path(_f.name)
+        assert sb.load_weights().get("geometric") == 1.0   # auto-repare au defaut 1.0
+    finally:
+        try:
+            _Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = _old
     assert len(sb.AGENTS) == 11                             # 11e agent
 
 
