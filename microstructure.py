@@ -172,14 +172,23 @@ def realized_markout(rows, h=5):
     return float(sum(mk) / len(mk)) if mk else 0.0
 
 
-def summary(symbol, n=60, markout_h=5):
+def summary(symbol, n=60, markout_h=5, max_age_s=120, now=None):
     """Résumé des features récentes (ce que lit un agent T4). Best-effort. Pur-ish.
     `toxicity` ∈ [0,1] = markout adverse (négatif) + élargissement du spread (heuristique
-    calibrable, pas un seuil de papier)."""
+    calibrable, pas un seuil de papier).
+    GARDE DE FRAÎCHEUR : si le dernier snapshot est plus vieux que `max_age_s` (collecteur
+    figé/mort), on renvoie n=0 (indisponible) — on NE traite PAS des données périmées
+    comme live."""
     rows = recent(symbol, n)
+    empty = {"n": 0, "ofi": 0.0, "queue_imbalance": 0.0, "trade_sign": 0.0,
+             "spread_bps": 0.0, "markout_bps": 0.0, "toxicity": 0.0}
     if not rows:
-        return {"n": 0, "ofi": 0.0, "queue_imbalance": 0.0, "trade_sign": 0.0,
-                "spread_bps": 0.0, "markout_bps": 0.0, "toxicity": 0.0}
+        return empty
+    last_ts = rows[-1].get("ts")
+    if last_ts is not None:
+        now = time.time() if now is None else now
+        if now - float(last_ts) > max_age_s:        # buffer périmé -> indisponible
+            return empty
     def avg(k):
         vals = [r.get(k, 0.0) for r in rows]
         return sum(vals) / len(vals) if vals else 0.0

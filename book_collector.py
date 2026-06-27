@@ -126,12 +126,14 @@ def run(symbols=("BTCUSDT",), inst_type=DEFAULT_INST_TYPE, cadence=1.0):
         return
     import threading
     state = {}
+    lock = threading.Lock()                             # protège l'état partagé WS<->worker
 
     def on_open(ws):
         ws.send(subscribe_message(symbols, inst_type))
 
     def on_message(ws, msg):
-        handle_message(state, msg)
+        with lock:                                      # mutation depuis le thread WS
+            handle_message(state, msg)
 
     def worker(ws):
         last_ping = 0.0
@@ -141,7 +143,8 @@ def run(symbols=("BTCUSDT",), inst_type=DEFAULT_INST_TYPE, cadence=1.0):
             try:
                 if now - last_ping >= PING_EVERY:
                     ws.send("ping"); last_ping = now
-                tick(state, symbols)
+                with lock:                              # lecture/pop cohérente de l'état
+                    tick(state, symbols)
             except Exception:
                 return                                  # socket mort -> run_forever relancera
 

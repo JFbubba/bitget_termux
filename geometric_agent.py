@@ -318,8 +318,8 @@ def rie_denoise(C, q, eta=None):
         s = np.mean(1.0 / (z - w))                  # transformée de Stieltjes empirique
         denom = abs(1 - q + q * w[k] * s) ** 2
         xi[k] = (w[k] / denom) if denom > 1e-12 else w[k]
-    xi = np.sort(np.clip(xi.real, 1e-8, None))      # monotone vs λ (eigh trie λ croissant)
-    Cc = V @ np.diag(xi) @ V.T
+    xi = np.clip(xi.real, 1e-8, None)               # ξ(λ_k) reste APPARIÉ à v_k (PAS de tri :
+    Cc = V @ np.diag(xi) @ V.T                       # trier décorrélerait valeurs propres/vecteurs)
     d = np.sqrt(np.clip(np.diag(Cc), 1e-12, None))
     return np.clip(Cc / np.outer(d, d), -1.0, 1.0)
 

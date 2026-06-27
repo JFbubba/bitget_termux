@@ -2292,7 +2292,7 @@ def test_microstructure_features_and_buffer():
             ms.append_snapshot("TESTUSDT", {"ts": i, "ofi": float(i), "queue_imbalance": 0.1,
                                             "trade_sign": 0.0, "spread_bps": 1.0})
         assert len(ms.recent("TESTUSDT")) == 3
-        s = ms.summary("TESTUSDT")
+        s = ms.summary("TESTUSDT", now=2.0)                          # now proche du dernier ts (frais)
         assert s["n"] == 3 and abs(s["ofi"] - 1.0) < 1e-9            # moyenne de 0,1,2
     finally:
         try:
@@ -2341,6 +2341,31 @@ def test_book_collector_handle_and_tick():
         bc.tick(state, ["ZZZUSDT"], ts=2)
         rows = ms.recent("ZZZUSDT")
         assert len(rows) == 2 and rows[-1]["ofi"] > 0
+    finally:
+        try:
+            Path(ms.BUFFER_FILE).unlink()
+        except Exception:
+            pass
+        ms.BUFFER_FILE = old
+
+
+def test_microstructure_staleness_guard():
+    import microstructure as ms
+    from pathlib import Path
+    old = ms.BUFFER_FILE
+    try:
+        ms.BUFFER_FILE = Path(old).with_name(".mbuf_stale_test.json")
+        if ms.BUFFER_FILE.exists():
+            ms.BUFFER_FILE.unlink()
+        for i in range(15):
+            ms.append_snapshot("STALEUSDT", {"ts": 1000 + i, "ofi": 1.0, "queue_imbalance": 0.1,
+                                             "trade_sign": 0.0, "spread_bps": 1.0, "mid": 100.0})
+        # données fraîches (now juste après le dernier ts) -> disponibles
+        fresh = ms.summary("STALEUSDT", now=1015 + 5)
+        assert fresh["n"] == 15
+        # données périmées (now très loin) -> indisponibles (n=0), pas traitées comme live
+        stale = ms.summary("STALEUSDT", max_age_s=120, now=1015 + 10_000)
+        assert stale["n"] == 0
     finally:
         try:
             Path(ms.BUFFER_FILE).unlink()
