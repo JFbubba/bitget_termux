@@ -178,6 +178,34 @@ def build_preorder(row, equity, equity_source, opened):
     }
 
 
+def _apply_portfolio_guards(preorders, opened):
+    """Applique le KILL-SWITCH + les caps PORTEFEUILLE agrégés (risk_limits) aux
+    pré-ordres : tout pré-ordre hors-cap passe en REJECTED avec ses raisons. PUR côté
+    risk_limits, best-effort sur l'état. Réponse à l'audit (caps portefeuille morts)."""
+    try:
+        import risk_manager
+        if risk_manager.kill_switch_active():
+            for o in preorders:
+                if o.get("status") == "PENDING_APPROVAL":
+                    o["status"] = "REJECTED"
+                    o.setdefault("reasons", []).append("KILL_SWITCH actif — tout trading arrêté")
+            return
+    except Exception:
+        pass
+    try:
+        import risk_limits
+        import risk_state
+        open_count = risk_state.open_positions_count()
+        extra = risk_limits.evaluate_portfolio_caps(preorders, open_count, RISK_PER_TRADE_PERCENT)
+        for o in preorders:
+            reasons = extra.get(o.get("id"))
+            if reasons and o.get("status") == "PENDING_APPROVAL":
+                o["status"] = "REJECTED"
+                o.setdefault("reasons", []).extend(reasons)
+    except Exception:
+        pass
+
+
 def main():
     equity, equity_source = get_equity()
     opened = open_symbol_sides()
@@ -187,6 +215,8 @@ def main():
 
     for row in rows[-MAX_PREORDERS:]:
         preorders.append(build_preorder(row, equity, equity_source, opened))
+
+    _apply_portfolio_guards(preorders, opened)
 
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

@@ -2438,6 +2438,29 @@ def test_execution_risk_gate_blocks_killswitch_and_caps():
          rm.KILL_FILE, rs.snapshot) = old
 
 
+def test_preorder_portfolio_guards():
+    import preorder_engine as pe
+    import risk_state as rs
+    import risk_manager as rm
+    old = (rs.open_positions_count, rm.kill_switch_active)
+    try:
+        rs.open_positions_count = lambda *a, **k: 0
+        rm.kill_switch_active = lambda: False
+        # 3 pré-ordres notionnel 200 -> cumul 600 > cap portefeuille (300) -> excédent REJECTED
+        pos = [{"id": f"o{i}", "status": "PENDING_APPROVAL", "notional_usdt": 200.0,
+                "sl_distance_percent": 1.0, "reasons": []} for i in range(3)]
+        pe._apply_portfolio_guards(pos, {})
+        assert sum(1 for o in pos if o["status"] == "REJECTED") >= 1
+        # KILL_SWITCH actif -> TOUT rejeté
+        rm.kill_switch_active = lambda: True
+        p2 = [{"id": "a", "status": "PENDING_APPROVAL", "notional_usdt": 10.0,
+               "sl_distance_percent": 1.0, "reasons": []}]
+        pe._apply_portfolio_guards(p2, {})
+        assert p2[0]["status"] == "REJECTED" and any("KILL" in r for r in p2[0]["reasons"])
+    finally:
+        rs.open_positions_count, rm.kill_switch_active = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
