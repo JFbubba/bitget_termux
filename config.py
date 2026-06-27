@@ -74,10 +74,11 @@ MANDATE_LIVE_ENABLED = True
 # Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
 ACCUM_REAL_MAX_PER_BUY_USDT = 5.0          # plafond dur par achat réel
 ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle)
-# Style d'exécution de l'achat spot : "taker" (marché, prouvé), "limit_ioc" (limite IOC
-# plafonnée -> remplit tout de suite SANS slippage au-delà du plafond), ou "maker"
-# (limite post-only au bid -> frais maker / meilleur prix, mais peut ne pas remplir).
-EXEC_STYLE = "taker"
+# Style d'exécution de l'achat spot : "limit_ioc" (DÉFAUT, validé en réel) = limite IOC
+# plafonnée -> remplit tout de suite SANS slippage au-delà du plafond ; "taker" = marché ;
+# "maker" = limite post-only au bid (frais maker / meilleur prix mais peut ne pas remplir).
+# Surchargeable via .env (EXEC_STYLE=taker pour revenir au marché).
+EXEC_STYLE = "limit_ioc"
 ACCUM_SLIPPAGE_TOL_PCT = 0.10              # plafond de slippage (%) au-dessus de l'ask pour limit_ioc
 
 # 2e verrou : accumulation AUTONOME réelle (DCA auto dans le cycle). DOUBLE verrou avec
