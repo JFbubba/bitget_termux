@@ -1054,6 +1054,42 @@ tant que cet étalon n'est pas franchi (toujours + GO explicite + double verrou 
 
 ---
 
+## §36 — Recherche d'alpha large (201 signaux, 8 familles) : résultat NÉGATIF honnête
+
+Suite à §35 (« le mur est l'alpha, pas la donnée »), balayage systématique de signaux
+déterministes (sans réseau de neurones, §1) mesurés à l'étalon transversal, sous discipline
+anti-data-mining stricte. **Aucun signal promu** ; on consigne la méthode et le résultat pour
+ne pas le re-courir à l'aveugle et ne JAMAIS promouvoir un signal qui échoue la barre honnête.
+
+**Protocole (orchestration multi-agents) :**
+- Panel **gelé** : 15 symboles liquides × ~1000 barres 1h (inclut XAUT/or → décorrélé). Split
+  temporel IS/OOS (`is_frac=0.7`) ; harnais d'éval = coupe transversale réutilisant
+  `agent_validation` (n effectif anti-inflation, rank IC, PSR/DSR). Identique pour tous.
+- 8 familles (momentum XS, tendance TS, reversion, vol/régime, volume/flux, structure,
+  saisonnalité, accélération) → **201 variants** générés et mesurés. **Sélection sur IS
+  uniquement** ; OOS réservé à une **vérif adverse indépendante** (re-exécution du code,
+  cohérence de signe, robustesse au re-split, breadth >55 % des symboles).
+- **Déflation multiple-testing GLOBALE** (le point clé) : `n_trials = 201` → SR0_max (Sharpe
+  max attendu sous H0) ≈ **0.21/période**. Le « gagnant » doit battre CE plancher, pas un seuil naïf.
+
+**Résultat :** la vérif adverse par candidat a laissé passer **2 survivants** (famille
+`acceleration` : *fade de courbure* = ajuste une parabole au log-prix, inverse l'accélération,
+normalise par la vol). OOS ic_t ≈ 2.0, breadth ≈ 0.85, robustes au re-split. **MAIS** sous la
+déflation globale : Sharpe OOS ≈ 0.04 ≪ SR0_max 0.21 → **DSR déflaté ≈ 0.01**. AUCUN signal ne
+passe (DSR≥0.90 + ic_t OOS≥2). Le re-split l'explique : leur edge se concentre dans la moitié
+**récente** (régime de reversion) — pas un edge intemporel. Motif répété sur TOUTES les familles :
+IC IS positif → IC OOS nul/négatif (le panel a un régime momentum en IS, reversion en OOS).
+
+**Leçon :** la vérif par-candidat ne suffit pas ; seule la déflation sur le nombre TOTAL d'essais
+attrape le data-mining. Les 2 « survivants » étaient des gagnants de loterie. Le fade de courbure
+est l'idée la moins fragile (à garder en watch/paper SI le propriétaire le souhaite, jamais en réel
+sur cette preuve). Caveat : un bug d'orchestration a passé des chemins « undefined » à quelques
+agents (quelques rejets non fiables) ; sans effet sur la conclusion (le meilleur Sharpe OOS de tout
+le balayage, 0.10, reste ≪ 0.21). Outils de recherche (harnais IS/OOS, panel, workflow) en scratch,
+non committés ; réutiliser `rank_pure_agents_xs` (étalon committé) pour toute reprise.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
