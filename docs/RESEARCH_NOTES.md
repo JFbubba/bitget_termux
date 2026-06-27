@@ -1194,6 +1194,34 @@ honnête est largement épuisé. Le réel reste cappé/gaté/double verrou.
 
 ---
 
+## §39 — Diagnostic des AGENTS du swarm : le « no edge » n'est (presque) pas un bug d'agent
+
+Question (propriétaire) : les agents fonctionnent-ils, un blocage masque-t-il un edge ? Évaluation
+chemin-2 des **11 agents** sur `brain_log.json` (500 votes journalisés) + diagnostic cause-racine
+(workflow 4 investigateurs). Constats honnêtes :
+
+- **Blocage structurel d'évaluation** : l'étalon ne rejouait que **4 agents sur 11** (les 7 live —
+  orderflow/derivs/liquidations/macro/sentiment/structure/technicals — ne sont pas rejouables sur
+  bougies). Le chemin 2 (`evaluate_from_log`) les évalue tous : c'est fait ici.
+- **macro & sentiment : SAINS, pas dégénérés.** Leur IC=0 est un **artefact de mesure** : ce sont des
+  signaux **marché-large** (macro ignore le symbole ; F&G est quotidien+global) → une IC *transversale*
+  est nulle par construction, et le log (4,3 h) est trop court. Données réelles, votes corrects.
+  **Aucun fix** (forcer 0 = régression).
+- **technicals : anti-prédictif mais NON robuste.** ~Toujours-long ; IC négatif = régime de reversion
+  court-terme **non robuste OOS** (3 flips de signe IS/OOS, IC poolée ≈ 0). **Ne PAS inverser**
+  (sur-ajustement) ; l'apprentissage EARCP le down-weighte déjà (juge à ~1 h).
+- **savant : seul vrai défaut → CORRIGÉ.** Un nudge Fear&Greed **symbole-indépendant** le figeait à
+  +0,15 ~83 % du temps ET **double-comptait l'agent `sentiment`**. Retiré : savant ne vote plus que sur
+  sa rupture de symétrie Mahalanobis (sa spécialité), spécificité par-symbole restaurée. Test mis à jour.
+
+**Insight le plus précieux** : tout le « no edge » (§35-38) ne mesurait que l'**alpha transversal**
+(cul-de-sac démontré). Les agents de **régime / market-timing** (macro, sentiment) ont un edge éventuel
+**temporel** (le vote prédit-il le rendement du MARCHÉ dans le temps ?), jamais évalué — la métrique
+transversale les zéro-note par construction. Frontière vierge, mais **time-gated** (semaines de votes
+vs rendements marché), à brancher comme la microstructure si on veut la creuser.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

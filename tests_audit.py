@@ -1926,12 +1926,15 @@ def test_savant_signal_fades_dislocation():
     assert -1.0 <= down["vote"] <= 1.0 and 0.0 <= down["confidence"] <= 1.0
 
 
-def test_savant_noise_immunity_contrarian():
+def test_savant_vote_independent_of_fear_greed():
     import savant_agent as sv
     cs = _savant_market(70, 3)
+    # savant ne fait PLUS le contrarian Fear&Greed (délégué à l'agent `sentiment` du swarm pour
+    # ne pas double-compter) : son vote ne dépend QUE de sa rupture de symétrie -> indépendant de F&G.
     fear = sv.signal(cs, fear_greed=10)["vote"]
     greed = sv.signal(cs, fear_greed=90)["vote"]
-    assert fear > greed                                      # FUD->long, FOMO->short (inefficience)
+    neutral = sv.signal(cs, fear_greed=50)["vote"]
+    assert fear == greed == neutral                          # fear_greed n'influe plus le vote savant
 
 
 def test_savant_value_at_risk_and_erfinv():
