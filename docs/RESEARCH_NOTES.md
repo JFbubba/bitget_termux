@@ -697,6 +697,39 @@ plage empirique du papier d'ancrage (crypto α∈[2.0,2.5], vs ~3 pour les actio
   intra-cluster (T3), GARCH→EVT-sur-résidus (T1), consensus de clusters sur fenêtres
   roulantes (T2/T3), protocole T5 (plateau SR≥0.9·opt, purge+embargo, DSR/PBO, Rank IC).
 
+## §26 — Protocole de validation T5 : mesurer l'alpha des agents (`agent_validation.py`)
+Réponse à « avant de donner du poids aux agents, MESURER lesquels ajoutent vraiment de
+l'alpha hors-échantillon ». Lecture seule, advisory — **ne modifie PAS** les poids.
+
+**Statistiques (pures, testées)** :
+- **Rank IC** de Spearman (vote → rendement futur) + t-stat — AlphaEval 2508.13174 ;
+- **PSR** (Probabilistic Sharpe Ratio, Bailey-LdP) : P(vrai Sharpe > 0) en tenant
+  compte de skew/kurtosis et de la LONGUEUR d'échantillon ;
+- **DSR** (Deflated Sharpe Ratio) : PSR avec benchmark = max attendu sous H0 sur N
+  essais → **déflate le multiple-testing** (on teste plusieurs agents) ; réf. 2603.09219 ;
+- **Purge** : rendements futurs NON CHEVAUCHANTS (pas = horizon) pour éviter la fuite
+  par auto-corrélation des labels (López de Prado).
+
+**Deux chemins** :
+1. `rank_pure_agents(candles)` — **replay** des agents purs (simons/savant/geometric/
+   divergent) sur l'historique de bougies → IC + Sharpe + PSR + DSR. Utilisable tout de
+   suite (causal, sans look-ahead).
+2. `evaluate_from_log(brain_log)` — évalue **TOUS** les agents depuis les votes réels
+   journalisés (se renforce au fil du temps).
+
+`suggest_weight_priors` — propose (advisory) des poids a priori bornés [0.4, 1.8] depuis
+le DSR ; à CONFIRMER avant toute application au cerveau (on ne touche pas au validé).
+
+**Résultat live (honnête)** : sur ~64 échantillons (BTC 1h, horizon 8 ≈ 21 j),
+`savant` mène (IC +0.135, DSR 0.37) mais **AUCUN agent ne bat le seuil déflaté**
+(SR0_max≈0.14, meilleur DSR 0.37 < 0.9). C'est le but : refuser de distribuer du poids
+sur des données minces. Historique crypto court → faible puissance (un IC ~0.04 est
+NORMAL) ; on rapporte n, t-stat et l'avertissement, pas une courbe flatteuse.
+
+**Prochaine étape** : laisser `brain_log` accumuler, puis ré-évaluer périodiquement les
+11 agents et n'ajuster les poids EARCP qu'avec des DSR significatifs (et un protocole
+plateau + purge + OOS verrouillé pour les seuils tunables, cf. 2603.09219).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

@@ -2068,6 +2068,88 @@ def test_geometric_degrades_on_short_input():
     assert g.correlation_graph_metrics([[1, 2]])["lambda2"] == 0.0
 
 
+# ---------- Validation des agents (T5) : Rank IC, PSR, DSR, purge ----------
+
+def test_validation_rank_ic_and_tstat():
+    import agent_validation as v
+    assert round(v.rank_ic([1, 2, 3, 4, 5], [10, 22, 30, 41, 55]), 3) == 1.0
+    assert round(v.rank_ic([1, 2, 3, 4, 5], [5, 4, 3, 2, 1]), 3) == -1.0
+    assert v.rank_ic([1], [1]) == 0.0
+    assert v.ic_tstat(0.5, 100) > v.ic_tstat(0.5, 20)        # plus de données -> plus significatif
+
+
+def test_validation_psr_dsr_deflation():
+    import agent_validation as v
+    # PSR croît avec n et avec le Sharpe
+    assert v.psr(0.1, 500) > v.psr(0.1, 50)
+    assert v.psr(0.3, 200) > v.psr(0.05, 200)
+    # E[max Sharpe] croît avec le nb d'essais (déflation plus sévère)
+    assert v.expected_max_sharpe(20, 0.01) > v.expected_max_sharpe(3, 0.01)
+    # DSR < PSR : la déflation pour multiple-testing baisse la significativité
+    dsr = v.deflated_sharpe(0.15, 300, 0.0, 3.0, 10, 0.01)
+    psr0 = v.psr(0.15, 300, 0.0, 3.0, 0.0)
+    assert dsr < psr0 and 0.0 <= dsr <= 1.0
+
+
+def test_validation_evaluate_edge_vs_noise():
+    import numpy as np
+    import agent_validation as v
+    rng = np.random.default_rng(0)
+    fwd = rng.normal(0, 0.02, 400)
+    edge = np.sign(fwd) * 0.5 + rng.normal(0, 0.3, 400)     # corrélé au futur
+    noise = rng.normal(0, 1, 400)                            # indépendant
+    me, mn = v.evaluate(edge, fwd), v.evaluate(noise, fwd)
+    assert me["ic"] > mn["ic"] and me["psr"] > mn["psr"]
+    assert me["hit"] > 0.6 and abs(mn["ic"]) < 0.15
+    assert v.evaluate([0.1, 0.2], [0.0, 0.0])["n"] == 2      # trop court -> neutre, pas de crash
+
+
+def test_validation_purged_non_overlapping():
+    import numpy as np
+    import agent_validation as v
+    closes = list(np.cumprod(1 + np.random.default_rng(1).normal(0, 0.01, 100)) * 100)
+    idx, fwd = v.purged_forward_returns(closes, horizon=5)
+    assert all(idx[i + 1] - idx[i] == 5 for i in range(len(idx) - 1))   # pas = horizon (purge)
+    assert len(idx) == len(fwd) and len(idx) > 0
+
+
+def test_validation_replay_no_lookahead():
+    import numpy as np
+    import agent_validation as v
+    # signal qui "triche" en regardant le passé seulement : doit rester causal
+    rng = np.random.default_rng(2)
+    closes = list(np.cumprod(1 + rng.normal(0, 0.01, 200)) * 100)
+    candles = [[i, c, c, c, c, 1.0] for i, c in enumerate(closes)]
+    seen = {"max_t": 0}
+
+    def fn(cs):
+        seen["max_t"] = max(seen["max_t"], len(cs))
+        return 1.0 if cs[-1][4] > cs[-2][4] else -1.0       # momentum 1 barre (causal)
+    votes, fwd = v.replay(fn, candles, horizon=4, warmup=50)
+    assert len(votes) == len(fwd) and len(votes) > 0
+    assert seen["max_t"] <= len(candles)                    # jamais au-delà des données fournies
+
+
+def test_validation_from_log_and_weight_priors():
+    import agent_validation as v
+    # log synthétique : 'good' vote le mouvement QUI SUIT (prédictif), 'bad' l'inverse.
+    # On enregistre le vote AU prix courant, PUIS on applique le mouvement -> le
+    # rendement futur (prix suivant / prix courant) est aligné sur le vote de 'good'.
+    log = []
+    price = 100.0
+    for i in range(50):
+        up = (i % 2 == 0)                                    # mouvement à venir après cette entrée
+        log.append({"symbol": "BTCUSDT", "price": round(price, 4),
+                    "votes": {"good": 1.0 if up else -1.0, "bad": -1.0 if up else 1.0}})
+        price *= (1.01 if up else 0.99)
+    r = v.evaluate_from_log(log, horizon_entries=1)
+    ics = {a["agent"]: a["ic"] for a in r["agents"]}
+    assert ics["good"] > ics["bad"]                          # 'good' anticipe mieux
+    # poids a priori bornés [floor, cap]
+    w = v.suggest_weight_priors({"agents": [{"agent": "x", "dsr": 0.9}, {"agent": "y", "dsr": 0.0}]})
+    assert 0.4 <= w["y"] <= w["x"] <= 1.8
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
