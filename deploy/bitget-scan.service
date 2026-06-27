@@ -1,0 +1,15 @@
+[Unit]
+Description=Bitget paper monitoring scan (un cycle, aucun ordre reel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+# Ne tourne PAS si le coupe-circuit d'urgence est pose (touch KILL_SWITCH).
+ExecCondition=/usr/bin/test ! -f /root/bitget_termux_repo/KILL_SWITCH
+ExecStart=/usr/bin/python3 scan_paper.py
+User=root
+Nice=10
+# Coupe-circuit dur : si un cycle deborde (etape bloquee), systemd le tue.
+TimeoutStartSec=600

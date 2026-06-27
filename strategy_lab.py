@@ -86,6 +86,29 @@ def strat_donchian_breakout(candles, n=20):
     return sig
 
 
+def strat_macd(candles, fast=12, slow=26, sig=9):
+    """MACD : ligne (EMA_fast − EMA_slow) vs sa ligne signal. Causal. Tendance."""
+    cl = _closes(candles)
+    ef, es = _ema_series(cl, fast), _ema_series(cl, slow)
+    macd = [ef[i] - es[i] for i in range(len(cl))]
+    sigl = _ema_series(macd, sig)
+    return [0 if i < slow else (1 if macd[i] > sigl[i] else -1) for i in range(len(cl))]
+
+
+def strat_bollinger(candles, n=20, k=2.0):
+    """Bandes de Bollinger : mean-reversion (achat sous la bande basse). Causal."""
+    import statistics
+    cl = _closes(candles)
+    out = [0] * len(cl)
+    for i in range(n, len(cl)):
+        w = cl[i - n:i]
+        m = sum(w) / n
+        sd = statistics.pstdev(w) or 1e-9
+        c = cl[i]
+        out[i] = 1 if c < m - k * sd else -1 if c > m + k * sd else 0
+    return out
+
+
 def strat_vp_fade(candles, window=60):
     import pro_indicators as pi
     sig = [0] * len(candles)
@@ -172,7 +195,8 @@ def _passes(r, pbo_val):
 
 def base_registry(candles):
     return {n: build_named(n, candles) for n in
-            ("ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60", "structure_bos")}
+            ("ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
+             "structure_bos", "macd_12_26_9", "bollinger_20")}
 
 
 def build_named(name, candles):
@@ -180,6 +204,8 @@ def build_named(name, candles):
 
     Centralise la construction pour que le code promu reproduise EXACTEMENT la
     stratégie testée (aucune divergence entre backtest et fichier prêt à l'emploi)."""
+    if name.startswith("evo_"):                        # variante évoluée (sep-CMA-ES)
+        return build_named(name[len("evo_"):], candles)
     if name.startswith("ema_cross_"):
         _, _, f, s = name.split("_")
         return strat_ema_cross(candles, int(f), int(s))
@@ -191,27 +217,140 @@ def build_named(name, candles):
         return strat_vp_fade(candles, int(name.split("_")[2]))
     if name == "structure_bos":
         return strat_structure(candles, 60)
+    if name.startswith("macd_"):
+        _, f, s, g = name.split("_")
+        return strat_macd(candles, int(f), int(s), int(g))
+    if name.startswith("bollinger_"):
+        return strat_bollinger(candles, int(name.split("_")[1]))
     if name.endswith("+regime"):
         return regime_gated(build_named(name[:-len("+regime")], candles), candles)
     if name == "ensemble_trend_rev_struct":
         return ensemble([build_named("ema_cross_20_50", candles),
                          build_named("rsi_reversion_14", candles),
                          build_named("structure_bos", candles)])
+    if name.startswith("wens_"):                       # ensemble pondéré évolué
+        weights = [float(x) for x in name[len("wens_"):].split("_")]
+        return weighted_ensemble(candles, CANONICAL, weights)
     raise ValueError(f"stratégie inconnue: {name}")
 
 
-def improve_ema(candles):
-    """Recherche de paramètres robuste pour ema_cross : meilleur score. Pur-ish."""
-    best, best_name, best_sig = None, None, None
-    for fast in (10, 20, 30):
-        for slow in (40, 50, 100):
-            if fast >= slow:
-                continue
-            sig = strat_ema_cross(candles, fast, slow)
-            r = backtest(sig, candles)
-            if best is None or r["score"] > best["score"]:
-                best, best_name, best_sig = r, f"ema_cross_{fast}_{slow}", sig
-    return best_name, best_sig, best
+def improve_ema(candles, max_gen=20):
+    """Optimise (fast, slow) d'ema_cross. sep-CMA-ES (TRINITY, arXiv:2512.04695) si
+    disponible, sinon repli sur une recherche en grille.
+
+    ⚠️ La recherche (évolutionnaire ou grille) AMPLIFIE le surapprentissage : la
+    stratégie produite reste soumise au garde-fou PBO/walk-forward de run()."""
+    def _make(f, s):
+        f = max(2, int(round(f)))
+        s = int(round(s))
+        if s <= f:
+            s = f + 5
+        return f, s, strat_ema_cross(candles, f, s)
+    try:
+        import evolution
+        def fitness(p):
+            _, _, sig = _make(p[0], p[1])
+            return backtest(sig, candles)["score"]
+        x, _, _ = evolution.sep_cma_es(fitness, x0=[15, 55], sigma0=10,
+                                       bounds=([5, 30], [40, 150]), max_gen=max_gen,
+                                       seed=0, maximize=True)
+        f, s, sig = _make(x[0], x[1])
+        return f"ema_cross_{f}_{s}", sig, backtest(sig, candles)
+    except Exception:
+        best, best_name, best_sig = None, None, None
+        for fast in (10, 20, 30):
+            for slow in (40, 50, 100):
+                if fast >= slow:
+                    continue
+                sig = strat_ema_cross(candles, fast, slow)
+                r = backtest(sig, candles)
+                if best is None or r["score"] > best["score"]:
+                    best, best_name, best_sig = r, f"ema_cross_{fast}_{slow}", sig
+        return best_name, best_sig, best
+
+
+def _clampi(x, lo):
+    return max(lo, int(round(x)))
+
+
+# familles paramétrables (le nom encode TOUS les params -> reconstructible par build_named)
+_FAMILIES = {
+    "ema_cross": dict(x0=[15.0, 55.0], bounds=([5, 40], [40, 160]),
+                      name=lambda p: f"ema_cross_{_clampi(p[0], 2)}_{max(_clampi(p[0], 2) + 5, _clampi(p[1], 40))}"),
+    "rsi_reversion": dict(x0=[14.0], bounds=([5], [40]),
+                          name=lambda p: f"rsi_reversion_{_clampi(p[0], 5)}"),
+    "donchian": dict(x0=[20.0], bounds=([5], [80]),
+                     name=lambda p: f"donchian_{_clampi(p[0], 5)}"),
+    "bollinger": dict(x0=[20.0], bounds=([8], [80]),
+                      name=lambda p: f"bollinger_{_clampi(p[0], 8)}"),
+    "macd": dict(x0=[12.0, 26.0, 9.0], bounds=([5, 15, 4], [20, 45, 16]),
+                 name=lambda p: f"macd_{_clampi(p[0], 5)}_{max(_clampi(p[0], 5) + 1, _clampi(p[1], 15))}_{_clampi(p[2], 3)}"),
+}
+
+
+def evolve(family, candles, train_frac=0.7, max_gen=16):
+    """Optimise les params d'une FAMILLE par sep-CMA-ES (TRINITY) sur le TRAIN.
+
+    Séparation train/test : la recherche n'optimise QUE sur candles[:split] (les
+    signaux sont causaux -> aucune fuite). La généralisation est jugée ensuite par
+    run() sur la série complète + PBO. Sans split, l'évolution surajusterait tout."""
+    spec = _FAMILIES[family]
+    split = max(80, int(train_frac * len(candles)))
+
+    def fitness(p):
+        try:
+            sig = build_named(spec["name"](p), candles)
+            return backtest(sig[:split], candles[:split])["score"]
+        except Exception:
+            return -1e9
+    try:
+        import evolution
+        lo, hi = spec["bounds"]
+        sigma0 = max(1.0, sum((hi[i] - lo[i]) for i in range(len(lo))) / (3 * len(lo)))
+        x, _, _ = evolution.sep_cma_es(fitness, x0=spec["x0"], sigma0=sigma0,
+                                       bounds=spec["bounds"], max_gen=max_gen, seed=0, maximize=True)
+        name = spec["name"](x)
+    except Exception:
+        name = spec["name"](spec["x0"])
+    return name, build_named(name, candles)
+
+
+# membres canoniques de l'ensemble pondéré (ordre fixe -> le nom n'encode que les poids)
+CANONICAL = ["ema_cross_20_50", "rsi_reversion_14", "donchian_20", "bollinger_20", "macd_12_26_9"]
+
+
+def weighted_ensemble(candles, members=None, weights=None):
+    """Vote pondéré de stratégies de base -> signal ±1/0. Pur (« coordinateur »)."""
+    members = members or CANONICAL
+    sigs = [build_named(m, candles) for m in members]
+    w = list(weights) if weights is not None else [1.0] * len(members)
+    n = min(len(s) for s in sigs) if sigs else 0
+    out = []
+    for i in range(n):
+        s = sum(w[j] * sigs[j][i] for j in range(len(members)))
+        out.append(1 if s > 1e-9 else -1 if s < -1e-9 else 0)
+    return out
+
+
+def evolve_ensemble(candles, train_frac=0.7, max_gen=20):
+    """« Coordinateur évolué » (TRINITY) : sep-CMA-ES trouve les POIDS optimaux des
+    experts sur le TRAIN. Sortie déterministe & lisible (poids encodés dans le nom)."""
+    split = max(80, int(train_frac * len(candles)))
+    k = len(CANONICAL)
+
+    def fitness(w):
+        return backtest(weighted_ensemble(candles, CANONICAL, list(w))[:split], candles[:split])["score"]
+    try:
+        import evolution
+        x, _, _ = evolution.sep_cma_es(fitness, x0=[1.0] * k, sigma0=0.6,
+                                       bounds=([0.0] * k, [3.0] * k), max_gen=max_gen, seed=0, maximize=True)
+        w = [round(max(0.0, v), 2) for v in x]
+    except Exception:
+        w = [1.0] * k
+    if sum(w) <= 0:
+        w = [1.0] * k
+    name = "wens_" + "_".join(f"{v:.2f}" for v in w)
+    return name, weighted_ensemble(candles, CANONICAL, w)
 
 
 def compose(registry, candles):
@@ -307,9 +446,20 @@ def run(symbol="BTCUSDT", timeframe="1H", limit=500):
         return {"error": "pas assez de bougies"}
 
     registry = base_registry(candles)
-    # amélioration (recherche de params) + composition (nouvelles stratégies)
-    en, esig, _ = improve_ema(candles)
-    registry[en] = esig
+    # AMÉLIORATION : sep-CMA-ES (TRINITY) optimise chaque famille sur le TRAIN
+    # (anti-fuite), puis on évolue les POIDS de l'ensemble (« coordinateur évolué »).
+    for fam in ("ema_cross", "rsi_reversion", "donchian", "bollinger", "macd"):
+        try:
+            en, esig = evolve(fam, candles)
+            registry["evo_" + en] = esig
+        except Exception:
+            pass
+    try:
+        wn, wsig = evolve_ensemble(candles)
+        registry[wn] = wsig
+    except Exception:
+        pass
+    # COMPOSITION : régime-gating + ensemble simple
     registry.update(compose(registry, candles))
 
     results = {name: backtest(sig, candles) for name, sig in registry.items()}

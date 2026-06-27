@@ -40,3 +40,15 @@ pending_orders.json
 signals_journal.csv
 telegram_offset.txt
 strategies_out/
+.microstructure_buffer.json
+accumulation_ledger.json
+accumulation_real_ledger.json
+
+# Claude Code : hooks locaux (machine-specifique, contient des mots-cles d'ordre
+# pour le garde-fou ; ne doit pas etre suivi sinon safe_push_check les detecte)
+.claude/hooks/
+
+# Outil externe Agent Hub (bgc) : a son propre depot git, ne pas l'embarquer
+agent_hub/
+# Artefact runtime (rapport de validation des agents, regenere)
+validation_report.json

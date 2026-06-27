@@ -37,12 +37,18 @@ def _norm_granularity(g):
 # ---------- réseau ----------
 
 def fetch_candles(symbol, granularity="15m", limit=200, product_type=None):
-    raw = bmd._get("/api/v2/mix/market/candles", {
-        "symbol": symbol,
-        "productType": product_type or config.PRODUCT_TYPE,
-        "granularity": _norm_granularity(granularity),
-        "limit": str(limit),
-    })
+    # best-effort : liste vide si la source est injoignable. Les appelants à repli
+    # (market_sources : `if c and len(c) >= N`) et les agents (garde `len < seuil`)
+    # traitent vide et exception de façon identique -> aucun fallback désamorcé.
+    try:
+        raw = bmd._get("/api/v2/mix/market/candles", {
+            "symbol": symbol,
+            "productType": product_type or config.PRODUCT_TYPE,
+            "granularity": _norm_granularity(granularity),
+            "limit": str(limit),
+        })
+    except Exception:
+        return []
     return parse_candles(raw)
 
 

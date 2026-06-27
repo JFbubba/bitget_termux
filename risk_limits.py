@@ -18,11 +18,19 @@ Intégration (voir AUDIT_BITGET.md) : appeler evaluate_portfolio_caps() dans
 preorder_engine.main() après construction des pré-ordres.
 """
 
-# Plafonds (à ajuster ; volontairement conservateurs).
-MAX_CONCURRENT_POSITIONS = 5          # positions ouvertes + nouveaux pré-ordres acceptés
-MAX_TOTAL_NOTIONAL_USDT = 300.0       # notionnel cumulé max (paper)
-MAX_TOTAL_RISK_PERCENT = 5.0          # somme des risques par trade (%)
-MIN_SL_DISTANCE_PERCENT = 0.20        # distance stop minimale (%) -> bloque les "dust stops"
+# Plafonds — SOURCE UNIQUE : config (réconciliation audit #4), repli si config absent.
+def _cfg(name, fallback):
+    try:
+        import config
+        return getattr(config, name, fallback)
+    except Exception:
+        return fallback
+
+
+MAX_CONCURRENT_POSITIONS = int(_cfg("MAX_OPEN_POSITIONS", 3))   # = gate par-ordre (cohérent)
+MAX_TOTAL_NOTIONAL_USDT = float(_cfg("MAX_TOTAL_NOTIONAL_USDT", 300.0))
+MAX_TOTAL_RISK_PERCENT = float(_cfg("MAX_TOTAL_RISK_PERCENT", 5.0))
+MIN_SL_DISTANCE_PERCENT = float(_cfg("MIN_SL_DISTANCE_PERCENT", 0.20))
 MAX_PREORDERS_PER_CYCLE = 5
 
 

@@ -187,6 +187,28 @@
   </div>
 
   <div class="panel full" style="margin-top:8px">
+    <h2>Accumulation BTC · Mandat · Échelle d'edge <span class="dim" style="letter-spacing:0">— spot DCA RÉEL (≤5$/j) · futures &amp; cerveau en paper</span></h2>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:230px">
+        <div class="row"><span class="k">mode accumulation</span><span id="ac-mode" class="amber">—</span></div>
+        <div class="row"><span class="k">acheté RÉEL</span><span id="ac-real" class="green">—</span></div>
+        <div class="row"><span class="k">cumul paper</span><span id="ac-paper">—</span></div>
+        <div class="row"><span class="k">opportunité d'achat</span><span id="ac-opp" class="accent">—</span></div>
+        <div class="row"><span class="k">DCA recommandé</span><span id="ac-dca">—</span></div>
+        <div class="row"><span class="k">prix vs marché (premium)</span><span id="ac-prem">—</span></div>
+        <div class="row"><span class="k">USDT spot libre</span><span id="ac-bal">—</span></div>
+      </div>
+      <div style="flex:1;min-width:230px">
+        <div class="row"><span class="k">verrou réel (mandat)</span><span id="md-lock" class="amber">—</span></div>
+        <div class="row"><span class="k">levier max</span><span id="md-lev">—</span></div>
+        <div class="row"><span class="k">drawdown max</span><span id="md-dd">—</span></div>
+        <div class="row"><span class="k">agents futures RÉEL</span><span id="md-live" class="dim">—</span></div>
+        <div class="dim" id="ed-tiers" style="margin-top:6px;line-height:1.7;font-size:9.5px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
     <h2>Liquidations · Aimants de liquidité <span class="dim" style="letter-spacing:0">— modèle prix×levier×OI, pas un flux exchange</span></h2>
     <div class="brain">
       <div class="verdict">
@@ -232,11 +254,31 @@
       <div class="row"><span class="k">petrole WTI</span><span id="ma-oil">—</span></div>
       <div class="row"><span class="k">symboles suivis</span><span id="ma-syms">—</span></div>
     </div>
+    <div class="panel" id="panel-future" style="grid-column:span 2">
+      <h2>Futur · Éventail <span class="dim" style="letter-spacing:0">— plages CONDITIONNELLES (Monte Carlo σ/sauts calibrés), PAS une prédiction</span></h2>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <div class="row"><span class="k">régime macro (Sentinel)</span><span id="fu-regime" class="amber">—</span></div>
+          <div class="row"><span class="k">stress macro · confiance</span><span id="fu-stress">—</span></div>
+          <div class="row"><span class="k">σ annualisée (calibrée)</span><span id="fu-sigma">—</span></div>
+          <svg id="fu-fan" viewBox="0 0 320 96" width="100%" height="96" style="margin-top:8px"></svg>
+          <div class="dim" id="fu-fanlabel" style="font-size:9.5px;margin-top:2px">—</div>
+        </div>
+        <div style="flex:1;min-width:240px">
+          <div class="row"><span class="k">ESM · état marché (1–8)</span><span id="fu-esm" class="amber">—</span></div>
+          <div class="row"><span class="k">ESM · signal directionnel</span><span id="fu-esmsig">—</span></div>
+          <div class="row"><span class="k">biais cerveau</span><span id="fu-bias">—</span></div>
+          <div class="row"><span class="k">pire scénario (queue adverse)</span><span id="fu-worst" class="red">—</span></div>
+          <div class="row"><span class="k">conviction vs queue sévère</span><span id="fu-flag">—</span></div>
+          <div id="fu-scen" class="dim" style="margin-top:6px;line-height:1.8;font-size:9.5px">—</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="foot">
     <span id="f1">AGENT —</span>
-    <span>MODE PAPER · can_trade=False · NO REAL ORDER</span>
+    <span>FUTURES PAPER · ACCUMULATION SPOT RÉELLE ≤5$/j · NO SELL/LEVERAGE</span>
     <span id="f3">SIGNALS —</span>
     <span id="f4">LATENCE — ms</span>
     <span>STACK MIROFISH · READ-ONLY</span>
@@ -480,6 +522,41 @@ function renderLiq(d){
   $("lq-clusters").innerHTML=html||"<span class='dim'>n/a</span>";
 }
 
+// --- futurtester : éventail d'issues + stress du biais (plages CONDITIONNELLES) ---
+function renderFuture(f){
+  if(!f||!f.fan||f.fan.S0==null){$("fu-regime").textContent="—";$("fu-fan").innerHTML="";$("fu-fanlabel").textContent="données insuffisantes";return;}
+  const fan=f.fan,mac=f.macro||{},st=f.stress||{},cal=fan.calibration||{};
+  $("fu-regime").textContent=mac.regime||"—";
+  $("fu-stress").textContent=(mac.stress==null?"—":mac.stress)+" · conf "+(mac.confidence==null?"—":mac.confidence);
+  $("fu-sigma").textContent=(cal.sigma==null?"—":Math.round(cal.sigma*100)+"%")+(cal.jump_prob?(" · sauts "+cal.jump_prob+"/an"):"");
+  // éventail SVG : percentiles de RENDEMENT (%) centrés sur 0 (= prix actuel)
+  const S0=fan.S0||1,rp=v=>((v/S0-1)*100);
+  const p5=rp(fan.p5),p25=rp(fan.p25),p50=rp(fan.p50),p75=rp(fan.p75),p95=rp(fan.p95);
+  const span=Math.max(Math.abs(p5),Math.abs(p95),5);
+  const W=320,H=96,midY=42,padX=10;
+  const X=pct=>padX+(0.5+(Math.max(-span,Math.min(span,pct))/span)*0.5)*(W-2*padX);
+  const band=(a,b,col,op,h)=>{const xa=X(a),xb=X(b);return `<rect x="${xa.toFixed(1)}" y="${(midY-h/2).toFixed(1)}" width="${Math.max(1,xb-xa).toFixed(1)}" height="${h}" rx="2" fill="${col}" opacity="${op}"/>`;};
+  let svg=band(p5,p95,"#2b6cb0",0.22,40)+band(p25,p75,"#2b6cb0",0.5,24);
+  svg+=`<line x1="${X(0).toFixed(1)}" y1="14" x2="${X(0).toFixed(1)}" y2="${H-18}" stroke="#5b6675" stroke-dasharray="3 3"/>`;
+  svg+=`<line x1="${X(p50).toFixed(1)}" y1="${midY-22}" x2="${X(p50).toFixed(1)}" y2="${midY+22}" stroke="#f5b14c" stroke-width="2"/>`;
+  svg+=`<text x="${padX}" y="${H-4}" fill="#5b6675" font-size="9">${p5.toFixed(0)}%</text>`;
+  svg+=`<text x="${(X(0)-5).toFixed(1)}" y="${H-4}" fill="#5b6675" font-size="9">0</text>`;
+  svg+=`<text x="${(W-padX-26).toFixed(1)}" y="${H-4}" fill="#5b6675" font-size="9">+${p95.toFixed(0)}%</text>`;
+  $("fu-fan").innerHTML=svg;
+  $("fu-fanlabel").textContent="P5 "+p5.toFixed(0)+"% · méd "+(p50>=0?"+":"")+p50.toFixed(0)+"% · P95 +"+p95.toFixed(0)+"% · P(↑) "+(fan.prob_up!=null?Math.round(fan.prob_up*100)+"%":"—")+" · horizon "+(f.horizon_years||0.25)+"a";
+  const es=f.esm||{};
+  if(es.state!=null){$("fu-esm").textContent=es.state+" — "+(es.state_label||"");$("fu-esm").className=es.state>=7?"green":es.state<=2?"red":"amber";}
+  else $("fu-esm").textContent="—";
+  if(es.signal){$("fu-esmsig").textContent=(es.signal_name||"")+" ("+(es.signal_bias>0?"↑":es.signal_bias<0?"↓":"·")+")";$("fu-esmsig").className=es.signal_bias>0?"green":es.signal_bias<0?"red":"dim";}
+  else $("fu-esmsig").textContent="—";
+  $("fu-bias").textContent=st.bias||"—";
+  $("fu-worst").textContent=(st.worst_scenario||"—")+(st.worst_tail_pct!=null?(" ("+st.worst_tail_pct.toFixed(0)+"%)"):"");
+  const flag=!!st.high_conviction_vs_severe_tail;
+  $("fu-flag").textContent=flag?"⚠️ OUI — prudence":"non";$("fu-flag").className=flag?"red":"green";
+  const sc=f.scenarios||{};
+  $("fu-scen").innerHTML=Object.keys(sc).map(n=>{const s=sc[n];return `<div><b>${n}</b> : ${s.median>=0?"+":""}${s.median.toFixed(0)}% méd · [${s.p5.toFixed(0)}%…+${s.p95.toFixed(0)}%] · P↑ ${Math.round(s.prob_up*100)}%</div>`;}).join("")||"—";
+}
+
 async function tick(){
   const t0=performance.now();
   try{
@@ -504,7 +581,7 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});
     const pj=st.projection||{};
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
@@ -519,6 +596,20 @@ async function tick(){
     $("m-vix").textContent=fmt(m.vix);$("m-dxy").textContent=(m.dxy_change_pct==null)?"—":fmt(m.dxy_change_pct)+"%";
     $("ma-reg").textContent=m.regime||"—";$("ma-curve").textContent=fmt(m.yield_2s10s);$("ma-oil").textContent=fmt(m.oil_wti);
     $("ma-syms").textContent=(st.symbols||[]).length;
+    // --- accumulation · mandat · échelle d'edge ---
+    const ac=st.accumulation||{},md=st.mandate||{},ed=st.edge_ladder||{};
+    $("ac-mode").textContent=ac.autonomous_armed?"RÉEL (auto)":"paper (manuel)";$("ac-mode").className=ac.autonomous_armed?"green":"amber";
+    $("ac-real").textContent=(ac.real_spent_usd!=null)?("$"+ac.real_spent_usd+" · "+(ac.real_n_buys||0)+" achats"):"—";
+    const pp=ac.paper||{};$("ac-paper").textContent=(pp.total_btc!=null)?(pp.total_btc+" BTC @ $"+(pp.avg_price||0)):"—";
+    $("ac-opp").textContent=(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")+(ac.rsi!=null?(" · RSI "+ac.rsi):"")+(ac.fear_greed!=null?(" · F&G "+ac.fear_greed):"");
+    $("ac-dca").textContent=(ac.dca_reco!=null)?("$"+ac.dca_reco+" (plafond $5)"):"—";
+    const prm=ac.premium_pct;$("ac-prem").textContent=(prm!=null)?((prm>=0?"+":"")+prm.toFixed(2)+"%"+(prm>0.3?" cher":prm<-0.3?" bon":"")):"—";$("ac-prem").className=(prm!=null&&prm>0.3)?"red":(prm!=null&&prm<-0.3)?"green":"";
+    $("ac-bal").textContent=(ac.spot_free_usdt!=null)?("$"+(+ac.spot_free_usdt).toFixed(2)):"—";
+    $("md-lock").textContent=md.live_enabled?"ARMÉ":"verrouillé";$("md-lock").className=md.live_enabled?"green":"amber";
+    $("md-lev").textContent=(md.max_leverage!=null)?("×"+md.max_leverage):"—";
+    $("md-dd").textContent=(md.max_drawdown_pct!=null)?(md.max_drawdown_pct+"%"):"—";
+    const fl=md.futures_live_agents||[];$("md-live").textContent=fl.length?fl.join(", "):"aucun (edge non prouvé)";$("md-live").className=fl.length?"green":"dim";
+    const tiers=Object.entries(ed).map(([a,t])=>a+":"+t).join(" · ");$("ed-tiers").textContent="edge — "+(tiers||"—");
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}

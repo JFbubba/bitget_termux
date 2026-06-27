@@ -1,0 +1,13 @@
+[Unit]
+Description=Bitget notifications Telegram espacees (toutes les 15 min)
+
+[Timer]
+# Le scan tourne toutes les 5 min (silencieux) ; la notification est deportee ici
+# pour ne PAS spammer. 15 min = meme rythme Telegram qu'avant. Modifiable a loisir.
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

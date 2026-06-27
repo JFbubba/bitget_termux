@@ -101,6 +101,25 @@ def latest_signal_rows():
     return list(latest.values())
 
 
+def brain_adjustment(side, bias, conviction, oppose_floor=0.3, min_factor=0.4):
+    """Module un pré-ordre par le biais du CERVEAU (essaim). PUR, testable.
+      • s'OPPOSE avec conviction ≥ oppose_floor -> GATE (rejet) ;
+      • d'ACCORD -> facteur de taille croissant avec la conviction ∈ [min_factor, 1] ;
+      • NEUTRE / opposition faible -> taille réduite (0.6).
+    NE PEUT QUE réduire la taille, jamais l'augmenter. Retourne (action, factor, note).
+    action ∈ {'scale', 'gate'}."""
+    b, s = str(bias).upper(), str(side).upper()
+    c = max(0.0, min(1.0, float(conviction or 0)))
+    agree = (s == "LONG" and b == "LONG") or (s == "SHORT" and b == "SHORT")
+    oppose = (s == "LONG" and b == "SHORT") or (s == "SHORT" and b == "LONG")
+    if oppose and c >= oppose_floor:
+        return ("gate", 0.0, f"cerveau s'oppose (bias {b}, conv {c:.2f})")
+    if agree:
+        return ("scale", max(min_factor, min(1.0, min_factor + (1 - min_factor) * c)),
+                f"cerveau d'accord (conv {c:.2f})")
+    return ("scale", 0.6, f"cerveau neutre/faible (bias {b}, conv {c:.2f})")
+
+
 def build_preorder(row, equity, equity_source, opened):
     symbol = find_value(row, ["symbol", "pair", "market"]).upper()
     side = normalize_side(find_value(row, ["side", "direction", "signal", "decision"]))
@@ -152,6 +171,27 @@ def build_preorder(row, equity, equity_source, opened):
         notional = None
         sl_distance_percent = None
 
+    # CERVEAU (essaim, 11 agents) en GATE + MULTIPLICATEUR de taille. Fail-safe NEUTRE :
+    # si le cerveau s'oppose au signal -> rejet ; sinon il REDUIT la taille selon la
+    # conviction (jamais ne l'augmente). Indisponible -> facteur 1.0 (aucun changement).
+    brain_bias, brain_conv, brain_note, brain_factor = None, None, None, 1.0
+    if side in ("LONG", "SHORT") and size is not None:
+        try:
+            import swarm_brain
+            r = swarm_brain.peek(symbol)
+            brain_bias = r.get("bias", "NEUTRE")
+            brain_conv = round(float(r.get("adjusted_conviction", r.get("conviction", 0)) or 0), 3)
+            action, brain_factor, brain_note = brain_adjustment(side, brain_bias, brain_conv)
+            if action == "gate":
+                reasons.append("cerveau: " + brain_note)
+                brain_factor = 1.0
+        except Exception:
+            brain_factor = 1.0                       # fail-safe NEUTRE
+    if brain_factor != 1.0 and size is not None:
+        size *= brain_factor
+        notional *= brain_factor
+        risk_usdt *= brain_factor
+
     status = "PENDING_APPROVAL" if not reasons else "REJECTED"
 
     return {
@@ -163,19 +203,51 @@ def build_preorder(row, equity, equity_source, opened):
         "entry": entry,
         "stop_loss": stop_loss,
         "take_profit": take_profit,
-        "risk_percent": RISK_PER_TRADE_PERCENT,
+        "risk_percent": round(RISK_PER_TRADE_PERCENT * brain_factor, 4),
         "risk_usdt": round(risk_usdt, 4),
         "size": round(size, 8) if size is not None else None,
         "notional_usdt": round(notional, 4) if notional is not None else None,
         "sl_distance_percent": round(sl_distance_percent, 4) if sl_distance_percent is not None else None,
         "implied_leverage": leverage,
         "max_allowed_leverage": MAX_IMPLIED_LEVERAGE,
+        "brain_bias": brain_bias,
+        "brain_conviction": brain_conv,
+        "brain_size_factor": round(brain_factor, 3),
+        "brain_note": brain_note,
         "equity_used": equity,
         "equity_source": equity_source,
         "status": status,
         "reasons": reasons,
         "execution": "LOCKED_NO_REAL_ORDER",
     }
+
+
+def _apply_portfolio_guards(preorders, opened):
+    """Applique le KILL-SWITCH + les caps PORTEFEUILLE agrégés (risk_limits) aux
+    pré-ordres : tout pré-ordre hors-cap passe en REJECTED avec ses raisons. PUR côté
+    risk_limits, best-effort sur l'état. Réponse à l'audit (caps portefeuille morts)."""
+    try:
+        import risk_manager
+        if risk_manager.kill_switch_active():
+            for o in preorders:
+                if o.get("status") == "PENDING_APPROVAL":
+                    o["status"] = "REJECTED"
+                    o.setdefault("reasons", []).append("KILL_SWITCH actif — tout trading arrêté")
+            return
+    except Exception:
+        pass
+    try:
+        import risk_limits
+        import risk_state
+        open_count = risk_state.open_positions_count()
+        extra = risk_limits.evaluate_portfolio_caps(preorders, open_count, RISK_PER_TRADE_PERCENT)
+        for o in preorders:
+            reasons = extra.get(o.get("id"))
+            if reasons and o.get("status") == "PENDING_APPROVAL":
+                o["status"] = "REJECTED"
+                o.setdefault("reasons", []).extend(reasons)
+    except Exception:
+        pass
 
 
 def main():
@@ -187,6 +259,8 @@ def main():
 
     for row in rows[-MAX_PREORDERS:]:
         preorders.append(build_preorder(row, equity, equity_source, opened))
+
+    _apply_portfolio_guards(preorders, opened)
 
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

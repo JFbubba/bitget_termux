@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -102,8 +102,20 @@ def _fetch_macro_regime():
 def agent_macro(symbol):
     import runtime_cache as rc
     reg = rc.get("macro_regime", 1800, _fetch_macro_regime, fallback=None)  # 30 min
-    vote = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
-    return {"vote": vote, "confidence": 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1, "note": f"régime {reg}"}
+    base = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
+    base_conf = 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1
+    # Affûtage skill-hub : framework 6 indicateurs (hawkish/dovish -> biais BTC).
+    try:
+        import macro_regime as mr
+        fw = rc.get("macro_framework", 1800, lambda: mr.vote(symbol), fallback=None)
+    except Exception:
+        fw = None
+    if fw and fw.get("confidence", 0) > 0:
+        wc = base_conf + fw["confidence"]
+        vote = _clamp((base * base_conf + fw["vote"] * fw["confidence"]) / wc) if wc > 0 else base
+        return {"vote": round(vote, 3), "confidence": round(min(1.0, wc / 1.5), 3),
+                "note": f"régime {reg} + {fw['note']}"}
+    return {"vote": base, "confidence": base_conf, "note": f"régime {reg}"}
 
 
 def agent_sentiment(symbol):
@@ -221,8 +233,17 @@ def agent_divergent(symbol):
     if len(closes) < 20:
         return {"vote": 0, "confidence": 0, "note": "n/a"}
     vote = divergent_score(closes)
-    return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0),
-            "note": f"anticipation/divergence {vote:+.2f}"}
+    # apport ESM (inspiré Han & Keen) : nudge anticipatoire borné ±0.2, best-effort.
+    # L'agent divergent EST l'agent d'anticipation -> les signaux de retournement
+    # (divergence NED↔prix) et de preneurs informés le renforcent sans le dominer.
+    try:
+        import esm
+        nudge = esm.anticipation_nudge(symbol)
+    except Exception:
+        nudge = 0.0
+    vote = _clamp(vote + nudge)
+    note = f"anticipation/divergence {vote:+.2f}" + (f" · ESM {nudge:+.2f}" if nudge else "")
+    return {"vote": vote, "confidence": min(abs(vote) * 1.3, 1.0), "note": note}
 
 
 def agent_structure(symbol):
@@ -277,10 +298,46 @@ def agent_structure(symbol):
             "note": "struct " + (" ".join(parts) if parts else "neutre")}
 
 
+def agent_simons(symbol):
+    """Agent SIMONS (Medallion adapté crypto) — régime caché HMM (Baum-Welch/Viterbi)
+    + arbitrage statistique (retour à la moyenne OU), gating par régime. Réverte en
+    régime CALME, se retire en STRESS. Déterministe, aucun NN. Voir simons_agent.py."""
+    try:
+        import simons_agent
+        return simons_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
+def agent_savant(symbol):
+    """Agent SAVANT (« autiste digitale ») — perception TENSORIELLE des ruptures de
+    symétrie de la microstructure (anomalie de Mahalanobis multivariée), immunisé au
+    bruit (FUD/FOMO à contre-courant). Fade les dislocations. Déterministe, aucun NN,
+    aucun ordre, aucune évasion. Voir savant_agent.py."""
+    try:
+        import savant_agent
+        return savant_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
+def agent_geometric(symbol):
+    """Agent SAVANT GÉOMÉTRIQUE — analyse géométrique (5 papiers) : régime de QUEUE
+    (profil isopérimétrique : blow-up -> suivi de tendance) + TOXICITÉ d'ordre
+    supérieur (Eldan-Gross : flux toxique -> retrait). Déterministe, aucun NN, aucun
+    ordre. Voir geometric_agent.py."""
+    try:
+        import geometric_agent
+        return geometric_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
-    "divergent": agent_divergent, "structure": agent_structure,
+    "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
+    "savant": agent_savant, "geometric": agent_geometric,
 }
 
 
@@ -432,10 +489,19 @@ def volatility_regime(closes, short=14, long=100):
 # ---------- persistance ----------
 
 def load_weights():
+    # Tout agent ABSENT du fichier (nouvel agent, ou agent n'ayant jamais voté)
+    # retombe sur 1.0 ET est PERSISTÉ au prochain learn() : `update_weights` part de
+    # `dict(weights)`, donc fournir tous les AGENTS ici évite la perte silencieuse
+    # d'un agent du fichier de poids (auto-réparation : divergent/structure/simons).
     try:
-        return json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
+        w = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        return {a: 1.0 for a in AGENTS}
+        w = {}
+    if not isinstance(w, dict):
+        w = {}
+    for a in AGENTS:
+        w.setdefault(a, 1.0)
+    return w
 
 
 def save_weights(w):

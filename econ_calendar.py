@@ -70,7 +70,11 @@ def next_high_impact(events):
 
 
 def fetch_calendar(impact_min="High", currencies=None, within_hours=None):
-    data = requests.get(FEED, headers=UA, timeout=12).json()
+    # best-effort : calendrier vide si le flux est injoignable (jamais d'exception)
+    try:
+        data = requests.get(FEED, headers=UA, timeout=12).json()
+    except Exception:
+        return []
     return parse_calendar(data, impact_min, currencies, within_hours)
 
 

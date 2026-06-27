@@ -27,6 +27,18 @@ DANGEROUS_KEYWORDS = [
     "batch-place-order", "place-order", "close-positions",
 ]
 
+# Module d'exécution AUTORISÉ (achat spot BTC seul). Il a le DROIT de contenir un
+# ordre, mais on l'audite différemment : il ne doit JAMAIS contenir de vente/levier/
+# futures/retrait, et doit GARDER ses verrous (MANDATE_LIVE + kill_switch).
+AUTHORIZED_EXEC_FILES = ["spot_executor.py"]
+EXEC_FORBIDDEN = [
+    "withdraw", "transfer", "close_position", "close-positions", "closeposition",
+    "set_leverage", "change_leverage", "setleverage", "_sell", "sell_",
+    "futures_place_order", "futures_set_leverage", "open_long", "open_short",
+    "cancel_order", "cancelorder", "margin_",
+]
+EXEC_REQUIRED_GUARDS = ["mandate_live_enabled", "kill_switch", "confirm"]
+
 FILES_TO_SCAN = [
     "config.py",
     "journal_scanner.py",
@@ -47,6 +59,15 @@ FILES_TO_SCAN = [
     "agent_hub.py",
     "agents_manifest.py",
     "bitget_balance_reader.py",
+    "bitget_hub_bridge.py",
+    "mandate.py",
+    "macro_regime.py",
+    "edge_ladder.py",
+    "fair_price.py",
+    "volatility.py",
+    "universe.py",
+    "accumulation_engine.py",
+    "spot_executor.py",
     "account_equity.py",
     "git_version.py",
     "system_health.py",
@@ -101,6 +122,24 @@ def scan_file_for_keywords(filename):
     return findings
 
 
+def scan_authorized_exec(filename):
+    """Audit du module d'exécution AUTORISÉ : il PEUT acheter (spot BTC), mais ne doit
+    contenir AUCUN mot interdit (vente/levier/futures/retrait) et DOIT garder ses
+    verrous (MANDATE_LIVE_ENABLED, kill_switch, confirm). Retourne la liste des soucis."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = []
+    for kw in EXEC_FORBIDDEN:
+        if kw.lower() in text:
+            issues.append(f"interdit:{kw}")
+    for guard in EXEC_REQUIRED_GUARDS:
+        if guard.lower() not in text:
+            issues.append(f"garde manquante:{guard}")
+    return issues
+
+
 
 def telegram_auth_is_present(text):
     import re
@@ -146,11 +185,16 @@ def main():
     dangerous_hits = {}
 
     for filename in FILES_TO_SCAN:
-        hits = scan_file_for_keywords(filename)
+        if filename in AUTHORIZED_EXEC_FILES:
+            hits = scan_authorized_exec(filename)
+            label = "exec autorisé non conforme"
+        else:
+            hits = scan_file_for_keywords(filename)
+            label = "mots-clés suspects"
 
         if hits:
             dangerous_hits[filename] = hits
-            warnings.append(f"{filename}: mots-clés suspects {hits}")
+            warnings.append(f"{filename}: {label} {hits}")
 
         print(f"- {filename}: {'WARNING ' + str(hits) if hits else 'OK'}")
 

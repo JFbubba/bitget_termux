@@ -130,6 +130,65 @@ def find_loop_process():
     return None, "not_found"
 
 
+def microstructure_fresh(rows, now, max_age_s=180):
+    """Le buffer de microstructure est-il FRAIS ? PUR. True si le dernier snapshot
+    date de moins de max_age_s. Réponse à l'audit (collecteur figé non détecté)."""
+    if not rows:
+        return False
+    last_ts = rows[-1].get("ts")
+    if last_ts is None:
+        return False
+    return (now - float(last_ts)) <= max_age_s
+
+
+def should_halt(verdict, micro_required, micro_fresh, daily_loss, max_daily_loss):
+    """Décision PURE : faut-il poser le KILL_SWITCH ? Retourne (halt, raison).
+    Conditions sévères : boucle DOWN, perte du jour >= cap, ou microstructure exigée
+    mais figée. Conservateur : le halt ne fait qu'ARRÊTER, jamais ouvrir."""
+    if daily_loss is not None and max_daily_loss and daily_loss >= max_daily_loss:
+        return True, f"perte du jour {daily_loss:.2f} >= cap {max_daily_loss:.2f}"
+    if verdict == "DOWN":
+        return True, "boucle de trading DOWN"
+    if micro_required and not micro_fresh:
+        return True, "microstructure figée (collecteur mort/bloqué)"
+    return False, "ok"
+
+
+def service_active(name):
+    """systemctl is-active <name> -> bool. Best-effort (None si indéterminable)."""
+    try:
+        import subprocess
+        r = subprocess.run(["systemctl", "is-active", name], capture_output=True,
+                           text=True, timeout=5)
+        return r.stdout.strip() == "active"
+    except Exception:
+        return None
+
+
+def microstructure_age(symbol="BTCUSDT", now=None):
+    """Âge (s) du dernier snapshot de microstructure, ou None. Best-effort."""
+    try:
+        import time
+        import microstructure
+        rows = microstructure.recent(symbol, 1)
+        if not rows or rows[-1].get("ts") is None:
+            return None
+        return (time.time() if now is None else now) - float(rows[-1]["ts"])
+    except Exception:
+        return None
+
+
+def arm_kill_switch(reason):
+    """Pose le fichier KILL_SWITCH (arrêt d'urgence). ACTION défensive : n'arrête que
+    le trading, n'ouvre jamais rien. Best-effort. Réponse à l'audit (#6)."""
+    try:
+        import risk_manager
+        risk_manager.KILL_FILE.write_text(f"auto-halt watchdog: {reason}\n", encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
 def evaluate():
     """Rassemble les signaux I/O et applique decide_verdict."""
     status = {"paused": PAUSE_FILE.exists()}
@@ -217,6 +276,34 @@ def main(argv=None):
     status = evaluate()
     report = build_report(status)
     print(report)
+
+    # services systemd + fraîcheur microstructure (best-effort, informatif)
+    svc_lines = []
+    for svc in ("bitget-dashboard", "bitget-bot", "bitget-microstructure"):
+        a = service_active(svc)
+        svc_lines.append(f"  {svc}: {'active' if a else ('inactive' if a is False else 'n/a')}")
+    age = microstructure_age()
+    micro_fresh = (age is not None and age <= 180)
+    print("\nServices :")
+    print("\n".join(svc_lines))
+    print(f"  microstructure: {'frais' if micro_fresh else 'figé/absent'}"
+          + (f" (âge {age:.0f}s)" if age is not None else ""))
+
+    # --arm-killswitch : pose KILL_SWITCH automatiquement sur anomalie SÉVÈRE (défensif)
+    if "--arm-killswitch" in argv:
+        try:
+            import risk_state
+            import risk_manager
+            limits = risk_manager.load_limits()
+            dl = risk_state.daily_realized_loss_usd()
+            halt, why = should_halt(status.get("verdict"), micro_required=True,
+                                    micro_fresh=micro_fresh, daily_loss=dl,
+                                    max_daily_loss=limits["max_daily_loss_usd"])
+            if halt and not risk_manager.kill_switch_active():
+                arm_kill_switch(why)
+                print(f"\n⛔ KILL_SWITCH posé automatiquement : {why}")
+        except Exception as exc:
+            print(f"\n[arm-killswitch indisponible: {type(exc).__name__}]")
 
     if "--alert" in argv and status.get("alert"):
         try:

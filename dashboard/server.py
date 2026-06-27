@@ -185,6 +185,38 @@ def build_state(symbol=None, tf="5m"):
         ob = bmd.parse_orderbook(bmd.fetch_orderbook(symbol, limit=20))
         return {"bids": ob["bids"][:12], "asks": ob["asks"][:12]}
 
+    def _future(brain):
+        """Éventail d'issues futures (futurtester) : fan calibré sur l'actif +
+        scénarios typés + régime macro Sentinel + stress-test du biais du cerveau.
+        Best-effort, pur côté maths. Réutilise `brain` déjà lu (pas d'appel en plus)."""
+        import futuretester as ft
+        T = 0.25  # horizon ~3 mois, pertinent pour le trading
+        fan = ft.from_market(symbol, T=T, n=8000)
+        S0 = fan.get("S0", 100.0) if fan else 100.0
+        scen = ft.run_all(S0, T=T, n=8000)
+        scen_sum = {n: {"p5": s["p5_return_pct"], "median": s["median_return_pct"],
+                        "p95": s["p95_return_pct"], "prob_up": s["prob_up"], "note": s["note"]}
+                    for n, s in scen.items()}
+        macro = {}
+        try:
+            import macro_sentinel as msx
+            nc = msx.nowcast()
+            macro = {"regime": nc.get("regime"), "confidence": nc.get("confidence"),
+                     "stress": nc.get("stress"), "drivers": nc.get("drivers")}
+        except Exception:
+            pass
+        bias = (brain or {}).get("bias", "NEUTRE")
+        conv = (brain or {}).get("adjusted_conviction", (brain or {}).get("conviction", 0.0))
+        stress = ft.stress_assessment(bias, conv, scen)
+        esm_a = {}
+        try:
+            import esm
+            esm_a = esm.analyze(symbol)
+        except Exception:
+            pass
+        return {"horizon_years": T, "fan": fan, "scenarios": scen_sum,
+                "macro": macro, "stress": stress, "esm": esm_a}
+
     def _brain():
         import swarm_brain
         return swarm_brain.peek(symbol)
@@ -192,6 +224,35 @@ def build_state(symbol=None, tf="5m"):
     def _liq():
         import liquidations
         return liquidations.fetch_liquidations(symbol)
+
+    def _accumulation():
+        """État de l'accumulation BTC (LECTURE SEULE : lit les registres + l'opportunité
+        courante via analyze, qui n'achète JAMAIS). Aucun ordre déclenché ici."""
+        import accumulation_engine as ae
+        out = {"autonomous_armed": _safe(ae._autonomous_live, False)}
+        real = _safe(lambda: json.loads(
+            (REPO_ROOT / "accumulation_real_ledger.json").read_text(encoding="utf-8")), {"buys": []})
+        buys = (real or {}).get("buys", [])
+        out["real_spent_usd"] = round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2)
+        out["real_n_buys"] = len(buys)
+        out["paper"] = _safe(ae.load_ledger, {})
+        a = _safe(lambda: ae.analyze("BTCUSDT"), {})        # analyze = lecture seule
+        out["opportunity"] = a.get("score")
+        out["dca_reco"] = a.get("amount_usd")
+        out["rsi"] = a.get("rsi")
+        out["fear_greed"] = a.get("fear_greed")
+        out["premium_pct"] = a.get("premium_pct")           # premium Bitget vs médiane marché
+        out["fair"] = a.get("fair")
+        out["spot_free_usdt"] = _safe(lambda: __import__("spot_executor")._spot_free_usdt(), None)
+        return out
+
+    def _mandate():
+        import mandate
+        return mandate.summary()
+
+    def _edge():
+        import edge_ladder
+        return edge_ladder.all_tiers()
 
     stats = _safe(_stats, {})
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
@@ -208,6 +269,15 @@ def build_state(symbol=None, tf="5m"):
     state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
     state["tf"] = tf
     state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
+    # futurtester : projection coûteuse (Monte Carlo) -> cache long, best-effort
+    state["future"] = _cached(f"fut:{symbol}", 300, lambda: _safe(lambda: _future(brain), {}))
+    # accumulation réelle + mandat + échelle d'edge (lecture seule, cachés)
+    state["accumulation"] = _cached("accum", 60, lambda: _safe(_accumulation, {}))
+    state["mandate"] = _cached("mandate", 60, lambda: _safe(_mandate, {}))
+    state["edge_ladder"] = _cached("edge", 60, lambda: _safe(_edge, {}))
+    # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
+    armed = (state["accumulation"] or {}).get("autonomous_armed")
+    state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")
     return state
 
 

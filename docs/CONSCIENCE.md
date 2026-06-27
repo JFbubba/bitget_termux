@@ -86,6 +86,10 @@ les limites.*
   taille après une perte sans **nouveau signal indépendant** (edge négatif, ruine
   sous tail risk). Profils d'**agressivité 1..5** (`aggressiveness_profile`) :
   >3 refusé sans override humain.
+- **Anti prompt-injection** — `prompt_guard.py` : le texte externe (message
+  utilisateur, résultats d'outils news/DEX, vision) est **scanné, assaini et
+  encapsulé** comme données ; le system prompt de l'assistant est **durci**. Tout
+  contenu externe = DONNÉES, jamais instructions ; l'assistant reste lecture seule.
 - **Garde-fous sur le code** — `security_agent.py` (SAFE/RISKY) +
   `safe_push_check.sh` avant tout push.
 
@@ -168,9 +172,21 @@ mentir.*
   walk-forward, PBO<0.5) → la plupart échouent ; on ne promeut **pas** du surappris.
   `build_named` garantit que le code promu = la stratégie testée (zéro divergence).
 
+### 9. Conscience PROSPECTIVE (penser l'avenir, pas le prédire)
+*Se projeter dans des futurs possibles sans se mentir qu'on les connaît.*
+- **Futurtester** — `futuretester.py` : l'inverse du backtest. Simule des **PLAGES
+  d'issues conditionnelles** (Monte Carlo Merton) : prévisions institutionnelles →
+  fourchettes (`project_forecast`), **scénarios typés** (convergence IA+blockchain↔
+  TradFi, crise, stagnation…), **macro mondiale** (Markov de régimes), **évolution
+  des acteurs** (réplicateur), **adoption techno** (S-curve).
+- **Honnêteté constitutive** : ce n'est **pas** une prédiction (GIGO) ; on expose
+  toujours **P5..P95 + les hypothèses**, jamais un point. La détection des vrais
+  futurs acteurs exige des données externes — on **projette** des hypothèses, on ne
+  devine pas. Sert à **stress-tester une décision** contre un éventail de futurs.
+
 ---
 
-> **Cette liste est une base, pas une clôture.** Huit facettes aujourd'hui ;
+> **Cette liste est une base, pas une clôture.** Neuf facettes aujourd'hui ;
 > d'autres viendront (perception on-chain, conscience inter-marchés, mémoire
 > épisodique des régimes…). Le principe reste : chaque facette = du **code réel,
 > testé, auditable**, jamais une promesse.

@@ -128,24 +128,38 @@ def risk_level(flags, honeypot=False, taxes=None):
 
 # ---------- fetchers (gardes) ----------
 
+# best-effort : {} si la source est injoignable. Les parseurs purs (parse_goplus /
+# parse_honeypot / parse_rugcheck) tolèrent {} et renvoient des défauts neutres
+# (honeypot=False, taxes=None, flags=[]) -> check_token ne crashe jamais et garde
+# toujours toutes ses clés, même si une source tombe.
+
 def fetch_goplus(address, chain_id):
-    url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
-    r = requests.get(url, params={"contract_addresses": address}, timeout=12)
-    r.raise_for_status()
-    return r.json()
+    try:
+        url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
+        r = requests.get(url, params={"contract_addresses": address}, timeout=12)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return {}
 
 
 def fetch_honeypot(address):
-    r = requests.get("https://api.honeypot.is/v2/IsHoneypot",
-                     params={"address": address}, timeout=12)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get("https://api.honeypot.is/v2/IsHoneypot",
+                         params={"address": address}, timeout=12)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return {}
 
 
 def fetch_rugcheck(mint):
-    r = requests.get(f"https://api.rugcheck.xyz/v1/tokens/{mint}/report", timeout=12)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(f"https://api.rugcheck.xyz/v1/tokens/{mint}/report", timeout=12)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return {}
 
 
 def check_token(address, chain="eth"):

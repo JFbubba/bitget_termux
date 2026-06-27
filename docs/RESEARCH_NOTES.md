@@ -359,9 +359,13 @@ stratégies.
   `kb.rules_for("volume_profile")`, `kb.query(category="method")`. 70 fiches.
 - **`strategy_lab.py`** — agent **backtester autonome** :
   - **stratégies pures & causales** (aucun look-ahead) : ema_cross, rsi_reversion,
-    donchian, vp_fade, structure_bos ; **composition** : régime-gating
-    (`up_fraction`) + ensemble (vote majoritaire) ; **amélioration** : recherche de
-    params (`improve_ema`).
+    donchian, vp_fade, structure_bos, **macd**, **bollinger** (ajoutées au skim
+    Drive) ; **composition** : régime-gating (`up_fraction`) + ensemble (vote
+    majoritaire) ; **amélioration** : recherche de params (`improve_ema`).
+  - **observation honnête (multi-tests)** : à 9 stratégies, PBO≈0.36 et
+    `rsi_reversion` promue ; à 11 stratégies, PBO passe à **0.53 (>0.5)** → l'agent
+    **refuse toute promotion**. Plus on teste de candidats, plus le risque de chance
+    monte : le garde-fou PBO bloque correctement (correction multi-tests).
   - **évaluation HONNÊTE** (réutilise `backtest_brain`) : frais, Sharpe, edge vs
     buy&hold, **walk-forward**, **PBO** sur l'ensemble des stratégies.
   - **score** = Sharpe × (tranches gagnantes), pénalisé si edge≤0 ou trop peu de
@@ -374,6 +378,562 @@ stratégies.
     ne promeut pas du surappris (cf. §4/§8/§11). Run BTC 1H : `rsi_reversion_14`
     promue (Sharpe 1.47, edge +37 %, folds+ 80 %, PBO 0.36) ; donchian/structure
     rejetées (Sharpe négatif). À re-valider en paper avant tout capital.
+
+## §17 — Défense anti prompt-injection (`prompt_guard.py`)
+L'assistant LLM (`assistant/`) ingère du texte EXTERNE non fiable : message
+utilisateur (potentiellement relayé de Telegram), **résultats d'outils** (news,
+sentiment, DEX, tokens), vision. Risque : détourner le raisonnement, exfiltrer le
+system prompt, induire une action. **Defense in depth** (l'assistant est DÉJÀ en
+lecture seule — aucun ordre possible) :
+- **`prompt_guard.py`** (pur, testé) : `scan` (signatures : override/exfil/secret/
+  jailbreak/role-marker/zero-width/oversize → risk low/med/high), `sanitize`
+  (retire contrôle/zero-width/marqueurs de rôle, NFKC, tronque), `wrap_untrusted`
+  (encapsule un contenu externe en `<donnees_externes>` avec **provenance assainie**),
+  `assess`, et `SYSTEM_HARDENING` (clause système anti-injection).
+- **Câblage (defense in depth, 5 couches)** :
+  1. **`agent.py`** : system prompt durci, message utilisateur assaini au point
+     d'entrée `run()` (couvre CLI/Telegram/dashboard), sorties d'outils textuelles
+     **encapsulées** et champs texte des sorties **dict/list assainis**
+     (`sanitize_obj`), réponse finale passée par **`redact_secrets`** (anti-
+     exfiltration : aucune clé ne ressort).
+  2. **`vision.py`** : question assainie + **texte décrit de l'image** assaini +
+     redacté (injection visuelle : une capture peut contenir « ignore… »).
+  3. **`news_feed.py`** : titres/sources externes **assainis dès l'ingestion**.
+  4. **`telegram_command_bot.py`** : **cap longueur** (4000) + **rate-limit**
+     (20/min, `rate_limit_ok`) anti-flood, en plus du `chat_id` autorisé.
+  5. **`redact_secrets`** : masque les **préfixes de clés** (sk-ant/ghp_/xai-/AIza/
+     PRIVATE KEY…) **sans** toucher aux adresses/hashes on-chain légitimes.
+- Principe : tout contenu externe est traité comme **DONNÉES, jamais instructions** ;
+  l'assistant n'obéit qu'à son system prompt et reste **lecture seule**.
+
+## §18 — Coordinateurs LLM (Sakana) : ce qu'on prend, ce qu'on laisse
+Lecture de **TRINITY** (ICLR 2026, arXiv:2512.04695) et **Conductor / Learning to
+Orchestrate Agents** (arXiv:2512.04388). Les deux orchestrent des **LLM frontières**
+— **hors de notre cerveau déterministe** (pas de LLM dans la décision : lent, cher,
+opaque, dépendance externe). On **ne copie pas** l'orchestration.
+- **Conductor** : un LLM entraîné par RL conçoit des **topologies de communication**
+  agent↔agent + prompt-engineering. Idée intéressante (les agents ne sont pas
+  forcément indépendants) mais **RL = opaque** → on garde notre **gating
+  déterministe** (prudence de `cognition`, régime-gating du labo). Non adopté.
+- **TRINITY — LA pépite** : ils prouvent que **sep-CMA-ES** (évolution dérivée-libre,
+  covariance diagonale) bat RL / grille / random search dans **NOTRE régime exact** :
+  objectif **scalaire bruité** (score de backtest), **sans gradient**, **évals
+  coûteuses** (un backtest/essai), params faiblement corrélés. → **adopté** :
+  `evolution.py` (sep-CMA-ES pur, testé sur sphère/quadratique/Rosenbrock borné),
+  branché dans `strategy_lab.improve_ema` (remplace la grille, repli grille si numpy
+  absent).
+- **Généralisation (toutes les pistes)** : `evolve(family, …)` optimise chaque
+  famille (ema/rsi/donchian/bollinger/macd) ; `evolve_ensemble` est le
+  **« coordinateur évolué »** — sep-CMA-ES trouve les **poids des experts**
+  (ex. `ema 0.72 · rsi 1.66 · donchian 2.16 · bollinger 0.96 · macd 0.00`),
+  déterministe et **lisible** (poids encodés dans le nom `wens_…`, reconstructible).
+- **🔑 Clé anti-surapprentissage : séparation TRAIN/TEST.** L'évolution n'optimise
+  que sur `candles[:70%]` (signaux causaux → aucune fuite) ; la généralisation est
+  jugée par run() sur la série complète + PBO. **Effet mesuré (BTC 1H)** : *sans*
+  split, l'ema évolué surajustait (PBO ~0.69, 0 promotion) ; *avec* split,
+  **PBO 0.34** et **4 stratégies promues** dont `evo_bollinger_8` (score 2.05 vs
+  base 0.44) et `evo_rsi_reversion_8` — meilleures **et** robustes. On adopte le
+  solveur de TRINITY **et** la rigueur OOS : l'optimisation devient *exploitable*,
+  pas auto-bloquée.
+
+## §19 — « Futurtester » : simulateur d'issues futures (`futuretester.py`)
+L'inverse du backtest : au lieu de tester sur le passé, on **simule des PLAGES
+d'issues futures conditionnelles**. ⚠️ **Pas un prédicteur** — un générateur de
+fourchettes « si ces hypothèses tiennent, voilà l'éventail » (GIGO ; on expose
+toujours P5..P95 + les hypothèses, jamais un point). C'est la *scenario analysis*
+des institutions, adaptée crypto.
+- **Prévisions institutionnelles -> plages** : `project_forecast` (cibles bas/base/
+  haut -> drift triangulaire -> Monte Carlo + vol). `drift_from_forecasts` :
+  `mu = ln(cible/S0)/T`.
+- **Scénarios typés** : `SCENARIOS`/`run_scenario` — base, **convergence_bull**
+  (IA+blockchain↔TradFi, adoption haute, afflux institutionnel), reg_bear,
+  stagnation, tail_crisis. Moteur **Merton** (GBM + sauts) ; `fan_stats` (éventail).
+- **Macro mondiale** : `macro_markov_path` (chaîne de Markov sur régimes
+  expansion/slowdown/recession/recovery).
+- **Évolution des acteurs** : `actor_evolution` (dynamique du **réplicateur** :
+  parts incumbents/challengers/entrants ∝ fitness). ⚠️ la **détection** des vrais
+  futurs acteurs exige des données externes (recherche) — ici on **projette** des
+  candidats fournis, on ne les devine pas.
+- **Adoption techno** : `adoption_logistic` (courbe en S, Bass-like).
+- Honnêteté intégrée : le *volatility drag* lognormal fait que la **médiane** crypto
+  est sous S0 à drift nul (cohérent avec Black-Scholes §8). Sortie BTC 1 an (base) :
+  P5 −66 % … P95 +147 %, prob_up 0.44 — l'éventail crypto est ÉNORME, c'est le message.
+
+## §20 — Sources institutionnelles temps réel + couplage réel du futurtester
+**Demande** : « trouver des sources externes qui donnent l'info dès la première
+publication publique, se connecter aux institutionnels pour suivre leur actualité »,
+puis brancher des **entrées réelles**, **coupler au cerveau**, **fan-chart au
+dashboard**, **calibrer σ/sauts par actif**.
+
+**Réalité d'architecture** (rappel) : le bot tourne sur VPS et **ne peut pas** appeler
+mes outils MCP (Bigdata.com, CoinDesk…) — ceux-ci sont MES outils de recherche.
+Pour que le bot suive l'actualité institutionnelle *au runtime*, il faut des **API/RSS
+publiques gratuites** qu'il interroge lui-même. J'ai donc vérifié, en direct, des
+sources **gratuites et SANS CLÉ** :
+- **FRED** (`fredgraph.csv`, St. Louis Fed) — séries officielles, **aucune clé** :
+  `NFCI` (conditions financières), `T10Y2Y` (pente 10a-2a), `VIXCLS`, `BAMLH0A0HYM2`
+  (spread High-Yield OAS), `FEDFUNDS`. Param `cosd` pour limiter la charge.
+- **RSS presse Fed + BCE** — actualité brute des banques centrales (titres seulement,
+  **assainis par `prompt_guard`** : un titre externe n'est jamais une instruction).
+- (déjà en place) CoinGecko `/global`, alternative.me Fear & Greed.
+
+**`macro_sentinel.py` — « Sentinel Macro Analyst »** (note .docx fournie, réalisée en
+code DÉTERMINISTE, aucun NN) : `regime_nowcast` classe le **régime macro dominant**
+(les 4 mêmes régimes que §19 : expansion/slowdown/recession/recovery) à partir des
+niveaux **ET** variations (NFCI, pente, VIX, spread HY) avec des seuils
+**recherche-fondés** (inversion 10a-2a = avance de récession ; HY OAS >5 % = stress de
+crédit ; NFCI >0 = conditions serrées). Sortie : régime + scores + `drivers` explicites
++ `stress`/`confidence`. Tout via `runtime_cache` (TTL 6 h), best-effort, ne lève jamais.
+
+**Couplage du futurtester** (`futuretester.py`) :
+1. **Entrées réelles** — `from_market(symbol)` : σ et sauts **calibrés sur l'actif**
+   (drift par défaut **NUL** = baseline honnête « sans edge »).
+2. **Cerveau** — `stress_brain` / `stress_assessment(bias, conviction, scenarios)` :
+   confronte le biais du cerveau aux scénarios. Biais **LONG** -> le risque est la
+   **queue basse** (P5) du pire scénario adverse ; **SHORT** -> queue haute (P95).
+   Drapeau si forte conviction **et** queue adverse sévère. Réponse directe à « si je
+   suis LONG, quel P5 en crise ? ».
+3. **Fan-chart dashboard** — bloc `future` (panneau « Futur · Éventail ») : éventail SVG
+   P5/P25/P50/P75/P95 en rendement, table des scénarios, badge de régime Sentinel,
+   drapeau de stress. Projection Monte Carlo cachée 300 s (coûteuse).
+4. **Calibration par actif** — `calibrate(closes)` : σ diffusive annualisée + sauts
+   Merton par la **méthode du seuil robuste (MAD)** (un rendement > 3.5·σ_robuste = saut).
+   `macro_outlook` : `macro_markov_path` **part du régime courant détecté** (Sentinel),
+   plus d'origine arbitraire.
+
+**Évaluation honnête du stack SEC EDGAR / EdgarTools / OpenInsider (fourni par l'user)** :
+- `EdgarTools` (pip), **SEC EDGAR** (API publique gratuite, `fair-access` UA requis),
+  **OpenInsider** : excellents, mais **orientés ACTIONS** (10-K/10-Q, achats d'initiés).
+  Le bot vise le **crypto-futures** : la pertinence directe est **faible** (pas de 10-K
+  pour BTC). Le canal institutionnel à **haute** valeur pour le crypto, c'est le **MACRO**
+  (liquidité/taux/régime de risque) — d'où le choix FRED + banques centrales ci-dessus.
+- **Décision** (non sur-ingénierie) : je n'ajoute **pas** un pipeline actions lourd qui
+  diverge du cœur crypto. Point d'extension laissé propre : `macro_sentinel.FRED_SERIES`
+  est extensible, et un futur `edgar_signals.py` optionnel (pip `edgartools`) pourrait
+  alimenter un actor-detection data-driven (§19) pour les sociétés crypto-exposées
+  (MSTR, COIN, mineurs) **si** un besoin réel émerge — à n'activer qu'à ce moment-là.
+
+## §21 — Extended Samuelson Model (ESM) : états & signaux (`esm.py`)
+Source : *Equity Market Price Changes Are Predictable — A Natural Science Approach*
+(Han 2025 ; fondé sur Han & Keen 2021, *Heliyon*). Thèse : le marché n'est pas un
+bruit stochastique mais un système **causal dynamique** :
+`d·ln(p)/dt = H·[(D−S)/(D+S)] + M`, où **NED = (D−S)/(D+S)** (Demande Excédentaire
+Normalisée ∈ [−1,1]) capte les preneurs de liquidité et `M` les fournisseurs.
+
+**Ce qu'on PEUT exploiter** (l'apport structurel, pas l'estimateur propriétaire) :
+- **8 états de marché** = signe du NED sur 3 échelles (court/moyen/long) :
+  `état = 1 + (court>0) + 2·(moyen>0) + 4·(long>0)`. État 1 (tout −) = creux/le plus
+  pessimiste, État 8 (tout +) = sommet/le plus euphorique. (Sommets ↔ S8, creux ↔ S1.)
+- **6 signaux directionnels** = divergences NED↔prix : tendance (1/2), **retournements
+  par divergence** (3 = prix higher-low + NED lower-low → reverse to uptrend ; 4 =
+  symétrique baissier), **preneurs informés** aux extrêmes (5 = distribution au sommet,
+  6 = accumulation au creux). Ce sont des signaux **anticipatoires** (ex. signal 10 j
+  avant Black Monday 1987 ; reversals intraday validés 90–95 % à 7 j chez les auteurs).
+- **Compatibilité temporelle** : le fin contient le grossier (multi-timeframe).
+
+**Ce qu'on NE PEUT PAS reproduire honnêtement** : l'estimateur exact du NED (données
+propriétaires Han & Keen non publiées). → `esm.py` en construit un **proxy
+transparent et observable** depuis l'OHLCV : *money-flow* de Chaikin
+(Close-Location-Value pondéré volume), borné [−1,1] comme le NED. **Étiqueté
+« inspiré », jamais présenté comme l'original.**
+
+**Intégration (non invasive)** :
+- `esm.py` pur/testé : `ned_proxy`, `market_state` (1..8), `directional_signal`
+  (1..6), `analyze(symbol)` multi-TF (5m/15m/1h) résilient+caché.
+- **Agent divergent** (= l'agent d'ANTICIPATION) : `anticipation_nudge` ajoute un biais
+  **borné ±0.2**, guardé (best-effort→0), issu des signaux 3/4/5/6. `divergent_score`
+  inchangé (tests intacts) → renforce sans destabiliser le cerveau validé.
+- **Dashboard** : panneau « Futur · Éventail » expose l'état ESM (1–8) + le signal
+  directionnel courant.
+- Pistes futures (à activer si utile) : 9ᵉ agent ESM dédié sous EARCP ; turning-points
+  T2/T4 (niveaux de prix où le NED change de signe) comme garde-fous de risque.
+
+## §22 — Agent SIMONS : régimes cachés + arbitrage statistique (`simons_agent.py`)
+Source : note « Stratégie Simons pour cryptomonnaies » (Renaissance/Medallion).
+On transpose les piliers EXPLOITABLES — **classiques, déterministes, sans réseau de
+neurones** (c'est exactement la boîte à outils de Renaissance : Baum, le « B » de
+Baum-Welch, y a forgé les HMM).
+
+**Ce qu'on implémente** (`simons_agent.py`, pur/testé/résilient) :
+- **Régimes cachés — HMM gaussien (Baum-Welch/EM + Viterbi)** sur log-rendements
+  standardisés. Forward-backward avec **facteurs d'échelle** (stabilité numérique),
+  **init déterministe par quantiles** → 100 % reproductible (aucun aléa). C'est la
+  pièce maîtresse : il décode des états latents non observés.
+- **Arbitrage statistique — retour à la moyenne (OU)** : `zscore` de la déviation,
+  `half_life` via AR(1) (`hl = −ln2/ln(1+b)`). Edge ténu × loi des grands nombres.
+- **Gating par régime** : on RÉVERTE en régime calme (range), on se RETIRE en
+  STRESS (gate robuste = vol récente/vol de fond > 1.8, façon « speedbump ROC > σ »),
+  biais réduit/aligné en tendance. Le HMM porte la **direction**, le gate de stress
+  est **découplé** (pas le ratio fragile des variances d'états).
+- **Kelly fractionnaire** `f = espérance/variance` (demi-Kelly, plafonné) — PUREMENT
+  INDICATIF, ne dimensionne aucun ordre, **aucun levier appliqué**.
+- **Rank IC (Spearman)** : métrique d'évaluation hors-échantillon d'un signal.
+
+**Intégration** : nouvel **agent du cerveau** (9e), `agent_simons`, sous pondération
+EARCP. `AGENTS`/`AGENT_FUNCS` mis à jour ; les poids manquants d'un fichier existant
+retombent gracieusement sur 1.0 (comme divergent/structure). Auto-affiché au
+dashboard (le panneau Cerveau itère les agents).
+
+**Ce qu'on N'implémente PAS, honnêtement** :
+- **Avellaneda-Stoikov + RL (PPO/DDQN)** pour le market-making : exige des ORDRES
+  réels + un réseau de neurones → hors cadre (advisory/paper, sans NN).
+- **Levier 12,5–20×** : contexte institutionnel Medallion ; en crypto retail =
+  risque de ruine. Kelly reste indicatif.
+- **LVR / défense DeFi** (maker priority, speedbumps on-chain) : pertinent seulement
+  pour un LP/market-maker actif — noté pour extension future, pas pour l'advisory.
+- L'« Agent de Code » LLM générateur d'indicateurs : déjà couvert autrement par
+  `strategy_lab` (backtester autonome) sous garde anti-surapprentissage (§16).
+
+Pistes (à activer si utile) : **HMM non-homogène (NHHMM)** dont les transitions
+dépendent de la liquidité/sentiment ; **CV purgée + embargo** (López de Prado) en
+complément du walk-forward/PBO existant ; **NSGA-II** multi-objectif (Sharpe↑, MDD↓,
+coûts↓) en complément du sep-CMA-ES mono-objectif (§18).
+
+## §23 — Agent SAVANT (« autiste digitale ») : rupture de symétrie tensorielle (`savant_agent.py`)
+Source : spec « Architecture cognitive — Autiste Digitale ». Pièce aspirationnelle
+(« Alpha Absolu Infaillible ») dont on extrait l'UNIQUE idée vraiment nouvelle,
+déterministe et dans le cadre, en rejetant explicitement le reste.
+
+**Ce qu'on construit** (`savant_agent.py`, pur/testé/résilient ; 10e agent du cerveau) :
+- **Tenseur synesthésique** : `feature_matrix` fusionne des features hétérogènes
+  (rendement, |rendement|, pression CLV, amplitude, volume) dans un même espace.
+- **Rupture de symétrie = distance de MAHALANOBIS** : `mahalanobis_anomaly` /
+  `symmetry_break` détectent une incohérence avec la STRUCTURE de covariance — un
+  point « normal » feature-par-feature mais incohérent globalement est repéré (la
+  spec « les anomalies BRISENT la symétrie géométrique avant tout calcul numérique »,
+  rendue rigoureuse). Borné [0,1] via `1−exp(−score/2)`.
+- **Signal à CONTRE-COURANT** : on FADE la dislocation (manipulations/flush tendent à
+  se corriger), actif seulement au-dessus d'un seuil (hyper-focalisation).
+- **Immunité au bruit** : Fear & Greed traité comme bruit exploitable à contre-courant
+  (FUD→long, FOMO→short).
+- **VaR (indicative)** : `value_at_risk` historique + paramétrique (erfinv maison).
+- Hook Monte-Carlo : futuretester mobilisable en cas d'anomalie forte.
+
+**Ce qu'on REJETTE (contraintes DURES — dit honnêtement dans le code)** :
+- « Réseau de neurones neuromorphique » : le projet INTERDIT les NN. On garde la
+  moitié « filtres rigides, zéro hallucination/dérive » de la spec = le déterminisme.
+- « Réécrit/recompile son propre code à chaque bloc » : code auto-mutant = risque de
+  sécurité inacceptable ; l'analogue sain (apprentissage en ligne des poids) existe.
+- « Hyper-masking / fragmentation d'ordres / évasion MEV » : ORDRES réels + évasion de
+  détection → hors cadre (paper/advisory). La VaR reste indicative.
+- Nœud archive complet / audit de bytecode / arbitrage cross-chain : infra hors cadre.
+- « Alpha Absolu Infaillible » : impossible. Sortie = signal probabiliste BORNÉ.
+
+Intégration : 10e agent `agent_savant` sous EARCP ; lentille MULTIVARIÉE distincte des
+agents univariés (divergent, structure). Auto-affiché au dashboard.
+
+## §24 — Agent SAVANT GÉOMÉTRIQUE : analyse géométrique -> trading (`geometric_agent.py`)
+Source : 5 articles d'analyse géométrique / théorie des graphes / EDP fournis
+(rank-width, p-Laplacien/Cheeger, profils isopérimétriques, Talagrand/Eldan-Gross,
+inégalité isopérimétrique quantitative). **Honnêteté** : ce sont des ANALOGIES ; on
+n'implémente pas les théorèmes à la lettre, mais leur NOYAU CALCULABLE, qui coïncide
+avec des méthodes quant ÉTABLIES (recherche complémentaire à l'appui) :
+
+1. **Profil isopérimétrique / Grand-Lebesgue → régime de queue** (`tail_regime`) :
+   concentration de queue via réarrangement décroissant des |rendements| STANDARDISÉS
+   (sans échelle = forme de la queue), comparée à une référence gaussienne
+   (auto-calibré, déterministe). ratio≫1 = marché « non-euclidien » (blow-up) → **suivi
+   de tendance, pas de réversion**. ≈ détection de régime par tail-index (QuantPedia,
+   MDPI tail-risk).
+2. **Rank-width / expansion → stabilité d'intrication** (`correlation_graph_metrics`) :
+   connectivité algébrique **λ₂** du graphe |corr|>seuil (clustering spectral) + bornes
+   de **Cheeger** (λ₂/2 ≤ h ≤ √(2λ₂)). λ₂↓ = co-intégration en rupture → fermer
+   l'arbitrage. ≈ clustering spectral de matrices de corrélation (ACM AI-in-Finance).
+3. **p-Laplacien de Neumann / Cheeger → partition** (`cheeger_partition`) : vecteur de
+   **Fiedler** → 2 « ensembles de Cheeger » → base d'allocation **bêta-neutre**.
+   ≈ graph p-Laplacian clustering (Bühler ICML'09). NP-dur exact, λ₂ polynomial.
+4. **Talagrand / Eldan-Gross (Besov, k>1) → toxicité** (`higher_order_toxicity`) :
+   ratio RMS variation d'ordre 2 / ordre 1 (interactions d'ordre supérieur dominantes).
+   tendance lisse→0, iid→~0.5, flicker/spoofing→~1 → **se retirer** (anti-sélection
+   adverse). ≈ variation d'ordre supérieur / toxicité de flux (Easley VPIN, Barndorff-
+   Nielsen ; cf. 2604.20949 §microstructure).
+5. **Inégalité isopérimétrique quantitative** : cadre de stabilité (déficit) qui
+   sous-tend (1).
+
+**Bug-fix vs les esquisses fournies** : `|Δ|^(2/k)` sous-évaluait l'ordre 1 (RMS
+cohérent à la place) ; `nx.conductance(max_node)` indéfini (Fiedler propre à la place) ;
+λ₂=0 d'un graphe DÉCONNECTÉ est correct (deux blocs co-intégrés séparés).
+
+**Intégration** : 11e agent `agent_geometric` (par actif : régime de queue + toxicité)
++ `portfolio_structure(symbols)` advisory (λ₂ + partition de Cheeger du panier).
+Profil cognitif neuro-atypique traduit en calcul DÉTERMINISTE (hyperacuité multi-
+échelle, synesthésie chiffres→graphe, bruit-carburant). Aucun NN, aucun ordre.
+
+## §25 — Concrétisation empirique des outils géométriques (recherche + upgrades)
+Recherche multi-agents (5 pistes, 21 papiers, **arXiv vérifiés un par un**) pour rendre
+les outils §24 MOINS abstraits. Validation live : BTC mesuré **α≈2.09** — pile dans la
+plage empirique du papier d'ancrage (crypto α∈[2.0,2.5], vs ~3 pour les actions).
+
+**Implémenté (pur, testé, sans nouvelle donnée requise)** :
+- **T1 — indice de queue de HILL** (`hill_tail_index`, arXiv:1803.08405) : α calibré
+  crypto remplace le proxy gaussien ad-hoc. `tail_regime` devient HYBRIDE : α tranche
+  les cas décisifs (≤2.2 lourd→trend ; ≥3.5 léger→revert), le proxy Φ (stable sur
+  fenêtre courte) gère l'ambigu (Hill bruité sous ~6 mois de données).
+- **T2/T3 — débruitage RMT Marchenko-Pastur** (`rmt_denoise`, arXiv:1610.08104) : on
+  débruite la corrélation (clip du bulk < λ+=(1+√q)²) AVANT de bâtir le graphe ;
+  seuil 0.3→**0.5** (crypto-validé, arXiv:2505.24831). λ₂/Cheeger mesurent la vraie
+  co-intégration, pas le bruit d'échantillon.
+- **T4 — saut BNS** (`relative_jump`, `bipower_variation`, arXiv:1708.09520) : la
+  toxicité combine la rugosité (ordre2/ordre1) ET la mesure de saut (RV−BV)/RV
+  (fraction de variation due aux discontinuités = événements toxiques).
+
+**Liste de téléchargement vérifiée (par priorité)** — l'utilisateur peut les fournir :
+`2603.09219` (protocole IS-WFA-OOS), `1610.08104` (clean corr RMT), `1803.08405`
+(tail BTC), `2510.19130` (RMT crypto), `2406.10695` (stat-arb clustering), `2112.13213`
+(OFI cross-impact) ; puis `2505.24831`, `1904.08575` (SPONGE signé), `2202.02728`
+(HRP), `1708.09520` (jump tests), `2205.11122`, `2501.03938` ; ciblés : `2506.12587`,
+`2606.15715` (perp crypto), `2407.15766` (eGARCH-EVT), `2512.12924`, `2507.22712`,
+`2504.15908`, `2508.13174`.
+
+**Reste ABSTRAIT / bloqué sur la DONNÉE (honnête)** :
+- T4 « spoofing/OFI multi-niveau/markout bps » (arXiv:2112.13213, 2606.15715, 2504.15908)
+  exige un flux carnet **L2/L3 et tape par-wallet** que le bot lecture-seule n'a PAS
+  (il travaille sur closes/rendements). Le saut BNS (D1) marche sur OHLCV ; OFI/spoof
+  sont **bloqués sur l'ingestion** Bitget.
+- Le socle « isopérimétrique/Besov/Cheeger » reste une ANALOGIE ; les papiers
+  fournissent les SUBSTITUTS quant établis (Hill, RMT, BNS) qui coïncident avec le
+  noyau calculable — on ne prétend pas implémenter les théorèmes.
+- Pistes non encore codées (à activer après validation) : SPONGE signé (T3), HRP
+  intra-cluster (T3), GARCH→EVT-sur-résidus (T1), consensus de clusters sur fenêtres
+  roulantes (T2/T3), protocole T5 (plateau SR≥0.9·opt, purge+embargo, DSR/PBO, Rank IC).
+
+## §26 — Protocole de validation T5 : mesurer l'alpha des agents (`agent_validation.py`)
+Réponse à « avant de donner du poids aux agents, MESURER lesquels ajoutent vraiment de
+l'alpha hors-échantillon ». Lecture seule, advisory — **ne modifie PAS** les poids.
+
+**Statistiques (pures, testées)** :
+- **Rank IC** de Spearman (vote → rendement futur) + t-stat — AlphaEval 2508.13174 ;
+- **PSR** (Probabilistic Sharpe Ratio, Bailey-LdP) : P(vrai Sharpe > 0) en tenant
+  compte de skew/kurtosis et de la LONGUEUR d'échantillon ;
+- **DSR** (Deflated Sharpe Ratio) : PSR avec benchmark = max attendu sous H0 sur N
+  essais → **déflate le multiple-testing** (on teste plusieurs agents) ; réf. 2603.09219 ;
+- **Purge** : rendements futurs NON CHEVAUCHANTS (pas = horizon) pour éviter la fuite
+  par auto-corrélation des labels (López de Prado).
+
+**Deux chemins** :
+1. `rank_pure_agents(candles)` — **replay** des agents purs (simons/savant/geometric/
+   divergent) sur l'historique de bougies → IC + Sharpe + PSR + DSR. Utilisable tout de
+   suite (causal, sans look-ahead).
+2. `evaluate_from_log(brain_log)` — évalue **TOUS** les agents depuis les votes réels
+   journalisés (se renforce au fil du temps).
+
+`suggest_weight_priors` — propose (advisory) des poids a priori bornés [0.4, 1.8] depuis
+le DSR ; à CONFIRMER avant toute application au cerveau (on ne touche pas au validé).
+
+**Résultat live (honnête)** : sur ~64 échantillons (BTC 1h, horizon 8 ≈ 21 j),
+`savant` mène (IC +0.135, DSR 0.37) mais **AUCUN agent ne bat le seuil déflaté**
+(SR0_max≈0.14, meilleur DSR 0.37 < 0.9). C'est le but : refuser de distribuer du poids
+sur des données minces. Historique crypto court → faible puissance (un IC ~0.04 est
+NORMAL) ; on rapporte n, t-stat et l'avertissement, pas une courbe flatteuse.
+
+**Prochaine étape** : laisser `brain_log` accumuler, puis ré-évaluer périodiquement les
+11 agents et n'ajuster les poids EARCP qu'avec des DSR significatifs (et un protocole
+plateau + purge + OOS verrouillé pour les seuils tunables, cf. 2603.09219).
+
+## §27 — 12 papiers exploités : upgrades T1–T5 + microstructure (déblocage T4)
+12 PDF fournis par l'utilisateur, lus par 2 workflows d'extraction (formules/paramètres
+EXACTS, arXiv vérifiés). Implémentés (purs, testés, OHLCV/L2 seulement, aucun NN) :
+
+**T5 — `agent_validation.py`** (`2501.03938`, `2603.09219`) :
+- `replication_ratio` (Eq 3.3) + `replication_ratio_multi` (Eq 3.4) : haircut de Sharpe
+  FERMÉ — fraction du Sharpe in-sample qui survit OOS (f(T1, SR/β, p, m)). Validé : à
+  T1=250/SR=0.1 il reste ~73 % ; à T1=2500, ~96 %.
+- `max_drawdown`/`cagr`/`calmar` + `B_DEFAULT` (SR≥2, Calmar≥1.5, MDD<7 %) ;
+  `walk_forward_quorum` (plis purgés, quorum q=2/3). `rank_pure_agents` expose le
+  haircut + l'OOS Sharpe attendu + WFA par agent.
+
+**T1 — `geometric_agent.py`** :
+- `hurst_exponent` (R/S, `2205.11122`) : H>0.5 tendance / <0.5 réversion → confirme/
+  atténue le momentum dans `signal`.
+- `parkinson_vol` (`2606.15715`) : σ=0.6005612·ln(H/L). Hill déjà calibré crypto
+  α∈[2.0,2.5] (`1803.08405` confirme les valeurs ; CSN/KS et bootstrap GoF = pistes).
+
+**T2** : `rie_denoise` (Ledoit-Péché, `1610.08104`/`2510.19130`) — shrinkage non-linéaire
+ξ_k=λ_k/|1−q+q·λ_k·s(λ_k−iη)|² (η=N^{-1/2}), plus fin que le clip-to-mean. Fenêtre
+crypto validée ≈182 j, q=N/T.
+
+**T3** : `sponge_partition` (SPONGE signé, `1904.08575`, τ⁺=τ⁻=1) — gère les corrélations
+NÉGATIVES, met les actifs anti-corrélés sur des legs OPPOSÉS (bêta-neutre, validé) ;
+`hrp_weights` (HRP, `2202.02728`) — allocation déterministe sans inversion. Seuil corr
+0.5 (`2505.24831`) ; résidualisation + consensus de clusters = pistes (`2406.10695`).
+
+**T4 — `microstructure.py` (NOUVEAU, déblocage)** :
+- Features PURES depuis carnet L2 + tape : `book_ofi` (Cont-Kukanov, `2112.13213`),
+  `queue_imbalance`, `trade_sign_imbalance`, `markout` (sélection adverse, `2606.15715`),
+  `spread`, `mid_price`. Toutes validées en direction.
+- Collecteur best-effort `collect_once`/`run` (REST-poll via bitget_market_data) +
+  buffer roulant `recent`/`summary` que les agents lisent (découplé).
+- `signed_volume_ofi` (`geometric_agent`, proxy OHLCV dégradé de `2112.13213`).
+
+**Reste BLOQUÉ / hors-scope (honnête)** :
+- **Vrai L3 / spoofing** (`2504.15908`) : INDISPONIBLE sur le flux public Bitget
+  (ordre-par-ordre) → seuls des proxies L2 possibles.
+- **Markout/OFI haute fidélité** : le REST-poll (~1-2 s) est basse fidélité ; l'OFI
+  par-événement exige le **WebSocket** `wss://ws.bitget.com/v2/ws/public` (books+trade)
+  → upgrade futur (le collecteur écrit déjà le buffer, le service WS le remplacera).
+- Paramètres laissés RÉGLABLES (pré-engagés par l'utilisateur, pas dans les papiers) :
+  cliff τ_SR/τ_DD, SR_min, embargo (le protocole ne donne qu'un purge g=5 j).
+
+Le socle « isopérimétrique/Cheeger/Besov » reste une ANALOGIE ; les substituts
+implémentés (Hill, RIE, BNS, OFI, HRP, SPONGE) sont des méthodes quant ÉTABLIES.
+
+## §28 — Durcissement pré-réel (réponse à l'audit) : cerveau câblé + couche risque vivante
+Audit multi-agents (17 findings vérifiés) : le système était « sûr par VERROU »
+(`DRY_RUN_ONLY`), pas par garde active — le cerveau (11 agents) était DÉBRANCHÉ du
+pipeline de décision, et la couche risque/kill-switch était du CODE MORT. Corrigé :
+
+- **Cerveau → décision** (`preorder_engine.brain_adjustment`) : le cerveau (essaim)
+  est désormais GATE + MULTIPLICATEUR de taille. S'OPPOSE avec conviction ≥0.3 → rejet ;
+  d'ACCORD → taille ∝ conviction [0.4,1] ; NEUTRE → 0.6. Ne peut que RÉDUIRE la taille.
+  Fail-safe NEUTRE (indisponible → facteur 1.0). Un test réel valide MAINTENANT le cerveau.
+- **Kill-switch + caps durs vivants** (`execution_gateway._risk_gate` + `risk_state.py`) :
+  `risk_manager.check_trade` (kill-switch, notional, levier, positions, perte du jour)
+  appelé AVANT toute transition, même en dry-run. `risk_state` alimente la perte du jour
+  depuis le P&L paper. Test d'intégration : KILL_SWITCH bloque le dry-run.
+- **Caps portefeuille vivants** (`preorder_engine._apply_portfolio_guards`) :
+  `evaluate_portfolio_caps` (notionnel/risque/positions/SL agrégés) appliqué ; kill-switch
+  → tout rejeté.
+- **Watchdog étendu** : surveille les 3 services systemd + fraîcheur microstructure ;
+  `--arm-killswitch` pose KILL_SWITCH automatiquement sur anomalie sévère (boucle DOWN,
+  perte ≥ cap, microstructure figée).
+- **Apprentissage + validation planifiés** (`brain_cycle.py`, `brain_validation.py` dans
+  `agent_control.COMMANDS`) : EARCP s'entraîne à chaque cycle (read+learn) ; validation T5
+  auto-throttlée (~6h) → `validation_report.json` + poids a priori ADVISORY.
+- **Limites en SOURCE UNIQUE** (`config`) : levier 2.0, positions 3 partout (fin des
+  divergences risk_manager/risk_limits/config).
+- **Bugs corrigés** : `rie_denoise` (tri décorrélait valeurs/vecteurs propres), garde de
+  fraîcheur microstructure, lock du collecteur WS.
+
+**Reste avant un VRAI test** (paper d'abord) : laisser tourner quelques jours en paper
+avec le cerveau câblé → vérifier `brain_log`/`brain_weights` (11 agents entraînés) +
+`validation_report.json` (quels agents battent le seuil déflaté) ; ne passer au réel
+qu'après un track-record paper documenté ET la levée manuelle de `DRY_RUN_ONLY`.
+
+---
+
+## §29 — Mandat de gestion encodé (`mandate.py`) + mise en réel par paliers
+Décision propriétaire : bot autonome, objectif « le plus possible » SOUS contrainte de
+drawdown (MDD 15-25 %), levier plafonné ×5 ajusté par le bot, capital 1000 USDT, marchés
+crypto Bitget, numéraire dynamique (sortir de l'USD s'il faiblit), « au bot de gérer
+comme un pro ». Traduction clé : « comme un pro » = **discipline encodée, pas absence de
+limite** ; « le plus possible » n'est cohérent que **borné par le MDD**.
+
+- **`config.MANDATE_*`** : source unique de la politique (capital, MDD 20 %, levier ×5,
+  risque/trade 0.75 %, réserve cash, seuil d'edge DSR≥0.90 + n≥120, refuges numéraire
+  BTC/XAUT, sessions UTC, black-out macro, verrou réel `MANDATE_LIVE_ENABLED=False`).
+- **`mandate.py`** (pur, testé) : `max_leverage` (mur dur), `target_leverage`
+  (vol-targeting borné), `drawdown_halt` (la limite qui rend « MAX » sûr), `_passes_edge`
+  / `futures_live_allowed` (**porte paper→réel** : un agent ne trade en réel que s'il bat
+  le seuil déflaté T5 — verrou statistique issu du résultat B), `numeraire_recommendation`,
+  `in_active_session`, `macro_blackout`, `risk_per_trade_usd`, `deployable_usd`.
+- **Mise en réel PAR PALIERS** : (1) accumulation **spot** d'abord (edge structurel, pas
+  directionnel, bornée par le MDD) ; (2) futures réel débloqué **agent par agent**, automa-
+  tiquement, seulement quand `validation_report.json` montre DSR≥0.90 sur n≥120. Aujourd'hui :
+  **0 agent éligible** (cf. B) → futures reste paper.
+- **Architecture réel** : ce dépôt reste le **cerveau** (paper, `can_trade=False`) ; les
+  ordres réels passent par le **MCP Agent Hub Bitget** (`bitget-mcp-server`, cf.
+  `pc/BITGET_AGENT_HUB.md`) sur machine de trading, avec clé **Trade-only** rotée +
+  whitelist IP. `accumulation_engine` expose `mode` (paper/RÉEL via MCP) sous le verrou.
+- **Outils « Bitget Agent AI »** (AI Landscape, GetAgent, Playbook, Builder OS…) = produits
+  hébergés Bitget (sous-comptes isolés), **pas** des API tierces. Le seul pont programmatique
+  utilisable = le MCP Agent Hub ci-dessus.
+
+**Reste avant le réel** (manuel, irréversible) : roter les clés fuitées → créer une clé
+**Trade-only** (jamais Withdraw) + whitelist IP VPS → installer le MCP Agent Hub →
+`MANDATE_LIVE_ENABLED=True`. Le spot peut alors accumuler en réel ; le futures attend l'edge.
+
+---
+
+## §30 — Affûtage macro (skill-hub Bitget) + échelle d'edge par agent
+Demande : « mets les agents en edge » + paquet `bitget-skill-hub@1.0.2`. Deux volets.
+
+**(1) Affûtage de l'agent macro (`macro_regime.py`)** — extraction de la MÉTHODO
+déterministe des skills `btc-macro-analysis` / `macro-analyst` (sans embarquer leur
+snapshot ni dépendre de leur endpoint tiers `datahub.noxiaohao.com`) : framework
+**6 indicateurs -> posture monétaire -> biais BTC**, seuils de `rate-keys.md` (Core PCE
+<2 dovish / >2.5 hawkish / >3 fort ; chômage <4 tendu / >5 slack ; NFP <100k / >250k ;
+taux réel 10Y, DXY, VIX). Convention : hawkish = baissier BTC. `event_surprise`
+(actual vs forecast, inversé pour chômage/claims). Données tirées de NOS sources FRED
+sans clé (`macro_context` : VIXCLS, DTWEXBGS, DFII10, UNRATE, PCEPILFE→YoY, PAYEMS→Δ).
+Branché dans `swarm_brain.agent_macro` (combinaison pondérée par confiance avec l'ancien
+RISK_ON/OFF, fallback gracieux). Remplace un vote macro binaire (±0.6) par un biais gradué.
+
+**(2) Échelle d'edge (`edge_ladder.py`)** — généralise la « porte d'edge » du mandat à
+TOUS les agents : palier par agent depuis `validation_report.json` (T5) — LIVE (DSR≥0.90
+∧ n≥120 ∧ OOS>0 → éligible réel), PROBATION (DSR≥0.50 ∧ n≥30), PAPER (DSR≥0.10),
+NEGATIVE. Priors de poids ADVISORY (LIVE ×1.5 … NEGATIVE ×0.3) qui bornent EARCP sans
+l'écraser. Mécanisme « par paliers, agent par agent » : seul le palier LIVE ouvre le réel
+(cohérent avec `mandate.futures_live_allowed`). Étape de rapport dans `agent_control`.
+
+**Nature du skill-hub** : 6 skills Claude Code (macro/sentiment/technique/news/on-chain)
+qui donnent de l'edge analytique à l'agent de l'Agent Hub ; côté bot déterministe, seul
+le savoir-faire macro est réutilisé. Aucun ordre, scan sécurité étendu aux 2 modules.
+
+---
+
+## §31 — Passage au RÉEL par paliers : exécution spot BTC (test-first)
+Décision propriétaire : clé en Trade, brancher les fonds réels, `MANDATE_LIVE_ENABLED=True`.
+Mise en œuvre PRUDENTE (test-first, spot BTC seul) :
+
+- **`spot_executor.py`** — le SEUL module qui peut passer un ordre réel. Périmètre
+  verrouillé : ACHAT spot BTC au marché, jamais vendre/levier/futures/retrait. Gardes
+  durs : `MANDATE_LIVE_ENABLED` + `kill_switch` inactif + plafond/achat (50$) + plafond
+  journalier (50$) + montant ≤ solde spot réel + idempotence (clientOid). **Mode --dry
+  par défaut** : imprime la commande `bgc`, n'exécute RIEN sans `--confirm`. Exécution
+  déléguée à l'Agent Hub (`bgc spot ...`).
+- **Gate sécurité évolué (transparent)** : `security_agent` autorise l'exécution
+  UNIQUEMENT dans `spot_executor.py`, et seulement s'il reste conforme — aucun mot
+  interdit (vente/levier/futures/retrait) ET verrous présents (MANDATE_LIVE_ENABLED,
+  kill_switch, confirm). Tout autre fichier garde l'interdiction totale d'ordre.
+- **NON câblé à l'autonome** : l'accumulation reste paper (test-first). Le seul moyen de
+  passer un ordre réel = `python spot_executor.py --confirm` (manuel). Le futures reste
+  bloqué par l'échelle d'edge (0 agent LIVE).
+- **`config`** : `MANDATE_LIVE_ENABLED=True`, `ACCUM_REAL_MAX_PER_BUY_USDT=50`,
+  `ACCUM_REAL_MAX_DAILY_USDT=50`. Registre réel `accumulation_real_ledger.json` (gitignored).
+
+Séquence de mise en réel : (1) `--dry` pour vérifier la commande vs `bgc spot
+spot_place_order --help` ; (2) un achat minime confirmé (~5$) ; (3) vérifier le fill ;
+(4) seulement ensuite, câbler l'autonome (palier suivant, décision séparée).
+
+---
+
+## §32 — Outils cherry-pickés (sans frameworks lourds)
+Sur demande « cherche des outils utiles / intègre tes recommandations », on a repris
+les IDÉES utiles de l'écosystème (CCXT, lib `arch`) SANS embarquer les frameworks lourds
+ni violer la contrainte « déterministe, pas de réseaux de neurones ».
+
+- **`fair_price.py`** (idée CCXT, sans la lib) : prix de RÉFÉRENCE cross-exchange =
+  médiane de Binance/Bybit/OKX (réutilise les fetchers keyless de `arbitrage.py`),
+  + premium/discount Bitget. Garde « MEILLEUR PRIX » : `is_fair_to_buy` → l'accumulation
+  RÉELLE autonome n'achète PAS si Bitget cote >`ACCUM_MAX_PREMIUM_PCT` (0.30%) au-dessus
+  du marché (évite d'acheter un pic propre à Bitget). Surfacé dans le dashboard.
+- **`volatility.py`** (idée lib `arch`, en pur numpy) : EWMA RiskMetrics + GARCH(1,1)
+  variance-targeting → vol CONDITIONNELLE (réactive aux chocs). Branchée dans
+  `mandate.leverage_for(conviction, closes)` : vol-targeting du levier à partir des prix,
+  toujours borné par le mur ×5.
+- Écartés sciemment : FinRL/Qlib/TradeMaster (réseaux de neurones), Freqtrade/Jesse/
+  Nautilus/Lean (réécriture d'archi), SaaS fermés, brokers actions (hors Bitget). Déjà
+  couvert maison : HRP, López de Prado (DSR/PSR/purged WFA), Black-Scholes, lightweight-charts.
+- Prochain (chemin d'ordre RÉEL, à valider sur VPS) : exécution maker/limit protégée du
+  slippage dans `spot_executor` (gain de frais/slippage sur l'accumulation).
+
+---
+
+## §33 — Univers dynamique top-N + exécution maker/IOC
+**Univers dynamique** (`universe.py`, gated `DYNAMIC_UNIVERSE`, défaut OFF) : remplace les
+listes blanches figées par un univers construit à chaque cycle — LIQUIDITÉ (volume 24h des
+tickers spot Bitget, un seul appel) filtrée QUALITÉ (bases présentes dans le top market-cap
+**CoinGecko** — `coingecko_data` enfin branché dans l'analyse, plus seulement l'assistant),
+ancres `config.SYMBOLS` toujours incluses. Branché dans `journal_scanner` (scan principal)
+et `brain_cycle` (apprentissage). `UNIVERSE_TOP_N=20`, `UNIVERSE_MIN_VOLUME_USDT=5M`.
+L'accumulation reste **BTC** (objectif inchangé).
+
+**Exécution maker/IOC** (`spot_executor`, `EXEC_STYLE`, défaut `taker`) : 3 styles d'achat
+spot — `taker` (marché, prouvé), `limit_ioc` (limite IOC plafonnée juste au-dessus de l'ask
+→ remplit tout de suite mais JAMAIS au-delà du plafond, anti-slippage), `maker` (limite
+post-only au bid → frais maker / meilleur prix, peut ne pas remplir). `build_order` pur et
+testé ; repli sur marché si le carnet est indisponible (on n'est jamais bloqué). À valider
+sur le VPS comme l'ordre marché (un achat 5$ par style). `ACCUM_SLIPPAGE_TOL_PCT=0.10`.
 
 ---
 

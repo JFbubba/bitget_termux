@@ -1,0 +1,9 @@
+[Unit]
+Description=Bitget rotation des journaux append-only (gzip + retention)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/bin/bash rotate_logs.sh
+User=root
+Nice=15

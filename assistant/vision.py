@@ -19,9 +19,14 @@ from pathlib import Path
 
 import requests
 
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import prompt_guard  # noqa: E402  (anti prompt-injection, racine du repo)
+
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(ROOT / ".env")
 except Exception:
     pass
 
@@ -34,7 +39,7 @@ VISION_SYSTEM = (
     "de support/résistance, figures (patterns), volumes si visibles. Sois prudent et "
     "explicite sur l'incertitude (lire une image est indicatif, pas un signal). "
     "Tu n'exécutes aucun ordre et tu ne donnes pas de conseil financier."
-)
+) + prompt_guard.SYSTEM_HARDENING
 
 
 class VisionError(Exception):
@@ -42,10 +47,11 @@ class VisionError(Exception):
 
 
 def build_messages(question, image_b64, media_type="image/png"):
+    question = prompt_guard.sanitize(question or "Analyse ce graphique de trading.")
     return [
         {"role": "system", "content": VISION_SYSTEM},
         {"role": "user", "content": [
-            {"type": "text", "text": question or "Analyse ce graphique de trading."},
+            {"type": "text", "text": question},
             {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
         ]},
     ]
@@ -62,7 +68,9 @@ def analyze_image(question, image_b64, media_type="image/png", timeout=90):
     r = requests.post(f"{base}/chat/completions", headers=headers, json=body, timeout=timeout)
     if r.status_code >= 400:
         raise VisionError(f"Vision {r.status_code} (modèle={model}): {r.text[:200]}")
-    return r.json()["choices"][0]["message"]["content"]
+    content = r.json()["choices"][0]["message"]["content"]
+    # texte issu d'une image = potentiellement hostile (injection visuelle) -> assaini
+    return prompt_guard.redact_secrets(prompt_guard.sanitize(content))
 
 
 def analyze_file(path, question=None):

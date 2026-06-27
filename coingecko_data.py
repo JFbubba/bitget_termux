@@ -67,18 +67,26 @@ def parse_global(data):
 # ---------- réseau ----------
 
 def fetch_markets(tokens):
-    ids = ",".join(resolve_id(t) for t in tokens)
-    r = requests.get(f"{BASE}/coins/markets",
-                     params={"vs_currency": "usd", "ids": ids, "price_change_percentage": "24h"},
-                     headers=_headers(), timeout=12)
-    r.raise_for_status()
-    return parse_markets(r.json())
+    # best-effort : liste vide si CoinGecko est injoignable (jamais d'exception)
+    try:
+        ids = ",".join(resolve_id(t) for t in tokens)
+        r = requests.get(f"{BASE}/coins/markets",
+                         params={"vs_currency": "usd", "ids": ids, "price_change_percentage": "24h"},
+                         headers=_headers(), timeout=12)
+        r.raise_for_status()
+        return parse_markets(r.json())
+    except Exception:
+        return []
 
 
 def fetch_global():
-    r = requests.get(f"{BASE}/global", headers=_headers(), timeout=12)
-    r.raise_for_status()
-    return parse_global(r.json())
+    # best-effort : dict aux valeurs None si CoinGecko est injoignable
+    try:
+        r = requests.get(f"{BASE}/global", headers=_headers(), timeout=12)
+        r.raise_for_status()
+        return parse_global(r.json())
+    except Exception:
+        return {"total_market_cap_usd": None, "btc_dominance": None, "mcap_change_24h": None}
 
 
 def _human(n):

@@ -44,9 +44,13 @@ def parse_pairs(data, top=10):
 
 
 def fetch_search(query, top=10):
-    r = requests.get(SEARCH_URL, params={"q": query}, timeout=12)
-    r.raise_for_status()
-    return parse_pairs(r.json(), top=top)
+    # best-effort : liste vide si la source est injoignable (jamais d'exception)
+    try:
+        r = requests.get(SEARCH_URL, params={"q": query}, timeout=12)
+        r.raise_for_status()
+        return parse_pairs(r.json(), top=top)
+    except Exception:
+        return []
 
 
 def _human(n):

@@ -7,7 +7,13 @@ import requests
 from dotenv import load_dotenv
 
 import config
+import prompt_guard  # anti prompt-injection / anti-flood
 from telegram_notifier import send_telegram_message
+
+MAX_MSG_LEN = 4000          # cap longueur message entrant
+RATE_MAX = 20               # max commandes
+RATE_WINDOW = 60            # par fenêtre (s)
+_RATE_TS = []               # horodatages récents (anti-flood)
 
 
 load_dotenv(dotenv_path=Path(".env"))
@@ -818,6 +824,17 @@ def main():
             if chat_id != str(ALLOWED_CHAT_ID):
                 print(f"Message refusé depuis chat_id non autorisé: {chat_id}")
                 continue
+
+            # anti-flood + cap longueur (DoS / abus)
+            now = time.time()
+            _RATE_TS[:] = [t for t in _RATE_TS if now - t < RATE_WINDOW]
+            if len(text) > MAX_MSG_LEN:
+                reply_text(f"⛔ Message trop long (max {MAX_MSG_LEN} caractères).")
+                continue
+            if not prompt_guard.rate_limit_ok(_RATE_TS, now, RATE_MAX, RATE_WINDOW):
+                reply_text("⛔ Trop de commandes — réessaie dans un instant.")
+                continue
+            _RATE_TS.append(now)
 
             photo = message.get("photo")
             if photo:

@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget microstructure collector (WebSocket public, read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 book_collector.py BTCUSDT ETHUSDT SOLUSDT
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

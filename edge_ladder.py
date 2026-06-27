@@ -1,0 +1,110 @@
+"""
+edge_ladder.py — l'ÉCHELLE D'EDGE par agent (promotion paper -> réel).
+
+Classement : SAFE. Pur / lecture seule, AUCUN ordre. Généralise la « porte d'edge »
+du mandat à TOUS les agents du cerveau : chaque agent reçoit un PALIER selon son
+edge mesuré (DSR déflaté + taille d'échantillon + Sharpe hors-échantillon) lu dans
+`validation_report.json` (produit par la validation T5). C'est le mécanisme « par
+paliers, agent par agent » : un agent ne devient éligible au RÉEL qu'au palier LIVE.
+
+Paliers :
+  • LIVE      : DSR ≥ seuil ET n ≥ min ET OOS Sharpe > 0  -> éligible réel (prior fort)
+  • PROBATION : DSR ≥ 0.50 ET n ≥ 30                      -> prometteur, reste paper
+  • PAPER     : DSR ≥ 0.10                                 -> neutre, paper
+  • NEGATIVE  : sinon                                      -> bridé (prior faible)
+
+Cohérent avec `mandate.futures_live_allowed` (même critère LIVE). Les priors de poids
+sont ADVISORY : ils n'écrasent pas l'apprentissage EARCP, ils le bornent/orientent.
+"""
+
+import json
+from pathlib import Path
+
+REPORT_FILE = Path(__file__).resolve().parent / "validation_report.json"
+
+TIERS = ("LIVE", "PROBATION", "PAPER", "NEGATIVE")
+_PRIOR = {"LIVE": 1.5, "PROBATION": 1.0, "PAPER": 0.6, "NEGATIVE": 0.3}
+
+
+def _cfg(name, fallback):
+    try:
+        import config
+        return getattr(config, name, fallback)
+    except Exception:
+        return fallback
+
+
+def _load(report=None):
+    if report is not None:
+        return report
+    try:
+        return json.loads(REPORT_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def tier_of(row, dsr_min=None, min_n=None):
+    """Palier d'un agent à partir de sa ligne de validation. PUR."""
+    dsr_min = float(_cfg("MANDATE_FUTURES_DSR_MIN", 0.90) if dsr_min is None else dsr_min)
+    min_n = int(_cfg("MANDATE_FUTURES_MIN_SAMPLES", 120) if min_n is None else min_n)
+    dsr = float((row or {}).get("dsr", 0) or 0)
+    n = int((row or {}).get("n", 0) or 0)
+    oos = (row or {}).get("oos_sharpe")
+    oos = float(oos) if oos is not None else 0.0
+    if dsr >= dsr_min and n >= min_n and oos > 0:
+        return "LIVE"
+    if dsr >= 0.50 and n >= 30:
+        return "PROBATION"
+    if dsr >= 0.10:
+        return "PAPER"
+    return "NEGATIVE"
+
+
+def agent_tier(agent, report=None):
+    """Palier d'un agent nommé (NEGATIVE si absent du rapport). PUR."""
+    rep = _load(report)
+    for row in rep.get("ranking", []):
+        if str(row.get("agent")) == str(agent):
+            return tier_of(row)
+    return "NEGATIVE"
+
+
+def all_tiers(report=None):
+    """{agent: palier} pour tous les agents du rapport. PUR."""
+    rep = _load(report)
+    return {row.get("agent"): tier_of(row) for row in rep.get("ranking", [])}
+
+
+def weight_prior(agent, report=None):
+    """Prior de poids ADVISORY selon le palier (borne/oriente EARCP). PUR."""
+    return _PRIOR[agent_tier(agent, report)]
+
+
+def live_agents(report=None):
+    """Agents au palier LIVE -> seuls éligibles au RÉEL. PUR."""
+    return [a for a, t in all_tiers(report).items() if t == "LIVE"]
+
+
+def build_report(report=None):
+    tiers = all_tiers(report)
+    if not tiers:
+        return ("=== ÉCHELLE D'EDGE (par agent) ===\n"
+                "Aucun rapport de validation encore (lance brain_validation.py).\n"
+                "Aucun agent éligible au réel. VERDICT: SAFE")
+    order = {t: i for i, t in enumerate(TIERS)}
+    rows = sorted(tiers.items(), key=lambda kv: order.get(kv[1], 9))
+    lines = ["=== ÉCHELLE D'EDGE (par agent) ==="]
+    for agent, t in rows:
+        lines.append(f"  {agent:<12} {t:<10} (prior ×{_PRIOR[t]})")
+    live = [a for a, t in tiers.items() if t == "LIVE"]
+    lines.append(f"Éligibles RÉEL (palier LIVE) : {', '.join(live) if live else 'aucun'}")
+    lines.append("Promotion par edge mesuré. Lecture seule, aucun ordre. VERDICT: SAFE")
+    return "\n".join(lines)
+
+
+def main():
+    print(build_report())
+
+
+if __name__ == "__main__":
+    main()
