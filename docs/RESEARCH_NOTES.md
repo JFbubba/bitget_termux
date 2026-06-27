@@ -622,6 +622,43 @@ déterministe et dans le cadre, en rejetant explicitement le reste.
 Intégration : 10e agent `agent_savant` sous EARCP ; lentille MULTIVARIÉE distincte des
 agents univariés (divergent, structure). Auto-affiché au dashboard.
 
+## §24 — Agent SAVANT GÉOMÉTRIQUE : analyse géométrique -> trading (`geometric_agent.py`)
+Source : 5 articles d'analyse géométrique / théorie des graphes / EDP fournis
+(rank-width, p-Laplacien/Cheeger, profils isopérimétriques, Talagrand/Eldan-Gross,
+inégalité isopérimétrique quantitative). **Honnêteté** : ce sont des ANALOGIES ; on
+n'implémente pas les théorèmes à la lettre, mais leur NOYAU CALCULABLE, qui coïncide
+avec des méthodes quant ÉTABLIES (recherche complémentaire à l'appui) :
+
+1. **Profil isopérimétrique / Grand-Lebesgue → régime de queue** (`tail_regime`) :
+   concentration de queue via réarrangement décroissant des |rendements| STANDARDISÉS
+   (sans échelle = forme de la queue), comparée à une référence gaussienne
+   (auto-calibré, déterministe). ratio≫1 = marché « non-euclidien » (blow-up) → **suivi
+   de tendance, pas de réversion**. ≈ détection de régime par tail-index (QuantPedia,
+   MDPI tail-risk).
+2. **Rank-width / expansion → stabilité d'intrication** (`correlation_graph_metrics`) :
+   connectivité algébrique **λ₂** du graphe |corr|>seuil (clustering spectral) + bornes
+   de **Cheeger** (λ₂/2 ≤ h ≤ √(2λ₂)). λ₂↓ = co-intégration en rupture → fermer
+   l'arbitrage. ≈ clustering spectral de matrices de corrélation (ACM AI-in-Finance).
+3. **p-Laplacien de Neumann / Cheeger → partition** (`cheeger_partition`) : vecteur de
+   **Fiedler** → 2 « ensembles de Cheeger » → base d'allocation **bêta-neutre**.
+   ≈ graph p-Laplacian clustering (Bühler ICML'09). NP-dur exact, λ₂ polynomial.
+4. **Talagrand / Eldan-Gross (Besov, k>1) → toxicité** (`higher_order_toxicity`) :
+   ratio RMS variation d'ordre 2 / ordre 1 (interactions d'ordre supérieur dominantes).
+   tendance lisse→0, iid→~0.5, flicker/spoofing→~1 → **se retirer** (anti-sélection
+   adverse). ≈ variation d'ordre supérieur / toxicité de flux (Easley VPIN, Barndorff-
+   Nielsen ; cf. 2604.20949 §microstructure).
+5. **Inégalité isopérimétrique quantitative** : cadre de stabilité (déficit) qui
+   sous-tend (1).
+
+**Bug-fix vs les esquisses fournies** : `|Δ|^(2/k)` sous-évaluait l'ordre 1 (RMS
+cohérent à la place) ; `nx.conductance(max_node)` indéfini (Fiedler propre à la place) ;
+λ₂=0 d'un graphe DÉCONNECTÉ est correct (deux blocs co-intégrés séparés).
+
+**Intégration** : 11e agent `agent_geometric` (par actif : régime de queue + toxicité)
++ `portfolio_structure(symbols)` advisory (λ₂ + partition de Cheeger du panier).
+Profil cognitif neuro-atypique traduit en calcul DÉTERMINISTE (hyperacuité multi-
+échelle, synesthésie chiffres→graphe, bruit-carburant). Aucun NN, aucun ordre.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

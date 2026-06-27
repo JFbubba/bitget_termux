@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric"]
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
@@ -309,11 +309,23 @@ def agent_savant(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
 
 
+def agent_geometric(symbol):
+    """Agent SAVANT GÉOMÉTRIQUE — analyse géométrique (5 papiers) : régime de QUEUE
+    (profil isopérimétrique : blow-up -> suivi de tendance) + TOXICITÉ d'ordre
+    supérieur (Eldan-Gross : flux toxique -> retrait). Déterministe, aucun NN, aucun
+    ordre. Voir geometric_agent.py."""
+    try:
+        import geometric_agent
+        return geometric_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
     "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
-    "savant": agent_savant,
+    "savant": agent_savant, "geometric": agent_geometric,
 }
 
 

@@ -1940,6 +1940,87 @@ def test_savant_brain_registration():
     assert agg["bias"] in ("SHORT", "NEUTRE")
 
 
+# ---------- Agent GÉOMÉTRIQUE (5 papiers d'analyse géométrique) ----------
+
+def test_geometric_tail_regime_heavy_vs_gaussian():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(0)
+    gauss = rng.normal(0, 0.01, 300)
+    heavy = rng.normal(0, 0.01, 300)
+    heavy[::40] = rng.normal(0, 0.08, len(heavy[::40]))     # sauts rares -> queue lourde
+    rg, rh = g.tail_regime(gauss), g.tail_regime(heavy)
+    assert rg["regime"] == "euclidien"
+    assert rh["regime"] == "non_euclidien" and rh["ratio"] > rg["ratio"]
+
+
+def test_geometric_toxicity_ordering():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(0)
+    trend = np.cumsum(np.full(120, 0.01)) + rng.normal(0, 0.001, 120)
+    noise = rng.normal(0, 1, 120)
+    flick = np.zeros(120); flick[::2] = 1.0; flick += rng.normal(0, 0.05, 120)
+    T = g.higher_order_toxicity(trend)
+    N = g.higher_order_toxicity(noise)
+    F = g.higher_order_toxicity(flick)
+    assert 0.0 <= T < 0.2                                   # tendance lisse -> ~0
+    assert F > N > T and 0.0 <= F <= 1.0                    # flicker > bruit > tendance
+
+
+def test_geometric_graph_connectivity_and_partition():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(1)
+    Tn = 200
+    common = rng.normal(0, 1, Tn)
+    entangled = np.array([common + rng.normal(0, 0.3, Tn) for _ in range(8)]).T
+    frag = rng.normal(0, 1, (Tn, 8))
+    le = g.correlation_graph_metrics(entangled)["lambda2"]
+    lf = g.correlation_graph_metrics(frag)["lambda2"]
+    assert le > lf                                          # panier intriqué -> λ₂ plus haut
+    # bornes de Cheeger cohérentes : λ₂/2 ≤ h ≤ √(2λ₂)
+    m = g.correlation_graph_metrics(entangled)
+    assert m["cheeger_low"] <= m["cheeger_high"]
+    # partition de Fiedler sépare deux blocs distincts
+    f1, f2 = rng.normal(0, 1, Tn), rng.normal(0, 1, Tn)
+    A = np.array([f1 + rng.normal(0, 0.2, Tn) for _ in range(4)])
+    B = np.array([f2 + rng.normal(0, 0.2, Tn) for _ in range(4)])
+    c = g.cheeger_partition(np.vstack([A, B]).T)["clusters"]
+    assert len(set(c[:4])) == 1 and len(set(c[4:])) == 1 and c[0] != c[4]
+
+
+def test_geometric_signal_and_gates():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(2)
+    # marché normal : vote borné, faible conviction
+    px = list(np.cumprod(1 + rng.normal(0, 0.01, 200)) * 100)
+    s = g.signal(px)
+    assert -1.0 <= s["vote"] <= 1.0 and 0.0 <= s["confidence"] <= 1.0
+    # toxicité élevée -> le gate réduit fortement le vote (retrait)
+    flick = list(100 + np.cumsum(np.where(np.arange(120) % 2 == 0, 1.0, -1.0)))
+    sf = g.signal(flick)
+    assert sf["toxicity"] > 0.0 and abs(sf["vote"]) <= 1.0
+    assert s["regime"] in ("euclidien", "transitoire", "non_euclidien")
+
+
+def test_geometric_brain_registration():
+    import swarm_brain as sb
+    assert "geometric" in sb.AGENTS and "geometric" in sb.AGENT_FUNCS
+    assert sb.load_weights().get("geometric") == 1.0       # auto-réparation des poids
+    assert len(sb.AGENTS) == 11                             # 11e agent
+
+
+def test_geometric_degrades_on_short_input():
+    import geometric_agent as g
+    # entrées trop courtes -> jamais d'exception, sorties neutres
+    assert g.tail_regime([0.1, 0.2])["regime"] == "n/a"
+    assert g.higher_order_toxicity([1, 2, 3]) == 0.0
+    assert g.signal([100, 101, 102])["vote"] == 0.0
+    assert g.correlation_graph_metrics([[1, 2]])["lambda2"] == 0.0
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
