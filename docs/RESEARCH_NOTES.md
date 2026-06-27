@@ -1015,6 +1015,45 @@ du propriétaire. Le design ne lève rien ; il rend le chantier prêt et auditab
 
 ---
 
+## §35 — Breadth transversale : attaquer la PUISSANCE STATISTIQUE (pas le modèle)
+
+**Diagnostic du blocage d'edge.** Aucun agent n'est LIVE. La porte exige DSR ≥ 0.90 ET
+n ≥ 120. En mono-symbole (BTC), tous les agents ont **n = 64** (plafonné par la longueur
+d'historique) : l'échantillon échoue *directement*, et plombe le DSR (qui se dé-pénalise
+avec n). geometric battait pourtant le plancher de bruit (Sharpe 0.22 > sr0_max 0.135,
+PSR 0.96, DSR 0.75) → edge apparent mais **sous-alimenté**. Le facteur limitant n'était pas
+la capacité de modèle (donc un réseau de neurones n'aide pas — il sur-apprendrait sur n=64
+et le DSR/haircut/WFA le déflateraient ; cf. §1, contrainte propriétaire « aucun deep net »).
+
+**Levier honnête = la largeur (breadth).** Loi fondamentale (Grinold-Kahn) : IR ≈ IC·√(breadth).
+Évaluer chaque agent en COUPE TRANSVERSALE sur l'univers liquide multiplie le nombre de
+paris directionnels. PIÈGE : le crypto est très corrélé (beta commun) → empiler 20 symboles
+ne donne PAS 20× d'info indépendante. Sans correction, on promouvrait un agent en LIVE sur
+un edge factice → trade réel sur du vent.
+
+**Implémentation (`agent_validation.py`, ADVISORY — ne touche NI la porte NI les poids) :**
+- `average_cross_correlation(panel)` : ρ̄ = corrélation transversale moyenne des rendements-
+  stratégie sign(vote)·fwd entre symboles.
+- `effective_sample_size(n_nom, N, ρ̄)` : **n EFFECTIF** par variance inflation —
+  `n_eff = périodes · N/(1+(N−1)ρ̄)`. ρ̄→0 ⇒ n_eff≈n_nom (full breadth) ; ρ̄→1 ⇒ n_eff≈n d'un
+  seul symbole (AUCUNE inflation). ρ̄ écrêté à [0,1] (la corrélation négative n'est pas
+  créditée — conservateur pour une porte de promotion).
+- `rank_pure_agents_xs(...)` / `run_xs(...)` : DSR/PSR/IC-t recalculés sur n_eff.
+- Tests (`tests_audit.py`) : propriété de SÛRETÉ prouvée — séries indépendantes ⇒ n_eff≈n_nom ;
+  séries parfaitement corrélées ⇒ n_eff≈n d'un seul symbole (pas d'inflation).
+
+**Résultat live (12 symboles, 1h, 600 barres) — IMPORTANT, et négatif :** n_eff ≈ 350 (≥120
+franchi, ρ̄≈0.11 donc haircut modéré 768→350). MAIS l'edge de geometric **ne généralise pas** :
+IC +0.15→**−0.05**, Sharpe 0.22→0.04, **DSR 0.75→0.33**. Aucun agent ne passe DSR≥0.90.
+Conclusion honnête : la performance BTC mono-symbole était *sample-specific* (faible puissance
+= lecture flatteuse). La breadth ne « débloque » pas un agent — elle **réfute** l'edge supposé.
+Le vrai chantier n'est donc pas la plomberie de validation mais **l'ALPHA des agents** : leur
+signal doit montrer un IC/DSR transversal positif ET robuste. `rank_pure_agents_xs` est
+désormais l'**étalon honnête** pour mesurer tout nouvel agent/signal. Aucune promotion LIVE
+tant que cet étalon n'est pas franchi (toujours + GO explicite + double verrou + caps).
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

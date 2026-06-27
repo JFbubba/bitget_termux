@@ -2297,6 +2297,57 @@ def test_validation_drawdown_calmar_wfa():
     assert "folds" in v.walk_forward_quorum(edge, fwd)
 
 
+def test_validation_effective_sample_size_anti_inflation():
+    import numpy as np
+    import agent_validation as v
+    # PROPRIETE DE SURETE : des symboles correles ne creent PAS d'observations independantes.
+    rng = np.random.default_rng(7)
+    L = 80
+    # cas 1 : 10 series INDEPENDANTES -> ρ̄≈0 -> n_eff ≈ n_nominal (full breadth)
+    indep = {f"S{i}": rng.normal(0, 1, L).tolist() for i in range(10)}
+    rho_i = v.average_cross_correlation(indep)
+    assert abs(rho_i) < 0.2
+    n_eff_i = v.effective_sample_size(10 * L, 10, rho_i)
+    assert n_eff_i > 0.7 * (10 * L)                         # gain de breadth quasi plein
+    # cas 2 : 10 series PARFAITEMENT correlees (meme beta) -> ρ̄≈1 -> n_eff ≈ L (1 symbole)
+    common = rng.normal(0, 1, L)
+    corr = {f"S{i}": (common + rng.normal(0, 1e-6, L)).tolist() for i in range(10)}
+    rho_c = v.average_cross_correlation(corr)
+    assert rho_c > 0.95
+    n_eff_c = v.effective_sample_size(10 * L, 10, rho_c)
+    assert n_eff_c < 1.5 * L                                # AUCUNE inflation : ~= n d'un seul symbole
+    assert n_eff_c < n_eff_i                                 # correle << independant
+    # ecretage : correlation negative non creditee (pas de n_eff > nominal)
+    assert v.effective_sample_size(10 * L, 10, -0.5) <= 10 * L + 1
+
+
+def test_validation_xs_breadth_ranking():
+    import numpy as np
+    import agent_validation as v
+    # panel synthetique : meme structure qu'un historique de bougies [ts,o,h,l,c,vol].
+    rng = np.random.default_rng(3)
+
+    def _candles(n):
+        c = 100.0
+        out = []
+        for i in range(n):
+            c *= float(np.exp(rng.normal(0, 0.01)))
+            out.append([i, c, c * 1.001, c * 0.999, c, 1000.0])
+        return out
+
+    cbs = {f"SYM{i}": _candles(200) for i in range(6)}
+    res = v.rank_pure_agents_xs(cbs, horizon=8, warmup=80)
+    assert res["n_symbols"] == 6 and len(res["agents"]) == 4
+    for row in res["agents"]:
+        # chaque ligne expose le n EFFECTIF, le n nominal, ρ̄ et la breadth — transparence
+        assert "n" in row and "n_nominal" in row and "rho_bar" in row and "n_symbols" in row
+        assert row["n"] <= row["n_nominal"]                 # n effectif jamais > nominal (anti-inflation)
+        assert -1.0 <= row["rho_bar"] <= 1.0
+        assert 0.0 <= row["dsr"] <= 1.0
+    # < 2 symboles exploitables -> pas de coupe transversale (best-effort, pas de crash)
+    assert v.rank_pure_agents_xs({"ONLY": _candles(200)})["n_symbols"] in (0, 1)
+
+
 # ---------- microstructure (carnet L2 + tape) : déblocage T4 ----------
 
 def test_microstructure_ofi_direction():
