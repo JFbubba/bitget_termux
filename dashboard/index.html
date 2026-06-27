@@ -36,6 +36,14 @@
   .chip .v{font-size:14px;color:var(--accent)} .chip .l{font-size:9px;color:var(--dim)}
   .bar{height:6px;background:#10151d;border-radius:3px;overflow:hidden;margin:3px 0 7px}
   .bar i{display:block;height:100%;width:0}
+  /* positions en cours : grille cliquable (clic = charge l'actif sur le graphique) */
+  .pos-h,.pos-r{display:grid;grid-template-columns:84px 56px 1fr 1fr 78px 1fr 1fr 52px;gap:8px;
+    align-items:center;padding:3px 6px;font-size:10.5px}
+  .pos-h{color:var(--dim);font-size:9px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .pos-r{border-radius:4px;border:1px solid transparent;cursor:pointer}
+  .pos-r:hover{border-color:#33415a;background:var(--panel)}
+  .pos-r.on{border-color:var(--amber);background:#14110a}
+  .pos-r .sym{color:var(--accent)} .pos-r .num{text-align:right} .pos-r .r{text-align:right}
   .ob{font-size:11px}
   .ob .lvl{display:flex;justify-content:space-between;position:relative;padding:1px 4px}
   .ob .lvl span{position:relative;z-index:1}
@@ -132,7 +140,7 @@
     </div>
 
     <div class="panel" style="position:relative">
-      <h2>BTC · <span id="c-tf">5M</span> · <span id="c-price">—</span>
+      <h2><span id="c-sym">BTC</span> · <span id="c-tf">5M</span> · <span id="c-price">—</span>
         <span id="tf-bar" style="float:right">
           <span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="1h">1h</span>
         </span>
@@ -159,6 +167,12 @@
       <h2>Order Book</h2>
       <div class="ob" id="ob"></div>
     </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Positions en cours <span class="dim" style="letter-spacing:0">— paper (signaux suivis) · PnL live · clic = afficher l'actif sur le graphique</span>
+      <span class="dim" id="pos-count" style="float:right;letter-spacing:0">—</span></h2>
+    <div id="positions"></div>
   </div>
 
   <div class="cycle" id="cycle">
@@ -330,15 +344,18 @@ function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
 let _candles=[],chart=null,series={};
-let TF="5m",SYMBOL="BTCUSDT",projLines=[];
+let TF="5m",SYMBOL="BTCUSDT",projLines=[],_drawnSym=null,_lastSymbols=[];
+// bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
+function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;renderPicker(_lastSymbols);tick();}
 function renderPicker(symbols){
   const host=document.getElementById("sym-pick");if(!host)return;
+  _lastSymbols=symbols||_lastSymbols;
   const want=(symbols||[]).join(",");
   if(host.dataset.k!==want){                       // ne (re)construit que si l'univers change
     host.dataset.k=want;host.innerHTML="";
     (symbols||[]).forEach(s=>{
       const c=document.createElement("span");c.className="chip";c.textContent=s.replace(/USDT$/,"");c.dataset.sym=s;
-      c.addEventListener("click",()=>{SYMBOL=s;renderPicker(symbols);tick();});
+      c.addEventListener("click",()=>selectSymbol(s));
       host.appendChild(c);
     });
   }
@@ -387,6 +404,8 @@ function applyChartLayers(){
 function drawChart(candles){
   if(candles)_candles=candles;
   if(!chart||!_candles.length)return;
+  const switched=(SYMBOL!==_drawnSym);
+  if(switched){clearProjLines();series.candles.setMarkers([]);}  // purge l'actif précédent
   series.candles.setData(_candles.map(k=>({time:k[0],open:k[1],high:k[2],low:k[3],close:k[4]})));
   const closes=_candles.map(k=>k[4]);
   series.ema20.setData(_lineData(emaSeries(closes,20)));
@@ -394,6 +413,7 @@ function drawChart(candles){
   series.vwap.setData(_lineData(vwapSeries(_candles)));
   series.volume.setData(_candles.map(k=>({time:k[0],value:k[5]||0,
     color:k[4]>=k[1]?"rgba(46,194,126,.45)":"rgba(245,86,107,.45)"})));
+  if(switched){chart.timeScale().fitContent();_drawnSym=SYMBOL;}  // recadre sur le nouvel actif
 }
 
 // pose la "conscience" du cerveau (biais + consensus + régime de vol) sur la dernière bougie
@@ -573,6 +593,34 @@ function renderLiq(d){
   $("lq-clusters").innerHTML=html||"<span class='dim'>n/a</span>";
 }
 
+// --- positions en cours (paper) : liste cliquable, clic = charge l'actif sur le graphique ---
+function renderPositions(list){
+  const host=$("positions");if(!host)return;
+  list=list||[];
+  $("pos-count").textContent=list.length?(list.length+" ouvertes"):"aucune";
+  if(!list.length){host.innerHTML="<div class='dim' style='padding:6px'>aucune position ouverte</div>";return;}
+  let html='<div class="pos-h"><span>SYMBOLE</span><span>SENS</span><span class="r">ENTRÉE</span>'+
+    '<span class="r">PRIX</span><span class="r">PnL</span><span class="r">SL</span><span class="r">TP</span><span class="r">RSI</span></div>';
+  list.forEach(p=>{
+    const long=p.side==="LONG",sideCls=long?"green":"red";
+    const pnl=p.pnl_pct,pnlCls=(pnl==null)?"dim":(pnl>=0?"green":"red");
+    const pnlTxt=(pnl==null)?"—":((pnl>=0?"+":"")+pnl.toFixed(2)+"%");
+    const on=(p.symbol===SYMBOL)?" on":"";
+    html+=`<div class="pos-r${on}" data-sym="${p.symbol}">`+
+      `<span class="sym">${p.symbol.replace(/USDT$/,"")}</span>`+
+      `<span class="${sideCls}">${p.side}</span>`+
+      `<span class="r">${fmt(p.entry)}</span>`+
+      `<span class="r">${fmt(p.current_price)}</span>`+
+      `<span class="r ${pnlCls}">${pnlTxt}</span>`+
+      `<span class="r dim">${fmt(p.stop_loss)}</span>`+
+      `<span class="r dim">${fmt(p.take_profit)}</span>`+
+      `<span class="r dim">${p.rsi!=null?(+p.rsi).toFixed(0):"—"}</span>`+
+      `</div>`;
+  });
+  host.innerHTML=html;
+  host.querySelectorAll(".pos-r").forEach(r=>r.addEventListener("click",()=>selectSymbol(r.dataset.sym)));
+}
+
 // --- futurtester : éventail d'issues + stress du biais (plages CONDITIONNELLES) ---
 function renderFuture(f){
   if(!f||!f.fan||f.fan.S0==null){$("fu-regime").textContent="—";$("fu-fan").innerHTML="";$("fu-fanlabel").textContent="données insuffisantes";return;}
@@ -633,7 +681,8 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});
+    $("c-sym").textContent=(st.symbol||"").replace(/USDT$/,"")||"—";
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});renderPositions(st.positions||[]);
     const pj=st.projection||{};
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}

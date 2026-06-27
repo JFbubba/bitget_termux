@@ -83,6 +83,16 @@ def fetch_funding_rate(symbol, product_type=None):
         return []
 
 
+def fetch_tickers(product_type=None):
+    # best-effort : tickers de TOUS les symboles en UNE requête (liste vide si KO)
+    try:
+        return _get("/api/v2/mix/market/tickers", {
+            "productType": product_type or config.PRODUCT_TYPE,
+        })
+    except Exception:
+        return []
+
+
 # ---------- parseurs (purs, testables) ----------
 
 def parse_orderbook(data):
@@ -117,6 +127,23 @@ def parse_funding_rate(data):
     if isinstance(data, dict) and "fundingRate" in data:
         return float(data["fundingRate"])
     return None
+
+
+def parse_ticker_prices(data):
+    """data [{"symbol","lastPr",...}] -> {SYMBOL: dernier prix (float)}. PUR.
+    Ignore les lignes mal formées (prix absent/invalide)."""
+    out = {}
+    for row in data or []:
+        if not isinstance(row, dict):
+            continue
+        sym = str(row.get("symbol", "")).upper()
+        if not sym:
+            continue
+        try:
+            out[sym] = float(row.get("lastPr"))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 # ---------- agrégat lecture seule ----------
@@ -157,6 +184,12 @@ def market_snapshot(symbol="BTCUSDT", product_type=None, depth=20, trades_limit=
             "bid_volume": 0.0, "ask_volume": 0.0, "cvd": 0.0,
             "open_interest": 0.0, "funding_rate": None,
         }
+
+
+def mark_prices(product_type=None):
+    """Derniers prix de TOUS les symboles en UNE requête : {SYMBOL: prix}.
+    Best-effort : dict vide si la source est injoignable."""
+    return parse_ticker_prices(fetch_tickers(product_type))
 
 
 def build_report(snap):
