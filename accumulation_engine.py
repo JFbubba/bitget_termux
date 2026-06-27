@@ -230,7 +230,9 @@ def run(symbol="BTCUSDT", now=None):
     led = load_ledger()
     now = time.time() if now is None else now
     a["live_armed"] = _live_armed()
-    a["mode"] = "RÉEL (via MCP)" if a["live_armed"] else "paper"
+    # Ce module NE PASSE PAS d'ordre réel (test-first) : il reste paper même verrou levé.
+    # L'achat réel se fait manuellement via spot_executor.py jusqu'à câblage autonome.
+    a["mode"] = "paper"
     a["spot_balance"] = real_spot_balance()
     a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
     if a.get("price") and should_buy(led.get("last_buy_ts"), now):

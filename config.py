@@ -58,8 +58,14 @@ MANDATE_ACTIVE_SESSIONS_UTC = [[0, 3], [7, 10], [13, 17]]
 # Black-out macro autour des annonces à fort impact (CPI, FOMC) : dégager le risque.
 MANDATE_MACRO_BLACKOUT_PRE_MIN = 30        # minutes AVANT l'annonce
 MANDATE_MACRO_BLACKOUT_POST_MIN = 15       # minutes APRÈS
-# Verrou réel : tant que False, AUCUN ordre réel — tout reste paper (DRY_RUN).
-MANDATE_LIVE_ENABLED = False               # à lever MANUELLEMENT après rotation des clés + MCP
+# Verrou réel : True = exécution réelle AUTORISÉE (achat spot BTC via spot_executor,
+# manuel/confirmé). N'arme PAS l'autonome : l'accumulation reste paper tant qu'elle
+# n'est pas câblée à l'exécution (test-first). Futures toujours bloqué (échelle d'edge).
+MANDATE_LIVE_ENABLED = True
+
+# Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
+ACCUM_REAL_MAX_PER_BUY_USDT = 50.0         # plafond dur par achat réel
+ACCUM_REAL_MAX_DAILY_USDT = 50.0           # plafond dur journalier (anti-boucle)
 
 # Stratégie
 EMA_FAST = 9

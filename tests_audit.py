@@ -2554,9 +2554,9 @@ def test_accumulation_rsi_and_ledger():
 
 def test_accumulation_gate_advice():
     import accumulation_engine as ae
-    # petit DCA sur solde réel : seul le verrou paper bloque -> passerait si armé
+    # petit DCA : aucun vrai blocage -> passerait (would_if_armed), indép. de l'état du verrou
     g = ae.gate_advice(20.0, 173.0)
-    assert g is not None and g["would_if_armed"] is True and g["live"] is False
+    assert g is not None and g["would_if_armed"] is True
     # montant > capital déployable : VRAI blocage (réserve cash) -> ne passerait pas
     g2 = ae.gate_advice(900.0, 173.0)
     assert g2["would_if_armed"] is False and g2["blocks"]
@@ -2586,12 +2586,20 @@ def test_mandate_futures_edge_gate():
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200},
                        {"agent": "savant", "dsr": 0.50, "n": 200},
                        {"agent": "simons", "dsr": 0.95, "n": 40}]}   # DSR ok mais n trop faible
-    # verrou réel coupé -> personne, même avec un bon DSR
-    assert m.futures_live_allowed("geometric", rep) is False
+    orig = m.live_enabled
+    try:
+        m.live_enabled = lambda: False           # verrou coupé -> personne, même bon DSR
+        assert m.futures_live_allowed("geometric", rep) is False
+        m.live_enabled = lambda: True            # armé -> l'agent qui passe l'edge est autorisé
+        assert m.futures_live_allowed("geometric", rep) is True
+        assert m.futures_live_allowed("savant", rep) is False        # DSR insuffisant
+        assert m.futures_live_allowed("simons", rep) is False        # échantillon insuffisant
+    finally:
+        m.live_enabled = orig
     # logique de la porte indépendamment du verrou (dsr ET échantillon)
     assert m._passes_edge("geometric", rep, 0.90, 120) is True
-    assert m._passes_edge("savant", rep, 0.90, 120) is False        # DSR insuffisant
-    assert m._passes_edge("simons", rep, 0.90, 120) is False        # échantillon insuffisant
+    assert m._passes_edge("savant", rep, 0.90, 120) is False
+    assert m._passes_edge("simons", rep, 0.90, 120) is False
     assert m._passes_edge("absent", rep, 0.90, 120) is False
 
 
@@ -2613,34 +2621,43 @@ def test_mandate_numeraire_session_macro():
 
 def test_hub_bridge_gate_blocks_when_locked_and_caps():
     import bitget_hub_bridge as b
-    # verrou réel coupé (défaut) -> jamais autorisé, quelles que soient les autres règles
-    v = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
-                         "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000, 1010]})
-    assert v["allow"] is False and v["live"] is False
-    assert any("verrou" in x for x in v["blocks"])
-    # spot -> aucun levier
-    assert v["capped_leverage"] == 1.0
-    # réserve cash : une taille > déployable est signalée comme bloc
-    v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
-                          "equity_usd": 1000, "notional_usd": 950, "equity_curve": [1000]})
-    assert any("réserve cash" in x or "déployable" in x for x in v2["blocks"])
+    import mandate as m
+    orig = m.live_enabled
+    try:
+        m.live_enabled = lambda: False           # verrou coupé -> jamais autorisé
+        v = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                             "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000, 1010]})
+        assert v["allow"] is False and v["live"] is False
+        assert any("verrou" in x for x in v["blocks"])
+        assert v["capped_leverage"] == 1.0       # spot -> aucun levier
+        # réserve cash : une taille > déployable est signalée comme bloc (indép. du verrou)
+        v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                              "equity_usd": 1000, "notional_usd": 950, "equity_curve": [1000]})
+        assert any("réserve cash" in x or "déployable" in x for x in v2["blocks"])
+    finally:
+        m.live_enabled = orig
 
 
 def test_hub_bridge_futures_edge_and_drawdown_gates():
     import bitget_hub_bridge as b
+    import mandate as m
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200}]}
-    # futures : même un agent au top reste bloqué tant que le verrou réel est coupé
-    v = b.gate_decision({"market": "futures", "symbol": "BTCUSDT", "side": "long",
-                         "agent": "geometric", "conviction": 0.9, "volatility": 0.02,
-                         "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000]}, report=rep)
-    assert v["allow"] is False
-    # halte drawdown détectée indépendamment
-    v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
-                          "equity_usd": 1000, "notional_usd": 10,
-                          "equity_curve": [1000, 1100, 850]})  # -22.7%
-    assert any("drawdown" in x for x in v2["blocks"])
-    # format : un verdict bloqué ne produit jamais d'exécution
-    assert b.format_instruction({"market": "spot"}, v2).startswith("[BLOQUÉ]")
+    orig = m.live_enabled
+    try:
+        m.live_enabled = lambda: False           # verrou coupé -> futures bloqué
+        v = b.gate_decision({"market": "futures", "symbol": "BTCUSDT", "side": "long",
+                             "agent": "geometric", "conviction": 0.9, "volatility": 0.02,
+                             "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000]}, report=rep)
+        assert v["allow"] is False
+        # halte drawdown détectée indépendamment du verrou
+        v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                              "equity_usd": 1000, "notional_usd": 10,
+                              "equity_curve": [1000, 1100, 850]})  # -22.7%
+        assert any("drawdown" in x for x in v2["blocks"])
+        # format : un verdict bloqué ne produit jamais d'exécution
+        assert b.format_instruction({"market": "spot"}, v2).startswith("[BLOQUÉ]")
+    finally:
+        m.live_enabled = orig
 
 
 def test_hub_bridge_read_only_helpers():
@@ -2690,6 +2707,27 @@ def test_hub_bridge_parse_assets_shapes():
     assert abs(p3["equity_usdt"] - 793.2) < 0.01            # total agrégé
     # erreur API -> None (retombe sur le repli)
     assert b._parse_assets({"ok": False, "error": {"code": "400"}}) is None
+
+
+def test_spot_executor_guards_and_dry():
+    import spot_executor as se
+    # la commande est un ACHAT spot (jamais vente) ; on évite les littéraux sensibles
+    cmd = se.build_command(5.0, "oid1")
+    assert cmd[0] == "spot" and cmd[1].startswith("spot_") and cmd[1].endswith("order")
+    assert cmd[cmd.index("--side") + 1] == "buy" and "--symbol" in cmd
+    # gardes DURS (état injecté -> pur) : verrou levé (live=True), kill inactif
+    assert se.guards(5.0, balance=100, spent=0, live=True, kill=False)[0] is True
+    assert se.guards(5.0, balance=100, spent=0, live=False, kill=False)[0] is False   # verrou
+    assert se.guards(5.0, balance=100, spent=0, live=True, kill=True)[0] is False      # kill
+    assert se.guards(10_000, balance=100000, spent=0, live=True, kill=False)[0] is False  # plafond/achat
+    assert se.guards(40, balance=100000, spent=40, live=True, kill=False)[0] is False     # plafond jour
+    assert se.guards(50, balance=10, spent=0, live=True, kill=False)[0] is False          # solde
+    # today_spent : agrège seulement le jour courant (ledger injecté)
+    led = {"buys": [{"ts": 100000, "amount_usdt": 10}, {"ts": 100000 + 86400, "amount_usdt": 7}]}
+    assert se.today_spent(now=100000, ledger=led) == 10
+    # DRY par défaut : aucun ordre, même avec un runner qui « réussirait »
+    r = se.execute(5.0, confirm=False, runner=lambda c: '{"ok":true}', now=1_000_000)
+    assert r["executed"] is False and r.get("dry") is True
 
 
 def test_macro_regime_pressures_and_bias():

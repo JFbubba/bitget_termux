@@ -871,6 +871,32 @@ le savoir-faire macro est réutilisé. Aucun ordre, scan sécurité étendu aux 
 
 ---
 
+## §31 — Passage au RÉEL par paliers : exécution spot BTC (test-first)
+Décision propriétaire : clé en Trade, brancher les fonds réels, `MANDATE_LIVE_ENABLED=True`.
+Mise en œuvre PRUDENTE (test-first, spot BTC seul) :
+
+- **`spot_executor.py`** — le SEUL module qui peut passer un ordre réel. Périmètre
+  verrouillé : ACHAT spot BTC au marché, jamais vendre/levier/futures/retrait. Gardes
+  durs : `MANDATE_LIVE_ENABLED` + `kill_switch` inactif + plafond/achat (50$) + plafond
+  journalier (50$) + montant ≤ solde spot réel + idempotence (clientOid). **Mode --dry
+  par défaut** : imprime la commande `bgc`, n'exécute RIEN sans `--confirm`. Exécution
+  déléguée à l'Agent Hub (`bgc spot ...`).
+- **Gate sécurité évolué (transparent)** : `security_agent` autorise l'exécution
+  UNIQUEMENT dans `spot_executor.py`, et seulement s'il reste conforme — aucun mot
+  interdit (vente/levier/futures/retrait) ET verrous présents (MANDATE_LIVE_ENABLED,
+  kill_switch, confirm). Tout autre fichier garde l'interdiction totale d'ordre.
+- **NON câblé à l'autonome** : l'accumulation reste paper (test-first). Le seul moyen de
+  passer un ordre réel = `python spot_executor.py --confirm` (manuel). Le futures reste
+  bloqué par l'échelle d'edge (0 agent LIVE).
+- **`config`** : `MANDATE_LIVE_ENABLED=True`, `ACCUM_REAL_MAX_PER_BUY_USDT=50`,
+  `ACCUM_REAL_MAX_DAILY_USDT=50`. Registre réel `accumulation_real_ledger.json` (gitignored).
+
+Séquence de mise en réel : (1) `--dry` pour vérifier la commande vs `bgc spot
+spot_place_order --help` ; (2) un achat minime confirmé (~5$) ; (3) vérifier le fill ;
+(4) seulement ensuite, câbler l'autonome (palier suivant, décision séparée).
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
