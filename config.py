@@ -80,6 +80,11 @@ MANDATE_LIVE_ENABLED = True
 # Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
 ACCUM_REAL_MAX_PER_BUY_USDT = 5.0          # plafond dur par achat réel
 ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle)
+# Affûtage TIMING d'entrée (RESEARCH_NOTES §38) : survente court-terme mêlée au score
+# d'opportunité. Validé en backtest cost-basis (avantage OOS +0.69%->+0.77%, robuste).
+# ACCUM_ST_WEIGHT=0 -> score historique inchangé. Non-directionnel (meilleur point d'entrée).
+ACCUM_ST_WEIGHT = 0.30                      # poids de la survente court-terme (0 = désactivé)
+ACCUM_ST_WINDOW = 24                        # fenêtre (barres) de la moyenne mobile courte
 # Style d'exécution de l'achat spot : "limit_ioc" (DÉFAUT, validé en réel) = limite IOC
 # plafonnée -> remplit tout de suite SANS slippage au-delà du plafond ; "taker" = marché ;
 # "maker" = limite post-only au bid (frais maker / meilleur prix mais peut ne pas remplir).

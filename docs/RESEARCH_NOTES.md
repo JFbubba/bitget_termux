@@ -1155,6 +1155,17 @@ la conséquence honnête plutôt que de forcer.
 `FUTURES_AUTONOMOUS_LIVE` restent tels quels). Rien de full-auto. La décision REDIRIGE l'effort ;
 elle n'arme rien.
 
+**Premier livrable spot — affûtage du timing d'entrée (implémenté, validé).** Métrique honnête =
+*avantage de prix de revient* (cost basis) d'un DCA pondéré-opportunité vs DCA plat, **à budget
+égal** (isole le timing). Backtest (15 symboles, IS/OOS) : l'`opportunity_score` actuel est déjà
+bon (+0,69 % OOS, 93 % des symboles positifs ; +3-4 % sur BTC daily). Affûtage retenu : mêler une
+**survente court-terme** (`short_term_oversold`, z-score sous la MA-24) au score, poids
+`ACCUM_ST_WEIGHT=0.30` → avantage OOS **+0,69 %→+0,77 %**, plateau stable (k∈[20,28], α∈[0.25,0.35]),
+généralise (1h/15m/5m/daily). C'est du TIMING (acheter sur faiblesse court-terme ce qu'on accumule de
+toute façon), pas une prédiction — cohérent avec « reversion réelle mais common-mode » (§35-37).
+`ACCUM_ST_WEIGHT=0` → score historique inchangé (rétrocompatible). Le réel reste cappé/gaté/double
+verrou ; rien n'est armé.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

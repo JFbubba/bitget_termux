@@ -2725,6 +2725,24 @@ def test_accumulation_opportunity_direction():
     assert ae.opportunity_score([100, 101], fear_greed=50)["score"] == 0.0  # trop court
 
 
+def test_accumulation_short_term_timing():
+    import numpy as np
+    import accumulation_engine as ae
+    # survente COURT TERME : prix sous sa MA courte -> élevé ; au-dessus -> 0 ; trop court -> 0
+    dip = [100.0] * 40 + [100, 99, 97, 94, 90]
+    rally = [100.0] * 40 + [100, 102, 105, 109, 114]
+    assert ae.short_term_oversold(dip, window=24) > 0.2
+    assert ae.short_term_oversold(rally, window=24) == 0.0
+    assert ae.short_term_oversold([100, 101, 102], window=24) == 0.0
+    # INVARIANT du blend (couvre la rétrocompat st_weight=0) : score = (1-w)*score0 + w*s_st
+    closes = list(np.linspace(100, 82, 120))
+    s0 = ae.opportunity_score(closes, fear_greed=None, st_weight=0.0, st_window=24)["score"]
+    s_st = ae.short_term_oversold(closes, 24)
+    sw = ae.opportunity_score(closes, fear_greed=None, st_weight=0.4, st_window=24)["score"]
+    assert abs(sw - ((1 - 0.4) * s0 + 0.4 * s_st)) <= 0.003
+    assert "short_term" in ae.opportunity_score(closes, st_weight=0.3)["parts"]
+
+
 def test_accumulation_dca_amount_and_throttle():
     import accumulation_engine as ae
     # DCA croît avec le score, toujours >= base, jamais 0 (on accumule toujours un peu)
