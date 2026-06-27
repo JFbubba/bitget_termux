@@ -2596,6 +2596,12 @@ def test_universe_ranking_and_quality():
     # sans filtre qualité, le gros volume (SCAM) entre
     uni2 = u.rank_by_volume(parsed, top_n=2, min_volume=1_000_000, quality=None, anchors=[])
     assert uni2[0] == "BTCUSDT" and "SCAMUSDT" in uni2
+    # filtre crypto de repli : une action tokenisée (RAAPL) est exclue (pas dans la liste crypto)
+    stock_data = u.parse_tickers({"data": [{"symbol": "RAAPLUSDT", "usdtVolume": "9e9"},
+                                           {"symbol": "SOLUSDT", "usdtVolume": "8e9"}]})
+    uni3 = u.rank_by_volume(stock_data, top_n=5, min_volume=1_000_000,
+                            quality=u._FALLBACK_CRYPTO, anchors=[])
+    assert "RAAPLUSDT" not in uni3 and "SOLUSDT" in uni3
 
 
 def test_spot_executor_order_styles():

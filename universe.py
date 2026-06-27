@@ -34,6 +34,18 @@ def _anchors():
 _STABLE_BASES = {"USDC", "DAI", "TUSD", "FDUSD", "USDD", "BUSD", "PYUSD", "USDP",
                  "GUSD", "USDE", "FRAX", "LUSD", "EURT", "EUR", "USD1", "XUSD"}
 
+# Filtre QUALITÉ de repli (si CoinGecko indispo) : cryptos majeures. Garantit un univers
+# CRYPTO même hors-ligne et exclut de facto les actions tokenisées (xStocks : RAAPL, RNVDA…)
+# et le junk -> jamais de volume non filtré. CoinGecko (top mcap) l'élargit quand dispo.
+_FALLBACK_CRYPTO = {
+    "BTC", "ETH", "SOL", "XRP", "BNB", "ADA", "DOGE", "AVAX", "LINK", "DOT", "TRX", "MATIC",
+    "POL", "LTC", "BCH", "SHIB", "UNI", "ATOM", "XLM", "ETC", "FIL", "APT", "ARB", "OP",
+    "SUI", "SEI", "TIA", "INJ", "NEAR", "AAVE", "MKR", "RUNE", "LDO", "RNDR", "RENDER",
+    "IMX", "HBAR", "VET", "ALGO", "GRT", "FTM", "SAND", "MANA", "AXS", "PEPE", "WIF",
+    "BONK", "FLOKI", "JUP", "PYTH", "ENA", "ONDO", "HYPE", "TON", "KAS", "STX", "FET",
+    "TAO", "WLD", "ORDI", "DYDX", "GALA", "CRV", "COMP", "BGB", "CRO", "OKB",
+}
+
 
 # ---------- tri / filtre (PURS) ----------
 
@@ -90,30 +102,39 @@ def _bitget_tickers():
         return []
 
 
-def _coingecko_top_bases(n=200):
+def _coingecko_top_bases(n=250):
     """BASES (tickers majuscules) du top-N market-cap CoinGecko. Best-effort -> None si KO
-    (auquel cas pas de filtre qualité). Réutilise coingecko_data (clé optionnelle)."""
+    (rate-limit tier gratuit fréquent ; clé COINGECKO_API_KEY recommandée). 2 tentatives."""
     try:
         import requests
         import coingecko_data as cg
         params = {"vs_currency": "usd", "order": "market_cap_desc",
                   "per_page": min(n, 250), "page": 1}
-        r = requests.get(f"{cg.BASE}/coins/markets", params=params,
-                         headers=cg._headers(), timeout=12).json()
-        bases = {str(c.get("symbol", "")).upper() for c in r if isinstance(c, dict)}
-        return bases or None
+        for _ in range(2):
+            try:
+                r = requests.get(f"{cg.BASE}/coins/markets", params=params,
+                                 headers=cg._headers(), timeout=12)
+                if r.status_code == 200:
+                    bases = {str(c.get("symbol", "")).upper() for c in r.json() if isinstance(c, dict)}
+                    if bases:
+                        return bases
+            except Exception:
+                pass
+        return None
     except Exception:
         return None
 
 
 def build_universe(top_n=None, min_volume=None, use_coingecko=True):
-    """Construit l'univers (best-effort). Repli sur les ancres si le réseau échoue."""
+    """Construit l'univers (best-effort). QUALITÉ toujours appliquée : CoinGecko top-mcap si
+    dispo, sinon repli crypto majeur -> jamais de volume non filtré (exclut xStocks/junk).
+    Repli sur les ancres si le réseau Bitget échoue."""
     top_n = int(_cfg("UNIVERSE_TOP_N", 20) if top_n is None else top_n)
     min_volume = float(_cfg("UNIVERSE_MIN_VOLUME_USDT", 5_000_000) if min_volume is None else min_volume)
     tickers = _bitget_tickers()
     if not tickers:
         return _anchors()
-    quality = _coingecko_top_bases() if use_coingecko else None
+    quality = (_coingecko_top_bases() if use_coingecko else None) or _FALLBACK_CRYPTO
     return rank_by_volume(tickers, top_n=top_n, min_volume=min_volume, quality=quality)
 
 
