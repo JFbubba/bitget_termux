@@ -96,6 +96,11 @@ def tick(state, symbols, ts=None):
         prev[s] = book
         microstructure.append_snapshot(s, snap)
         written += 1
+    # accumulation persistante (downsamplée, throttlée) -> jeu évaluable au fil du temps
+    try:
+        microstructure.flush_history(symbols, now=ts)
+    except Exception:
+        pass
     return written
 
 

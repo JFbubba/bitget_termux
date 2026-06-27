@@ -26,7 +26,12 @@ import time
 from pathlib import Path
 
 BUFFER_FILE = Path(__file__).resolve().parent / ".microstructure_buffer.json"
+# Historique PERSISTANT downsamplé (append-only, gitignored *.jsonl) : le buffer ci-dessus
+# est roulant (~10 min) ; celui-ci ACCUMULE un jeu évaluable au fil du temps (chemin 2 :
+# feature microstructure -> rendement futur du mid). Verdict d'edge DANS LE TEMPS.
+HISTORY_FILE = Path(__file__).resolve().parent / "microstructure_history.jsonl"
 _PREV = {}                       # état du carnet précédent par symbole (pour l'OFI)
+_LAST_FLUSH = {}                 # dernier horodatage d'écriture historique par symbole
 
 
 # ---------- helpers purs ----------
@@ -200,6 +205,107 @@ def summary(symbol, n=60, markout_h=5, max_age_s=120, now=None):
             "trade_sign": round(avg("trade_sign"), 4),
             "spread_bps": round(sp, 3), "markout_bps": round(mk, 3),
             "toxicity": round(tox, 3)}
+
+
+# ---------- persistance pour ACCUMULATION (chemin 2 : edge dans le temps) ----------
+
+def aggregate_recent(symbol, n=60):
+    """Agrège les `n` derniers snapshots du buffer en UN enregistrement downsamplé :
+    moyennes des features + dernier mid + ts. Borne le volume d'historique. Best-effort
+    (lit le buffer). None si rien. Le mid utilisé est le DERNIER (pour le rendement futur)."""
+    rows = recent(symbol, n)
+    if not rows:
+        return None
+
+    def avg(k):
+        vals = [float(r.get(k, 0.0) or 0.0) for r in rows]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    return {"ts": int(rows[-1].get("ts", time.time())), "symbol": symbol.upper(),
+            "mid": round(float(rows[-1].get("mid", 0.0) or 0.0), 6),
+            "ofi": round(avg("ofi"), 6), "queue_imbalance": round(avg("queue_imbalance"), 6),
+            "trade_sign": round(avg("trade_sign"), 6), "spread_bps": round(avg("spread_bps"), 4),
+            "n": len(rows)}
+
+
+def flush_history(symbols, every_s=60, now=None, cap_bytes=64_000_000):
+    """Append-only : écrit un enregistrement downsamplé par symbole dans HISTORY_FILE, au
+    plus une fois toutes `every_s`. Best-effort, ne lève JAMAIS. Accumule le jeu évaluable
+    (chemin 2). Garde de taille : tronque (garde la 2e moitié) si le fichier dépasse cap."""
+    now = time.time() if now is None else now
+    wrote = 0
+    for s in symbols:
+        key = str(s).upper()
+        if now - float(_LAST_FLUSH.get(key, 0.0)) < float(every_s):
+            continue
+        rec = aggregate_recent(s)
+        if not rec or not rec.get("mid"):
+            continue
+        try:
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            _LAST_FLUSH[key] = now
+            wrote += 1
+        except Exception:
+            pass
+    try:                                                  # garde de taille (rare)
+        if HISTORY_FILE.exists() and HISTORY_FILE.stat().st_size > cap_bytes:
+            lines = HISTORY_FILE.read_text(encoding="utf-8").splitlines()
+            HISTORY_FILE.write_text("\n".join(lines[len(lines) // 2:]) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+    return wrote
+
+
+def load_history(path=None):
+    """Charge l'historique persistant (liste d'enregistrements). Best-effort."""
+    p = Path(path) if path else HISTORY_FILE
+    out = []
+    try:
+        for line in p.read_text(encoding="utf-8").splitlines():
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
+def evaluate_history(rows, horizon=5, feature="ofi"):
+    """EDGE chemin 2 : la feature microstructure prédit-elle le rendement FUTUR du mid ?
+    PUR. Par symbole, paire feature_t avec (mid_{t+h}/mid_t − 1), puis rank IC + t-stat
+    (réutilise l'étalon agent_validation). Pas de verdict tant que n est petit (accumulation)."""
+    by = {}
+    for r in rows:
+        by.setdefault(r.get("symbol"), []).append(r)
+    votes, fwd = [], []
+    for _sym, rs in by.items():
+        rs = sorted(rs, key=lambda x: x.get("ts", 0))
+        for i in range(len(rs) - int(horizon)):
+            m0 = rs[i].get("mid"); m1 = rs[i + int(horizon)].get("mid")
+            v = rs[i].get(feature)
+            if m0 and m1 and v is not None:
+                votes.append(float(v)); fwd.append(float(m1) / float(m0) - 1.0)
+    if len(votes) < 10:
+        return {"feature": feature, "n": len(votes), "ic": 0.0, "ic_t": 0.0,
+                "note": "accumulation en cours (données insuffisantes)"}
+    try:
+        import agent_validation as av
+        ic = av.rank_ic(votes, fwd)
+        return {"feature": feature, "n": len(votes), "ic": round(ic, 4),
+                "ic_t": round(av.ic_tstat(ic, len(votes)), 2)}
+    except Exception:
+        return {"feature": feature, "n": len(votes), "ic": 0.0, "ic_t": 0.0, "note": "étalon indisponible"}
+
+
+def history_report(path=None, horizon=5):
+    """Résumé d'accumulation + edge chemin 2 (toutes features). Lecture seule."""
+    rows = load_history(path)
+    feats = ["ofi", "queue_imbalance", "trade_sign", "spread_bps"]
+    return {"n_records": len(rows),
+            "symbols": sorted({r.get("symbol") for r in rows}),
+            "edge": {f: evaluate_history(rows, horizon, f) for f in feats}}
 
 
 # ---------- collecteur best-effort (REST-poll) ----------

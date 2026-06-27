@@ -2398,6 +2398,49 @@ def test_microstructure_features_and_buffer():
         ms.BUFFER_FILE = old
 
 
+def test_microstructure_history_accrual_and_edge():
+    import math
+    from pathlib import Path
+    import microstructure as ms
+    # 1) évaluation chemin 2 (PURE) : une feature qui PRÉCÈDE le mouvement du mid -> IC fort.
+    rows, mid = [], 100.0
+    for i in range(80):
+        o = math.sin(i)                                  # ofi varié
+        rows.append({"ts": i, "symbol": "X", "ofi": o, "queue_imbalance": 0.0,
+                     "trade_sign": 0.0, "spread_bps": 1.0, "mid": mid})
+        mid = mid * (1.0 + 0.001 * o)                    # mid_{t+1} suit ofi_t -> rendement = 0.001*ofi_t
+    ev = ms.evaluate_history(rows, horizon=1, feature="ofi")
+    assert ev["n"] >= 50 and ev["ic"] > 0.8              # ofi prédit le rendement futur du mid
+    assert "note" in ms.evaluate_history(rows[:5], horizon=1, feature="ofi")  # données insuffisantes
+    # 2) aggregate_recent + flush_history throttlé + load_history (fichiers temporaires)
+    oldbuf, oldhist = ms.BUFFER_FILE, ms.HISTORY_FILE
+    tb = Path(oldbuf).with_name(".microstructure_buffer_hist_test.json")
+    th = Path(oldhist).with_name("microstructure_history_test.jsonl")
+    try:
+        for f in (tb, th):
+            if f.exists():
+                f.unlink()
+        ms.BUFFER_FILE, ms.HISTORY_FILE = tb, th
+        ms._LAST_FLUSH.clear()
+        for i in range(5):
+            ms.append_snapshot("ZZZUSDT", {"ts": 1000 + i, "mid": 100.0 + i, "ofi": 0.2,
+                                           "queue_imbalance": 0.1, "trade_sign": 0.0, "spread_bps": 1.5})
+        agg = ms.aggregate_recent("ZZZUSDT", n=10)
+        assert agg["symbol"] == "ZZZUSDT" and agg["n"] == 5 and abs(agg["ofi"] - 0.2) < 1e-9 and agg["mid"] == 104.0
+        assert ms.flush_history(["ZZZUSDT"], now=2000) == 1            # 1 écriture
+        assert len(ms.load_history(th)) == 1
+        assert ms.flush_history(["ZZZUSDT"], now=2000) == 0            # throttle : pas de ré-écriture immédiate
+        assert ms.flush_history(["ZZZUSDT"], now=2000 + 61) == 1       # après l'intervalle -> ré-écrit
+    finally:
+        for f in (tb, th):
+            try:
+                Path(f).unlink()
+            except Exception:
+                pass
+        ms.BUFFER_FILE, ms.HISTORY_FILE = oldbuf, oldhist
+        ms._LAST_FLUSH.clear()
+
+
 # ---------- collecteur WebSocket de microstructure (book_collector) ----------
 
 def test_book_collector_parsers():
