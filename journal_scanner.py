@@ -1,6 +1,5 @@
 import csv
 import os
-import requests
 import time
 from datetime import datetime
 from pathlib import Path
@@ -48,40 +47,12 @@ def load_open_positions():
     return open_positions
 
 
+from candle_reader import get_bitget_candles as _get_bitget_candles
+
+
 def get_bitget_candles(symbol, product_type=PRODUCT_TYPE, granularity=TIMEFRAME, limit=CANDLE_LIMIT):
-    url = "https://api.bitget.com/api/v2/mix/market/candles"
-
-    params = {
-        "symbol": symbol,
-        "productType": product_type,
-        "granularity": granularity,
-        "limit": str(limit),
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    result = response.json()
-
-    if result.get("code") != "00000":
-        raise RuntimeError(f"Erreur Bitget pour {symbol}: {result}")
-
-    candles = []
-
-    for row in result["data"]:
-        timestamp_ms = int(row[0])
-        candles.append({
-            "time": datetime.fromtimestamp(timestamp_ms / 1000),
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume_base": float(row[5]),
-            "volume_quote": float(row[6]),
-        })
-
-    candles.sort(key=lambda x: x["time"])
-    return candles
+    """Délègue à la source durcie (candle_reader) en gardant les défauts config."""
+    return _get_bitget_candles(symbol, product_type, granularity, limit)
 
 
 def ema(values, period):
