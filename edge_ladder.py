@@ -8,7 +8,7 @@ edge mesuré (DSR déflaté + taille d'échantillon + Sharpe hors-échantillon) 
 paliers, agent par agent » : un agent ne devient éligible au RÉEL qu'au palier LIVE.
 
 Paliers :
-  • LIVE      : DSR ≥ seuil ET n ≥ min ET OOS Sharpe > 0  -> éligible réel (prior fort)
+  • LIVE      : edge REPLAY (DSR≥seuil, n≥min, OOS>0) ET edge LIVE confirme -> eligible reel
   • PROBATION : DSR ≥ 0.50 ET n ≥ 30                      -> prometteur, reste paper
   • PAPER     : DSR ≥ 0.10                                 -> neutre, paper
   • NEGATIVE  : sinon                                      -> bridé (prior faible)
@@ -43,16 +43,40 @@ def _load(report=None):
         return {}
 
 
-def tier_of(row, dsr_min=None, min_n=None):
-    """Palier d'un agent à partir de sa ligne de validation. PUR."""
+def _live_confirms(live_row, min_n=None, min_ic_t=None):
+    """L'edge sur les VOTES REELS (section 'live' du rapport) confirme-t-il l'agent :
+    echantillon suffisant ET IC significatif ? PUR. Conservateur : pas de ligne live
+    -> False (aucune promotion LIVE sans preuve sur les votes reellement emis)."""
+    if not live_row:
+        return False
+    min_n = int(_cfg("MANDATE_LIVE_MIN_SAMPLES", 60) if min_n is None else min_n)
+    min_t = float(_cfg("MANDATE_LIVE_MIN_IC_T", 2.0) if min_ic_t is None else min_ic_t)
+    return (int((live_row or {}).get("n", 0) or 0) >= min_n
+            and float((live_row or {}).get("ic_t", 0) or 0) >= min_t)
+
+
+def _live_row(rep, agent):
+    """Ligne 'live' (votes reels) d'un agent dans le rapport, ou None. PUR."""
+    for r in ((rep or {}).get("live", {}) or {}).get("agents", []):
+        if str(r.get("agent")) == str(agent):
+            return r
+    return None
+
+
+def tier_of(row, live_row=None, dsr_min=None, min_n=None):
+    """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
+    sur les VOTES REELS (live) ; replay seul -> PROBATION (prometteur, reste paper)."""
     dsr_min = float(_cfg("MANDATE_FUTURES_DSR_MIN", 0.90) if dsr_min is None else dsr_min)
     min_n = int(_cfg("MANDATE_FUTURES_MIN_SAMPLES", 120) if min_n is None else min_n)
     dsr = float((row or {}).get("dsr", 0) or 0)
     n = int((row or {}).get("n", 0) or 0)
     oos = (row or {}).get("oos_sharpe")
     oos = float(oos) if oos is not None else 0.0
-    if dsr >= dsr_min and n >= min_n and oos > 0:
+    replay_live = dsr >= dsr_min and n >= min_n and oos > 0
+    if replay_live and _live_confirms(live_row):
         return "LIVE"
+    if replay_live:
+        return "PROBATION"                       # replay OK mais live pas (encore) confirme
     if dsr >= 0.50 and n >= 30:
         return "PROBATION"
     if dsr >= 0.10:
@@ -65,14 +89,15 @@ def agent_tier(agent, report=None):
     rep = _load(report)
     for row in rep.get("ranking", []):
         if str(row.get("agent")) == str(agent):
-            return tier_of(row)
+            return tier_of(row, _live_row(rep, agent))
     return "NEGATIVE"
 
 
 def all_tiers(report=None):
     """{agent: palier} pour tous les agents du rapport. PUR."""
     rep = _load(report)
-    return {row.get("agent"): tier_of(row) for row in rep.get("ranking", [])}
+    return {row.get("agent"): tier_of(row, _live_row(rep, row.get("agent")))
+            for row in rep.get("ranking", [])}
 
 
 def weight_prior(agent, report=None):

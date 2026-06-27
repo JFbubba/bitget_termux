@@ -2828,24 +2828,38 @@ def test_mandate_drawdown_halt():
 
 def test_mandate_futures_edge_gate():
     import mandate as m
+    # La porte exige l'edge REPLAY (ranking : DSR ET échantillon) ET la confirmation sur
+    # les VOTES RÉELS (live : échantillon ET IC significatif). Seul 'geometric' a les deux.
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200},
                        {"agent": "savant", "dsr": 0.50, "n": 200},
-                       {"agent": "simons", "dsr": 0.95, "n": 40}]}   # DSR ok mais n trop faible
+                       {"agent": "simons", "dsr": 0.95, "n": 40}],   # DSR ok mais n trop faible
+           "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 2.5},
+                               {"agent": "savant", "n": 80, "ic_t": 2.5},
+                               {"agent": "simons", "n": 80, "ic_t": 2.5}], "n_entries": 120}}
     orig = m.live_enabled
     try:
         m.live_enabled = lambda: False           # verrou coupé -> personne, même bon DSR
         assert m.futures_live_allowed("geometric", rep) is False
-        m.live_enabled = lambda: True            # armé -> l'agent qui passe l'edge est autorisé
+        m.live_enabled = lambda: True            # armé -> l'agent qui passe les DEUX portes est autorisé
         assert m.futures_live_allowed("geometric", rep) is True
-        assert m.futures_live_allowed("savant", rep) is False        # DSR insuffisant
-        assert m.futures_live_allowed("simons", rep) is False        # échantillon insuffisant
+        assert m.futures_live_allowed("savant", rep) is False        # DSR replay insuffisant
+        assert m.futures_live_allowed("simons", rep) is False        # échantillon replay insuffisant
     finally:
         m.live_enabled = orig
-    # logique de la porte indépendamment du verrou (dsr ET échantillon)
+    # logique de la porte indépendamment du verrou (replay : dsr ET échantillon)
     assert m._passes_edge("geometric", rep, 0.90, 120) is True
     assert m._passes_edge("savant", rep, 0.90, 120) is False
     assert m._passes_edge("simons", rep, 0.90, 120) is False
     assert m._passes_edge("absent", rep, 0.90, 120) is False
+    # replay fort mais live absent / non confirmé -> porte fermée (conservateur)
+    rep_no_live = {"ranking": rep["ranking"]}
+    assert m._passes_edge("geometric", rep_no_live, 0.90, 120) is False
+    rep_weak_live = {"ranking": rep["ranking"],
+                     "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 1.0}]}}
+    assert m._passes_edge("geometric", rep_weak_live, 0.90, 120) is False   # IC live non significatif
+    rep_thin_live = {"ranking": rep["ranking"],
+                     "live": {"agents": [{"agent": "geometric", "n": 20, "ic_t": 2.5}]}}
+    assert m._passes_edge("geometric", rep_thin_live, 0.90, 120) is False   # échantillon live trop mince
 
 
 def test_mandate_numeraire_session_macro():
@@ -3015,18 +3029,32 @@ def test_macro_regime_pressures_and_bias():
 
 def test_edge_ladder_tiers_and_priors():
     import edge_ladder as el
-    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) == "LIVE"
-    assert el.tier_of({"dsr": 0.95, "n": 40, "oos_sharpe": 0.3}) == "PROBATION"   # n trop faible
+    # LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation sur les VOTES RÉELS
+    # (échantillon live suffisant ET IC live significatif).
+    live_ok = {"n": 80, "ic_t": 2.5}
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}, live_ok) == "LIVE"
+    # replay fort mais live absent / non confirmé -> reste PROBATION (paper)
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) == "PROBATION"
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                      {"n": 80, "ic_t": 1.0}) == "PROBATION"   # IC live non significatif
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                      {"n": 20, "ic_t": 2.5}) == "PROBATION"   # échantillon live trop mince
+    assert el.tier_of({"dsr": 0.95, "n": 40, "oos_sharpe": 0.3}, live_ok) == "PROBATION"  # n replay trop faible
     assert el.tier_of({"dsr": 0.60, "n": 50}) == "PROBATION"
     assert el.tier_of({"dsr": 0.20, "n": 200}) == "PAPER"
     assert el.tier_of({"dsr": 0.0, "n": 200}) == "NEGATIVE"
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
-                       {"agent": "simons", "dsr": -0.1, "n": 200}]}
+                       {"agent": "simons", "dsr": -0.1, "n": 200}],
+           "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 2.5}], "n_entries": 120}}
     assert el.agent_tier("geometric", rep) == "LIVE"
     assert el.agent_tier("simons", rep) == "NEGATIVE"
     assert el.agent_tier("absent", rep) == "NEGATIVE"
     assert el.weight_prior("geometric", rep) > el.weight_prior("simons", rep)
     assert el.live_agents(rep) == ["geometric"]
+    # même replay fort, sans section live -> aucun agent éligible au RÉEL
+    rep_no_live = {"ranking": rep["ranking"]}
+    assert el.agent_tier("geometric", rep_no_live) == "PROBATION"
+    assert el.live_agents(rep_no_live) == []
 
 
 # ---------- durcissement réseau best-effort (sources de données, SANS réseau) ----------
