@@ -225,6 +225,33 @@ def build_state(symbol=None, tf="5m"):
         import liquidations
         return liquidations.fetch_liquidations(symbol)
 
+    def _accumulation():
+        """État de l'accumulation BTC (LECTURE SEULE : lit les registres + l'opportunité
+        courante via analyze, qui n'achète JAMAIS). Aucun ordre déclenché ici."""
+        import accumulation_engine as ae
+        out = {"autonomous_armed": _safe(ae._autonomous_live, False)}
+        real = _safe(lambda: json.loads(
+            (REPO_ROOT / "accumulation_real_ledger.json").read_text(encoding="utf-8")), {"buys": []})
+        buys = (real or {}).get("buys", [])
+        out["real_spent_usd"] = round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2)
+        out["real_n_buys"] = len(buys)
+        out["paper"] = _safe(ae.load_ledger, {})
+        a = _safe(lambda: ae.analyze("BTCUSDT"), {})        # analyze = lecture seule
+        out["opportunity"] = a.get("score")
+        out["dca_reco"] = a.get("amount_usd")
+        out["rsi"] = a.get("rsi")
+        out["fear_greed"] = a.get("fear_greed")
+        out["spot_free_usdt"] = _safe(lambda: __import__("spot_executor")._spot_free_usdt(), None)
+        return out
+
+    def _mandate():
+        import mandate
+        return mandate.summary()
+
+    def _edge():
+        import edge_ladder
+        return edge_ladder.all_tiers()
+
     stats = _safe(_stats, {})
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
@@ -242,6 +269,13 @@ def build_state(symbol=None, tf="5m"):
     state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
     # futurtester : projection coûteuse (Monte Carlo) -> cache long, best-effort
     state["future"] = _cached(f"fut:{symbol}", 300, lambda: _safe(lambda: _future(brain), {}))
+    # accumulation réelle + mandat + échelle d'edge (lecture seule, cachés)
+    state["accumulation"] = _cached("accum", 60, lambda: _safe(_accumulation, {}))
+    state["mandate"] = _cached("mandate", 60, lambda: _safe(_mandate, {}))
+    state["edge_ladder"] = _cached("edge", 60, lambda: _safe(_edge, {}))
+    # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
+    armed = (state["accumulation"] or {}).get("autonomous_armed")
+    state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")
     return state
 
 
