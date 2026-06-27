@@ -2438,6 +2438,29 @@ def test_execution_risk_gate_blocks_killswitch_and_caps():
          rm.KILL_FILE, rs.snapshot) = old
 
 
+def test_brain_validation_throttle():
+    import time
+    import brain_validation as bv
+    from pathlib import Path
+    old = bv.REPORT_FILE
+    try:
+        bv.REPORT_FILE = Path(old).with_name("validation_report_test.json")
+        if bv.REPORT_FILE.exists():
+            bv.REPORT_FILE.unlink()
+        assert bv._stale() is True                          # pas de rapport -> lancer
+        bv.REPORT_FILE.write_text("{}")
+        assert bv._stale(now=time.time()) is False          # rapport frais -> sauter
+        assert bv._stale(now=time.time() + 7 * 3600) is True  # > 6h -> relancer
+    finally:
+        try:
+            Path(bv.REPORT_FILE).unlink()
+        except Exception:
+            pass
+        bv.REPORT_FILE = old
+    import brain_cycle                                       # s'importe sans erreur
+    assert hasattr(brain_cycle, "main")
+
+
 def test_preorder_brain_gate_and_multiplier():
     import preorder_engine as pe
     # OPPOSITION avec conviction -> GATE (rejet)

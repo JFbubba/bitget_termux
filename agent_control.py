@@ -11,6 +11,10 @@ COMMANDS = [
         "command": ["python", "outcome_state.py"],
     },
     {
+        "name": "Apprentissage du cerveau (essaim) : journaliser votes + poids EARCP",
+        "command": ["python", "brain_cycle.py"],
+    },
+    {
         "name": "Scanner les marchés et journaliser les nouveaux signaux",
         "command": ["python", "journal_scanner.py"],
     },
@@ -45,6 +49,10 @@ COMMANDS = [
     {
         "name": "Envoyer le résumé compact et les signaux sur Telegram",
         "command": ["python", "telegram_notifier.py"],
+    },
+    {
+        "name": "Validation T5 des agents (auto-throttlée ~6h, advisory)",
+        "command": ["python", "brain_validation.py"],
     },
 ]
 
