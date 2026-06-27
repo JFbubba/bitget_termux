@@ -2564,9 +2564,12 @@ def test_accumulation_gate_advice():
 
 def test_accumulation_autonomous_double_lock():
     import accumulation_engine as ae
-    # DOUBLE verrou : l'autonome réel n'est PAS armé par défaut (ACCUM_AUTONOMOUS_LIVE=False),
-    # même si le verrou réel global (MANDATE_LIVE_ENABLED) est levé. Sécurité par défaut.
-    assert ae._autonomous_live() is False
+    # DOUBLE verrou (logique PURE, indép. de l'état VPS) : l'autonome réel exige les DEUX
+    # verrous (2e verrou ACCUM_AUTONOMOUS_LIVE ET verrou réel global MANDATE_LIVE_ENABLED).
+    assert ae._autonomous_decision(True, True) is True
+    assert ae._autonomous_decision(True, False) is False     # verrou réel global coupé
+    assert ae._autonomous_decision(False, True) is False     # 2e verrou non armé
+    assert ae._autonomous_decision(False, False) is False
 
 
 def test_mandate_leverage_cap_and_targeting():

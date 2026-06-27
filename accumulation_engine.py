@@ -219,6 +219,11 @@ def gate_advice(amount_usd, spot_balance):
         return None
 
 
+def _autonomous_decision(second_lock, live_armed):
+    """Double verrou (PUR, testable) : l'autonome réel exige les DEUX verrous."""
+    return bool(second_lock) and bool(live_armed)
+
+
 def _autonomous_live():
     """L'accumulation RÉELLE autonome est-elle armée ? DOUBLE verrou : le verrou réel
     global (MANDATE_LIVE_ENABLED) ET le verrou dédié ACCUM_AUTONOMOUS_LIVE. Les deux
@@ -233,7 +238,8 @@ def _autonomous_live():
     except Exception:
         pass
     env_on = os.getenv("ACCUM_AUTONOMOUS_LIVE", "").strip().lower() in ("1", "true", "yes", "on")
-    return (env_on or bool(_cfg("ACCUM_AUTONOMOUS_LIVE", False))) and _live_armed()
+    second = env_on or bool(_cfg("ACCUM_AUTONOMOUS_LIVE", False))
+    return _autonomous_decision(second, _live_armed())
 
 
 def _run_real(a, now):
