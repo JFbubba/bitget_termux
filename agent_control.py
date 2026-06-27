@@ -59,6 +59,10 @@ COMMANDS = [
         "command": ["python", "mandate.py"],
     },
     {
+        "name": "Pont Agent Hub <-> bot (lecture seule + garde de mandat)",
+        "command": ["python", "bitget_hub_bridge.py"],
+    },
+    {
         "name": "Accumulation BTC (spot DCA paper, ne vend jamais)",
         "command": ["python", "accumulation_engine.py", "BTCUSDT"],
     },

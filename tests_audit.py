@@ -2601,6 +2601,50 @@ def test_mandate_numeraire_session_macro():
     assert m.deployable_usd(1000, 10) == 900.0
 
 
+def test_hub_bridge_gate_blocks_when_locked_and_caps():
+    import bitget_hub_bridge as b
+    # verrou réel coupé (défaut) -> jamais autorisé, quelles que soient les autres règles
+    v = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                         "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000, 1010]})
+    assert v["allow"] is False and v["live"] is False
+    assert any("verrou" in x for x in v["blocks"])
+    # spot -> aucun levier
+    assert v["capped_leverage"] == 1.0
+    # réserve cash : une taille > déployable est signalée comme bloc
+    v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                          "equity_usd": 1000, "notional_usd": 950, "equity_curve": [1000]})
+    assert any("réserve cash" in x or "déployable" in x for x in v2["blocks"])
+
+
+def test_hub_bridge_futures_edge_and_drawdown_gates():
+    import bitget_hub_bridge as b
+    rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200}]}
+    # futures : même un agent au top reste bloqué tant que le verrou réel est coupé
+    v = b.gate_decision({"market": "futures", "symbol": "BTCUSDT", "side": "long",
+                         "agent": "geometric", "conviction": 0.9, "volatility": 0.02,
+                         "equity_usd": 1000, "notional_usd": 50, "equity_curve": [1000]}, report=rep)
+    assert v["allow"] is False
+    # halte drawdown détectée indépendamment
+    v2 = b.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                          "equity_usd": 1000, "notional_usd": 10,
+                          "equity_curve": [1000, 1100, 850]})  # -22.7%
+    assert any("drawdown" in x for x in v2["blocks"])
+    # format : un verdict bloqué ne produit jamais d'exécution
+    assert b.format_instruction({"market": "spot"}, v2).startswith("[BLOQUÉ]")
+
+
+def test_hub_bridge_read_only_helpers():
+    import bitget_hub_bridge as b
+    # available() honnête selon la présence de la CLI (which injecté)
+    assert b.available(which=lambda _: None) is False
+    assert b.available(which=lambda _: "/usr/bin/bgc") is True
+    # _read parse le JSON d'un runner injecté (aucun process réel)
+    parsed = b._read(["account", "account_get_balance"],
+                     runner=lambda a: '{"data":[{"usdtEquity":"1000"}]}')
+    assert parsed["data"][0]["usdtEquity"] == "1000"
+    assert b._read(["x"], runner=lambda a: "pas du json") is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
