@@ -2438,6 +2438,25 @@ def test_execution_risk_gate_blocks_killswitch_and_caps():
          rm.KILL_FILE, rs.snapshot) = old
 
 
+def test_preorder_brain_gate_and_multiplier():
+    import preorder_engine as pe
+    # OPPOSITION avec conviction -> GATE (rejet)
+    action, factor, _ = pe.brain_adjustment("LONG", "SHORT", 0.5)
+    assert action == "gate" and factor == 0.0
+    action, factor, _ = pe.brain_adjustment("SHORT", "LONG", 0.4)
+    assert action == "gate"
+    # ACCORD -> facteur croissant avec la conviction, borné [0.4, 1.0], jamais >1
+    _, f_lo, _ = pe.brain_adjustment("LONG", "LONG", 0.0)
+    _, f_hi, _ = pe.brain_adjustment("LONG", "LONG", 1.0)
+    assert 0.4 <= f_lo < f_hi <= 1.0
+    # NEUTRE -> taille réduite (0.6), jamais de gate
+    a, f_n, _ = pe.brain_adjustment("LONG", "NEUTRE", 0.9)
+    assert a == "scale" and f_n == 0.6
+    # opposition FAIBLE (< floor) -> pas de gate, taille réduite
+    a2, _, _ = pe.brain_adjustment("LONG", "SHORT", 0.1)
+    assert a2 == "scale"
+
+
 def test_preorder_portfolio_guards():
     import preorder_engine as pe
     import risk_state as rs
