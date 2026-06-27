@@ -47,6 +47,21 @@ def _limit(name, fallback):
     return float(_cfg(name, fallback))
 
 
+# Plafonds ABSOLUS en dur (defense-in-depth) : ni .env ni config ne peuvent les DÉPASSER.
+# La promesse documentée est 5 $/j ; ces murs laissent une MARGE délibérée pour un tuning
+# ponctuel (env/config peuvent ABAISSER le cap), mais bornent toute catastrophe (env ne peut
+# JAMAIS relever au-dessus). Motivation : écart du 27/06 (cap relevé en env -> 10 $ au lieu de
+# 5 $) ; un env var ne doit pas pouvoir desserrer un plafond d'argent réel sans revue/commit.
+ACCUM_ABS_MAX_PER_BUY_USDT = 25.0    # mur dur par achat (5x la promesse)
+ACCUM_ABS_MAX_DAILY_USDT = 25.0      # mur dur journalier (5x la promesse)
+
+
+def _capped(name, fallback, absolute):
+    """Plafond EFFECTIF = min(env > config > défaut, mur ABSOLU en dur). L'absolu ne peut
+    PAS être dépassé par env/config (mur réel infranchissable). PUR (lit l'env)."""
+    return min(_limit(name, fallback), float(absolute))
+
+
 # ---------- registre des achats RÉELS (plafond journalier) ----------
 
 def _load_real():
@@ -104,10 +119,10 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
     amt = float(amount_usdt or 0)
     if amt <= 0:
         reasons.append("montant ≤ 0")
-    cap = _limit("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)
+    cap = _capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, ACCUM_ABS_MAX_PER_BUY_USDT)
     if amt > cap:
         reasons.append(f"montant {amt} > plafond/achat {cap}")
-    daily_cap = _limit("ACCUM_REAL_MAX_DAILY_USDT", 5.0)
+    daily_cap = _capped("ACCUM_REAL_MAX_DAILY_USDT", 5.0, ACCUM_ABS_MAX_DAILY_USDT)
     sp = today_spent() if spent is None else float(spent)
     if sp + amt > daily_cap:
         reasons.append(f"plafond journalier dépassé ({sp}+{amt} > {daily_cap})")

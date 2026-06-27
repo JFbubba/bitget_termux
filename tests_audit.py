@@ -3080,6 +3080,35 @@ def test_hub_bridge_parse_assets_shapes():
     assert b._parse_assets({"ok": False, "error": {"code": "400"}}) is None
 
 
+def test_spot_executor_absolute_cap_ceiling():
+    import os
+    import spot_executor as se
+    # DEFENSE-IN-DEPTH (ecart du 27/06) : un override env NE PEUT PAS relever le cap reel
+    # au-dela du mur absolu en dur. _capped = min(env>config>defaut, absolu).
+    keys = ("ACCUM_REAL_MAX_PER_BUY_USDT", "ACCUM_REAL_MAX_DAILY_USDT")
+    saved = {k: os.environ.get(k) for k in keys}
+    try:
+        os.environ["ACCUM_REAL_MAX_PER_BUY_USDT"] = "1000"     # tentative de desserrage
+        os.environ["ACCUM_REAL_MAX_DAILY_USDT"] = "1000"
+        # le cap effectif reste plafonne au mur absolu (25), pas 1000
+        assert se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT) == 25.0
+        # un achat de 30$ depasse le mur absolu -> BLOQUE malgre env=1000
+        assert se.guards(30.0, balance=10000, spent=0, live=True, kill=False)[0] is False
+        # le scenario du 27/06 (10$ cumule) reste DANS la marge deliberee (<=25) -> autorise
+        assert se.guards(5.0, balance=10000, spent=5.0, live=True, kill=False)[0] is True
+        # mais au-dela du mur journalier absolu (25), bloque meme avec env=1000
+        assert se.guards(10.0, balance=10000, spent=20.0, live=True, kill=False)[0] is False
+        # env peut ABAISSER le cap (jamais relever) : env=2 -> cap effectif 2
+        os.environ["ACCUM_REAL_MAX_PER_BUY_USDT"] = "2"
+        assert se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT) == 2.0
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_spot_executor_guards_and_dry():
     import spot_executor as se
     # la commande est un ACHAT spot (jamais vente) ; tableau JSON `orders`
