@@ -897,6 +897,28 @@ spot_place_order --help` ; (2) un achat minime confirmé (~5$) ; (3) vérifier l
 
 ---
 
+## §32 — Outils cherry-pickés (sans frameworks lourds)
+Sur demande « cherche des outils utiles / intègre tes recommandations », on a repris
+les IDÉES utiles de l'écosystème (CCXT, lib `arch`) SANS embarquer les frameworks lourds
+ni violer la contrainte « déterministe, pas de réseaux de neurones ».
+
+- **`fair_price.py`** (idée CCXT, sans la lib) : prix de RÉFÉRENCE cross-exchange =
+  médiane de Binance/Bybit/OKX (réutilise les fetchers keyless de `arbitrage.py`),
+  + premium/discount Bitget. Garde « MEILLEUR PRIX » : `is_fair_to_buy` → l'accumulation
+  RÉELLE autonome n'achète PAS si Bitget cote >`ACCUM_MAX_PREMIUM_PCT` (0.30%) au-dessus
+  du marché (évite d'acheter un pic propre à Bitget). Surfacé dans le dashboard.
+- **`volatility.py`** (idée lib `arch`, en pur numpy) : EWMA RiskMetrics + GARCH(1,1)
+  variance-targeting → vol CONDITIONNELLE (réactive aux chocs). Branchée dans
+  `mandate.leverage_for(conviction, closes)` : vol-targeting du levier à partir des prix,
+  toujours borné par le mur ×5.
+- Écartés sciemment : FinRL/Qlib/TradeMaster (réseaux de neurones), Freqtrade/Jesse/
+  Nautilus/Lean (réécriture d'archi), SaaS fermés, brokers actions (hors Bitget). Déjà
+  couvert maison : HRP, López de Prado (DSR/PSR/purged WFA), Black-Scholes, lightweight-charts.
+- Prochain (chemin d'ordre RÉEL, à valider sur VPS) : exécution maker/limit protégée du
+  slippage dans `spot_executor` (gain de frais/slippage sur l'accumulation).
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

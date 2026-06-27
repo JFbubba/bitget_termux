@@ -241,6 +241,8 @@ def build_state(symbol=None, tf="5m"):
         out["dca_reco"] = a.get("amount_usd")
         out["rsi"] = a.get("rsi")
         out["fear_greed"] = a.get("fear_greed")
+        out["premium_pct"] = a.get("premium_pct")           # premium Bitget vs médiane marché
+        out["fair"] = a.get("fair")
         out["spot_free_usdt"] = _safe(lambda: __import__("spot_executor")._spot_free_usdt(), None)
         return out
 

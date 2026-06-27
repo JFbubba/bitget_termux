@@ -165,6 +165,14 @@ def _fear_greed():
         return None
 
 
+def _fair(symbol):
+    try:
+        import fair_price as fp
+        return fp.fair_value(symbol)
+    except Exception:
+        return {}
+
+
 def analyze(symbol="BTCUSDT"):
     """Évalue l'opportunité d'accumulation + le montant DCA recommandé. Best-effort."""
     closes = _closes(symbol)
@@ -173,9 +181,11 @@ def analyze(symbol="BTCUSDT"):
     fg = _fear_greed()
     opp = opportunity_score(closes, fg)
     amt = dca_amount(opp["score"])
+    fv = _fair(symbol)               # prix de référence cross-exchange (meilleur prix)
     return {"symbol": symbol.upper(), "score": opp["score"], "parts": opp.get("parts", {}),
             "rsi": opp.get("rsi"), "fear_greed": fg, "price": opp.get("price"),
-            "amount_usd": amt, "note": f"opportunité {opp['score']:.2f} -> DCA {amt}$ (paper)"}
+            "amount_usd": amt, "premium_pct": fv.get("premium_pct"), "fair": fv.get("fair"),
+            "note": f"opportunité {opp['score']:.2f} -> DCA {amt}$"}
 
 
 def _live_armed():
@@ -251,13 +261,22 @@ def _run_real(a, now):
     last_real = buys[-1]["ts"] if buys else None
     amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0)))
     a["mode"] = "RÉEL (auto)"
-    if a.get("price") and amount > 0 and should_buy(last_real, now):
+    # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché
+    fair_ok = True
+    try:
+        import fair_price as fp
+        fair_ok = fp.is_fair_to_buy(a.get("premium_pct"), _cfg("ACCUM_MAX_PREMIUM_PCT", 0.30))
+    except Exception:
+        pass
+    if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
         res = se.execute(amount, confirm=True, now=now)
         a["bought"] = bool(res.get("executed"))
         a["real_exec"] = {"executed": res.get("executed"), "reasons": res.get("reasons")}
         buys = se._load_real().get("buys", [])
     else:
         a["bought"] = False
+        if not fair_ok:
+            a["skip_reason"] = f"premium Bitget {a.get('premium_pct')}% > max -> on n'accumule pas au-dessus du marché"
     a["ledger"] = {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
                    "n_buys": len(buys)}
     return a
@@ -306,6 +325,10 @@ def build_report(a):
         advis = "avis mandat indisponible"
     bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
                 else "Solde spot libre : non lu\n")
+    p = a.get("premium_pct")
+    prem_line = (f"Prix vs marché : Bitget {p:+.2f}% vs médiane cross-exchange\n"
+                 if p is not None else "")
+    skip_line = (f"⚠ {a.get('skip_reason')}\n" if a.get("skip_reason") else "")
     if "real_spent_usd" in led:
         cumul = (f"Cumul RÉEL : {led.get('real_spent_usd', 0)} $ investis "
                  f"({led.get('n_buys', 0)} achats)")
@@ -314,7 +337,7 @@ def build_report(a):
                  f"{led.get('avg_price', 0)} $ ({led.get('n_buys', 0)} achats)")
     return ("=== ACCUMULATION BTC (spot DCA) ===\n"
             f"Mode : {mode}\n"
-            + bal_line +
+            + bal_line + prem_line + skip_line +
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
             f"DCA recommandé : {a.get('amount_usd')} $  ({advis})  "

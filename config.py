@@ -72,6 +72,10 @@ ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle
 # À lever MANUELLEMENT après quelques achats manuels d'observation.
 ACCUM_AUTONOMOUS_LIVE = False
 
+# Garde « meilleur prix » : n'accumule PAS si Bitget cote au-dessus de la médiane
+# cross-exchange de plus de ce % (premium). Évite d'acheter sur un pic propre à Bitget.
+ACCUM_MAX_PREMIUM_PCT = 0.30
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21

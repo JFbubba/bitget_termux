@@ -2572,6 +2572,41 @@ def test_accumulation_autonomous_double_lock():
     assert ae._autonomous_decision(False, False) is False
 
 
+def test_fair_price_median_and_premium():
+    import fair_price as fp
+    assert fp.median([100, 102, 98]) == 100
+    assert fp.median([100, 102]) == 101
+    assert fp.median([]) is None
+    assert fp.premium_pct(101, 100) == 1.0
+    assert fp.premium_pct(99, 100) == -1.0
+    assert fp.premium_pct(None, 100) is None
+    # garde « meilleur prix » : bloque au-delà du seuil, jamais faute de données
+    assert fp.is_fair_to_buy(0.1, 0.30) is True
+    assert fp.is_fair_to_buy(0.5, 0.30) is False
+    assert fp.is_fair_to_buy(None, 0.30) is True
+
+
+def test_volatility_estimators():
+    import math
+    import volatility as vol
+    series = [100 * math.exp(0.01 * math.sin(i) + 0.002 * i) for i in range(60)]
+    assert vol.garch11_vol(series) > 0          # vol conditionnelle GARCH(1,1)
+    assert vol.ewma_vol(series) > 0
+    assert vol.conditional_vol(series) > 0
+    assert vol.garch11_vol([100, 101]) is None  # trop court
+    flat = vol.conditional_vol([100.0] * 30)    # série constante -> pas de vol
+    assert flat is None or flat >= 0
+
+
+def test_mandate_leverage_for_garch_bounded():
+    import math
+    import mandate as m
+    series = [100 * math.exp(0.01 * math.sin(i)) for i in range(60)]
+    cap = m.max_leverage()
+    assert 1.0 <= m.leverage_for(1.0, series) <= cap   # vol-targeting TOUJOURS borné
+    assert m.leverage_for(0.0, series) == 1.0          # aucune conviction -> pas de levier
+
+
 def test_mandate_leverage_cap_and_targeting():
     import mandate as m
     cap = m.max_leverage()

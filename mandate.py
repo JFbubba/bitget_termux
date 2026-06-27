@@ -62,6 +62,23 @@ def target_leverage(conviction, volatility, base_vol=0.02):
     return round(max(1.0, min(cap, lev)), 2)
 
 
+def conditional_volatility(closes):
+    """Vol CONDITIONNELLE (GARCH(1,1), repli EWMA/écart-type) pour le vol-targeting.
+    Best-effort -> None si indisponible. Réactive aux chocs récents (mieux qu'un σ plat)."""
+    try:
+        import volatility
+        return volatility.conditional_vol(closes)
+    except Exception:
+        return None
+
+
+def leverage_for(conviction, closes, base_vol=0.02):
+    """Levier visé À PARTIR DES PRIX : vol conditionnelle GARCH -> target_leverage borné
+    par le mur. Si la vol n'est pas calculable, retombe sur base_vol. PUR (best-effort)."""
+    vol = conditional_volatility(closes)
+    return target_leverage(conviction, vol if vol and vol > 0 else base_vol, base_vol=base_vol)
+
+
 # ---------- contrainte de drawdown (la limite qui rend « MAX » cohérent) ----------
 
 def drawdown_from_peak(equity_curve):

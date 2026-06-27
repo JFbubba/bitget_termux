@@ -63,6 +63,8 @@ FILES_TO_SCAN = [
     "mandate.py",
     "macro_regime.py",
     "edge_ladder.py",
+    "fair_price.py",
+    "volatility.py",
     "accumulation_engine.py",
     "spot_executor.py",
     "account_equity.py",
