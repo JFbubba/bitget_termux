@@ -1090,6 +1090,46 @@ non committés ; réutiliser `rank_pure_agents_xs` (étalon committé) pour tout
 
 ---
 
+## §37 — Horizons COURTS (15m, 5m) + microstructure : confirmation du résultat NÉGATIF
+
+Suite §36, deux directions demandées : (1) microstructure comme source de signal, (2) horizons courts.
+
+**Contrainte de données (microstructure).** La vraie microstructure (carnet L2 + tape) est
+**LIVE-ONLY** : Bitget n'expose pas d'historique (`merge-depth`/`fills` = snapshot instantané ;
+`book_collector.py`/`.microstructure_buffer.json` ne gardent ~600 snapshots ≈ 10 min). **Non
+backtestable** sur panel gelé. Seuls des **proxys dérivés des bougies** (Amihud, Kyle-λ, entropie
+d'order-flow `regime_features`, biais de volume, vol de range) sont testables — et ils sont inclus
+comme famille dédiée. La vraie L2/tape ne peut être évaluée que par **journalisation live qui
+s'accumule** (chemin 2), sans verdict immédiat.
+
+**Méthode (identique §36, étalon transversal anti-data-mining).** Panels courts gelés (15 symboles
+× 1000 barres) : 15m (~250 h, horizon 4 = 1 h) et 5m (~83 h, horizon 6 = 30 min). 7 familles dont
+`microstructure_liquidity`. Sélection IS-only → vérif adverse OOS → déflation multiple-testing globale.
+
+**Résultats — négatifs, cohérents avec §35/§36 :**
+- **15m** : 180 candidats. 2 survivants (`vol_regime` = expansion de range × direction), OOS Sharpe
+  0.05–0.07 ; sous déflation (180 essais, SR0_max 0.15) → DSR ≈ 0.02–0.07. **Aucun ne passe.**
+- **5m** : 173 candidats. **0 survivant** (aucun ne franchit même la vérif adverse OOS : la reversion
+  d'accélération retombe à ic_t 1.43, le suivi de courbure s'effondre OOS).
+- **microstructure_liquidity** : 21 (15m) + 27 (5m) variants → **0 survivant** aux deux horizons.
+  Les proxys bougies (sans vrai L2/tape) n'ont pas d'edge.
+
+**Cause structurelle (le vrai mur).** À TOUS les horizons (5m/15m/1h), `rho` transversal ≈ 0.17–0.25 :
+le crypto bouge en *common-mode* (beta commun). Les paris directionnels ne sont donc pas
+indépendants → le `n` effectif est plafonné (~350–600 sur 1600–2400 nominal) → les t-stats honnêtes
+plafonnent ~1.5, sous la barre. Les signaux flatteurs en IS s'inversent/s'effondrent en OOS (régime).
+Le signe « gagnant » bascule avec l'horizon (courbure : fade à 1 h, suivi à 30 min) = non robuste.
+
+**Bilan recherche d'alpha (§35→§37).** ~554 candidats déterministes, 8 familles, 3 horizons : **aucun
+alpha directionnel robuste** ne franchit la barre honnête. Quasi-touches notées mais non promues :
+saisonnalité horaire (réelle, OOS-cohérente, mais panel 5m trop court ~3,5 j → à re-tester sur ≥30 j),
+et reversion court-terme (réelle mais common-mode). Frontières restantes : (a) vraie microstructure
+L2/tape via collecteur live qui accumule (chemin 2, pas de verdict instantané) ; (b) saisonnalité sur
+historique long ; (c) **acter que le directionnel pur n'a pas d'edge** → futures reste paper, l'autonomie
+se concentre sur l'accumulation spot (déjà réelle/cappée, ne suppose aucun edge directionnel).
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
