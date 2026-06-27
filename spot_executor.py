@@ -155,12 +155,13 @@ def _run(cmd, runner=None):
         return None
 
 
-def execute(amount_usdt, confirm=False, runner=None, now=None):
+def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None):
     """Achat spot BTC réel SI confirm=True ET toutes les gardes passent. Sinon DRY
-    (imprime la commande, n'exécute rien). Retourne un dict de résultat."""
+    (imprime la commande, n'exécute rien). Retourne un dict de résultat. balance/spent
+    injectables (tests hermétiques) ; sinon lus en réel."""
     now = time.time() if now is None else now
-    bal = _spot_free_usdt()
-    ok, reasons = guards(amount_usdt, balance=bal)
+    bal = balance if balance is not None else _spot_free_usdt()
+    ok, reasons = guards(amount_usdt, balance=bal, spent=spent)
     oid = f"accbtc{int(now * 1000)}"
     cmd = build_command(amount_usdt, oid)
     preview = "bgc " + " ".join(cmd)

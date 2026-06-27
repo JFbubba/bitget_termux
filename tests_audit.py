@@ -2735,11 +2735,12 @@ def test_spot_executor_guards_and_dry():
     # today_spent : agrège seulement le jour courant (ledger injecté)
     led = {"buys": [{"ts": 100000, "amount_usdt": 10}, {"ts": 100000 + 86400, "amount_usdt": 7}]}
     assert se.today_spent(now=100000, ledger=led) == 10
-    # DRY par défaut : aucun ordre, même avec un runner qui « réussirait »
-    r = se.execute(5.0, confirm=False, runner=lambda c: '{"ok":true}', now=1_000_000)
+    # DRY par défaut : aucun ordre. État injecté (balance/spent) -> hermétique, sans réseau
+    r = se.execute(5.0, confirm=False, balance=100, spent=0, now=1_000_000)
     assert r["executed"] is False and r.get("dry") is True
     # confirm + réponse d'ERREUR -> pas d'exécution réussie (aucun achat enregistré)
-    r2 = se.execute(5.0, confirm=True, runner=lambda c: '{"ok":false,"error":{"code":"40762"}}', now=1_000_000)
+    r2 = se.execute(5.0, confirm=True, runner=lambda c: '{"ok":false,"error":{"code":"40762"}}',
+                    balance=100, spent=0, now=1_000_000)
     assert r2["executed"] is False
     # lecture de l'USDT LIBRE (pas la valeur agrégée) : c'est ce solde qui finance l'achat
     res = {"data": [{"coin": "USDT", "available": "20.5", "frozen": "0"},
