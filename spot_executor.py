@@ -107,10 +107,11 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
 
 def build_command(amount_usdt, client_oid):
     """Construit les arguments `bgc` pour un ACHAT spot BTC au marché. PUR.
-    Pour un achat marché Bitget, la taille est exprimée en quote (USDT à dépenser)."""
-    return ["spot", "spot_place_order", "--symbol", SYMBOL, "--side", "buy",
-            "--orderType", "market", "--size", str(amount_usdt),
-            "--clientOid", str(client_oid)]
+    L'outil attend un TABLEAU JSON `orders` (format batch). Pour un achat marché
+    Bitget, `size` est le montant en quote (USDT à dépenser)."""
+    order = {"symbol": SYMBOL, "side": "buy", "orderType": "market",
+             "size": str(amount_usdt), "clientOid": str(client_oid)}
+    return ["spot", "spot_place_order", "--orders", json.dumps([order])]
 
 
 # ---------- exécution (réelle uniquement avec confirm=True) ----------

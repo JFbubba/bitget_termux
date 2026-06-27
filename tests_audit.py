@@ -2711,10 +2711,13 @@ def test_hub_bridge_parse_assets_shapes():
 
 def test_spot_executor_guards_and_dry():
     import spot_executor as se
-    # la commande est un ACHAT spot (jamais vente) ; on évite les littéraux sensibles
+    # la commande est un ACHAT spot (jamais vente) ; tableau JSON `orders`
+    import json as _json
     cmd = se.build_command(5.0, "oid1")
     assert cmd[0] == "spot" and cmd[1].startswith("spot_") and cmd[1].endswith("order")
-    assert cmd[cmd.index("--side") + 1] == "buy" and "--symbol" in cmd
+    assert "--orders" in cmd
+    orders = _json.loads(cmd[cmd.index("--orders") + 1])
+    assert orders[0]["symbol"] == "BTCUSDT" and orders[0]["side"] == "buy"   # achat seul
     # gardes DURS (état injecté -> pur) : verrou levé (live=True), kill inactif
     assert se.guards(5.0, balance=100, spent=0, live=True, kill=False)[0] is True
     assert se.guards(5.0, balance=100, spent=0, live=False, kill=False)[0] is False   # verrou
