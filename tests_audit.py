@@ -348,13 +348,19 @@ def test_assistant_agent_loop():
                 {"type": "tool_use", "id": "t1", "name": "get_fear_greed", "input": {}}]}
         return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Réponse finale."}]}
 
+    # Force le chemin Anthropic (mocké) : sinon, si une clé OpenAI/Groq est dans
+    # .env (cas du VPS), agent.run() prend openai_chat et appelle l'API RÉELLE.
+    # Les tests doivent rester hermétiques (aucun appel réseau, aucune clé).
     orig_chat, orig_dispatch = llm_client.anthropic_chat, tools.dispatch
+    orig_use_openai = llm_client.use_openai
     llm_client.anthropic_chat = fake_chat
+    llm_client.use_openai = lambda: False
     tools.dispatch = lambda name, args: "RESULT_OK"
     try:
         text, msgs = agent.run("test question", use_memory=False)
     finally:
         llm_client.anthropic_chat = orig_chat
+        llm_client.use_openai = orig_use_openai
         tools.dispatch = orig_dispatch
     assert text == "Réponse finale." and seq["n"] == 2
     assert any(
