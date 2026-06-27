@@ -2562,6 +2562,13 @@ def test_accumulation_gate_advice():
     assert g2["would_if_armed"] is False and g2["blocks"]
 
 
+def test_accumulation_autonomous_double_lock():
+    import accumulation_engine as ae
+    # DOUBLE verrou : l'autonome réel n'est PAS armé par défaut (ACCUM_AUTONOMOUS_LIVE=False),
+    # même si le verrou réel global (MANDATE_LIVE_ENABLED) est levé. Sécurité par défaut.
+    assert ae._autonomous_live() is False
+
+
 def test_mandate_leverage_cap_and_targeting():
     import mandate as m
     cap = m.max_leverage()

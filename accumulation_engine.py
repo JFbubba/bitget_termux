@@ -219,22 +219,52 @@ def gate_advice(amount_usd, spot_balance):
         return None
 
 
-def run(symbol="BTCUSDT", now=None):
-    """Un cycle d'accumulation : si l'intervalle DCA est écoulé, journalise l'achat
-    du montant recommandé. PAPER par défaut (verrou mandat). Best-effort.
+def _autonomous_live():
+    """L'accumulation RÉELLE autonome est-elle armée ? DOUBLE verrou : le verrou réel
+    global (MANDATE_LIVE_ENABLED) ET le verrou dédié ACCUM_AUTONOMOUS_LIVE. Les deux
+    doivent être True pour qu'un achat réel parte tout seul."""
+    return bool(_cfg("ACCUM_AUTONOMOUS_LIVE", False)) and _live_armed()
 
-    Tant que le mandat n'arme pas le réel (MANDATE_LIVE_ENABLED + MCP connecté),
-    l'achat est PAPER (registre de simulation). Quand le réel sera armé, l'exécution
-    déléguera au MCP Bitget — aucun ordre n'est jamais passé depuis ce module."""
+
+def _run_real(a, now):
+    """Cycle d'accumulation RÉELLE autonome (double verrou armé). Achat via spot_executor
+    (toutes ses gardes : USDT libre, kill-switch, plafonds, idempotence), throttlé sur le
+    registre RÉEL (1/jour), montant plafonné. Ne passe par AUCUN ordre en dur ici."""
+    import spot_executor as se
+    buys = se._load_real().get("buys", [])
+    last_real = buys[-1]["ts"] if buys else None
+    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0)))
+    a["mode"] = "RÉEL (auto)"
+    if a.get("price") and amount > 0 and should_buy(last_real, now):
+        res = se.execute(amount, confirm=True, now=now)
+        a["bought"] = bool(res.get("executed"))
+        a["real_exec"] = {"executed": res.get("executed"), "reasons": res.get("reasons")}
+        buys = se._load_real().get("buys", [])
+    else:
+        a["bought"] = False
+    a["ledger"] = {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
+                   "n_buys": len(buys)}
+    return a
+
+
+def run(symbol="BTCUSDT", now=None):
+    """Un cycle d'accumulation. PAPER par défaut ; RÉEL autonome seulement si le DOUBLE
+    verrou est armé (MANDATE_LIVE_ENABLED + ACCUM_AUTONOMOUS_LIVE). Best-effort.
+
+    En réel : achat spot BTC via spot_executor (gardes : USDT libre, kill-switch,
+    plafond/achat, plafond journalier, idempotence), throttlé 1/jour. Sinon paper."""
     a = analyze(symbol)
-    led = load_ledger()
     now = time.time() if now is None else now
     a["live_armed"] = _live_armed()
-    # Ce module NE PASSE PAS d'ordre réel (test-first) : il reste paper même verrou levé.
-    # L'achat réel se fait manuellement via spot_executor.py jusqu'à câblage autonome.
-    a["mode"] = "paper"
     a["spot_balance"] = real_spot_balance()
     a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
+
+    if _autonomous_live():
+        return _run_real(a, now)
+
+    # --- chemin PAPER (défaut) ---
+    led = load_ledger()
+    a["mode"] = "paper"
     if a.get("price") and should_buy(led.get("last_buy_ts"), now):
         led = apply_buy(led, a["amount_usd"], a["price"], ts=now, score=a["score"])
         save_ledger(led)
@@ -258,17 +288,22 @@ def build_report(a):
             advis = "bloqué par le mandat : " + " ; ".join(g.get("blocks", []))
     else:
         advis = "avis mandat indisponible"
-    bal_line = (f"Solde spot réel : {round(bal, 2)} USDT\n" if bal is not None
-                else "Solde spot réel : non lu (paper)\n")
+    bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
+                else "Solde spot libre : non lu\n")
+    if "real_spent_usd" in led:
+        cumul = (f"Cumul RÉEL : {led.get('real_spent_usd', 0)} $ investis "
+                 f"({led.get('n_buys', 0)} achats)")
+    else:
+        cumul = (f"Cumul paper : {led.get('total_btc', 0)} BTC · prix moyen "
+                 f"{led.get('avg_price', 0)} $ ({led.get('n_buys', 0)} achats)")
     return ("=== ACCUMULATION BTC (spot DCA) ===\n"
-            f"Mode : {mode}  (verrou mandat — réel via MCP uniquement)\n"
+            f"Mode : {mode}\n"
             + bal_line +
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
             f"DCA recommandé : {a.get('amount_usd')} $  ({advis})  "
             f"{('-> ACHAT ' + mode + ' journalisé') if a.get('bought') else '(intervalle non écoulé)'}\n"
-            f"Cumul : {led.get('total_btc', 0)} BTC · prix moyen {led.get('avg_price', 0)} $ "
-            f"({led.get('n_buys', 0)} achats)\n"
+            + cumul + "\n"
             "Spot, on ne vend jamais (hold). EARN: piste future. VERDICT: SAFE")
 
 

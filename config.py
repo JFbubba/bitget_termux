@@ -64,8 +64,13 @@ MANDATE_MACRO_BLACKOUT_POST_MIN = 15       # minutes APRÈS
 MANDATE_LIVE_ENABLED = True
 
 # Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
-ACCUM_REAL_MAX_PER_BUY_USDT = 50.0         # plafond dur par achat réel
-ACCUM_REAL_MAX_DAILY_USDT = 50.0           # plafond dur journalier (anti-boucle)
+ACCUM_REAL_MAX_PER_BUY_USDT = 5.0          # plafond dur par achat réel
+ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle)
+
+# 2e verrou : accumulation AUTONOME réelle (DCA auto dans le cycle). DOUBLE verrou avec
+# MANDATE_LIVE_ENABLED. False = l'accumulation reste paper même verrou global levé.
+# À lever MANUELLEMENT après quelques achats manuels d'observation.
+ACCUM_AUTONOMOUS_LIVE = False
 
 # Stratégie
 EMA_FAST = 9
