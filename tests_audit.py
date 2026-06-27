@@ -2552,6 +2552,16 @@ def test_accumulation_rsi_and_ledger():
     assert led["avg_price"] == 33333.33 and led["n_buys"] == 2          # jamais de vente
 
 
+def test_accumulation_gate_advice():
+    import accumulation_engine as ae
+    # petit DCA sur solde réel : seul le verrou paper bloque -> passerait si armé
+    g = ae.gate_advice(20.0, 173.0)
+    assert g is not None and g["would_if_armed"] is True and g["live"] is False
+    # montant > capital déployable : VRAI blocage (réserve cash) -> ne passerait pas
+    g2 = ae.gate_advice(900.0, 173.0)
+    assert g2["would_if_armed"] is False and g2["blocks"]
+
+
 def test_mandate_leverage_cap_and_targeting():
     import mandate as m
     cap = m.max_leverage()

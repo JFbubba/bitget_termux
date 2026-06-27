@@ -189,6 +189,36 @@ def _live_armed():
         return False
 
 
+def real_spot_balance():
+    """Solde SPOT réel (USDT) via le pont Agent Hub, en lecture seule. None si indispo."""
+    try:
+        import bitget_hub_bridge as hub
+        snap = hub.account_snapshot()
+        if snap:
+            acc = snap.get("accounts") or {}
+            v = acc.get("spot")
+            return v if v is not None else snap.get("available_usdt")
+    except Exception:
+        pass
+    return None
+
+
+def gate_advice(amount_usd, spot_balance):
+    """Avis ADVISORY du mandat sur l'achat DCA (jamais d'ordre). Distingue le verrou
+    paper des vrais blocages. Retourne {verdict, would_if_armed, blocks, live} ou None."""
+    try:
+        import bitget_hub_bridge as hub
+        eq = spot_balance if spot_balance is not None else _cfg("MANDATE_CAPITAL_USDT", 1000.0)
+        v = hub.gate_decision({"market": "spot", "symbol": "BTCUSDT", "side": "buy",
+                               "equity_usd": eq, "notional_usd": amount_usd or 0,
+                               "equity_curve": [eq]})
+        non_lock = [b for b in v.get("blocks", []) if "verrou" not in b.lower()]
+        return {"verdict": v.get("verdict"), "would_if_armed": not non_lock,
+                "blocks": non_lock, "live": v.get("live")}
+    except Exception:
+        return None
+
+
 def run(symbol="BTCUSDT", now=None):
     """Un cycle d'accumulation : si l'intervalle DCA est écoulé, journalise l'achat
     du montant recommandé. PAPER par défaut (verrou mandat). Best-effort.
@@ -201,6 +231,8 @@ def run(symbol="BTCUSDT", now=None):
     now = time.time() if now is None else now
     a["live_armed"] = _live_armed()
     a["mode"] = "RÉEL (via MCP)" if a["live_armed"] else "paper"
+    a["spot_balance"] = real_spot_balance()
+    a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
     if a.get("price") and should_buy(led.get("last_buy_ts"), now):
         led = apply_buy(led, a["amount_usd"], a["price"], ts=now, score=a["score"])
         save_ledger(led)
@@ -214,11 +246,24 @@ def run(symbol="BTCUSDT", now=None):
 def build_report(a):
     led = a.get("ledger", {})
     mode = a.get("mode", "paper")
+    bal = a.get("spot_balance")
+    g = a.get("gate") or {}
+    if g:
+        if g.get("would_if_armed"):
+            advis = "passerait le mandat (seul le verrou paper bloque)" if not g.get("live") \
+                else "AUTORISÉ par le mandat"
+        else:
+            advis = "bloqué par le mandat : " + " ; ".join(g.get("blocks", []))
+    else:
+        advis = "avis mandat indisponible"
+    bal_line = (f"Solde spot réel : {round(bal, 2)} USDT\n" if bal is not None
+                else "Solde spot réel : non lu (paper)\n")
     return ("=== ACCUMULATION BTC (spot DCA) ===\n"
             f"Mode : {mode}  (verrou mandat — réel via MCP uniquement)\n"
+            + bal_line +
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
-            f"DCA recommandé : {a.get('amount_usd')} $  "
+            f"DCA recommandé : {a.get('amount_usd')} $  ({advis})  "
             f"{('-> ACHAT ' + mode + ' journalisé') if a.get('bought') else '(intervalle non écoulé)'}\n"
             f"Cumul : {led.get('total_btc', 0)} BTC · prix moyen {led.get('avg_price', 0)} $ "
             f"({led.get('n_buys', 0)} achats)\n"
