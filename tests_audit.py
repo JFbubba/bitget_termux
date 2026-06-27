@@ -2552,6 +2552,55 @@ def test_accumulation_rsi_and_ledger():
     assert led["avg_price"] == 33333.33 and led["n_buys"] == 2          # jamais de vente
 
 
+def test_mandate_leverage_cap_and_targeting():
+    import mandate as m
+    cap = m.max_leverage()
+    # le levier visé est TOUJOURS borné par le mur, plancher 1, jamais au-dessus du cap
+    assert m.target_leverage(1.0, 0.001) <= cap          # conviction max, vol basse -> proche du cap
+    assert m.target_leverage(0.0, 0.05) == 1.0           # aucune conviction -> pas de levier
+    assert m.target_leverage(1.0, 1e-9) <= cap           # vol ~0 ne casse pas le mur
+    assert all(1.0 <= m.target_leverage(c, 0.02) <= cap for c in (0.0, 0.3, 0.7, 1.0))
+
+
+def test_mandate_drawdown_halt():
+    import mandate as m
+    assert m.drawdown_from_peak([100, 110, 99]) == round((110 - 99) / 110, 4)
+    halt, dd = m.drawdown_halt([100, 110, 85], max_dd_pct=20.0)   # -22.7% depuis 110
+    assert halt is True and dd > 20.0
+    no_halt, dd2 = m.drawdown_halt([100, 105, 98], max_dd_pct=20.0)
+    assert no_halt is False and dd2 < 20.0
+
+
+def test_mandate_futures_edge_gate():
+    import mandate as m
+    rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200},
+                       {"agent": "savant", "dsr": 0.50, "n": 200},
+                       {"agent": "simons", "dsr": 0.95, "n": 40}]}   # DSR ok mais n trop faible
+    # verrou réel coupé -> personne, même avec un bon DSR
+    assert m.futures_live_allowed("geometric", rep) is False
+    # logique de la porte indépendamment du verrou (dsr ET échantillon)
+    assert m._passes_edge("geometric", rep, 0.90, 120) is True
+    assert m._passes_edge("savant", rep, 0.90, 120) is False        # DSR insuffisant
+    assert m._passes_edge("simons", rep, 0.90, 120) is False        # échantillon insuffisant
+    assert m._passes_edge("absent", rep, 0.90, 120) is False
+
+
+def test_mandate_numeraire_session_macro():
+    import mandate as m
+    # rotation hors USD quand le dollar chute sous le seuil
+    assert m.numeraire_recommendation(-5.0, ["BTCUSDT"], -3.0)["hold"] == "REFUGE"
+    assert m.numeraire_recommendation(-1.0, ["BTCUSDT"], -3.0)["hold"] == "USDT"
+    # fenêtres de session
+    assert m.in_active_session(8, [[7, 10]]) is True
+    assert m.in_active_session(12, [[7, 10]]) is False
+    # black-out macro autour d'une annonce à t=10000 (pre 30min, post 15min)
+    assert m.macro_blackout(10000 - 20 * 60, [10000], 30, 15) is True
+    assert m.macro_blackout(10000 + 20 * 60, [10000], 30, 15) is False
+    # sizing : risque/trade et réserve cash
+    assert m.risk_per_trade_usd(1000, 0.75) == 7.5
+    assert m.deployable_usd(1000, 10) == 900.0
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

@@ -811,6 +811,39 @@ qu'après un track-record paper documenté ET la levée manuelle de `DRY_RUN_ONL
 
 ---
 
+## §29 — Mandat de gestion encodé (`mandate.py`) + mise en réel par paliers
+Décision propriétaire : bot autonome, objectif « le plus possible » SOUS contrainte de
+drawdown (MDD 15-25 %), levier plafonné ×5 ajusté par le bot, capital 1000 USDT, marchés
+crypto Bitget, numéraire dynamique (sortir de l'USD s'il faiblit), « au bot de gérer
+comme un pro ». Traduction clé : « comme un pro » = **discipline encodée, pas absence de
+limite** ; « le plus possible » n'est cohérent que **borné par le MDD**.
+
+- **`config.MANDATE_*`** : source unique de la politique (capital, MDD 20 %, levier ×5,
+  risque/trade 0.75 %, réserve cash, seuil d'edge DSR≥0.90 + n≥120, refuges numéraire
+  BTC/XAUT, sessions UTC, black-out macro, verrou réel `MANDATE_LIVE_ENABLED=False`).
+- **`mandate.py`** (pur, testé) : `max_leverage` (mur dur), `target_leverage`
+  (vol-targeting borné), `drawdown_halt` (la limite qui rend « MAX » sûr), `_passes_edge`
+  / `futures_live_allowed` (**porte paper→réel** : un agent ne trade en réel que s'il bat
+  le seuil déflaté T5 — verrou statistique issu du résultat B), `numeraire_recommendation`,
+  `in_active_session`, `macro_blackout`, `risk_per_trade_usd`, `deployable_usd`.
+- **Mise en réel PAR PALIERS** : (1) accumulation **spot** d'abord (edge structurel, pas
+  directionnel, bornée par le MDD) ; (2) futures réel débloqué **agent par agent**, automa-
+  tiquement, seulement quand `validation_report.json` montre DSR≥0.90 sur n≥120. Aujourd'hui :
+  **0 agent éligible** (cf. B) → futures reste paper.
+- **Architecture réel** : ce dépôt reste le **cerveau** (paper, `can_trade=False`) ; les
+  ordres réels passent par le **MCP Agent Hub Bitget** (`bitget-mcp-server`, cf.
+  `pc/BITGET_AGENT_HUB.md`) sur machine de trading, avec clé **Trade-only** rotée +
+  whitelist IP. `accumulation_engine` expose `mode` (paper/RÉEL via MCP) sous le verrou.
+- **Outils « Bitget Agent AI »** (AI Landscape, GetAgent, Playbook, Builder OS…) = produits
+  hébergés Bitget (sous-comptes isolés), **pas** des API tierces. Le seul pont programmatique
+  utilisable = le MCP Agent Hub ci-dessus.
+
+**Reste avant le réel** (manuel, irréversible) : roter les clés fuitées → créer une clé
+**Trade-only** (jamais Withdraw) + whitelist IP VPS → installer le MCP Agent Hub →
+`MANDATE_LIVE_ENABLED=True`. Le spot peut alors accumuler en réel ; le futures attend l'edge.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

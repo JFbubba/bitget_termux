@@ -178,12 +178,29 @@ def analyze(symbol="BTCUSDT"):
             "amount_usd": amt, "note": f"opportunité {opp['score']:.2f} -> DCA {amt}$ (paper)"}
 
 
+def _live_armed():
+    """Le trading RÉEL est-il armé par le mandat ? False par défaut -> paper.
+    Le réel (achat spot) passera par le MCP Bitget (Agent Hub), JAMAIS d'ordre en
+    dur ici : ce dépôt reste le cerveau, le MCP est les mains."""
+    try:
+        import mandate
+        return bool(mandate.live_enabled())
+    except Exception:
+        return False
+
+
 def run(symbol="BTCUSDT", now=None):
-    """Un cycle d'accumulation PAPER : si l'intervalle DCA est écoulé, journalise un
-    achat paper du montant recommandé (jamais d'ordre réel). Best-effort."""
+    """Un cycle d'accumulation : si l'intervalle DCA est écoulé, journalise l'achat
+    du montant recommandé. PAPER par défaut (verrou mandat). Best-effort.
+
+    Tant que le mandat n'arme pas le réel (MANDATE_LIVE_ENABLED + MCP connecté),
+    l'achat est PAPER (registre de simulation). Quand le réel sera armé, l'exécution
+    déléguera au MCP Bitget — aucun ordre n'est jamais passé depuis ce module."""
     a = analyze(symbol)
     led = load_ledger()
     now = time.time() if now is None else now
+    a["live_armed"] = _live_armed()
+    a["mode"] = "RÉEL (via MCP)" if a["live_armed"] else "paper"
     if a.get("price") and should_buy(led.get("last_buy_ts"), now):
         led = apply_buy(led, a["amount_usd"], a["price"], ts=now, score=a["score"])
         save_ledger(led)
@@ -196,14 +213,16 @@ def run(symbol="BTCUSDT", now=None):
 
 def build_report(a):
     led = a.get("ledger", {})
-    return ("=== ACCUMULATION BTC (spot DCA, paper) ===\n"
+    mode = a.get("mode", "paper")
+    return ("=== ACCUMULATION BTC (spot DCA) ===\n"
+            f"Mode : {mode}  (verrou mandat — réel via MCP uniquement)\n"
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
             f"DCA recommandé : {a.get('amount_usd')} $  "
-            f"{'-> ACHAT PAPER journalisé' if a.get('bought') else '(intervalle non écoulé)'}\n"
-            f"Cumul paper : {led.get('total_btc', 0)} BTC · prix moyen {led.get('avg_price', 0)} $ "
+            f"{('-> ACHAT ' + mode + ' journalisé') if a.get('bought') else '(intervalle non écoulé)'}\n"
+            f"Cumul : {led.get('total_btc', 0)} BTC · prix moyen {led.get('avg_price', 0)} $ "
             f"({led.get('n_buys', 0)} achats)\n"
-            "Spot, on ne vend jamais (hold). Aucun ordre réel. EARN: piste future. VERDICT: SAFE")
+            "Spot, on ne vend jamais (hold). EARN: piste future. VERDICT: SAFE")
 
 
 def main():

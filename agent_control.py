@@ -55,6 +55,10 @@ COMMANDS = [
         "command": ["python", "brain_validation.py"],
     },
     {
+        "name": "Mandat de gestion : règles dures + agents autorisés en réel",
+        "command": ["python", "mandate.py"],
+    },
+    {
         "name": "Accumulation BTC (spot DCA paper, ne vend jamais)",
         "command": ["python", "accumulation_engine.py", "BTCUSDT"],
     },
