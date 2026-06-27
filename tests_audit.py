@@ -2728,6 +2728,9 @@ def test_spot_executor_guards_and_dry():
     # DRY par défaut : aucun ordre, même avec un runner qui « réussirait »
     r = se.execute(5.0, confirm=False, runner=lambda c: '{"ok":true}', now=1_000_000)
     assert r["executed"] is False and r.get("dry") is True
+    # confirm + réponse d'ERREUR -> pas d'exécution réussie (aucun achat enregistré)
+    r2 = se.execute(5.0, confirm=True, runner=lambda c: '{"ok":false,"error":{"code":"40762"}}', now=1_000_000)
+    assert r2["executed"] is False
 
 
 def test_macro_regime_pressures_and_bias():

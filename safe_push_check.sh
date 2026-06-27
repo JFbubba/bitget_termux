@@ -49,11 +49,14 @@ fi
 echo "[4/5] Recherche de fonctions dangereuses (code operationnel)"
 # On exclut l'outillage d'audit/securite qui ENUMERE volontairement ces
 # mots-cles comme donnees de detection (meme exclusion que FILES_TO_SCAN
-# dans security_agent.py). Tout le code operationnel reste scanne.
+# dans security_agent.py). On exclut AUSSI spot_executor.py : c'est le module
+# d'execution AUTORISE (achat spot BTC seul), audite a part par security_agent
+# (scan_authorized_exec : aucun mot interdit + verrous MANDATE_LIVE/kill_switch).
+# Tout le reste du code operationnel reste scanne.
 DANGER_HITS=$(
   git grep -nE 'place_order|open_long|open_short|close_position|cancel_order|change_leverage|transfer|withdraw|send_order|create_order|submit_order|set_leverage|market_order|limit_order|order/place|batch-place-order|place-order|close-positions' \
     -- '*.py' \
-    ':!security_agent.py' ':!getagent_audit.py' ':!tests_audit.py' \
+    ':!security_agent.py' ':!getagent_audit.py' ':!tests_audit.py' ':!spot_executor.py' \
   || true
 )
 

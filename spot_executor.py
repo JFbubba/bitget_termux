@@ -129,7 +129,9 @@ def _spot_balance():
 
 
 def _run(cmd, runner=None):
-    """Lance la commande bgc (SANS --read-only : c'est l'écriture). runner injectable."""
+    """Lance la commande bgc (SANS --read-only : c'est l'écriture). Concatène stdout ET
+    stderr pour ne RIEN perdre des erreurs (sinon réponse vide en cas d'échec). runner
+    injectable pour les tests."""
     if runner is not None:
         return runner(cmd)
     try:
@@ -137,8 +139,9 @@ def _run(cmd, runner=None):
         if not hub.available():
             return None
         import subprocess
-        return subprocess.run(["bgc", *cmd], capture_output=True, text=True,
-                              timeout=30, env=hub._hub_env()).stdout
+        p = subprocess.run(["bgc", *cmd], capture_output=True, text=True,
+                           timeout=30, env=hub._hub_env())
+        return ((p.stdout or "") + (p.stderr or "")).strip() or None
     except Exception:
         return None
 
@@ -158,7 +161,9 @@ def execute(amount_usdt, confirm=False, runner=None, now=None):
         return {"ok": True, "executed": False, "dry": True, "preview": preview,
                 "note": "DRY — vérifie la commande puis ajoute --confirm pour l'achat RÉEL"}
     out = _run(cmd, runner=runner)
-    success = bool(out) and '"ok":false' not in (out or "").replace(" ", "")
+    compact = (out or "").replace(" ", "").lower()
+    success = (bool(out) and '"ok":false' not in compact and "error" not in compact
+               and ("orderid" in compact or '"data"' in compact or '"ok":true' in compact))
     if success:
         _record_real_buy(amount_usdt, oid, now)
     return {"ok": True, "executed": success, "preview": preview, "response": out,
