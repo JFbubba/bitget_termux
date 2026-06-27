@@ -192,6 +192,26 @@ def build_preorder(row, equity, equity_source, opened):
         notional *= brain_factor
         risk_usdt *= brain_factor
 
+    # VOL-TARGETING (mandate) : plafond de levier AUTO-IMPOSE = levier vise selon la
+    # conviction de l'essaim ET la vol conditionnelle (GARCH), borne par le mur dur.
+    # Effet : risk-off automatique quand la vol monte (le levier autorise baisse) ;
+    # un levier implicite au-dessus de ce plafond passe en REJECTED. Best-effort (paper).
+    vol_target_lev = None
+    if leverage is not None and side in ("LONG", "SHORT"):
+        try:
+            import market_sources as _ms
+            import mandate as _mdt
+            _closes = _ms.closes(symbol, limit=120) or []
+            _conv = brain_conv if brain_conv is not None else 0.0
+            if _closes:
+                vol_target_lev = _mdt.leverage_for(_conv, _closes)
+                if leverage > vol_target_lev:
+                    reasons.append(
+                        f"levier implicite {leverage:.2f}x > plafond vol-target "
+                        f"{vol_target_lev:.2f}x (conviction {_conv:.2f}, vol elevee -> risk-off)")
+        except Exception:
+            vol_target_lev = None
+
     status = "PENDING_APPROVAL" if not reasons else "REJECTED"
 
     return {
@@ -210,6 +230,7 @@ def build_preorder(row, equity, equity_source, opened):
         "sl_distance_percent": round(sl_distance_percent, 4) if sl_distance_percent is not None else None,
         "implied_leverage": leverage,
         "max_allowed_leverage": MAX_IMPLIED_LEVERAGE,
+        "vol_target_leverage": round(vol_target_lev, 2) if vol_target_lev is not None else None,
         "brain_bias": brain_bias,
         "brain_conviction": brain_conv,
         "brain_size_factor": round(brain_factor, 3),

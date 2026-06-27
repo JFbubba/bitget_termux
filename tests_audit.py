@@ -2525,6 +2525,36 @@ def test_preorder_brain_gate_and_multiplier():
     assert a2 == "scale"
 
 
+def test_preorder_vol_target_leverage_gate():
+    # vol-targeting branche dans build_preorder : un levier SOUS le mur dur (2.0) est
+    # REJETE si la vol conditionnelle fait tomber le plafond vise sous lui (risk-off
+    # auto en forte vol), et PASSE quand la vol est faible. Deterministe (stubs, 0 reseau).
+    import preorder_engine as pe
+    import swarm_brain as sb
+    import market_sources as ms
+    old = (sb.peek, ms.closes)
+    try:
+        sb.peek = lambda s: {"bias": "LONG", "adjusted_conviction": 0.6, "conviction": 0.6}
+        row = {"symbol": "BTCUSDT", "side": "LONG", "decision": "LONG",
+               "entry": 100.0, "stop_loss": 99.0, "take_profit": 103.0,
+               "implied_leverage": 1.8}                              # <= mur 2.0
+        low = [100 + 0.02 * ((i % 5) - 2) for i in range(80)]                 # vol faible
+        high = [100 * (1 + 0.05 * (1 if i % 2 else -1)) for i in range(80)]   # vol forte
+        # VOL FORTE -> plafond vol-target < 1.8 -> REJET
+        ms.closes = lambda *a, **k: high
+        hi = pe.build_preorder(row, 1000.0, "test", set())
+        assert hi["vol_target_leverage"] is not None and hi["vol_target_leverage"] < 1.8
+        assert hi["status"] == "REJECTED"
+        assert any("vol-target" in r for r in hi["reasons"])
+        # VOL FAIBLE -> plafond vol-target >= 1.8 -> pas de rejet par le levier
+        ms.closes = lambda *a, **k: low
+        lo = pe.build_preorder(row, 1000.0, "test", set())
+        assert lo["vol_target_leverage"] >= 1.8
+        assert not any("vol-target" in r for r in lo["reasons"])
+    finally:
+        sb.peek, ms.closes = old
+
+
 def test_preorder_portfolio_guards():
     import preorder_engine as pe
     import risk_state as rs
