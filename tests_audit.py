@@ -1982,12 +1982,59 @@ def test_geometric_graph_connectivity_and_partition():
     # bornes de Cheeger cohérentes : λ₂/2 ≤ h ≤ √(2λ₂)
     m = g.correlation_graph_metrics(entangled)
     assert m["cheeger_low"] <= m["cheeger_high"]
-    # partition de Fiedler sépare deux blocs distincts
+    # partition de Fiedler sépare deux blocs distincts (logique testée sans débruitage :
+    # le RMT est conçu pour de gros paniers bruités, pas 8 actifs synthétiques propres)
     f1, f2 = rng.normal(0, 1, Tn), rng.normal(0, 1, Tn)
     A = np.array([f1 + rng.normal(0, 0.2, Tn) for _ in range(4)])
     B = np.array([f2 + rng.normal(0, 0.2, Tn) for _ in range(4)])
-    c = g.cheeger_partition(np.vstack([A, B]).T)["clusters"]
+    c = g.cheeger_partition(np.vstack([A, B]).T, denoise=False)["clusters"]
     assert len(set(c[:4])) == 1 and len(set(c[4:])) == 1 and c[0] != c[4]
+
+
+def test_geometric_hill_tail_index():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(0)
+    # Student-t(ν) a un indice de queue ≈ ν ; Hill doit le récupérer (queue lourde mieux)
+    a23, _, _ = g.hill_tail_index(rng.standard_t(2.3, 9000), k_frac=0.05)
+    assert 1.9 <= a23 <= 2.8                                 # ~2.3 (estimateur fini biaisé)
+    # plus la queue est lourde, plus α est petit
+    a6, _, _ = g.hill_tail_index(rng.standard_t(6.0, 9000), k_frac=0.05)
+    assert a6 > a23
+    # invariance d'échelle : ×c ne change pas α
+    x = rng.standard_t(3.0, 5000)
+    ax, _, _ = g.hill_tail_index(x); axc, _, _ = g.hill_tail_index(10.0 * x)
+    assert abs(ax - axc) < 1e-6
+    assert g.hill_tail_index([0.1, 0.2, 0.3])[0] is None     # trop court -> None
+
+
+def test_geometric_rmt_denoise_compresses_noise():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(1)
+    T = 200
+    common = rng.normal(0, 1, T)
+    X = np.array([common + rng.normal(0, 0.8, T) for _ in range(8)]).T  # 1 facteur + bruit
+    C = np.corrcoef(X, rowvar=False)
+    Cc = g.rmt_denoise(C, 8 / T)
+    raw = np.sort(np.linalg.eigvalsh(C))[::-1]
+    den = np.sort(np.linalg.eigvalsh(Cc))[::-1]
+    assert den[1:].std() < raw[1:].std()                    # bulk de bruit compressé
+    assert abs(den[0] - raw[0]) < 0.5                        # valeur propre signal conservée
+    assert np.allclose(np.diag(Cc), 1.0, atol=1e-6)         # diagonale renormalisée à 1
+
+
+def test_geometric_bns_relative_jump():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(2)
+    # diffusion lisse -> ~0 ; sauts -> élevé (BNS : RV >> bipower)
+    trend = np.diff(np.cumsum(np.full(150, 0.01)) + rng.normal(0, 0.0005, 150))
+    jumps = rng.normal(0, 0.005, 150); jumps[::30] = rng.normal(0, 0.06, len(jumps[::30]))
+    assert g.relative_jump(trend) < 0.1
+    assert g.relative_jump(jumps) > 0.3
+    assert 0.0 <= g.relative_jump(jumps) < 1.0               # borné
+    assert g.bipower_variation([0.01]) == 0.0               # < 2 points -> 0
 
 
 def test_geometric_signal_and_gates():

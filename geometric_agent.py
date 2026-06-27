@@ -67,21 +67,55 @@ def tail_profile(returns, s0=0.5, n=40):
     return (1.0 / fx) if fx > 0 else 0.0
 
 
+def hill_tail_index(returns, k_frac=0.12, min_k=12):
+    """Indice de queue α par l'estimateur de HILL (loi de puissance), calibré crypto.
+    PUR. Réf. arXiv:1803.08405 : pour BTC, α ∈ [2.0, 2.5] (queue lourde) ; α ≳ 3 = quasi
+    gaussien. α FAIBLE = queue lourde / blow-up. Sur |rendements standardisés|.
+    Retourne (alpha, se, k) ; (None, None, 0) si l'échantillon est trop court.
+    NB : Hill est invariant d'échelle (ratios X_i/X_min) -> on centre sur la MÉDIANE
+    (robuste) sans diviser par σ (diviser/soustraire la moyenne fausserait la queue)."""
+    r = np.asarray(returns, dtype=float)
+    a = np.sort(np.abs(r - np.median(r)))[::-1]
+    a = a[a > 1e-12]
+    npts = len(a)
+    if npts < max(40, min_k * 3):
+        return (None, None, 0)
+    k = min(max(min_k, int(k_frac * npts)), npts - 1)
+    xmin = a[k]
+    if xmin <= 0:
+        return (None, None, 0)
+    s = float(np.sum(np.log(a[:k] / xmin)))
+    if s <= 0:
+        return (None, None, 0)
+    alpha = k / s
+    return (alpha, alpha / math.sqrt(k), k)
+
+
 def tail_regime(returns, seed=12345):
-    """Classe le régime de queue en comparant Φ du marché à Φ d'une RÉFÉRENCE
-    gaussienne de même taille (auto-calibré, déterministe). PUR.
-      ratio = Φ_marché / Φ_gauss : ~1 = euclidien (gaussien), >> 1 = blow-up de queue.
-    Retourne {phi, phi_gauss, ratio, regime}."""
+    """Classe le régime de queue. PUR. Estimateur PRINCIPAL = indice de queue α de HILL
+    (calibré crypto, arXiv:1803.08405) ; repli = Φ vs référence gaussienne.
+      • α ≤ 2.5  -> queue lourde / blow-up -> NON_EUCLIDIEN (suivre la tendance) ;
+      • α ≥ 3.0  -> quasi gaussien        -> EUCLIDIEN (réverter) ;
+      • sinon                              -> TRANSITOIRE.
+    Retourne {phi, phi_gauss, ratio, alpha, regime}."""
     r = np.asarray(returns, dtype=float)
     if len(r) < 16:
-        return {"phi": 0.0, "phi_gauss": 0.0, "ratio": 1.0, "regime": "n/a"}
+        return {"phi": 0.0, "phi_gauss": 0.0, "ratio": 1.0, "alpha": None, "regime": "n/a"}
     phi = tail_profile(r)
     g = np.random.default_rng(seed).standard_normal(len(r))
     phi_g = tail_profile(g)
     ratio = (phi / phi_g) if phi_g > 0 else 1.0
-    regime = "euclidien" if ratio < 1.3 else "transitoire" if ratio < 2.0 else "non_euclidien"
-    return {"phi": round(phi, 4), "phi_gauss": round(phi_g, 4),
-            "ratio": round(ratio, 3), "regime": regime}
+    alpha, se, k = hill_tail_index(r)
+    # HYBRIDE robuste : α (calibré crypto) tranche les cas DÉCISIFS ; sinon le proxy Φ
+    # (stable sur fenêtre courte) décide — Hill est bruité sur < ~6 mois de données.
+    if alpha is not None and alpha <= 2.2:
+        regime = "non_euclidien"                   # queue très lourde (blow-up)
+    elif alpha is not None and alpha >= 3.5:
+        regime = "euclidien"                       # nettement gaussien
+    else:
+        regime = "euclidien" if ratio < 1.3 else "transitoire" if ratio < 2.0 else "non_euclidien"
+    return {"phi": round(phi, 4), "phi_gauss": round(phi_g, 4), "ratio": round(ratio, 3),
+            "alpha": round(alpha, 3) if alpha is not None else None, "regime": regime}
 
 
 # ========== 4) TOXICITÉ D'ORDRE SUPÉRIEUR (Besov / Eldan-Gross) ==========
@@ -119,6 +153,28 @@ def higher_order_toxicity(series):
     return 1.0 - math.exp(-max(0.0, ratio - 1.0))   # borné [0,1], ~0 pour une tendance
 
 
+def bipower_variation(returns):
+    """Variation BIPOWER (Barndorff-Nielsen-Shephard) = (π/2)·Σ|r_{i-1}|·|r_i|. PUR.
+    Estimateur de la variance intégrée ROBUSTE AUX SAUTS (les sauts isolés ne la
+    gonflent pas, contrairement à la variance réalisée)."""
+    r = np.abs(np.asarray(returns, dtype=float))
+    if len(r) < 2:
+        return 0.0
+    return float((math.pi / 2.0) * np.sum(r[1:] * r[:-1]))
+
+
+def relative_jump(returns):
+    """Mesure de SAUT relatif BNS : (RV − BV)/RV ∈ [0,1). PUR. Réf. arXiv:1708.09520.
+    Fraction de la variation due aux SAUTS (discontinuités = événements toxiques /
+    sélection adverse). ~0 = diffusion lisse ; élevé = sauts dominants."""
+    r = np.asarray(returns, dtype=float)
+    rv = float(np.sum(r ** 2))
+    if rv <= 0:
+        return 0.0
+    bv = bipower_variation(r)
+    return float(max(0.0, min(0.999, (rv - bv) / rv)))
+
+
 # ========== 2) & 3) GRAPHE DE CORRÉLATION : λ₂ (stabilité) + Cheeger ==========
 
 def _normalized_laplacian(A):
@@ -128,7 +184,26 @@ def _normalized_laplacian(A):
     return np.eye(len(A)) - (dinv[:, None] * A * dinv[None, :])
 
 
-def correlation_graph_metrics(returns_matrix, thresh=0.3):
+def rmt_denoise(C, q):
+    """Débruitage RMT (clipping de Marchenko-Pastur) d'une matrice de CORRÉLATION. PUR.
+    Réf. arXiv:1610.08104. q = N/T. Borne du « bulk » de bruit λ+ = (1+√q)² : les
+    valeurs propres < λ+ (bruit d'échantillon) sont remplacées par leur moyenne (trace
+    préservée), celles > λ+ (signal) sont gardées. Renormalise la diagonale à 1.
+    Indispensable en crypto (T court, N/T grand) AVANT de bâtir le graphe."""
+    C = np.asarray(C, dtype=float)
+    w, V = np.linalg.eigh((C + C.T) / 2)
+    lam_plus = (1.0 + math.sqrt(max(q, 1e-9))) ** 2
+    bulk = w < lam_plus
+    if bulk.sum() >= 1 and (~bulk).sum() >= 1:
+        w = np.where(bulk, float(w[bulk].mean()), w)
+        Cc = V @ np.diag(w) @ V.T
+        d = np.sqrt(np.clip(np.diag(Cc), 1e-12, None))
+        Cc = Cc / np.outer(d, d)
+        return np.clip(Cc, -1.0, 1.0)
+    return C
+
+
+def correlation_graph_metrics(returns_matrix, thresh=0.5, denoise=True):
     """STABILITÉ d'intrication d'un panier d'actifs (analogue rank-width). PUR.
     Construit le graphe |corr|>seuil, renvoie la connectivité algébrique λ₂ et les
     bornes de Cheeger (Cheeger : λ₂/2 ≤ h ≤ √(2λ₂)). λ₂ ↑ = réseau intriqué/stable ;
@@ -136,8 +211,9 @@ def correlation_graph_metrics(returns_matrix, thresh=0.3):
     X = np.asarray(returns_matrix, dtype=float)
     if X.ndim != 2 or X.shape[1] < 3 or X.shape[0] < 5:
         return {"lambda2": 0.0, "cheeger_low": 0.0, "cheeger_high": 0.0, "n": 0}
-    C = np.corrcoef(X, rowvar=False)
-    C = np.nan_to_num(C)
+    C = np.nan_to_num(np.corrcoef(X, rowvar=False))
+    if denoise and X.shape[0] > X.shape[1]:        # débruitage RMT (T > N requis)
+        C = rmt_denoise(C, X.shape[1] / X.shape[0])
     A = np.abs(C) * (np.abs(C) > thresh)
     np.fill_diagonal(A, 0.0)
     if A.sum() <= 0:
@@ -149,14 +225,17 @@ def correlation_graph_metrics(returns_matrix, thresh=0.3):
             "cheeger_high": round(math.sqrt(2 * lam2), 4), "n": X.shape[1]}
 
 
-def cheeger_partition(returns_matrix, thresh=0.3):
+def cheeger_partition(returns_matrix, thresh=0.5, denoise=True):
     """PARTITION de Cheeger du marché en 2 clusters via le vecteur de FIEDLER
     (2e vecteur propre du Laplacien) — base d'une allocation BÊTA-NEUTRE. PUR.
+    Corrélation débruitée par RMT (arXiv:1610.08104) avant la coupe.
     Retourne {clusters: [+1/−1 par actif], conductance, lambda2}."""
     X = np.asarray(returns_matrix, dtype=float)
     if X.ndim != 2 or X.shape[1] < 3 or X.shape[0] < 5:
         return {"clusters": [], "conductance": None, "lambda2": 0.0}
     C = np.nan_to_num(np.corrcoef(X, rowvar=False))
+    if denoise and X.shape[0] > X.shape[1]:
+        C = rmt_denoise(C, X.shape[1] / X.shape[0])
     A = np.abs(C) * (np.abs(C) > thresh); np.fill_diagonal(A, 0.0)
     if A.sum() <= 0:
         return {"clusters": [0] * X.shape[1], "conductance": None, "lambda2": 0.0}
@@ -191,7 +270,11 @@ def signal(closes, order_flow=None):
         return out
     tr = tail_regime(rets)
     flow = order_flow if (order_flow is not None and len(order_flow) >= 8) else rets
-    tox = higher_order_toxicity(flow)
+    # toxicité = rugosité d'ordre supérieur ⊕ saut BNS (indépendants, borné [0,1]) :
+    # capte à la fois le flicker (ordre 2/ordre 1) et les SAUTS (RV vs bipower).
+    tox_rough = higher_order_toxicity(flow)
+    jump = relative_jump(rets)
+    tox = 1.0 - (1.0 - tox_rough) * (1.0 - jump)
 
     r = np.asarray(rets)
     mom = math.tanh(float(r[-8:].sum()) / (r.std() + 1e-9) / 4.0)   # tendance récente normalisée
@@ -209,11 +292,13 @@ def signal(closes, order_flow=None):
     conf_base = 0.5 if tr["regime"] == "non_euclidien" else 0.25
     conf = conf_base * (1.0 - 0.8 * tox)
 
-    note = (f"régime {tr['regime']} (×{tr['ratio']}) · toxicité {tox:.2f}"
+    note = (f"régime {tr['regime']}"
+            + (f" (α{tr['alpha']})" if tr.get("alpha") is not None else f" (×{tr['ratio']})")
+            + f" · toxicité {tox:.2f}" + (f" saut {jump:.2f}" if jump > 0.1 else "")
             + (" · RETRAIT" if tox > 0.6 else ""))
-    out.update({"regime": tr["regime"], "tail_ratio": tr["ratio"], "toxicity": round(tox, 3),
-                "momentum": round(mom, 3), "vote": round(vote, 3),
-                "confidence": round(max(0.0, conf), 3), "note": note})
+    out.update({"regime": tr["regime"], "tail_ratio": tr["ratio"], "alpha": tr.get("alpha"),
+                "toxicity": round(tox, 3), "jump": round(jump, 3), "momentum": round(mom, 3),
+                "vote": round(vote, 3), "confidence": round(max(0.0, conf), 3), "note": note})
     return out
 
 

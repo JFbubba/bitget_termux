@@ -659,6 +659,44 @@ cohérent à la place) ; `nx.conductance(max_node)` indéfini (Fiedler propre à
 Profil cognitif neuro-atypique traduit en calcul DÉTERMINISTE (hyperacuité multi-
 échelle, synesthésie chiffres→graphe, bruit-carburant). Aucun NN, aucun ordre.
 
+## §25 — Concrétisation empirique des outils géométriques (recherche + upgrades)
+Recherche multi-agents (5 pistes, 21 papiers, **arXiv vérifiés un par un**) pour rendre
+les outils §24 MOINS abstraits. Validation live : BTC mesuré **α≈2.09** — pile dans la
+plage empirique du papier d'ancrage (crypto α∈[2.0,2.5], vs ~3 pour les actions).
+
+**Implémenté (pur, testé, sans nouvelle donnée requise)** :
+- **T1 — indice de queue de HILL** (`hill_tail_index`, arXiv:1803.08405) : α calibré
+  crypto remplace le proxy gaussien ad-hoc. `tail_regime` devient HYBRIDE : α tranche
+  les cas décisifs (≤2.2 lourd→trend ; ≥3.5 léger→revert), le proxy Φ (stable sur
+  fenêtre courte) gère l'ambigu (Hill bruité sous ~6 mois de données).
+- **T2/T3 — débruitage RMT Marchenko-Pastur** (`rmt_denoise`, arXiv:1610.08104) : on
+  débruite la corrélation (clip du bulk < λ+=(1+√q)²) AVANT de bâtir le graphe ;
+  seuil 0.3→**0.5** (crypto-validé, arXiv:2505.24831). λ₂/Cheeger mesurent la vraie
+  co-intégration, pas le bruit d'échantillon.
+- **T4 — saut BNS** (`relative_jump`, `bipower_variation`, arXiv:1708.09520) : la
+  toxicité combine la rugosité (ordre2/ordre1) ET la mesure de saut (RV−BV)/RV
+  (fraction de variation due aux discontinuités = événements toxiques).
+
+**Liste de téléchargement vérifiée (par priorité)** — l'utilisateur peut les fournir :
+`2603.09219` (protocole IS-WFA-OOS), `1610.08104` (clean corr RMT), `1803.08405`
+(tail BTC), `2510.19130` (RMT crypto), `2406.10695` (stat-arb clustering), `2112.13213`
+(OFI cross-impact) ; puis `2505.24831`, `1904.08575` (SPONGE signé), `2202.02728`
+(HRP), `1708.09520` (jump tests), `2205.11122`, `2501.03938` ; ciblés : `2506.12587`,
+`2606.15715` (perp crypto), `2407.15766` (eGARCH-EVT), `2512.12924`, `2507.22712`,
+`2504.15908`, `2508.13174`.
+
+**Reste ABSTRAIT / bloqué sur la DONNÉE (honnête)** :
+- T4 « spoofing/OFI multi-niveau/markout bps » (arXiv:2112.13213, 2606.15715, 2504.15908)
+  exige un flux carnet **L2/L3 et tape par-wallet** que le bot lecture-seule n'a PAS
+  (il travaille sur closes/rendements). Le saut BNS (D1) marche sur OHLCV ; OFI/spoof
+  sont **bloqués sur l'ingestion** Bitget.
+- Le socle « isopérimétrique/Besov/Cheeger » reste une ANALOGIE ; les papiers
+  fournissent les SUBSTITUTS quant établis (Hill, RMT, BNS) qui coïncident avec le
+  noyau calculable — on ne prétend pas implémenter les théorèmes.
+- Pistes non encore codées (à activer après validation) : SPONGE signé (T3), HRP
+  intra-cluster (T3), GARCH→EVT-sur-résidus (T1), consensus de clusters sur fenêtres
+  roulantes (T2/T3), protocole T5 (plateau SR≥0.9·opt, purge+embargo, DSR/PBO, Rank IC).
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
