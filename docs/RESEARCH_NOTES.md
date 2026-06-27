@@ -1176,6 +1176,22 @@ reste investi) ; la cadence adaptative DIFFÈRE les achats (« attendre le creux
 dérive haussière séculaire, exactement le pari d'un accumulateur long terme. **Décision : garder
 l'intervalle FIXE.** Le moteur n'est pas modifié. (Outils de backtest en scratch, non committés.)
 
+**Vol-targeting du montant — testé et REJETÉ (négatif honnête).** Question : moduler la taille
+par la volatilité lisse-t-il le prix de revient ? Backtest cost-basis (15 symboles, IS/OOS) :
+- *inverse* (réduire la taille quand la vol explose, l'idée intuitive) : **contre-productif** —
+  OOS −0,28 % (27 % positifs), −0,55 % sur BTC. En crypto la vol explose dans les KRACHS (prix bas)
+  → réduire la taille y achète MOINS au plus bas.
+- *direct* (augmenter dans la vol) : marginal et incohérent (IS négatif 1h, échoue à 5m), et
+  **redondant** avec le drawdown qui capte déjà « acheter la capitulation ».
+**Décision : pas de vol-targeting du montant.** Moteur non modifié. C'est une validation du design :
+`opportunity_score` (drawdown/RSI) capte déjà l'effet recherché.
+
+**Bilan affûtage spot.** Trois leviers testés sur la métrique honnête cost-basis : (1) **sizing par
+survente court-terme → LIVRÉ** (robuste, +0,77 % OOS, 93 %) ; (2) cadence adaptative → rejetée
+(régime-dépendante, fight la dérive) ; (3) vol-targeting du montant → rejeté (contre-productif/
+redondant). Le moteur d'accumulation est dans un état stable et bien conçu ; l'espace d'amélioration
+honnête est largement épuisé. Le réel reste cappé/gaté/double verrou.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
