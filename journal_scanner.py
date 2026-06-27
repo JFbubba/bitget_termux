@@ -453,7 +453,12 @@ if __name__ == "__main__":
     results = []
     journal_rows = []
 
-    for symbol in SYMBOLS:
+    try:
+        import universe
+        scan_symbols = universe.symbols()            # univers dynamique top-N si activé
+    except Exception:
+        scan_symbols = SYMBOLS                        # repli : liste figée
+    for symbol in scan_symbols:
         try:
             analysis = analyze_symbol(symbol)
             plan = build_trade_plan(analysis)

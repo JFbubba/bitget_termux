@@ -13,10 +13,14 @@ des 11 agents et fait apprendre les poids sur les décisions matures.
 
 def main():
     try:
-        import config
-        symbols = list(config.SYMBOLS)
+        import universe
+        symbols = list(universe.symbols())          # univers dynamique si activé, sinon SYMBOLS
     except Exception:
-        symbols = ["BTCUSDT"]
+        try:
+            import config
+            symbols = list(config.SYMBOLS)
+        except Exception:
+            symbols = ["BTCUSDT"]
     import swarm_brain
     ok = 0
     for sym in symbols:

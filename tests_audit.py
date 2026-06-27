@@ -2572,6 +2572,46 @@ def test_accumulation_autonomous_double_lock():
     assert ae._autonomous_decision(False, False) is False
 
 
+def test_universe_ranking_and_quality():
+    import universe as u
+    data = {"data": [
+        {"symbol": "BTCUSDT", "usdtVolume": "1000000000"},
+        {"symbol": "ETHUSDT", "usdtVolume": "500000000"},
+        {"symbol": "SCAMUSDT", "usdtVolume": "999999999"},   # gros volume mais hors top mcap
+        {"symbol": "DOGEUSDT", "usdtVolume": "20000000"},
+        {"symbol": "TINYUSDT", "usdtVolume": "1000"},         # sous le seuil de volume
+        {"symbol": "BTCUSDC", "usdtVolume": "9"},             # quote non-USDT -> ignoré
+    ]}
+    parsed = u.parse_tickers(data)
+    assert all(t["symbol"].endswith("USDT") for t in parsed)
+    assert not any(t["symbol"] == "BTCUSDC" for t in parsed)
+    # filtre QUALITÉ (top mcap CoinGecko) : SCAM exclu ; ancre en tête ; TINY sous volume
+    uni = u.rank_by_volume(parsed, top_n=3, min_volume=1_000_000,
+                           quality={"BTC", "ETH", "DOGE"}, anchors=["BTCUSDT"])
+    assert uni[0] == "BTCUSDT" and "SCAMUSDT" not in uni and "TINYUSDT" not in uni
+    assert "ETHUSDT" in uni and "DOGEUSDT" in uni
+    # sans filtre qualité, le gros volume (SCAM) entre
+    uni2 = u.rank_by_volume(parsed, top_n=2, min_volume=1_000_000, quality=None, anchors=[])
+    assert uni2[0] == "BTCUSDT" and "SCAMUSDT" in uni2
+
+
+def test_spot_executor_order_styles():
+    import spot_executor as se
+    q = {"bid": 100.0, "ask": 100.1, "mid": 100.05}
+    # taker = marché, size en quote (USDT)
+    o = se.build_order(5.0, "x", style="taker")
+    assert o["orderType"] == "market" and o["size"] == "5.0" and o["side"] == "buy"
+    # maker = limite post-only au bid, size en base (BTC)
+    m = se.build_order(5.0, "x", style="maker", quote=q)
+    assert m["orderType"] == "limit" and m["force"] == "post_only"
+    assert float(m["price"]) == 100.0 and abs(float(m["size"]) - 0.05) < 1e-6
+    # limit_ioc = limite IOC plafonnée au-dessus de l'ask (anti-slippage), fill immédiat
+    i = se.build_order(5.0, "x", style="limit_ioc", quote=q, tol_pct=0.10)
+    assert i["orderType"] == "limit" and i["force"] == "ioc" and float(i["price"]) > 100.1
+    # repli : maker sans carnet -> marché (on achète quand même, jamais bloqué)
+    assert se.build_order(5.0, "x", style="maker", quote=None)["orderType"] == "market"
+
+
 def test_fair_price_median_and_premium():
     import fair_price as fp
     assert fp.median([100, 102, 98]) == 100

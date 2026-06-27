@@ -11,6 +11,10 @@ COMMANDS = [
         "command": ["python", "outcome_state.py"],
     },
     {
+        "name": "Univers d'analyse (dynamique top-N si activé)",
+        "command": ["python", "universe.py"],
+    },
+    {
         "name": "Apprentissage du cerveau (essaim) : journaliser votes + poids EARCP",
         "command": ["python", "brain_cycle.py"],
     },

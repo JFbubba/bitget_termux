@@ -15,6 +15,14 @@ SYMBOLS = [
     "XAUTUSDT",
 ]
 
+# === Univers d'analyse DYNAMIQUE (universe.py) ===
+# False = on analyse uniquement SYMBOLS ci-dessus (historique). True = univers top-N
+# construit à chaque cycle : paires Bitget les plus liquides (volume 24h) filtrées par
+# le top market-cap CoinGecko (qualité), ancres SYMBOLS toujours incluses.
+DYNAMIC_UNIVERSE = False
+UNIVERSE_TOP_N = 20                         # nombre de paires dynamiques (hors ancres)
+UNIVERSE_MIN_VOLUME_USDT = 5_000_000       # volume 24h minimal (anti-illiquide)
+
 # Capital / risque
 DEFAULT_PAPER_EQUITY_USDT = 100.0
 RISK_PER_TRADE_PERCENT = 1.0
@@ -66,6 +74,11 @@ MANDATE_LIVE_ENABLED = True
 # Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
 ACCUM_REAL_MAX_PER_BUY_USDT = 5.0          # plafond dur par achat réel
 ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle)
+# Style d'exécution de l'achat spot : "taker" (marché, prouvé), "limit_ioc" (limite IOC
+# plafonnée -> remplit tout de suite SANS slippage au-delà du plafond), ou "maker"
+# (limite post-only au bid -> frais maker / meilleur prix, mais peut ne pas remplir).
+EXEC_STYLE = "taker"
+ACCUM_SLIPPAGE_TOL_PCT = 0.10              # plafond de slippage (%) au-dessus de l'ask pour limit_ioc
 
 # 2e verrou : accumulation AUTONOME réelle (DCA auto dans le cycle). DOUBLE verrou avec
 # MANDATE_LIVE_ENABLED. False = l'accumulation reste paper même verrou global levé.

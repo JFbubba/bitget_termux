@@ -919,6 +919,24 @@ ni violer la contrainte « déterministe, pas de réseaux de neurones ».
 
 ---
 
+## §33 — Univers dynamique top-N + exécution maker/IOC
+**Univers dynamique** (`universe.py`, gated `DYNAMIC_UNIVERSE`, défaut OFF) : remplace les
+listes blanches figées par un univers construit à chaque cycle — LIQUIDITÉ (volume 24h des
+tickers spot Bitget, un seul appel) filtrée QUALITÉ (bases présentes dans le top market-cap
+**CoinGecko** — `coingecko_data` enfin branché dans l'analyse, plus seulement l'assistant),
+ancres `config.SYMBOLS` toujours incluses. Branché dans `journal_scanner` (scan principal)
+et `brain_cycle` (apprentissage). `UNIVERSE_TOP_N=20`, `UNIVERSE_MIN_VOLUME_USDT=5M`.
+L'accumulation reste **BTC** (objectif inchangé).
+
+**Exécution maker/IOC** (`spot_executor`, `EXEC_STYLE`, défaut `taker`) : 3 styles d'achat
+spot — `taker` (marché, prouvé), `limit_ioc` (limite IOC plafonnée juste au-dessus de l'ask
+→ remplit tout de suite mais JAMAIS au-delà du plafond, anti-slippage), `maker` (limite
+post-only au bid → frais maker / meilleur prix, peut ne pas remplir). `build_order` pur et
+testé ; repli sur marché si le carnet est indisponible (on n'est jamais bloqué). À valider
+sur le VPS comme l'ordre marché (un achat 5$ par style). `ACCUM_SLIPPAGE_TOL_PCT=0.10`.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

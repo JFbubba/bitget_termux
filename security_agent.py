@@ -65,6 +65,7 @@ FILES_TO_SCAN = [
     "edge_ladder.py",
     "fair_price.py",
     "volatility.py",
+    "universe.py",
     "accumulation_engine.py",
     "spot_executor.py",
     "account_equity.py",

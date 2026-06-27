@@ -105,13 +105,30 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
 
 # ---------- construction de la demande (pure) ----------
 
-def build_command(amount_usdt, client_oid):
-    """Construit les arguments `bgc` pour un ACHAT spot BTC au marché. PUR.
-    L'outil attend un TABLEAU JSON `orders` (format batch). Pour un achat marché
-    Bitget, `size` est le montant en quote (USDT à dépenser)."""
-    order = {"symbol": SYMBOL, "side": "buy", "orderType": "market",
-             "size": str(amount_usdt), "clientOid": str(client_oid)}
-    return ["spot", "spot_place_order", "--orders", json.dumps([order])]
+def build_order(amount_usdt, client_oid, style="taker", quote=None, tol_pct=0.10):
+    """Construit l'objet ordre d'ACHAT spot BTC selon le style. PUR.
+      • taker     : ordre marché, size = montant en QUOTE (USDT à dépenser) ;
+      • maker      : limite post-only au BID -> frais maker / meilleur prix (peut ne pas
+                     remplir), size = montant en BASE (BTC) ;
+      • limit_ioc  : limite IOC plafonnée juste au-dessus de l'ASK -> remplit tout de suite
+                     mais JAMAIS au-delà du plafond (anti-slippage), size en BASE.
+    Repli sur marché si le carnet (quote) est indisponible -> on achète quand même."""
+    base = {"symbol": SYMBOL, "side": "buy", "clientOid": str(client_oid)}
+    if style == "taker" or not quote:
+        return {**base, "orderType": "market", "size": str(amount_usdt)}
+    if style == "maker":
+        price = float(quote["bid"])
+        return {**base, "orderType": "limit", "force": "post_only",
+                "price": str(round(price, 2)), "size": str(round(float(amount_usdt) / price, 6))}
+    price = float(quote["ask"]) * (1.0 + float(tol_pct) / 100.0)        # limit_ioc : plafond
+    return {**base, "orderType": "limit", "force": "ioc",
+            "price": str(round(price, 2)), "size": str(round(float(amount_usdt) / price, 6))}
+
+
+def build_command(amount_usdt, client_oid, style="taker", quote=None, tol_pct=0.10):
+    """Args `bgc` (tableau JSON `orders`, format batch) pour l'ordre construit. PUR."""
+    return ["spot", "spot_place_order", "--orders",
+            json.dumps([build_order(amount_usdt, client_oid, style, quote, tol_pct)])]
 
 
 # ---------- exécution (réelle uniquement avec confirm=True) ----------
@@ -155,7 +172,27 @@ def _run(cmd, runner=None):
         return None
 
 
-def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None):
+def _exec_style():
+    """Style d'exécution : env EXEC_STYLE > config > 'taker'."""
+    import os
+    return (os.getenv("EXEC_STYLE", "").strip().lower()
+            or str(_cfg("EXEC_STYLE", "taker")).lower())
+
+
+def _best_quote(symbol=SYMBOL):
+    """Meilleur bid/ask spot (lecture seule via l'Agent Hub). None si indisponible."""
+    try:
+        import bitget_hub_bridge as hub
+        d = hub._read(["spot", "spot_get_ticker", "--symbol", symbol])
+        rows = (d or {}).get("data") if isinstance(d, dict) else None
+        row = rows[0] if isinstance(rows, list) and rows else {}
+        bid, ask = float(row.get("bidPr")), float(row.get("askPr"))
+        return {"bid": bid, "ask": ask, "mid": (bid + ask) / 2.0}
+    except Exception:
+        return None
+
+
+def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None, style=None):
     """Achat spot BTC réel SI confirm=True ET toutes les gardes passent. Sinon DRY
     (imprime la commande, n'exécute rien). Retourne un dict de résultat. balance/spent
     injectables (tests hermétiques) ; sinon lus en réel."""
@@ -163,7 +200,10 @@ def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spe
     bal = balance if balance is not None else _spot_free_usdt()
     ok, reasons = guards(amount_usdt, balance=bal, spent=spent)
     oid = f"accbtc{int(now * 1000)}"
-    cmd = build_command(amount_usdt, oid)
+    style = style or _exec_style()
+    quote = _best_quote() if style in ("maker", "limit_ioc") else None
+    cmd = build_command(amount_usdt, oid, style=style, quote=quote,
+                        tol_pct=float(_cfg("ACCUM_SLIPPAGE_TOL_PCT", 0.10)))
     preview = "bgc " + " ".join(cmd)
     if not ok:
         return {"ok": False, "executed": False, "reasons": reasons, "preview": preview}
