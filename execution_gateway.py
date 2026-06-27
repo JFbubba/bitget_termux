@@ -30,6 +30,30 @@ def append_journal(event):
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+def _risk_gate(order):
+    """Vérifie kill-switch + caps durs (risk_manager) pour un ordre. Best-effort mais
+    FAIL-SAFE : le kill-switch (lu en premier dans check_trade) est robuste même si la
+    lecture de l'état paper échoue. Retourne (autorisé, raison)."""
+    try:
+        import risk_manager
+        import risk_state
+        st = risk_state.snapshot()
+        proposed = {"notional_usd": order.get("notional_usdt", 0) or 0,
+                    "leverage": order.get("implied_leverage", 1) or 1}
+        return risk_manager.check_trade(
+            proposed, open_positions=st["open_positions"],
+            daily_loss_usd=st["daily_loss_usd"])
+    except Exception as exc:
+        # même en cas d'erreur, on respecte le kill-switch (garde minimale)
+        try:
+            import risk_manager
+            if risk_manager.kill_switch_active():
+                return False, "KILL_SWITCH actif"
+        except Exception:
+            pass
+        return True, f"garde risque indisponible ({type(exc).__name__})"
+
+
 def dry_run_execute(order_id):
     payload = load_payload()
     orders = payload.get("orders", [])
@@ -56,6 +80,28 @@ def dry_run_execute(order_id):
                 f"❌ Dry-run refusé.\n"
                 f"ID: {order_id}\n"
                 f"Statut actuel: {status}\n"
+                f"Aucun ordre réel envoyé."
+            )
+
+        # GARDE-FOU DUR : kill-switch + caps risque AVANT toute transition (même en
+        # dry-run, pour valider le câblage et garantir qu'un KILL_SWITCH bloque tout).
+        ok_risk, risk_reason = _risk_gate(order)
+        if not ok_risk:
+            event = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "EXECUTION_BLOCKED_RISK",
+                "order_id": order_id,
+                "symbol": order.get("symbol"),
+                "reason": risk_reason,
+                "execution_mode": EXECUTION_MODE,
+                "real_order_sent": False,
+            }
+            append_journal(event)
+            return (
+                False,
+                f"⛔ Bloqué par le risk-manager.\n"
+                f"ID: {order_id}\n"
+                f"Raison: {risk_reason}\n"
                 f"Aucun ordre réel envoyé."
             )
 

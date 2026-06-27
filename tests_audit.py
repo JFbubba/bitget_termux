@@ -2385,6 +2385,59 @@ def test_microstructure_markout_toxicity():
     assert ms.realized_markout(good, 5) > 0
 
 
+# ---------- garde-fou risque câblé dans l'exécution (audit pré-réel) ----------
+
+def test_risk_state_open_and_daily_loss():
+    import risk_state
+    payload = {"positions": [
+        {"status": "OPEN"}, {"status": "OPEN"}, {"status": "CLOSED_TP"},
+        {"status": "CLOSED_SL", "closed_at": "2026-06-27T10:00:00", "risk_usdt": 5.0},
+        {"status": "CLOSED_SL", "closed_at": "2026-06-27T11:00:00", "risk_usdt": 3.0},
+        {"status": "CLOSED_SL", "closed_at": "2025-01-01T00:00:00", "risk_usdt": 9.0},  # autre jour
+    ]}
+    assert risk_state.open_positions_count(payload) == 2
+    assert risk_state.daily_realized_loss_usd(payload, today="2026-06-27") == 8.0  # 5+3, pas le 9
+
+
+def test_execution_risk_gate_blocks_killswitch_and_caps():
+    import json
+    import tempfile
+    from pathlib import Path
+    import execution_gateway as eg
+    import risk_manager as rm
+    import risk_state as rs
+    tmp = Path(tempfile.mkdtemp())
+    old = (eg.PENDING_ORDERS_FILE, eg.EXECUTION_JOURNAL_FILE, eg.add_paper_position_from_order,
+           rm.KILL_FILE, rs.snapshot)
+    try:
+        eg.PENDING_ORDERS_FILE = tmp / "pending.json"
+        eg.EXECUTION_JOURNAL_FILE = tmp / "journal.jsonl"
+        eg.add_paper_position_from_order = lambda o: (True, "stub")   # pas d'effet de bord
+        rm.KILL_FILE = tmp / "KILL_SWITCH"
+        rs.snapshot = lambda *a, **k: {"open_positions": 0, "daily_loss_usd": 0.0}
+
+        def put(order):
+            eg.PENDING_ORDERS_FILE.write_text(json.dumps({"orders": [order]}))
+        base = {"id": "X", "status": "APPROVED_SIMULATION", "symbol": "BTCUSDT",
+                "side": "long", "notional_usdt": 40.0, "implied_leverage": 1.5}
+
+        # 1) sans kill-switch, dans les caps -> dry-run validé
+        put(dict(base)); ok, _ = eg.dry_run_execute("X"); assert ok
+
+        # 2) KILL_SWITCH actif -> BLOQUÉ (le coeur de la sécurité)
+        put(dict(base)); rm.KILL_FILE.write_text("halt")
+        ok2, msg2 = eg.dry_run_execute("X")
+        assert not ok2 and "risk" in msg2.lower()
+        rm.KILL_FILE.unlink()
+
+        # 3) notionnel > cap (50 par défaut) -> BLOQUÉ par le risk-manager
+        put(dict(base, notional_usdt=999.0)); ok3, _ = eg.dry_run_execute("X")
+        assert not ok3
+    finally:
+        (eg.PENDING_ORDERS_FILE, eg.EXECUTION_JOURNAL_FILE, eg.add_paper_position_from_order,
+         rm.KILL_FILE, rs.snapshot) = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
