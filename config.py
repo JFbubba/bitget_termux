@@ -20,6 +20,17 @@ DEFAULT_PAPER_EQUITY_USDT = 100.0
 RISK_PER_TRADE_PERCENT = 1.0
 MAX_IMPLIED_LEVERAGE = 2.0
 
+# === Limites de risque : SOURCE UNIQUE (réconciliation audit #4) ===
+# risk_manager (gate par-ordre) ET risk_limits (caps portefeuille) lisent ces valeurs.
+# risk_manager peut surcharger par .env (RISK_MAX_*). Valeurs conservatrices.
+MAX_LEVERAGE = MAX_IMPLIED_LEVERAGE        # cap de levier UNIQUE (= 2.0)
+MAX_OPEN_POSITIONS = 3                      # positions simultanées (gate par-ordre = cap portefeuille)
+MAX_POSITION_USD = 50.0                     # notionnel max d'UNE position
+MAX_DAILY_LOSS_USD = 25.0                   # perte journalière réalisée -> halte
+MAX_TOTAL_NOTIONAL_USDT = 300.0            # notionnel AGRÉGÉ max (portefeuille)
+MAX_TOTAL_RISK_PERCENT = 5.0               # risque cumulé max (%)
+MIN_SL_DISTANCE_PERCENT = 0.20             # distance stop minimale (anti dust-stop)
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21

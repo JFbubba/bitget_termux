@@ -36,12 +36,22 @@ def _i(name, default):
         return int(default)
 
 
+def _cfg(name, fallback):
+    """Défaut depuis config (source unique #4), robuste si config indisponible."""
+    try:
+        import config
+        return getattr(config, name, fallback)
+    except Exception:
+        return fallback
+
+
 def load_limits():
+    # défauts = config (source unique) ; surchargeables par .env (RISK_MAX_*)
     return {
-        "max_position_usd": _f("RISK_MAX_POSITION_USD", 50),
-        "max_leverage": _f("RISK_MAX_LEVERAGE", 3),
-        "max_open_positions": _i("RISK_MAX_OPEN_POSITIONS", 3),
-        "max_daily_loss_usd": _f("RISK_MAX_DAILY_LOSS_USD", 25),
+        "max_position_usd": _f("RISK_MAX_POSITION_USD", _cfg("MAX_POSITION_USD", 50)),
+        "max_leverage": _f("RISK_MAX_LEVERAGE", _cfg("MAX_LEVERAGE", 2)),
+        "max_open_positions": _i("RISK_MAX_OPEN_POSITIONS", int(_cfg("MAX_OPEN_POSITIONS", 3))),
+        "max_daily_loss_usd": _f("RISK_MAX_DAILY_LOSS_USD", _cfg("MAX_DAILY_LOSS_USD", 25)),
     }
 
 
