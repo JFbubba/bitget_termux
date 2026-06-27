@@ -2580,15 +2580,18 @@ def test_universe_ranking_and_quality():
         {"symbol": "SCAMUSDT", "usdtVolume": "999999999"},   # gros volume mais hors top mcap
         {"symbol": "DOGEUSDT", "usdtVolume": "20000000"},
         {"symbol": "TINYUSDT", "usdtVolume": "1000"},         # sous le seuil de volume
+        {"symbol": "USDCUSDT", "usdtVolume": "999999999"},    # stablecoin (peg) -> exclu
         {"symbol": "BTCUSDC", "usdtVolume": "9"},             # quote non-USDT -> ignoré
     ]}
     parsed = u.parse_tickers(data)
     assert all(t["symbol"].endswith("USDT") for t in parsed)
     assert not any(t["symbol"] == "BTCUSDC" for t in parsed)
-    # filtre QUALITÉ (top mcap CoinGecko) : SCAM exclu ; ancre en tête ; TINY sous volume
-    uni = u.rank_by_volume(parsed, top_n=3, min_volume=1_000_000,
-                           quality={"BTC", "ETH", "DOGE"}, anchors=["BTCUSDT"])
+    # filtre QUALITÉ (top mcap CoinGecko) : SCAM exclu ; ancre en tête ; TINY sous volume ;
+    # stablecoin USDC exclu même s'il passe volume+qualité (peg, aucune tendance)
+    uni = u.rank_by_volume(parsed, top_n=4, min_volume=1_000_000,
+                           quality={"BTC", "ETH", "DOGE", "USDC"}, anchors=["BTCUSDT"])
     assert uni[0] == "BTCUSDT" and "SCAMUSDT" not in uni and "TINYUSDT" not in uni
+    assert "USDCUSDT" not in uni                  # stablecoin écarté de l'analyse
     assert "ETHUSDT" in uni and "DOGEUSDT" in uni
     # sans filtre qualité, le gros volume (SCAM) entre
     uni2 = u.rank_by_volume(parsed, top_n=2, min_volume=1_000_000, quality=None, anchors=[])

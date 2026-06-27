@@ -30,6 +30,11 @@ def _anchors():
     return [s.upper() for s in _cfg("SYMBOLS", ["BTCUSDT"])]
 
 
+# bases stablecoin : peg ~1.00, aucune tendance -> hors univers d'ANALYSE (inutiles)
+_STABLE_BASES = {"USDC", "DAI", "TUSD", "FDUSD", "USDD", "BUSD", "PYUSD", "USDP",
+                 "GUSD", "USDE", "FRAX", "LUSD", "EURT", "EUR", "USD1", "XUSD"}
+
+
 # ---------- tri / filtre (PURS) ----------
 
 def parse_tickers(data):
@@ -62,10 +67,11 @@ def rank_by_volume(tickers, top_n=20, min_volume=0.0, quality=None, anchors=None
         sym = t["symbol"]
         if sym in out:
             continue
-        if quality is not None:
-            base = sym[:-4]                      # retire 'USDT'
-            if base not in quality:
-                continue
+        base = sym[:-4]                          # retire 'USDT'
+        if base in _STABLE_BASES:                # stablecoin (peg) -> hors analyse
+            continue
+        if quality is not None and base not in quality:
+            continue
         out.append(sym)
         if len(out) >= top_n + len(anchors):
             break
