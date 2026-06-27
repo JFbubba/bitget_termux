@@ -84,6 +84,45 @@ def get_futures_accounts():
     return response.json()
 
 
+def get_spot_assets(coin=None):
+    """Avoirs SPOT par coin (available / frozen). Lecture seule (GET signé)."""
+    api_key, api_secret, passphrase = load_keys()
+
+    method = "GET"
+    request_path = "/api/v2/spot/account/assets"
+    params = {"coin": coin} if coin else {}
+    query_string = urlencode(params)
+    timestamp = str(int(time.time() * 1000))
+
+    signature = create_signature(
+        secret_key=api_secret,
+        timestamp=timestamp,
+        method=method,
+        request_path=request_path,
+        query_string=query_string,
+        body="",
+    )
+
+    headers = {
+        "ACCESS-KEY": api_key,
+        "ACCESS-SIGN": signature,
+        "ACCESS-TIMESTAMP": timestamp,
+        "ACCESS-PASSPHRASE": passphrase,
+        "Content-Type": "application/json",
+        "locale": "en-US",
+    }
+
+    response = requests.get(
+        f"{BASE_URL}{request_path}",
+        headers=headers,
+        params=params,
+        timeout=10,
+    )
+
+    response.raise_for_status()
+    return response.json()
+
+
 def main():
     print("=== BITGET BALANCE READER ===")
     print("Mode: lecture seule")

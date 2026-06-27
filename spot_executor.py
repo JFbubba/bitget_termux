@@ -116,17 +116,25 @@ def build_command(amount_usdt, client_oid):
 
 # ---------- exécution (réelle uniquement avec confirm=True) ----------
 
-def _spot_balance():
+def _extract_usdt_available(res):
+    """USDT LIBRE (disponible) dans une réponse spot/account/assets. PUR."""
     try:
-        import bitget_hub_bridge as hub
-        snap = hub.account_snapshot()
-        if snap:
-            acc = snap.get("accounts") or {}
-            v = acc.get("spot")
-            return v if v is not None else snap.get("available_usdt")
+        for row in (res.get("data") or []):
+            if str(row.get("coin", "")).upper() == "USDT":
+                return float(row.get("available"))
     except Exception:
         pass
     return None
+
+
+def _spot_free_usdt():
+    """USDT LIBRE dans le wallet SPOT (pas la valeur totale du wallet). Best-effort.
+    C'est CE solde qui finance un achat — la valeur agrégée du compte est trompeuse."""
+    try:
+        import bitget_balance_reader as br
+        return _extract_usdt_available(br.get_spot_assets("USDT"))
+    except Exception:
+        return None
 
 
 def _run(cmd, runner=None):
@@ -151,7 +159,7 @@ def execute(amount_usdt, confirm=False, runner=None, now=None):
     """Achat spot BTC réel SI confirm=True ET toutes les gardes passent. Sinon DRY
     (imprime la commande, n'exécute rien). Retourne un dict de résultat."""
     now = time.time() if now is None else now
-    bal = _spot_balance()
+    bal = _spot_free_usdt()
     ok, reasons = guards(amount_usdt, balance=bal)
     oid = f"accbtc{int(now * 1000)}"
     cmd = build_command(amount_usdt, oid)

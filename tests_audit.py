@@ -2734,6 +2734,11 @@ def test_spot_executor_guards_and_dry():
     # confirm + réponse d'ERREUR -> pas d'exécution réussie (aucun achat enregistré)
     r2 = se.execute(5.0, confirm=True, runner=lambda c: '{"ok":false,"error":{"code":"40762"}}', now=1_000_000)
     assert r2["executed"] is False
+    # lecture de l'USDT LIBRE (pas la valeur agrégée) : c'est ce solde qui finance l'achat
+    res = {"data": [{"coin": "USDT", "available": "20.5", "frozen": "0"},
+                    {"coin": "BTC", "available": "0.001"}]}
+    assert se._extract_usdt_available(res) == 20.5
+    assert se._extract_usdt_available({"data": []}) is None
 
 
 def test_macro_regime_pressures_and_bias():
