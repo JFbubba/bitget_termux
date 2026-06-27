@@ -85,18 +85,35 @@ _ASSET_TOOLS = [["account", "get_account_assets"], ["spot", "get_account_assets"
 
 
 def _parse_assets(data):
-    """Parse tolérant de get_account_assets : accepte une LISTE de soldes par coin
-    ({coin, available, ...}) OU un dict de type compte (usdtEquity/available). PUR."""
+    """Parse tolérant des outils d'assets de l'Agent Hub. Accepte :
+      • all-account-balance : liste de {accountType, usdtBalance} -> ventilation + total ;
+      • liste de soldes par coin {coin, available} -> avoirs ;
+      • dict type compte {usdtEquity/available}. PUR. None sur erreur API ou vide."""
     if not data:
+        return None
+    if isinstance(data, dict) and data.get("ok") is False:
         return None
     d = data.get("data", data) if isinstance(data, dict) else data
     if isinstance(d, dict):
         eq = _num(d.get("usdtEquity") or d.get("accountEquity") or d.get("usdtBalance"))
         if eq is not None:
             return {"equity_usdt": eq, "available_usdt": _num(d.get("available")),
-                    "holdings": {}, "source": "agent_hub"}
+                    "accounts": {}, "holdings": {}, "source": "agent_hub"}
         d = [d]
     if isinstance(d, list):
+        # ventilation par TYPE de compte (spot/futures/earn/bots/margin/funding)
+        if d and isinstance(d[0], dict) and "accountType" in d[0]:
+            accounts = {}
+            for row in d:
+                at = str(row.get("accountType", "")).lower()
+                bal = _num(row.get("usdtBalance"))
+                if at and bal is not None:
+                    accounts[at] = round(bal, 2)
+            if accounts:
+                return {"equity_usdt": round(sum(accounts.values()), 2),
+                        "available_usdt": accounts.get("spot"),
+                        "accounts": accounts, "holdings": {}, "source": "agent_hub"}
+        # soldes par coin
         holdings, usdt = {}, None
         for row in d:
             if not isinstance(row, dict):
@@ -109,7 +126,7 @@ def _parse_assets(data):
                 usdt = avail
         if holdings or usdt is not None:
             return {"equity_usdt": usdt, "available_usdt": usdt,
-                    "holdings": holdings, "source": "agent_hub"}
+                    "accounts": {}, "holdings": holdings, "source": "agent_hub"}
     return None
 
 
@@ -218,8 +235,13 @@ def build_report():
     lines = ["=== PONT BITGET AGENT HUB <-> BOT (lecture seule + mandat) ==="]
     lines.append(f"Agent Hub (`bgc`) détecté : {'oui' if hub else 'non (paper / advisory seulement)'}")
     if snap:
-        lines.append(f"Compte (lecture) : USDT dispo {snap.get('available_usdt')} "
-                     f"({snap.get('source')})")
+        acc = snap.get("accounts") or {}
+        if acc:
+            lines.append(f"Portefeuille total : {snap.get('equity_usdt')} USDT ({snap.get('source')})")
+            lines.append("  " + " · ".join(f"{k} {v}" for k, v in acc.items()))
+        else:
+            lines.append(f"Compte (lecture) : USDT dispo {snap.get('available_usdt')} "
+                         f"({snap.get('source')})")
         hold = snap.get("holdings") or {}
         if hold:
             top = ", ".join(f"{c} {v}" for c, v in list(hold.items())[:8])

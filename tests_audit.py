@@ -2672,6 +2672,14 @@ def test_hub_bridge_parse_assets_shapes():
     p2 = b._parse_assets({"data": {"usdtEquity": "250", "available": "200"}})
     assert p2["equity_usdt"] == 250.0
     assert b._parse_assets(None) is None and b._parse_assets({"data": []}) is None
+    # forme RÉELLE all-account-balance : ventilation par type de compte
+    p3 = b._parse_assets({"data": [{"accountType": "spot", "usdtBalance": "173.65"},
+                                   {"accountType": "futures", "usdtBalance": "106.04"},
+                                   {"accountType": "earn", "usdtBalance": "513.51"}]})
+    assert p3["accounts"]["earn"] == 513.51 and p3["available_usdt"] == 173.65
+    assert abs(p3["equity_usdt"] - 793.2) < 0.01            # total agrégé
+    # erreur API -> None (retombe sur le repli)
+    assert b._parse_assets({"ok": False, "error": {"code": "400"}}) is None
 
 
 def test_macro_regime_pressures_and_bias():
