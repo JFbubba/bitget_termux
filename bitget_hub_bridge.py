@@ -39,14 +39,40 @@ def available(which=shutil.which):
         return False
 
 
+def _hub_env(base=None, dotenv_vals=None):
+    """Env pour `bgc` : mappe les noms de clés du .env du bot (BITGET_API_SECRET /
+    BITGET_API_PASSPHRASE) vers ceux attendus par l'Agent Hub (BITGET_SECRET_KEY /
+    BITGET_PASSPHRASE). PUR si on injecte base/dotenv_vals. Aucune clé n'est journalisée."""
+    import os
+    env = dict(os.environ if base is None else base)
+    if dotenv_vals is None:
+        try:
+            from dotenv import dotenv_values
+            dotenv_vals = dotenv_values()
+        except Exception:
+            dotenv_vals = {}
+    aliases = {"BITGET_API_KEY": ["BITGET_API_KEY"],
+               "BITGET_SECRET_KEY": ["BITGET_SECRET_KEY", "BITGET_API_SECRET"],
+               "BITGET_PASSPHRASE": ["BITGET_PASSPHRASE", "BITGET_API_PASSPHRASE"]}
+    for target, sources in aliases.items():
+        if not env.get(target):
+            for s in sources:
+                v = env.get(s) or (dotenv_vals or {}).get(s)
+                if v:
+                    env[target] = v
+                    break
+    return env
+
+
 def _read(args, runner=None):
     """Exécute une commande de LECTURE de l'Agent Hub et renvoie le JSON. Best-effort
-    (None si absent/erreur). `runner` injectable pour les tests (aucun process réel)."""
+    (None si absent/erreur). Force --read-only. `runner` injectable pour les tests."""
     if runner is None:
         if not available():
             return None
         def runner(a):
-            return subprocess.run([HUB_CLI, *a], capture_output=True, text=True, timeout=20).stdout
+            return subprocess.run([HUB_CLI, "--read-only", *a], capture_output=True,
+                                  text=True, timeout=20, env=_hub_env()).stdout
     try:
         out = runner(args)
         return json.loads(out) if out else None

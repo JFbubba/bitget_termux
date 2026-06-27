@@ -2645,6 +2645,21 @@ def test_hub_bridge_read_only_helpers():
     assert b._read(["x"], runner=lambda a: "pas du json") is None
 
 
+def test_hub_bridge_env_key_mapping():
+    import bitget_hub_bridge as b
+    # mappe les noms du .env (bot) -> noms attendus par bgc, sans écraser l'existant
+    env = b._hub_env(base={}, dotenv_vals={"BITGET_API_KEY": "k",
+                                           "BITGET_API_SECRET": "s",
+                                           "BITGET_API_PASSPHRASE": "p"})
+    assert env["BITGET_API_KEY"] == "k"
+    assert env["BITGET_SECRET_KEY"] == "s"      # alias depuis BITGET_API_SECRET
+    assert env["BITGET_PASSPHRASE"] == "p"      # alias depuis BITGET_API_PASSPHRASE
+    # un nom déjà présent n'est pas écrasé
+    env2 = b._hub_env(base={"BITGET_SECRET_KEY": "already"},
+                      dotenv_vals={"BITGET_API_SECRET": "other"})
+    assert env2["BITGET_SECRET_KEY"] == "already"
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)
