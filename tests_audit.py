@@ -2555,6 +2555,61 @@ def test_preorder_vol_target_leverage_gate():
         sb.peek, ms.closes = old
 
 
+def test_equity_curve_realized_and_drawdown():
+    # courbe d'equity realisee (paper) : TP +risk*RR, SL -risk, CLOSED_SOURCE/OPEN ignores.
+    import equity_curve as ec
+
+    def pos(status, t, risk=10.0):
+        return {"status": status, "closed_at": t, "risk_usdt": risk}
+
+    # depart 100 ; 1 TP (+20 -> 120 = peak) puis 4 SL (-10 -> 80) : DD = 40/120 = 33.3%
+    payload = {"positions": [
+        pos("CLOSED_TP", "2026-06-27T01:00:00"),
+        pos("CLOSED_SL", "2026-06-27T02:00:00"),
+        pos("CLOSED_SL", "2026-06-27T03:00:00"),
+        pos("CLOSED_SL", "2026-06-27T04:00:00"),
+        pos("CLOSED_SL", "2026-06-27T05:00:00"),
+        {"status": "OPEN", "risk_usdt": 99},                                   # ignoree
+        {"status": "CLOSED_SOURCE", "closed_at": "2026-06-27T06:00:00", "risk_usdt": 50},  # neutre
+    ]}
+    curve = ec.realized_curve(payload, start_equity=100.0, rr=2.0)
+    assert curve == [100.0, 120.0, 110.0, 100.0, 90.0, 80.0]
+    st = ec.drawdown_state(payload, start_equity=100.0, rr=2.0)
+    assert st["halt"] is True and st["dd_pct"] >= 20.0
+    assert st["equity"] == 80.0 and st["peak"] == 120.0 and st["n_closed"] == 5
+    # sequence gagnante -> aucun drawdown -> pas de halte
+    win = {"positions": [pos("CLOSED_TP", "2026-06-27T01:00:00"),
+                         pos("CLOSED_TP", "2026-06-27T02:00:00")]}
+    st2 = ec.drawdown_state(win, start_equity=100.0, rr=2.0)
+    assert st2["halt"] is False and st2["dd_pct"] == 0.0
+
+
+def test_preorder_drawdown_halt_rejects():
+    # drawdown_halt branche dans _apply_portfolio_guards : si MDD depasse, TOUT pre-ordre
+    # PENDING passe REJECTED (risk-off), comme le kill-switch. Stubs deterministes.
+    import preorder_engine as pe
+    import risk_manager as rm
+    import equity_curve as ec
+    old = (rm.kill_switch_active, ec.drawdown_state)
+    try:
+        rm.kill_switch_active = lambda: False
+        ec.drawdown_state = lambda *a, **k: {"halt": True, "dd_pct": 25.0,
+                                             "equity": 75.0, "peak": 100.0, "n_closed": 9}
+        p = [{"id": "o1", "status": "PENDING_APPROVAL", "reasons": []}]
+        pe._apply_portfolio_guards(p, set())
+        assert p[0]["status"] == "REJECTED"
+        assert any("drawdown" in r.lower() for r in p[0]["reasons"])
+        # pas de halte -> pas de rejet par le drawdown
+        ec.drawdown_state = lambda *a, **k: {"halt": False, "dd_pct": 3.0,
+                                             "equity": 97.0, "peak": 100.0, "n_closed": 9}
+        p2 = [{"id": "o2", "status": "PENDING_APPROVAL", "reasons": [],
+               "notional_usdt": 1.0, "sl_distance_percent": 1.0}]
+        pe._apply_portfolio_guards(p2, set())
+        assert not any("drawdown" in r.lower() for r in p2[0]["reasons"])
+    finally:
+        rm.kill_switch_active, ec.drawdown_state = old
+
+
 def test_preorder_portfolio_guards():
     import preorder_engine as pe
     import risk_state as rs

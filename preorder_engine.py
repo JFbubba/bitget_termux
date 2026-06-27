@@ -257,6 +257,21 @@ def _apply_portfolio_guards(preorders, opened):
             return
     except Exception:
         pass
+    # Halte DRAWDOWN (MDD) : si le drawdown realise (courbe d'equity paper) depasse le
+    # seuil tolere (mandate, defaut 20%), on coupe TOUT nouveau risque -- comme le
+    # kill-switch. Branche drawdown_halt() qui etait code mais sans courbe a manger.
+    try:
+        import equity_curve
+        _dd = equity_curve.drawdown_state()
+        if _dd.get("halt"):
+            for o in preorders:
+                if o.get("status") == "PENDING_APPROVAL":
+                    o["status"] = "REJECTED"
+                    o.setdefault("reasons", []).append(
+                        f"halte drawdown : MDD {_dd['dd_pct']:.1f}% >= seuil tolere (risk-off)")
+            return
+    except Exception:
+        pass
     try:
         import risk_limits
         import risk_state
