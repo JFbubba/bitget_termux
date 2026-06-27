@@ -2302,6 +2302,64 @@ def test_microstructure_features_and_buffer():
         ms.BUFFER_FILE = old
 
 
+# ---------- collecteur WebSocket de microstructure (book_collector) ----------
+
+def test_book_collector_parsers():
+    import json
+    import book_collector as bc
+    book = bc.parse_ws_book({"bids": [["100.0", "5"], ["99.9", "8"]], "asks": [["100.1", "5"]]})
+    assert book["bids"][0] == [100.0, 5.0] and book["asks"][0] == [100.1, 5.0]
+    # tape : objets ET tableaux [ts,price,size,side]
+    tr = bc.parse_ws_trades([{"side": "Buy", "size": "2", "price": "100.1"},
+                             ["2", "100.0", "1", "sell"]])
+    assert len(tr) == 2 and tr[0]["side"] == "buy" and tr[1]["side"] == "sell"
+    assert "books15" in bc.subscribe_message(["BTCUSDT"]) and "trade" in bc.subscribe_message(["BTCUSDT"])
+
+
+def test_book_collector_handle_and_tick():
+    import json
+    import book_collector as bc
+    import microstructure as ms
+    from pathlib import Path
+    state = {}
+    bc.handle_message(state, "pong")                              # ignoré
+    bc.handle_message(state, json.dumps({"event": "subscribe"}))  # ack ignoré
+    bc.handle_message(state, json.dumps({"arg": {"channel": "books15", "instId": "ZZZUSDT"},
+        "data": [{"bids": [["10", "5"]], "asks": [["10.1", "5"]]}]}))
+    bc.handle_message(state, json.dumps({"arg": {"channel": "trade", "instId": "ZZZUSDT"},
+        "data": [{"side": "buy", "size": "1", "price": "10.05"}]}))
+    assert state["books"]["ZZZUSDT"]["bids"][0] == [10.0, 5.0]
+    old = ms.BUFFER_FILE
+    try:
+        ms.BUFFER_FILE = Path(old).with_name(".mbuf_bctick_test.json")
+        if ms.BUFFER_FILE.exists():
+            ms.BUFFER_FILE.unlink()
+        assert bc.tick(state, ["ZZZUSDT"], ts=1) == 1
+        # 2e snapshot avec carnet monté -> OFI acheteur > 0
+        bc.handle_message(state, json.dumps({"arg": {"channel": "books15", "instId": "ZZZUSDT"},
+            "data": [{"bids": [["10.05", "6"]], "asks": [["10.15", "5"]]}]}))
+        bc.tick(state, ["ZZZUSDT"], ts=2)
+        rows = ms.recent("ZZZUSDT")
+        assert len(rows) == 2 and rows[-1]["ofi"] > 0
+    finally:
+        try:
+            Path(ms.BUFFER_FILE).unlink()
+        except Exception:
+            pass
+        ms.BUFFER_FILE = old
+
+
+def test_microstructure_markout_toxicity():
+    import microstructure as ms
+    # agresseurs acheteurs mais prix qui dérive vers le bas -> markout adverse (toxique)
+    rows = [{"mid": 100.0 - 0.05 * i, "trade_sign": 1.0, "spread_bps": 1.0} for i in range(40)]
+    mk = ms.realized_markout(rows, 5)
+    assert mk < 0                                                # flux toxique
+    # markout favorable -> non toxique
+    good = [{"mid": 100.0 + 0.05 * i, "trade_sign": 1.0, "spread_bps": 1.0} for i in range(40)]
+    assert ms.realized_markout(good, 5) > 0
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

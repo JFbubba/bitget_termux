@@ -159,20 +159,38 @@ def recent(symbol, n=120):
     return _load_buffer().get(symbol.upper(), [])[-n:]
 
 
-def summary(symbol, n=60):
-    """Résumé moyen des features récentes (ce que lit un agent T4). Best-effort. Pur-ish."""
+def realized_markout(rows, h=5):
+    """Markout RÉALISÉ moyen (bps) depuis une suite de snapshots : pour chaque
+    snapshot, P&L du côté agresseur (trade_sign) `h` pas plus tard. PUR.
+    NÉGATIF = flux TOXIQUE (les agresseurs obtiennent de mauvais prix). Réf. 2606.15715."""
+    mk = []
+    for i in range(len(rows) - h):
+        m0 = rows[i].get("mid", 0.0); m1 = rows[i + h].get("mid", 0.0)
+        sgn = rows[i].get("trade_sign", 0.0)
+        if m0 > 0 and m1 > 0 and sgn != 0:
+            mk.append((1 if sgn > 0 else -1) * (m1 - m0) / m0 * 1e4)
+    return float(sum(mk) / len(mk)) if mk else 0.0
+
+
+def summary(symbol, n=60, markout_h=5):
+    """Résumé des features récentes (ce que lit un agent T4). Best-effort. Pur-ish.
+    `toxicity` ∈ [0,1] = markout adverse (négatif) + élargissement du spread (heuristique
+    calibrable, pas un seuil de papier)."""
     rows = recent(symbol, n)
     if not rows:
         return {"n": 0, "ofi": 0.0, "queue_imbalance": 0.0, "trade_sign": 0.0,
-                "spread_bps": 0.0, "toxicity": 0.0}
+                "spread_bps": 0.0, "markout_bps": 0.0, "toxicity": 0.0}
     def avg(k):
         vals = [r.get(k, 0.0) for r in rows]
         return sum(vals) / len(vals) if vals else 0.0
-    # toxicité simple : OFI fort mais markout adverse moyen -> flux toxique
+    mk = realized_markout(rows, markout_h)
+    sp = avg("spread_bps")
+    tox = max(0.0, min(1.0, max(0.0, -mk) / 10.0 + max(0.0, sp - 2.0) / 20.0))
     return {"n": len(rows), "ofi": round(avg("ofi"), 4),
             "queue_imbalance": round(avg("queue_imbalance"), 4),
             "trade_sign": round(avg("trade_sign"), 4),
-            "spread_bps": round(avg("spread_bps"), 3)}
+            "spread_bps": round(sp, 3), "markout_bps": round(mk, 3),
+            "toxicity": round(tox, 3)}
 
 
 # ---------- collecteur best-effort (REST-poll) ----------

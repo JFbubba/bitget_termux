@@ -422,12 +422,13 @@ def signed_volume_ofi(candles, window=10):
 
 # ========== signal de l'agent (par actif) : régime de queue + toxicité ==========
 
-def signal(closes, order_flow=None):
+def signal(closes, order_flow=None, micro=None):
     """Cœur PUR de l'agent géométrique (par actif). Combine :
       • régime de queue (tool 1) : en blow-up « non-euclidien » -> SUIVI DE TENDANCE
         (ne pas réverter, cf. signal du papier) ; en euclidien -> légère réversion ;
-      • toxicité d'ordre supérieur (tool 4) sur l'order-flow (ou les rendements) :
-        élevée -> on SE RETIRE (anti-sélection adverse / spoofing).
+      • toxicité d'ordre supérieur (tool 4) : rugosité + saut BNS, ENRICHIE par la
+        microstructure RÉELLE (`micro` = microstructure.summary) si le buffer L2/tape
+        est alimenté ; sinon repli sur les rendements. Toxicité haute -> on SE RETIRE.
     Déterministe, borné, aucun NN, aucun ordre."""
     out = {"regime": "n/a", "tail_ratio": 1.0, "toxicity": 0.0, "momentum": 0.0,
            "vote": 0.0, "confidence": 0.0, "note": "données insuffisantes"}
@@ -441,6 +442,10 @@ def signal(closes, order_flow=None):
     tox_rough = higher_order_toxicity(flow)
     jump = relative_jump(rets)
     tox = 1.0 - (1.0 - tox_rough) * (1.0 - jump)
+    # microstructure RÉELLE (carnet L2 + tape) si disponible : la markout adverse /
+    # le spread élargi dominent quand le buffer est alimenté (sinon proxy OHLCV).
+    if micro and micro.get("n", 0) >= 10:
+        tox = 1.0 - (1.0 - tox) * (1.0 - float(micro.get("toxicity", 0.0)))
 
     r = np.asarray(rets)
     mom = math.tanh(float(r[-8:].sum()) / (r.std() + 1e-9) / 4.0)   # tendance récente normalisée
@@ -497,7 +502,13 @@ def analyze(symbol="BTCUSDT", ttl=45):
         closes = _closes(symbol)
         if len(closes) < 40:
             return {"regime": "n/a", "vote": 0.0, "confidence": 0.0, "note": "n/a"}
-        return signal(closes)
+        micro = None
+        try:                                            # microstructure réelle si le collecteur tourne
+            import microstructure
+            micro = microstructure.summary(symbol)
+        except Exception:
+            micro = None
+        return signal(closes, micro=micro)
     return rc.get(f"geom:{symbol.upper()}", ttl, fetch,
                   fallback={"regime": "n/a", "vote": 0.0, "confidence": 0.0, "note": "n/a"})
 

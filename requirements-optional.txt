@@ -10,3 +10,8 @@ yfinance
 # ccxt : ccxt_markets.py — prix spot + funding/OI multi-exchange (100+ venues),
 #        commande /cross. Méthodes de LECTURE uniquement.
 ccxt
+
+# book_collector.py — collecteur microstructure HAUTE FIDÉLITÉ via WebSocket public
+# Bitget (canaux books15 + trade). OPTIONNEL : sans lui, le REST-poll de
+# microstructure.py reste disponible. Flux public, lecture seule, aucune clé.
+websocket-client>=1.6.0

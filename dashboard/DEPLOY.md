@@ -40,6 +40,20 @@ cd ~/bitget_termux_repo && bash update_vps.sh
 
 Le script **ne redémarre les services que si `security_agent` renvoie `VERDICT: SAFE`**.
 
+### (Optionnel) Collecteur de microstructure (carnet L2 + tape)
+
+Pour alimenter les outils T4 (OFI, markout/sélection adverse) avec le carnet réel,
+un collecteur WebSocket public (lecture seule, aucune clé) est disponible :
+
+```bash
+pip install -r requirements-optional.txt        # websocket-client
+sudo cp deploy/bitget-microstructure.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now bitget-microstructure
+```
+
+Sans lui, les agents T4 utilisent un proxy OHLCV (dégradé) ; avec lui, ils lisent
+l'OFI/markout réels depuis le buffer roulant. Flux **public**, **aucun ordre**.
+
 ## 3. Lancer le dashboard
 
 ```bash
