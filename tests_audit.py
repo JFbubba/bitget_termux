@@ -2556,32 +2556,30 @@ def test_preorder_vol_target_leverage_gate():
 
 
 def test_equity_curve_realized_and_drawdown():
-    # courbe d'equity realisee (paper) : TP +risk*RR, SL -risk, CLOSED_SOURCE/OPEN ignores.
     import equity_curve as ec
-
-    def pos(status, t, risk=10.0):
+    # --- piste POSITIONS paper closes (realized_curve) : TP +risk*RR, SL -risk ---
+    def cp(status, t, risk=10.0):
         return {"status": status, "closed_at": t, "risk_usdt": risk}
-
-    # depart 100 ; 1 TP (+20 -> 120 = peak) puis 4 SL (-10 -> 80) : DD = 40/120 = 33.3%
     payload = {"positions": [
-        pos("CLOSED_TP", "2026-06-27T01:00:00"),
-        pos("CLOSED_SL", "2026-06-27T02:00:00"),
-        pos("CLOSED_SL", "2026-06-27T03:00:00"),
-        pos("CLOSED_SL", "2026-06-27T04:00:00"),
-        pos("CLOSED_SL", "2026-06-27T05:00:00"),
-        {"status": "OPEN", "risk_usdt": 99},                                   # ignoree
-        {"status": "CLOSED_SOURCE", "closed_at": "2026-06-27T06:00:00", "risk_usdt": 50},  # neutre
-    ]}
-    curve = ec.realized_curve(payload, start_equity=100.0, rr=2.0)
-    assert curve == [100.0, 120.0, 110.0, 100.0, 90.0, 80.0]
-    st = ec.drawdown_state(payload, start_equity=100.0, rr=2.0)
-    assert st["halt"] is True and st["dd_pct"] >= 20.0
-    assert st["equity"] == 80.0 and st["peak"] == 120.0 and st["n_closed"] == 5
-    # sequence gagnante -> aucun drawdown -> pas de halte
-    win = {"positions": [pos("CLOSED_TP", "2026-06-27T01:00:00"),
-                         pos("CLOSED_TP", "2026-06-27T02:00:00")]}
-    st2 = ec.drawdown_state(win, start_equity=100.0, rr=2.0)
-    assert st2["halt"] is False and st2["dd_pct"] == 0.0
+        cp("CLOSED_TP", "2026-06-27T01"), cp("CLOSED_SL", "2026-06-27T02"),
+        cp("CLOSED_SL", "2026-06-27T03"), {"status": "OPEN", "risk_usdt": 99}]}
+    assert ec.realized_curve(payload, start_equity=100.0, rr=2.0) == [100.0, 120.0, 110.0, 100.0]
+
+    # --- piste SIGNAUX autonome (outcomes_curve / drawdown_state, en R-multiples) ---
+    def ro(outcome, t, entry=100.0, sl=99.0, tp=102.0):
+        return {"updated_at": t, "outcome": outcome,
+                "entry": entry, "stop_loss": sl, "take_profit": tp}
+    assert ec._r_multiple(ro("TP TOUCHÉ", "t")) == 2.0        # reward/risk = 2/1
+    assert ec._r_multiple(ro("SL TOUCHÉ", "t")) == -1.0
+    assert ec._r_multiple(ro("AMBIGU", "t")) == 0.0
+    # risk_frac 0.1 : TP +2R -> 120 (peak) ; 3 SL -> 120*0.9^3 = 87.48 ; DD = 27.1% -> halte
+    rows = [ro("TP TOUCHÉ", "2026-01-01T01"), ro("SL TOUCHÉ", "2026-01-01T02"),
+            ro("SL TOUCHÉ", "2026-01-01T03"), ro("SL TOUCHÉ", "2026-01-01T04")]
+    st = ec.drawdown_state(rows=rows, start_equity=100.0, risk_frac=0.1)
+    assert st["halt"] is True and st["dd_pct"] >= 20.0 and st["n"] == 4
+    # tout TP -> aucun drawdown -> pas de halte
+    win = [ro("TP TOUCHÉ", "2026-01-01T01"), ro("TP TOUCHÉ", "2026-01-01T02")]
+    assert ec.drawdown_state(rows=win, start_equity=100.0, risk_frac=0.1)["halt"] is False
 
 
 def test_preorder_drawdown_halt_rejects():
