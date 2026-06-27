@@ -2461,6 +2461,19 @@ def test_preorder_portfolio_guards():
         rs.open_positions_count, rm.kill_switch_active = old
 
 
+def test_watchdog_microstructure_fresh_and_halt():
+    import watchdog
+    # fraîcheur du buffer microstructure
+    assert watchdog.microstructure_fresh([{"ts": 1000}], now=1100, max_age_s=180) is True
+    assert watchdog.microstructure_fresh([{"ts": 1000}], now=1400, max_age_s=180) is False
+    assert watchdog.microstructure_fresh([], now=1) is False
+    # décision de halt (auto kill-switch) : conditions sévères
+    assert watchdog.should_halt("DOWN", False, True, 0.0, 25.0)[0] is True       # boucle morte
+    assert watchdog.should_halt("RUNNING", False, True, 30.0, 25.0)[0] is True   # perte > cap
+    assert watchdog.should_halt("RUNNING", True, False, 0.0, 25.0)[0] is True    # micro figée
+    assert watchdog.should_halt("RUNNING", True, True, 0.0, 25.0)[0] is False    # tout va bien
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
