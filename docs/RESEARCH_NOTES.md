@@ -730,6 +730,53 @@ NORMAL) ; on rapporte n, t-stat et l'avertissement, pas une courbe flatteuse.
 11 agents et n'ajuster les poids EARCP qu'avec des DSR significatifs (et un protocole
 plateau + purge + OOS verrouillé pour les seuils tunables, cf. 2603.09219).
 
+## §27 — 12 papiers exploités : upgrades T1–T5 + microstructure (déblocage T4)
+12 PDF fournis par l'utilisateur, lus par 2 workflows d'extraction (formules/paramètres
+EXACTS, arXiv vérifiés). Implémentés (purs, testés, OHLCV/L2 seulement, aucun NN) :
+
+**T5 — `agent_validation.py`** (`2501.03938`, `2603.09219`) :
+- `replication_ratio` (Eq 3.3) + `replication_ratio_multi` (Eq 3.4) : haircut de Sharpe
+  FERMÉ — fraction du Sharpe in-sample qui survit OOS (f(T1, SR/β, p, m)). Validé : à
+  T1=250/SR=0.1 il reste ~73 % ; à T1=2500, ~96 %.
+- `max_drawdown`/`cagr`/`calmar` + `B_DEFAULT` (SR≥2, Calmar≥1.5, MDD<7 %) ;
+  `walk_forward_quorum` (plis purgés, quorum q=2/3). `rank_pure_agents` expose le
+  haircut + l'OOS Sharpe attendu + WFA par agent.
+
+**T1 — `geometric_agent.py`** :
+- `hurst_exponent` (R/S, `2205.11122`) : H>0.5 tendance / <0.5 réversion → confirme/
+  atténue le momentum dans `signal`.
+- `parkinson_vol` (`2606.15715`) : σ=0.6005612·ln(H/L). Hill déjà calibré crypto
+  α∈[2.0,2.5] (`1803.08405` confirme les valeurs ; CSN/KS et bootstrap GoF = pistes).
+
+**T2** : `rie_denoise` (Ledoit-Péché, `1610.08104`/`2510.19130`) — shrinkage non-linéaire
+ξ_k=λ_k/|1−q+q·λ_k·s(λ_k−iη)|² (η=N^{-1/2}), plus fin que le clip-to-mean. Fenêtre
+crypto validée ≈182 j, q=N/T.
+
+**T3** : `sponge_partition` (SPONGE signé, `1904.08575`, τ⁺=τ⁻=1) — gère les corrélations
+NÉGATIVES, met les actifs anti-corrélés sur des legs OPPOSÉS (bêta-neutre, validé) ;
+`hrp_weights` (HRP, `2202.02728`) — allocation déterministe sans inversion. Seuil corr
+0.5 (`2505.24831`) ; résidualisation + consensus de clusters = pistes (`2406.10695`).
+
+**T4 — `microstructure.py` (NOUVEAU, déblocage)** :
+- Features PURES depuis carnet L2 + tape : `book_ofi` (Cont-Kukanov, `2112.13213`),
+  `queue_imbalance`, `trade_sign_imbalance`, `markout` (sélection adverse, `2606.15715`),
+  `spread`, `mid_price`. Toutes validées en direction.
+- Collecteur best-effort `collect_once`/`run` (REST-poll via bitget_market_data) +
+  buffer roulant `recent`/`summary` que les agents lisent (découplé).
+- `signed_volume_ofi` (`geometric_agent`, proxy OHLCV dégradé de `2112.13213`).
+
+**Reste BLOQUÉ / hors-scope (honnête)** :
+- **Vrai L3 / spoofing** (`2504.15908`) : INDISPONIBLE sur le flux public Bitget
+  (ordre-par-ordre) → seuls des proxies L2 possibles.
+- **Markout/OFI haute fidélité** : le REST-poll (~1-2 s) est basse fidélité ; l'OFI
+  par-événement exige le **WebSocket** `wss://ws.bitget.com/v2/ws/public` (books+trade)
+  → upgrade futur (le collecteur écrit déjà le buffer, le service WS le remplacera).
+- Paramètres laissés RÉGLABLES (pré-engagés par l'utilisateur, pas dans les papiers) :
+  cliff τ_SR/τ_DD, SR_min, embargo (le protocole ne donne qu'un purge g=5 j).
+
+Le socle « isopérimétrique/Cheeger/Besov » reste une ANALOGIE ; les substituts
+implémentés (Hill, RIE, BNS, OFI, HRP, SPONGE) sont des méthodes quant ÉTABLIES.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)

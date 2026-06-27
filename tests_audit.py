@@ -2252,6 +2252,56 @@ def test_validation_drawdown_calmar_wfa():
     assert "folds" in v.walk_forward_quorum(edge, fwd)
 
 
+# ---------- microstructure (carnet L2 + tape) : déblocage T4 ----------
+
+def test_microstructure_ofi_direction():
+    import microstructure as ms
+    b0 = {"bids": [[100.0, 5.0], [99.9, 8.0]], "asks": [[100.1, 5.0], [100.2, 8.0]]}
+    buy = {"bids": [[100.05, 6.0], [100.0, 8.0]], "asks": [[100.15, 5.0], [100.2, 8.0]]}
+    sell = {"bids": [[99.9, 3.0], [99.8, 8.0]], "asks": [[100.0, 7.0], [100.1, 8.0]]}
+    assert ms.book_ofi(b0, buy) > 0 and ms.book_ofi(b0, sell) < 0   # Cont-Kukanov
+    assert ms.book_ofi(None, buy) == 0.0                            # pas de snapshot précédent
+
+
+def test_microstructure_queue_trade_markout():
+    import microstructure as ms
+    assert ms.queue_imbalance({"bids": [[100, 20.0]], "asks": [[100.1, 5.0]]}) > 0
+    assert ms.queue_imbalance({"bids": [], "asks": []}) == 0.0
+    assert ms.trade_sign_imbalance([{"side": "buy", "size": 3}, {"side": "sell", "size": 1}]) > 0
+    # markout : achat puis prix monte = bon fill (>0) ; prix baisse = flux toxique (<0)
+    assert ms.markout(100, "buy", 101) > 0 and ms.markout(100, "buy", 99) < 0
+    assert ms.markout(100, "sell", 99) > 0                          # vente puis baisse = bon
+    assert ms.mid_price({"bids": [[100, 1]], "asks": [[102, 1]]}) == 101.0
+
+
+def test_microstructure_features_and_buffer():
+    import microstructure as ms
+    b0 = {"bids": [[100.0, 5.0]], "asks": [[100.1, 5.0]]}
+    b1 = {"bids": [[100.05, 6.0]], "asks": [[100.15, 5.0]]}
+    f = ms.features(b0, b1, [{"side": "buy", "size": 2}])
+    assert set(f) == {"mid", "spread_bps", "queue_imbalance", "ofi", "trade_sign"}
+    # buffer roulant : append puis lecture (sur un symbole de test isolé)
+    import json
+    from pathlib import Path
+    old = ms.BUFFER_FILE
+    try:
+        ms.BUFFER_FILE = Path(old).with_name(".microstructure_buffer_test.json")
+        if ms.BUFFER_FILE.exists():
+            ms.BUFFER_FILE.unlink()
+        for i in range(3):
+            ms.append_snapshot("TESTUSDT", {"ts": i, "ofi": float(i), "queue_imbalance": 0.1,
+                                            "trade_sign": 0.0, "spread_bps": 1.0})
+        assert len(ms.recent("TESTUSDT")) == 3
+        s = ms.summary("TESTUSDT")
+        assert s["n"] == 3 and abs(s["ofi"] - 1.0) < 1e-9            # moyenne de 0,1,2
+    finally:
+        try:
+            Path(ms.BUFFER_FILE).unlink()
+        except Exception:
+            pass
+        ms.BUFFER_FILE = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
