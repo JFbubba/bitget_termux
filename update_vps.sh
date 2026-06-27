@@ -25,16 +25,27 @@ if ! git pull --ff-only origin "$BRANCH"; then
 fi
 echo
 
-# 2. Dependances Python (numpy est requis par les agents quantitatifs)
-echo "[2/5] Dependances (pip)..."
-if python -c "import sys; sys.exit(0)" 2>/dev/null; then
-  python -m pip install -r requirements.txt 2>/dev/null \
-    || pip install -r requirements.txt 2>/dev/null \
-    || echo "  (pip indisponible — installer numpy/requests/python-dotenv manuellement)"
+# 2. Dependances Python (numpy requis par les agents quantitatifs)
+#    Ubuntu 24.04 bloque pip system-wide (PEP 668 « externally-managed-environment »).
+#    Strategie : si deja importables -> rien ; sinon APT (propre), puis pip, puis
+#    pip --break-system-packages en dernier recours.
+echo "[2/5] Dependances..."
+if python -c "import numpy, requests, dotenv" 2>/dev/null; then
+  echo "  OK: numpy + requests + python-dotenv deja presents (rien a installer)."
+else
+  echo "  Installation des dependances manquantes..."
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y python3-numpy python3-requests python3-dotenv 2>/dev/null || true
+  fi
+  if ! python -c "import numpy, requests, dotenv" 2>/dev/null; then
+    python -m pip install -r requirements.txt 2>/dev/null \
+      || python -m pip install --break-system-packages -r requirements.txt 2>/dev/null \
+      || true
+  fi
+  python -c "import numpy, requests, dotenv" 2>/dev/null \
+    && echo "  OK: dependances importables." \
+    || echo "  ATTENTION: dependance manquante -> certains agents resteront neutres."
 fi
-python -c "import numpy, requests, dotenv" 2>/dev/null \
-  && echo "  OK: numpy + requests + python-dotenv importables." \
-  || echo "  ATTENTION: une dependance manque -> certains agents resteront neutres."
 echo
 
 # 3. Tests d'integrite
