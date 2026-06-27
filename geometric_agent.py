@@ -42,6 +42,15 @@ def _returns(closes):
     return [math.log(p[i] / p[i - 1]) for i in range(1, len(p))]
 
 
+def _row(c):
+    """Bougie dict OU liste [t,o,h,l,c,v] -> (o,h,l,c,v). Pur."""
+    if isinstance(c, dict):
+        return (float(c["open"]), float(c["high"]), float(c["low"]),
+                float(c["close"]), float(c.get("volume", 0) or 0))
+    return (float(c[1]), float(c[2]), float(c[3]), float(c[4]),
+            float(c[5]) if len(c) > 5 else 0.0)
+
+
 def _standardize(x):
     x = np.asarray(x, dtype=float)
     sd = x.std()
@@ -114,8 +123,10 @@ def tail_regime(returns, seed=12345):
         regime = "euclidien"                       # nettement gaussien
     else:
         regime = "euclidien" if ratio < 1.3 else "transitoire" if ratio < 2.0 else "non_euclidien"
+    hurst = hurst_exponent(r)                       # >0.5 tendance / <0.5 réversion (2205.11122)
     return {"phi": round(phi, 4), "phi_gauss": round(phi_g, 4), "ratio": round(ratio, 3),
-            "alpha": round(alpha, 3) if alpha is not None else None, "regime": regime}
+            "alpha": round(alpha, 3) if alpha is not None else None,
+            "hurst": round(hurst, 3) if hurst is not None else None, "regime": regime}
 
 
 # ========== 4) TOXICITÉ D'ORDRE SUPÉRIEUR (Besov / Eldan-Gross) ==========
@@ -254,6 +265,161 @@ def cheeger_partition(returns_matrix, thresh=0.5, denoise=True):
             "lambda2": round(float(max(0.0, w[1])), 4)}
 
 
+# ========== upgrades empiriques (papiers fournis, OHLCV uniquement) ==========
+
+def hurst_exponent(returns, min_n=8):
+    """Exposant de HURST par rescaled-range (R/S). PUR. Réf. arXiv:2205.11122.
+    H > 0.5 = persistant (TENDANCE) ; H < 0.5 = anti-persistant (RÉVERSION) ; 0.5 =
+    marche aléatoire. Retourne H ∈ ]0,1[ ou None si trop court."""
+    r = np.asarray(returns, dtype=float)
+    N = len(r)
+    if N < 4 * min_n:
+        return None
+    ns = []
+    n = min_n
+    while n <= N // 2:
+        ns.append(n); n *= 2
+    logn, logrs = [], []
+    for n in ns:
+        rs = []
+        for b in range(N // n):
+            seg = r[b * n:(b + 1) * n]
+            Y = np.cumsum(seg - seg.mean())
+            R = float(Y.max() - Y.min()); S = float(seg.std())
+            if S > 1e-12 and R > 0:
+                rs.append(R / S)
+        if rs:
+            logn.append(math.log(n)); logrs.append(math.log(float(np.mean(rs))))
+    if len(logn) < 2:
+        return None
+    return float(np.polyfit(logn, logrs, 1)[0])
+
+
+def parkinson_vol(highs, lows):
+    """Volatilité de PARKINSON (haut/bas) : σ = 0.6005612·ln(H/L) par barre. PUR.
+    Réf. arXiv:2606.15715. 0.6005612 = 1/(2√ln2). Estimateur de vol efficace (OHLCV)."""
+    h, l = np.asarray(highs, float), np.asarray(lows, float)
+    m = (h > 0) & (l > 0) & (h >= l)
+    return float(0.6005612 * np.mean(np.log(h[m] / l[m]))) if m.any() else 0.0
+
+
+def rie_denoise(C, q, eta=None):
+    """Débruitage RIE de LEDOIT-PÉCHÉ (shrinkage NON-LINÉAIRE). PUR. Réf. arXiv:1610.08104,
+    2510.19130. ξ_k = λ_k / |1 − q + q·λ_k·s(λ_k − iη)|², s = Stieltjes empirique,
+    η = N^{-1/2}. Garde les vecteurs propres, ne shrink que les valeurs propres
+    (rotationnellement invariant). Plus fin que le clip-to-mean MP de rmt_denoise."""
+    C = np.asarray(C, float)
+    w, V = np.linalg.eigh((C + C.T) / 2)
+    N = len(w)
+    eta = N ** -0.5 if eta is None else eta
+    xi = np.empty(N)
+    for k in range(N):
+        z = w[k] - 1j * eta
+        s = np.mean(1.0 / (z - w))                  # transformée de Stieltjes empirique
+        denom = abs(1 - q + q * w[k] * s) ** 2
+        xi[k] = (w[k] / denom) if denom > 1e-12 else w[k]
+    xi = np.sort(np.clip(xi.real, 1e-8, None))      # monotone vs λ (eigh trie λ croissant)
+    Cc = V @ np.diag(xi) @ V.T
+    d = np.sqrt(np.clip(np.diag(Cc), 1e-12, None))
+    return np.clip(Cc / np.outer(d, d), -1.0, 1.0)
+
+
+def sponge_partition(returns_matrix, tau=1.0, denoise=True):
+    """Partition SIGNÉE (SPONGE, k=2) gérant les corrélations NÉGATIVES — legs
+    long/short bêta-neutres. PUR. Réf. arXiv:1904.08575. τ⁺=τ⁻=1 (défaut du papier).
+    Pencil (L⁺+τD⁻) x = μ (L⁻+τD⁺) x ; on prend le vecteur propre généralisé adapté.
+    Retourne {clusters:[+1/−1], n}. Met les actifs anti-corrélés sur des legs OPPOSÉS."""
+    X = np.asarray(returns_matrix, float)
+    if X.ndim != 2 or X.shape[1] < 3 or X.shape[0] < 5:
+        return {"clusters": [], "n": 0}
+    C = np.nan_to_num(np.corrcoef(X, rowvar=False))
+    if denoise and X.shape[0] > X.shape[1]:
+        C = rmt_denoise(C, X.shape[1] / X.shape[0])
+    np.fill_diagonal(C, 0.0)
+    n = len(C)
+    Ap, Am = np.maximum(C, 0.0), np.maximum(-C, 0.0)
+    Dp, Dm = np.diag(Ap.sum(1)), np.diag(Am.sum(1))
+    Lp, Lm = Dp - Ap, Dm - Am
+    A = Lp + tau * Dm
+    B = Lm + tau * Dp + 1e-6 * np.eye(n)            # SPD -> symétrisable proprement
+    try:
+        wB, VB = np.linalg.eigh((B + B.T) / 2)
+        Bisq = VB @ np.diag(1.0 / np.sqrt(np.clip(wB, 1e-12, None))) @ VB.T
+        M = Bisq @ ((A + A.T) / 2) @ Bisq           # symétrique -> eigh réel
+        wM, VM = np.linalg.eigh((M + M.T) / 2)
+        # plus petite valeur propre généralisée (minimise le quotient de Rayleigh) ;
+        # on saute un vecteur quasi-constant (trivial) le cas échéant.
+        idx = 0
+        x = Bisq @ VM[:, 0]
+        if float(np.std(x)) < 1e-9 and VM.shape[1] > 1:
+            idx = 1; x = Bisq @ VM[:, 1]
+    except Exception:
+        return {"clusters": [0] * X.shape[1], "n": X.shape[1]}
+    clusters = np.where(x >= np.median(x), 1, -1)
+    return {"clusters": [int(c) for c in clusters], "n": X.shape[1]}
+
+
+def _cluster_var(cov, idx):
+    sub = cov[np.ix_(idx, idx)]
+    iv = 1.0 / np.clip(np.diag(sub), 1e-12, None); iv /= iv.sum()
+    return float(iv @ sub @ iv)
+
+
+def hrp_weights(returns_matrix):
+    """Hierarchical Risk Parity (López de Prado) : poids déterministes SANS inversion
+    de matrice. PUR. Réf. arXiv:2202.02728. Sériation spectrale (Fiedler) →
+    bisection récursive inverse-variance. Robuste à la covariance mal conditionnée
+    (crypto). Retourne array de poids (somme=1, tous ≥0) ou None."""
+    X = np.asarray(returns_matrix, float)
+    if X.ndim != 2 or X.shape[1] < 2 or X.shape[0] < 5:
+        return None
+    cov = np.cov(X, rowvar=False)
+    C = np.nan_to_num(np.corrcoef(X, rowvar=False))
+    # quasi-diagonalisation : ordre par le vecteur de Fiedler de la distance corr
+    A = np.abs(C); np.fill_diagonal(A, 0.0)
+    try:
+        L = _normalized_laplacian(A)
+        _, Vf = np.linalg.eigh((L + L.T) / 2)
+        order = list(np.argsort(Vf[:, 1])) if Vf.shape[1] > 1 else list(range(X.shape[1]))
+    except Exception:
+        order = list(range(X.shape[1]))
+    w = {i: 1.0 for i in order}
+    clusters = [order]
+    while clusters:
+        nxt = []
+        for cl in clusters:
+            if len(cl) > 1:
+                h = len(cl) // 2
+                c0, c1 = cl[:h], cl[h:]
+                v0, v1 = _cluster_var(cov, c0), _cluster_var(cov, c1)
+                a = 1.0 - v0 / (v0 + v1) if (v0 + v1) > 0 else 0.5
+                for i in c0:
+                    w[i] *= a
+                for i in c1:
+                    w[i] *= (1.0 - a)
+                nxt += [c0, c1]
+        clusters = nxt
+    out = np.array([w[i] for i in range(X.shape[1])])
+    s = out.sum()
+    return out / s if s > 0 else out
+
+
+def signed_volume_ofi(candles, window=10):
+    """PROXY OHLCV d'Order-Flow Imbalance (PROXY DÉGRADÉ, PAS le vrai OFI carnet). PUR.
+    Réf. arXiv:2112.13213 (dégradé). sOFI_t = signe(Δclose)·volume, somme glissante
+    normalisée ∈ [−1,1]. ⚠️ Le VRAI OFI multi-niveau exige le carnet L2/L3 (cf.
+    microstructure.py / collector) — ceci n'en est qu'une ombre au niveau bougie."""
+    rows = [_row(c) for c in candles]
+    if len(rows) < window + 1:
+        return 0.0
+    closes = [r[3] for r in rows]; vols = [r[4] for r in rows]
+    s = [(1 if closes[i] > closes[i - 1] else -1 if closes[i] < closes[i - 1] else 0) * vols[i]
+         for i in range(1, len(rows))]
+    recent = s[-window:]
+    vbar = float(np.mean([abs(x) for x in s[-window:]])) or 1.0
+    return float(max(-1.0, min(1.0, sum(recent) / (window * vbar))))
+
+
 # ========== signal de l'agent (par actif) : régime de queue + toxicité ==========
 
 def signal(closes, order_flow=None):
@@ -278,11 +444,15 @@ def signal(closes, order_flow=None):
 
     r = np.asarray(rets)
     mom = math.tanh(float(r[-8:].sum()) / (r.std() + 1e-9) / 4.0)   # tendance récente normalisée
+    # Hurst (2205.11122) confirme/atténue le suivi de tendance : H>0.5 persistant
+    # -> renforce le momentum ; H<0.5 anti-persistant -> l'atténue. Facteur ∈ [0.5,1.5].
+    h = tr.get("hurst")
+    htrend = max(0.5, min(1.5, 1.0 + 2.0 * (h - 0.5))) if h is not None else 1.0
 
     if tr["regime"] == "non_euclidien":
-        base = 0.45 * mom                          # crise = tendance : suivre, ne pas fader
+        base = 0.45 * mom * htrend                 # crise = tendance : suivre, ne pas fader
     elif tr["regime"] == "transitoire":
-        base = 0.2 * mom
+        base = 0.2 * mom * htrend
     else:  # euclidien : marché « gaussien » -> légère réversion
         z = float(r[-1] / (r.std() + 1e-9))
         base = -0.15 * math.tanh(z)
@@ -365,9 +535,13 @@ def portfolio_structure(symbols=None, ttl=300):
         M = np.array([r[-L:] for r in series]).T          # (T, D)
         met = correlation_graph_metrics(M)
         part = cheeger_partition(M)
+        sponge = sponge_partition(M)                       # partition SIGNÉE (legs bêta-neutres)
+        hrp = hrp_weights(M)                               # poids HRP (allocation intra-panier)
         return {"symbols": used, "metrics": met,
                 "partition": {"clusters": dict(zip(used, part["clusters"])),
-                              "conductance": part["conductance"]}}
+                              "conductance": part["conductance"]},
+                "signed_legs": dict(zip(used, sponge["clusters"])) if sponge["clusters"] else {},
+                "hrp_weights": dict(zip(used, [round(float(x), 4) for x in hrp])) if hrp is not None else {}}
     return rc.get("geom_portfolio", ttl, fetch, fallback={"symbols": [], "metrics": {}})
 
 

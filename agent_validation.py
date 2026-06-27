@@ -220,19 +220,28 @@ def replay(signal_fn, candles, horizon, warmup=80, step=None):
 def rank_pure_agents(candles, horizon=8, warmup=80):
     """Évalue + classe les agents PURS sur l'historique de bougies, avec DSR déflaté
     pour le NOMBRE d'agents testés. Retourne {agents:[...trié...], deflation:{...}}."""
-    raw = {}
+    raw, series = {}, {}
     for name, fn in PURE_AGENTS.items():
         votes, fwd = replay(fn, candles, horizon, warmup)
         raw[name] = evaluate(votes, fwd)
+        series[name] = (votes, fwd)
     sharpes = [m["_strat_sharpe_raw"] for m in raw.values() if m["n"] >= 5]
     var_sr = float(np.var(sharpes, ddof=1)) if len(sharpes) >= 2 else 0.0
     n_trials = max(2, len(sharpes))
     out = []
     for name, m in raw.items():
-        dsr = deflated_sharpe(m["_strat_sharpe_raw"], m["n"], m.get("skew", 0.0),
-                              m.get("kurt", 3.0), n_trials, var_sr) if m["n"] >= 5 else 0.0
+        sr = m["_strat_sharpe_raw"]
+        dsr = deflated_sharpe(sr, m["n"], m.get("skew", 0.0), m.get("kurt", 3.0),
+                              n_trials, var_sr) if m["n"] >= 5 else 0.0
+        # haircut de Sharpe (2501.03938) : fraction du Sharpe qui survit OOS, et OOS attendu
+        rr = replication_ratio(m["n"], sr=abs(sr)) if m["n"] > 2 else None
+        votes, fwd = series[name]
+        wfa = walk_forward_quorum(votes, fwd)
         m = {k: v for k, v in m.items() if not k.startswith("_")}
         m["agent"] = name; m["dsr"] = round(dsr, 4)
+        m["repl_ratio"] = round(rr, 3) if rr is not None else None
+        m["oos_sharpe"] = round(sr * rr, 4) if rr is not None else None
+        m["wfa_pass"] = wfa["passed"]; m["wfa_frac"] = wfa["pass_frac"]
         out.append(m)
     out.sort(key=lambda d: (d["dsr"], d["ic"]), reverse=True)
     return {"agents": out, "deflation": {"n_trials": n_trials, "var_sharpe": round(var_sr, 6),
@@ -281,15 +290,126 @@ def suggest_weight_priors(ranked, floor=0.4, cap=1.8):
     return out
 
 
+# ---------- haircut de Sharpe : replication ratio (arXiv:2501.03938) ----------
+
+def true_sharpe_to_beta2(sr):
+    """Inverse β² depuis le vrai Sharpe : SR = β²/√(2β⁴+β²) -> β² = SR²/(1−2SR²). PUR.
+    None si SR² ≥ 0.5 (inatteignable avec un seul signal). Réf. 2501.03938."""
+    s2 = float(sr) ** 2
+    if s2 >= 0.5:
+        return None
+    return s2 / (1.0 - 2.0 * s2)
+
+
+def replication_ratio(T1, sr=None, beta2=None):
+    """Ratio de réplication SR_OOS/SR_IS ∈ (0,1] — fraction du Sharpe IN-SAMPLE qui
+    SURVIT hors-échantillon (Eq 3.3 de 2501.03938, cas 1 actif/1 signal). PUR.
+    T1 = nb de barres in-sample. Limites : β→∞ ou T1→∞ -> 1. None si non défini."""
+    if T1 is None or T1 <= 2:
+        return None
+    if beta2 is None:
+        beta2 = true_sharpe_to_beta2(sr) if sr is not None else None
+    if beta2 is None or beta2 < 0:
+        return None
+    b2, b4 = beta2, beta2 * beta2
+    var_is = 2 * b4 + (1 + 15.0 / (T1 - 2) - 2.0 / T1) * b2 + 4.0 / T1 - 3.0 / (T1 + 2) - 1.0 / T1 ** 2
+    var_oos = 2 * b4 + (1 + 2.0 / (T1 - 2)) * b2 + 1.0 / (T1 - 2)
+    if var_is <= 0 or var_oos <= 0:
+        return None
+    sr_is = (b2 + 1.0 / T1) / math.sqrt(var_is)
+    sr_oos = b2 / math.sqrt(var_oos)
+    return float(sr_oos / sr_is) if sr_is > 0 else None
+
+
+def replication_ratio_multi(T1, p, m, k):
+    """Ratio multivarié (Eq 3.4 + constantes 3.1) : p signaux × m actifs, cas pire
+    (signaux indépendants, β=k·1). PUR. Pour le bot : p=#agents, m=#symboles, T1=#barres."""
+    if T1 <= p + 1 or p < 1 or m < 1:
+        return None
+    G = (k ** 2) * p * m                          # tr(Gamma)
+    G2 = G * G                                     # tr(Gamma²) (cas β=k·1)
+    c1 = 1 + (p + 1.0) / (T1 - p - 1)
+    c1t = (2 * p + 5.0) / (T1 - p - 1) + 2 * m * (p ** 2 + p + 2 * T1) / (T1 * (T1 - p - 1))
+    c2 = m * p / (T1 - p - 1.0)
+    c2t = m * p * (2 * m + p + T1 + 4.0) / (T1 * (T1 + 2)) - 2 * m ** 2 * p ** 2 / (T1 ** 2 * (T1 + 2)) - m * p / (T1 - p - 1.0)
+    vis = 2 * G2 + (c1 + c1t) * G + c2 + c2t
+    voos = 2 * G2 + c1 * G + c2
+    if vis <= 0 or voos <= 0:
+        return None
+    sr_is = (G + p * m / T1) / math.sqrt(vis)
+    sr_oos = G / math.sqrt(voos)
+    return float(sr_oos / sr_is) if sr_is > 0 else None
+
+
+# ---------- métriques équité + protocole IS-WFA-OOS (arXiv:2603.09219) ----------
+
+def _equity(returns):
+    return np.cumprod(1.0 + np.asarray(returns, dtype=float))
+
+
+def max_drawdown(returns):
+    """Drawdown maximal (MDD ∈ [0,1]) depuis la courbe d'équité. Pur."""
+    eq = _equity(returns)
+    if len(eq) == 0:
+        return 0.0
+    peak = np.maximum.accumulate(eq)
+    return float(np.max((peak - eq) / peak))
+
+
+def cagr(returns, periods_per_year=252):
+    """Taux de croissance annualisé composé. Pur."""
+    eq = _equity(returns)
+    if len(eq) < 2 or eq[-1] <= 0:
+        return 0.0
+    yrs = len(eq) / float(periods_per_year)
+    return float(eq[-1] ** (1.0 / yrs) - 1.0) if yrs > 0 else 0.0
+
+
+def calmar(returns, periods_per_year=252):
+    """Ratio de Calmar = CAGR / MDD. Pur."""
+    mdd = max_drawdown(returns)
+    return float(cagr(returns, periods_per_year) / mdd) if mdd > 1e-9 else 0.0
+
+
+# Benchmark par défaut de l'étude AlgoXpert (2603.09219) — seuils PRÉ-ENGAGÉS.
+B_DEFAULT = {"sharpe_ann": 2.0, "calmar": 1.5, "max_dd": 0.07}
+
+
+def walk_forward_quorum(votes, fwd, n_folds=3, purge=1, q=2.0 / 3.0):
+    """Walk-forward PURGÉ (Eq.11 + Alg.1 de 2603.09219) sur la série (vote, rendement).
+    PUR. Découpe en n_folds plis chronologiques, retire `purge` échantillons entre
+    train et test, évalue l'IC par pli ; PASS si la fraction de plis à IC>0 ≥ quorum q.
+    Retourne {folds:[ic...], pass_frac, passed}."""
+    v, f = np.asarray(votes, float), np.asarray(fwd, float)
+    n = min(len(v), len(f))
+    if n < n_folds * 4:
+        return {"folds": [], "pass_frac": 0.0, "passed": False, "n": int(n)}
+    size = n // n_folds
+    ics = []
+    for i in range(n_folds):
+        a, b = i * size, (i + 1) * size if i < n_folds - 1 else n
+        a = min(a + purge, b)                       # purge en tête de pli (anti-fuite)
+        if b - a >= 4:
+            ics.append(rank_ic(v[a:b], f[a:b]))
+    if not ics:
+        return {"folds": [], "pass_frac": 0.0, "passed": False, "n": int(n)}
+    frac = float(np.mean([1.0 if x > 0 else 0.0 for x in ics]))
+    return {"folds": [round(x, 4) for x in ics], "pass_frac": round(frac, 3),
+            "passed": bool(frac >= q), "n": int(n)}
+
+
 # ---------- rapports ----------
 
 def build_report(ranked):
     lines = [f"=== VALIDATION DES AGENTS (T5) · horizon {ranked.get('horizon', '?')} ===",
-             "agent        n   RankIC  t    hit   Sharpe  PSR    DSR"]
+             "agent        n   RankIC  t    Sharpe  DSR   haircut OOS_Shp WFA"]
     for m in ranked.get("agents", []):
+        rr = ('%.2f' % m['repl_ratio']) if m.get('repl_ratio') is not None else ' n/a'
+        oos = ('%+.3f' % m['oos_sharpe']) if m.get('oos_sharpe') is not None else '  n/a'
+        wfa = '✓' if m.get('wfa_pass') else '·'
         lines.append(f"{m['agent']:<11} {m['n']:>3}  {m.get('ic', 0):>+6.3f} "
-                     f"{m.get('ic_t', 0):>4.1f}  {('%.2f' % m['hit']) if m.get('hit') is not None else ' n/a'} "
-                     f"{m.get('sharpe', 0):>+7.3f} {m.get('psr', 0):>5.2f}  {m.get('dsr', 0):>5.2f}")
+                     f"{m.get('ic_t', 0):>4.1f}  {m.get('sharpe', 0):>+7.3f} {m.get('dsr', 0):>5.2f}  "
+                     f"{rr:>6}  {oos:>6}  {wfa}({m.get('wfa_frac', 0):.2f})")
     d = ranked.get("deflation", {})
     if d:
         lines.append("")

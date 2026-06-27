@@ -2150,6 +2150,108 @@ def test_validation_from_log_and_weight_priors():
     assert 0.4 <= w["y"] <= w["x"] <= 1.8
 
 
+# ---------- upgrades empiriques des outils géométriques (12 papiers fournis) ----------
+
+def test_geometric_hurst_exponent():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(0)
+    mom = rng.normal(0, 1, 512)
+    for i in range(1, 512):
+        mom[i] = 0.6 * mom[i - 1] + rng.normal(0, 1)        # persistant -> H>0.5
+    rev = rng.normal(0, 1, 512)
+    for i in range(1, 512):
+        rev[i] = -0.6 * rev[i - 1] + rng.normal(0, 1)        # anti-persistant -> H<0.5
+    assert g.hurst_exponent(mom) > 0.5 > g.hurst_exponent(rev)
+    assert g.hurst_exponent([0.1, 0.2, 0.3]) is None         # trop court
+
+
+def test_geometric_parkinson_vol():
+    import math
+    import geometric_agent as g
+    # σ = 0.6005612·ln(H/L) ; barre H=110 L=100 -> 0.6005612·ln(1.1)
+    v = g.parkinson_vol([110], [100])
+    assert abs(v - 0.6005612 * math.log(1.1)) < 1e-9
+    assert g.parkinson_vol([100], [100]) == 0.0              # H=L -> 0
+    assert g.parkinson_vol([], []) == 0.0
+
+
+def test_geometric_rie_denoise():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(1)
+    T = 200
+    common = rng.normal(0, 1, T)
+    X = np.array([common + rng.normal(0, 0.8, T) for _ in range(8)]).T
+    C = np.corrcoef(X, rowvar=False)
+    Cc = g.rie_denoise(C, 8 / T)
+    raw = np.sort(np.linalg.eigvalsh(C))[::-1]
+    den = np.sort(np.linalg.eigvalsh(Cc))[::-1]
+    assert den[1:].std() <= raw[1:].std() + 1e-9            # bulk de bruit non-élargi
+    assert abs(den[0] - raw[0]) < 1.0                        # valeur propre signal conservée
+    assert np.allclose(np.diag(Cc), 1.0, atol=1e-6)         # corrélation (diag=1)
+
+
+def test_geometric_sponge_signed_partition():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(0)
+    T = 200
+    f = rng.normal(0, 1, T)
+    A = np.array([f + rng.normal(0, 0.3, T) for _ in range(4)])
+    B = np.array([-f + rng.normal(0, 0.3, T) for _ in range(4)])   # anti-corrélé à A
+    c = g.sponge_partition(np.vstack([A, B]).T)["clusters"]
+    # les deux groupes anti-corrélés tombent sur des legs OPPOSÉS (bêta-neutre)
+    assert len(set(c[:4])) == 1 and len(set(c[4:])) == 1 and c[0] != c[4]
+    assert g.sponge_partition(np.vstack([A, B]).T)["clusters"] == c   # déterministe
+
+
+def test_geometric_hrp_weights():
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(2)
+    Y = rng.normal(0, 1, (200, 4)); Y[:, 0] *= 5            # actif 0 très volatil -> poids faible
+    w = g.hrp_weights(Y)
+    assert abs(w.sum() - 1.0) < 1e-9 and (w >= 0).all()
+    assert w[0] < w[1]                                       # HRP sous-pondère le risqué
+    assert g.hrp_weights(np.zeros((3, 1))) is None           # trop peu d'actifs
+
+
+def test_geometric_signed_volume_ofi():
+    import geometric_agent as g
+    up = [[i, 100 + i, 100 + i, 100 + i, 100 + i, 100.0] for i in range(20)]      # hausse monotone
+    dn = [[i, 100 - i, 100 - i, 100 - i, 100 - i, 100.0] for i in range(20)]      # baisse monotone
+    assert g.signed_volume_ofi(up) > 0.5 and g.signed_volume_ofi(dn) < -0.5
+    assert -1.0 <= g.signed_volume_ofi(up) <= 1.0
+    assert g.signed_volume_ofi([[0, 1, 1, 1, 1, 1]]) == 0.0  # trop court
+
+
+def test_validation_replication_ratio():
+    import agent_validation as v
+    # haircut : fraction du Sharpe IS qui survit OOS, ∈ (0,1)
+    r1 = v.replication_ratio(250, sr=0.1)
+    r2 = v.replication_ratio(2500, sr=0.1)
+    r3 = v.replication_ratio(250, sr=0.4)
+    assert 0 < r1 < 1 and r2 > r1 and r3 > r1               # +long IS et +fort signal -> survit mieux
+    assert v.true_sharpe_to_beta2(0.8) is None              # SR inatteignable (1 signal)
+    assert v.replication_ratio_multi(2520, 11, 5, 0.1) is not None
+    assert v.replication_ratio(2, sr=0.1) is None           # T1 trop court
+
+
+def test_validation_drawdown_calmar_wfa():
+    import numpy as np
+    import agent_validation as v
+    rng = np.random.default_rng(0)
+    rets = rng.normal(0.001, 0.02, 300)
+    assert 0.0 <= v.max_drawdown(rets) <= 1.0
+    assert isinstance(v.calmar(rets), float)
+    # walk-forward purgé : un signal corrélé au futur passe le quorum
+    fwd = rng.normal(0, 0.02, 150)
+    edge = np.sign(fwd) * 0.5 + rng.normal(0, 0.2, 150)
+    assert v.walk_forward_quorum(edge, fwd)["passed"] is True
+    assert "folds" in v.walk_forward_quorum(edge, fwd)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
