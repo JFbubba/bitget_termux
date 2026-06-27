@@ -1130,6 +1130,33 @@ se concentre sur l'accumulation spot (déjà réelle/cappée, ne suppose aucun e
 
 ---
 
+## §38 — DÉCISION : pivot stratégique vers le spot (futures réel suspendu)
+
+**Décision du propriétaire (27/06), actée après §35-37.** La recherche d'alpha directionnel
+(~554 signaux, 8 familles, 3 horizons, étalon transversal honnête) n'a trouvé AUCUN edge robuste ;
+la cause est structurelle (crypto *common-mode*, rho 0.17-0.25 → n effectif plafonné). On en tire
+la conséquence honnête plutôt que de forcer.
+
+**Ce que ça fixe :**
+- Le **chantier futures réel (§34) est suspendu**, pas annulé : `futures_executor.py` reste DRY-RUN,
+  chemin réel `NotImplementedError`, jamais câblé. La porte d'edge (0 agent LIVE) le maintient paper
+  *de facto* ; cette décision le maintient paper *de jure*. Aucune étape ≥2 ne sera entreprise sans
+  (a) une source d'edge nouvelle et prouvée à l'étalon ET (b) un GO explicite — la barre reste haute.
+- **L'autonomie se concentre sur l'accumulation spot BTC** : déjà réelle, cappée (5 $/j, double verrou),
+  et NON-DIRECTIONNELLE par conception. `accumulation_engine.py` fait déjà un DCA *opportunity-aware*
+  (`opportunity_score` = RSI + fear/greed + drawdown → achète plus sur les creux), avec garde premium
+  et meilleur-prix (`fair_price`). Il n'a pas besoin d'edge directionnel : il améliore l'entrée d'un
+  achat qu'on fait de toute façon (≠ parier sur la direction).
+- **Corollaire utile de §35-37** : la reversion court-terme EST réelle (juste non tradeable en
+  cross-section market-neutral). Pour une accumulation MONO-actif, c'est exploitable honnêtement comme
+  *timing d'entrée* (acheter sur faiblesse court-terme = meilleur prix moyen), sans prétendre prédire.
+
+**Ligne dure inchangée.** Aucun verrou levé ici (`MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`,
+`FUTURES_AUTONOMOUS_LIVE` restent tels quels). Rien de full-auto. La décision REDIRIGE l'effort ;
+elle n'arme rien.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
