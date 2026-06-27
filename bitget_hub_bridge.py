@@ -80,16 +80,46 @@ def _read(args, runner=None):
         return None
 
 
+# vrais outils de LECTURE de l'Agent Hub (vérifiés dans bitget-client 1.1.1)
+_ASSET_TOOLS = [["account", "get_account_assets"], ["spot", "get_account_assets"]]
+
+
+def _parse_assets(data):
+    """Parse tolérant de get_account_assets : accepte une LISTE de soldes par coin
+    ({coin, available, ...}) OU un dict de type compte (usdtEquity/available). PUR."""
+    if not data:
+        return None
+    d = data.get("data", data) if isinstance(data, dict) else data
+    if isinstance(d, dict):
+        eq = _num(d.get("usdtEquity") or d.get("accountEquity") or d.get("usdtBalance"))
+        if eq is not None:
+            return {"equity_usdt": eq, "available_usdt": _num(d.get("available")),
+                    "holdings": {}, "source": "agent_hub"}
+        d = [d]
+    if isinstance(d, list):
+        holdings, usdt = {}, None
+        for row in d:
+            if not isinstance(row, dict):
+                continue
+            coin = str(row.get("coin") or row.get("coinName") or row.get("marginCoin") or "").upper()
+            avail = _num(row.get("available") or row.get("availableBalance") or row.get("usdtEquity"))
+            if avail and avail > 0:
+                holdings[coin] = avail
+            if coin == "USDT":
+                usdt = avail
+        if holdings or usdt is not None:
+            return {"equity_usdt": usdt, "available_usdt": usdt,
+                    "holdings": holdings, "source": "agent_hub"}
+    return None
+
+
 def account_snapshot(runner=None):
-    """État du compte via l'Agent Hub (lecture). Dégrade vers bitget_balance_reader,
-    puis vers None. Retourne {equity_usdt, available_usdt, source} ou None."""
-    data = _read(["account", "account_get_balance"], runner=runner)
-    if data:
-        d = data.get("data", data)
-        row = d[0] if isinstance(d, list) and d else d
-        if isinstance(row, dict):
-            return {"equity_usdt": _num(row.get("usdtEquity") or row.get("accountEquity")),
-                    "available_usdt": _num(row.get("available")), "source": "agent_hub"}
+    """État du compte via l'Agent Hub (lecture). Essaie les vrais outils d'assets,
+    dégrade vers bitget_balance_reader, puis None. Retourne un dict ou None."""
+    for args in _ASSET_TOOLS:
+        parsed = _parse_assets(_read(args, runner=runner))
+        if parsed:
+            return parsed
     # repli : lecteur de solde signé déjà présent dans le dépôt (lecture seule)
     try:
         import bitget_balance_reader as br
@@ -98,7 +128,8 @@ def account_snapshot(runner=None):
         if accts:
             a0 = accts[0]
             return {"equity_usdt": _num(a0.get("usdtEquity")),
-                    "available_usdt": _num(a0.get("available")), "source": "balance_reader"}
+                    "available_usdt": _num(a0.get("available")),
+                    "holdings": {}, "source": "balance_reader"}
     except Exception:
         pass
     return None
@@ -187,8 +218,12 @@ def build_report():
     lines = ["=== PONT BITGET AGENT HUB <-> BOT (lecture seule + mandat) ==="]
     lines.append(f"Agent Hub (`bgc`) détecté : {'oui' if hub else 'non (paper / advisory seulement)'}")
     if snap:
-        lines.append(f"Compte (lecture) : equity {snap.get('equity_usdt')} USDT "
-                     f"· dispo {snap.get('available_usdt')} ({snap.get('source')})")
+        lines.append(f"Compte (lecture) : USDT dispo {snap.get('available_usdt')} "
+                     f"({snap.get('source')})")
+        hold = snap.get("holdings") or {}
+        if hold:
+            top = ", ".join(f"{c} {v}" for c, v in list(hold.items())[:8])
+            lines.append(f"Avoirs : {top}")
     else:
         lines.append("Compte : non lu (Agent Hub absent ou clés non fournies) — normal en paper.")
     try:

@@ -2660,6 +2660,20 @@ def test_hub_bridge_env_key_mapping():
     assert env2["BITGET_SECRET_KEY"] == "already"
 
 
+def test_hub_bridge_parse_assets_shapes():
+    import bitget_hub_bridge as b
+    # forme LISTE de soldes par coin (get_account_assets)
+    p = b._parse_assets({"data": [{"coin": "USDT", "available": "1000.5"},
+                                  {"coin": "BTC", "available": "0.02"},
+                                  {"coin": "ETH", "available": "0"}]})
+    assert p["available_usdt"] == 1000.5 and p["holdings"]["BTC"] == 0.02
+    assert "ETH" not in p["holdings"]                 # solde nul ignoré
+    # forme DICT type compte (usdtEquity)
+    p2 = b._parse_assets({"data": {"usdtEquity": "250", "available": "200"}})
+    assert p2["equity_usdt"] == 250.0
+    assert b._parse_assets(None) is None and b._parse_assets({"data": []}) is None
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)
