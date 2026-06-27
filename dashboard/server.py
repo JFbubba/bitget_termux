@@ -254,7 +254,36 @@ def build_state(symbol=None, tf="5m"):
         import edge_ladder
         return edge_ladder.all_tiers()
 
-    stats = _safe(_stats, {})
+    def _microstructure():
+        """Edge microstructure accumulé (chemin 2) : n enregistrements + meilleure feature."""
+        import microstructure as ms
+        rep = ms.history_report()
+        feats = rep.get("edge") or {}
+        best = max(feats.values(), key=lambda m: abs(float(m.get("ic_t", 0) or 0)), default={})
+        return {"n_records": rep.get("n_records", 0), "symbols": rep.get("symbols", []),
+                "best_feature": best.get("feature"), "best_ic_t": best.get("ic_t"), "best_n": best.get("n")}
+
+    def _market_timing():
+        """Edge TEMPOREL market-timing (macro/sentiment) accumulé."""
+        import market_timing as mt
+        rep = mt.report(horizon=5)
+        ed = rep.get("edge") or {}
+        return {"n_records": rep.get("n_records", 0), "span_days": rep.get("span_days", 0),
+                "macro_ic_t": (ed.get("macro") or {}).get("ic_t"),
+                "sentiment_ic_t": (ed.get("sentiment") or {}).get("ic_t"),
+                "n": (ed.get("macro") or {}).get("n", 0)}
+
+    def _caps():
+        """Statut des 3 couches de cap réel + tripwire dépense (lecture seule)."""
+        import spot_executor as se
+        breach, spent, promise = se.daily_spend_breach()
+        return {"spent_today": spent, "promise": promise, "breach": bool(breach),
+                "daily_eff": se._capped("ACCUM_REAL_MAX_DAILY_USDT", 5.0, se.ACCUM_ABS_MAX_DAILY_USDT),
+                "per_buy_eff": se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT),
+                "abs_daily": se.ACCUM_ABS_MAX_DAILY_USDT}
+
+    # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
+    stats = _cached("stats", 30, lambda: _safe(_stats, {}))
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
     market = _cached("market", 600, lambda: _safe(_market, {}))
@@ -275,6 +304,10 @@ def build_state(symbol=None, tf="5m"):
     state["accumulation"] = _cached("accum", 60, lambda: _safe(_accumulation, {}))
     state["mandate"] = _cached("mandate", 60, lambda: _safe(_mandate, {}))
     state["edge_ladder"] = _cached("edge", 60, lambda: _safe(_edge, {}))
+    # canaux d'edge accumulés (live, §37/§39) + statut des caps réels (lecture seule)
+    state["microstructure"] = _cached("micro", 120, lambda: _safe(_microstructure, {}))
+    state["market_timing"] = _cached("mtiming", 300, lambda: _safe(_market_timing, {}))
+    state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")

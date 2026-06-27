@@ -187,7 +187,7 @@
   </div>
 
   <div class="panel full" style="margin-top:8px">
-    <h2>Accumulation BTC · Mandat · Échelle d'edge <span class="dim" style="letter-spacing:0">— spot DCA RÉEL (≤5$/j) · futures &amp; cerveau en paper</span></h2>
+    <h2>Accumulation BTC · Mandat · Échelle d'edge <span class="dim" style="letter-spacing:0">— spot DCA RÉEL (≤5$/j) · 3 couches de cap + tripwire · edge live accumulé · futures &amp; cerveau en paper</span></h2>
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:230px">
         <div class="row"><span class="k">mode accumulation</span><span id="ac-mode" class="amber">—</span></div>
@@ -204,6 +204,12 @@
         <div class="row"><span class="k">drawdown max</span><span id="md-dd">—</span></div>
         <div class="row"><span class="k">agents futures RÉEL</span><span id="md-live" class="dim">—</span></div>
         <div class="dim" id="ed-tiers" style="margin-top:6px;line-height:1.7;font-size:9.5px">—</div>
+      </div>
+      <div style="flex:1;min-width:230px">
+        <div class="row"><span class="k">dépense réelle du jour</span><span id="cp-spent">—</span></div>
+        <div class="row"><span class="k">caps réel (eff · mur abs)</span><span id="cp-caps">—</span></div>
+        <div class="row"><span class="k">edge microstructure</span><span id="eg-micro" class="dim">—</span></div>
+        <div class="row"><span class="k">edge market-timing</span><span id="eg-mtim" class="dim">—</span></div>
       </div>
     </div>
   </div>
@@ -610,6 +616,12 @@ async function tick(){
     $("md-dd").textContent=(md.max_drawdown_pct!=null)?(md.max_drawdown_pct+"%"):"—";
     const fl=md.futures_live_agents||[];$("md-live").textContent=fl.length?fl.join(", "):"aucun (edge non prouvé)";$("md-live").className=fl.length?"green":"dim";
     const tiers=Object.entries(ed).map(([a,t])=>a+":"+t).join(" · ");$("ed-tiers").textContent="edge — "+(tiers||"—");
+    // --- caps réels (3 couches + tripwire) + canaux d'edge accumulés ---
+    const cp=st.caps||{},mi=st.microstructure||{},mtm=st.market_timing||{};
+    $("cp-spent").textContent=(cp.spent_today!=null)?("$"+cp.spent_today+" / promesse $"+(cp.promise!=null?cp.promise:5)):"—";$("cp-spent").className=cp.breach?"red":"green";
+    $("cp-caps").textContent=(cp.daily_eff!=null)?("$"+cp.daily_eff+"/j · mur $"+(cp.abs_daily!=null?cp.abs_daily:25)):"—";
+    $("eg-micro").textContent=(mi.n_records)?(mi.n_records+" obs · "+(mi.best_feature||"—")+" t="+(mi.best_ic_t!=null?mi.best_ic_t:"—")):"accumule…";
+    $("eg-mtim").textContent=(mtm.n_records)?(mtm.n_records+"j · macro t="+(mtm.macro_ic_t!=null?mtm.macro_ic_t:"—")+" · sent t="+(mtm.sentiment_ic_t!=null?mtm.sentiment_ic_t:"—")):"accumule…";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
