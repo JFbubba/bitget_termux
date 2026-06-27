@@ -1,0 +1,9 @@
+[Unit]
+Description=Bitget tripwire depense spot reelle (alerte si > promesse 5$/j, lecture seule)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 accum_spend_watch.py
+User=root
+Nice=15

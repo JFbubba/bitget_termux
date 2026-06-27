@@ -3121,6 +3121,25 @@ def test_spot_executor_absolute_cap_ceiling():
                 os.environ[k] = v
 
 
+def test_spot_executor_daily_spend_tripwire():
+    import spot_executor as se
+    day = 20631
+    now = day * 86400 + 300
+    # 2 achats de 5$ le meme jour = 10$ > promesse 5$ -> tripwire declenche (ecart du 27/06)
+    led = {"buys": [{"ts": day * 86400 + 100, "amount_usdt": 5.0},
+                    {"ts": day * 86400 + 200, "amount_usdt": 5.0}]}
+    breach, spent, promise = se.daily_spend_breach(promise=5.0, now=now, ledger=led)
+    assert breach is True and spent == 10.0 and promise == 5.0
+    # exactement la promesse (5$) -> PAS d'alerte (strict >, 5 not > 5)
+    led1 = {"buys": [{"ts": day * 86400 + 100, "amount_usdt": 5.0}]}
+    assert se.daily_spend_breach(promise=5.0, now=now, ledger=led1)[0] is False
+    # achats d'un AUTRE jour -> rien compte aujourd'hui
+    led2 = {"buys": [{"ts": (day - 1) * 86400 + 100, "amount_usdt": 5.0}]}
+    assert se.daily_spend_breach(promise=5.0, now=now, ledger=led2)[0] is False
+    # tripwire INDEPENDANT du cap : meme si le cap effectif autorisait 25, la promesse reste 5
+    assert se.ACCUM_DAILY_PROMISE_USDT == 5.0 and se.ACCUM_ABS_MAX_DAILY_USDT == 25.0
+
+
 def test_spot_executor_guards_and_dry():
     import spot_executor as se
     # la commande est un ACHAT spot (jamais vente) ; tableau JSON `orders`

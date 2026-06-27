@@ -54,6 +54,11 @@ def _limit(name, fallback):
 # 5 $) ; un env var ne doit pas pouvoir desserrer un plafond d'argent réel sans revue/commit.
 ACCUM_ABS_MAX_PER_BUY_USDT = 25.0    # mur dur par achat (5x la promesse)
 ACCUM_ABS_MAX_DAILY_USDT = 25.0      # mur dur journalier (5x la promesse)
+# Promesse DOCUMENTEE (CLAUDE.md) = 5 $/jour. Independante du cap effectif (qu'un env peut
+# porter jusqu'au mur absolu 25). Sert de TRIPWIRE d'observabilite : si la depense reelle d'un
+# jour la depasse, on ALERTE (meme si le cap effectif l'a autorisee). Comble le trou revele par
+# l'ecart du 27/06 (10 $ depenses sans alerte temps reel).
+ACCUM_DAILY_PROMISE_USDT = 5.0
 
 
 def _capped(name, fallback, absolute):
@@ -78,6 +83,15 @@ def today_spent(now=None, ledger=None):
     led = ledger if ledger is not None else _load_real()
     return round(sum(float(b.get("amount_usdt", 0)) for b in led.get("buys", [])
                      if int(float(b.get("ts", 0)) // 86400) == day), 2)
+
+
+def daily_spend_breach(promise=None, now=None, ledger=None):
+    """TRIPWIRE d'observabilité (indépendant du cap) : la dépense RÉELLE du jour dépasse-t-elle
+    la PROMESSE documentée (5 $/j) ? PUR si ledger injecté. Retourne (breach: bool, spent, promise).
+    Le cap effectif (jusqu'à 25 via env) PEUT autoriser plus que la promesse -> on veut le SAVOIR."""
+    promise = _limit("ACCUM_DAILY_PROMISE_USDT", ACCUM_DAILY_PROMISE_USDT) if promise is None else float(promise)
+    spent = today_spent(now=now, ledger=ledger)
+    return (spent > promise, spent, promise)
 
 
 def _record_real_buy(amount_usdt, oid, now=None):
