@@ -114,6 +114,14 @@ def build_state(symbol=None, tf="5m"):
         }
 
     def _symbols():
+        # univers DYNAMIQUE (top-N liquide ∩ qualité), repli sur config.SYMBOLS
+        try:
+            import universe
+            syms = list(universe.symbols())
+            if syms and len(syms) >= 2:
+                return syms
+        except Exception:
+            pass
         import config
         return config.SYMBOLS
 
@@ -328,7 +336,7 @@ def build_state(symbol=None, tf="5m"):
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     liq = _cached(f"lq:{symbol}", 45, lambda: _safe(_liq, {}))
     health = _safe(_health, {})
-    symbols = _safe(_symbols, [symbol])
+    symbols = _cached("symbols", 300, lambda: _safe(_symbols, [symbol]))
 
     state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
     state["tf"] = tf

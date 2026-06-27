@@ -84,6 +84,12 @@
   .vbar{position:relative;height:9px;background:#10151d;border-radius:3px}
   .vbar .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#2a313c}
   .vbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  .ag .note{grid-column:1/-1;font-size:8.5px;color:var(--dim);opacity:.88;line-height:1.35;margin-top:1px}
+  .picker{display:inline-flex;gap:3px;flex-wrap:wrap;align-items:center;max-width:46vw}
+  .picker .chip{font-size:8.5px;letter-spacing:.5px;padding:2px 6px;border-radius:10px;cursor:pointer;
+    border:1px solid var(--line);color:var(--dim);background:#10151d;user-select:none}
+  .picker .chip:hover{color:var(--txt);border-color:#33415a}
+  .picker .chip.on{color:#04121d;background:var(--accent);border-color:var(--accent);font-weight:600}
   @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
 </style>
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
@@ -97,6 +103,7 @@
     <span class="badge" id="mode">PAPER</span>
     <span class="badge live">● LIVE</span>
     <span class="badge" id="sym">—</span>
+    <span class="picker" id="sym-pick" title="univers dynamique — clic pour changer de symbole"></span>
     <div class="met"><span class="l">PRICE</span><span class="v" id="t-price">—</span></div>
     <div class="met"><span class="l">WIN RATE</span><span class="v green" id="t-win">—</span></div>
     <div class="met"><span class="l">FINALISES</span><span class="v" id="t-final">—</span></div>
@@ -252,6 +259,12 @@
       <div class="row"><span class="k">spread (bps)</span><span id="ms-sp">—</span></div>
       <div class="row"><span class="k">markout (bps)</span><span id="ms-mk">—</span></div>
       <div class="row"><span class="k">toxicité du flux</span><span id="ms-tox">—</span></div>
+      <div style="margin-top:6px;display:grid;gap:5px">
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">OFI</span><div class="vbar"><div class="zero"></div><i id="msb-ofi"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">carnet</span><div class="vbar"><div class="zero"></div><i id="msb-qi"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">tape</span><div class="vbar"><div class="zero"></div><i id="msb-ts"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">toxicité</span><div class="bar" style="margin:0"><i id="msb-tox" style="background:var(--amber)"></i></div></div>
+      </div>
     </div>
     <div class="panel">
       <h2>Système · fleet <span class="dim" style="letter-spacing:0">— services · timers (lecture seule)</span></h2>
@@ -312,11 +325,25 @@ const $=id=>document.getElementById(id);
 const fmt=(v,d=2)=>(v===null||v===undefined||v==="")?"—":(typeof v==="number"?v.toFixed(d):v);
 function human(n){if(n===null||n===undefined)return"—";const u=["","K","M","B","T"];let i=0;n=Math.abs(n);while(n>=1000&&i<u.length-1){n/=1000;i++;}return n.toFixed(1)+u[i];}
 function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100,pct))+"%";}
+function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v||0)),pos=cv>=0,half=Math.abs(cv)*50;e.style.left=(pos?50:50-half)+"%";e.style.width=half+"%";e.style.background=pos?"#2ec27e":"#f5566b";}
 
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
 let _candles=[],chart=null,series={};
-let TF="5m",projLines=[];
+let TF="5m",SYMBOL="BTCUSDT",projLines=[];
+function renderPicker(symbols){
+  const host=document.getElementById("sym-pick");if(!host)return;
+  const want=(symbols||[]).join(",");
+  if(host.dataset.k!==want){                       // ne (re)construit que si l'univers change
+    host.dataset.k=want;host.innerHTML="";
+    (symbols||[]).forEach(s=>{
+      const c=document.createElement("span");c.className="chip";c.textContent=s.replace(/USDT$/,"");c.dataset.sym=s;
+      c.addEventListener("click",()=>{SYMBOL=s;renderPicker(symbols);tick();});
+      host.appendChild(c);
+    });
+  }
+  host.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.sym===SYMBOL));
+}
 
 function emaSeries(vals,period){
   const out=vals.map(()=>null);if(vals.length<period)return out;
@@ -514,9 +541,11 @@ function renderBrain(b){
   agents.forEach(a=>{
     const v=a.vote||0,pos=v>=0,half=Math.min(Math.abs(v),1)*50,left=pos?50:50-half;
     const row=document.createElement("div");row.className="ag";row.dataset.ag=a.agent;
+    const nt=(notes[a.agent]||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
     row.innerHTML=`<div class="nm">${a.agent}</div>`+
       `<div class="vbar"><div class="zero"></div><i style="left:${left}%;width:${half}%;background:${pos?"#2ec27e":"#f5566b"}"></i></div>`+
-      `<div class="meta">${(v>=0?"+":"")}${v.toFixed(2)} · c${a.conf!=null?a.conf.toFixed(2):"—"} · w${a.weight!=null?a.weight.toFixed(2):"—"}</div>`;
+      `<div class="meta">${(v>=0?"+":"")}${v.toFixed(2)} · c${a.conf!=null?a.conf.toFixed(2):"—"} · w${a.weight!=null?a.weight.toFixed(2):"—"}</div>`+
+      `<div class="note">${nt||"—"}</div>`;
     row.title=notes[a.agent]||"";
     bindClickDbl(row,()=>{brainIso=(brainIso===a.agent)?null:a.agent;styleBrainIso();},
                      ()=>{brainIso=a.agent;styleBrainIso();});
@@ -582,7 +611,8 @@ function renderFuture(f){
 async function tick(){
   const t0=performance.now();
   try{
-    const st=await(await fetch("/api/state?tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
+    const st=await(await fetch("/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
+    renderPicker(st.symbols);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
     $("mode").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
     const win=(s.win_rate==null)?null:s.win_rate;
@@ -648,7 +678,10 @@ async function tick(){
       $("ms-sp").textContent=(ml.spread_bps!=null?(+ml.spread_bps).toFixed(3):"—");
       $("ms-mk").textContent=sg(ml.markout_bps||0);$("ms-mk").className=(ml.markout_bps||0)>=0?"green":"red";
       const tox=ml.toxicity||0;$("ms-tox").textContent=(tox*100).toFixed(1)+"%";$("ms-tox").className=tox>0.3?"red":tox>0.1?"amber":"green";
-    }else{["ms-ofi","ms-qi","ms-ts","ms-sp","ms-mk","ms-tox"].forEach(id=>{$(id).textContent="hors collecteur";$(id).className="dim";});}
+      sbar("msb-ofi",ml.ofi);sbar("msb-qi",ml.queue_imbalance);sbar("msb-ts",ml.trade_sign);
+      {const tb=$("msb-tox");if(tb)tb.style.width=Math.min(100,tox*100)+"%";}
+    }else{["ms-ofi","ms-qi","ms-ts","ms-sp","ms-mk","ms-tox"].forEach(id=>{$(id).textContent="hors collecteur";$(id).className="dim";});
+      ["msb-ofi","msb-qi","msb-ts","msb-tox"].forEach(id=>{const e=$(id);if(e)e.style.width="0";});}
     $("sy-loop").textContent=(lp.verdict||"—")+(lp.scan_age_min!=null?(" · scan "+(+lp.scan_age_min).toFixed(1)+"min"):"");
     $("sy-loop").className=(lp.verdict==="RUNNING"||lp.verdict==="RUNNING?")?"green":(lp.verdict==="STALE"?"amber":(lp.verdict?"red":"dim"));
     $("sy-micro").textContent=(sysd.micro_age_s!=null)?("frais "+sysd.micro_age_s+"s"):(sv.microstructure?"actif":"—");
