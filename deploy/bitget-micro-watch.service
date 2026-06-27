@@ -1,0 +1,9 @@
+[Unit]
+Description=Bitget microstructure edge watch (chemin 2, lecture seule, alerte Telegram si edge significatif)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 microstructure_watch.py
+User=root
+Nice=15

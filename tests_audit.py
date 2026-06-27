@@ -2441,6 +2441,18 @@ def test_microstructure_history_accrual_and_edge():
         ms._LAST_FLUSH.clear()
 
 
+def test_microstructure_watch_assess():
+    import microstructure_watch as mw
+    # edge significatif (n suffisant + t élevé) -> alerte ; seule la feature qualifiante
+    rep = {"edge": {"ofi": {"ic": 0.05, "ic_t": 3.5, "n": 800},
+                    "spread_bps": {"ic": 0.01, "ic_t": 0.4, "n": 800}}}
+    alert, hits = mw.assess(rep)
+    assert alert is True and len(hits) == 1 and "ofi" in hits[0]
+    assert mw.assess({"edge": {"ofi": {"ic": 0.2, "ic_t": 9.0, "n": 50}}})[0] is False    # n insuffisant
+    assert mw.assess({"edge": {"ofi": {"ic": 0.01, "ic_t": 1.0, "n": 5000}}})[0] is False  # t faible
+    assert mw.assess({})[0] is False                                                       # rien
+
+
 # ---------- collecteur WebSocket de microstructure (book_collector) ----------
 
 def test_book_collector_parsers():
