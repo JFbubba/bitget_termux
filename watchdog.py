@@ -58,6 +58,16 @@ def decide_verdict(process_known, process_alive, data_known, fresh, paused):
     return "UNKNOWN", False
 
 
+def process_state_known(pid, scan_state):
+    """Connaît-on l'état de la boucle de trading ? Vrai si un PID file est présent OU si un
+    process `agent_loop` est TROUVÉ vivant. PUR.
+    ⚠️ Architecture par TIMERS : la boucle persistante `agent_loop.py` a été remplacée par
+    `bitget-scan.timer` ; son ABSENCE (`not_found`) n'est donc PAS un DOWN — la liveness réelle
+    est la FRAÎCHEUR du scan. Sans PID ni process trouvé -> état INDÉTERMINÉ -> decide_verdict
+    se fie aux données (RUNNING? si frais). Corrige les fausses alertes DOWN à répétition."""
+    return (pid is not None) or (scan_state == "found")
+
+
 def read_pid_file():
     if not PID_FILE.exists():
         return None
@@ -201,7 +211,7 @@ def evaluate():
     status["proc_scan"] = scan_state
     status["proc_scan_pid"] = scan_pid
 
-    status["process_known"] = (pid is not None) or (scan_state in ("found", "not_found"))
+    status["process_known"] = process_state_known(pid, scan_state)
     status["process_alive"] = bool(pid_alive) or (scan_state == "found")
 
     signals = Path(config.SIGNALS_JOURNAL_FILE)

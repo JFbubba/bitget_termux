@@ -1360,6 +1360,20 @@ def test_watchdog_verdicts():
     assert watchdog.decide_verdict(False, False, True, False, False) == ("DOWN", True)
     assert watchdog.decide_verdict(False, False, False, False, False) == ("UNKNOWN", False)
 
+
+def test_watchdog_process_known_timer_architecture():
+    import watchdog as wd
+    # PID file present OU agent_loop trouve vivant -> etat CONNU
+    assert wd.process_state_known(1234, "not_found") is True
+    assert wd.process_state_known(None, "found") is True
+    # Architecture par TIMERS : pas de boucle persistante -> 'not_found' = INDETERMINE (pas DOWN)
+    assert wd.process_state_known(None, "not_found") is False
+    # indetermine + scan FRAIS -> RUNNING? (plus de faux DOWN -> fini le spam d'alerte 3 min)
+    assert wd.decide_verdict(wd.process_state_known(None, "not_found"), False, True, True, False) == ("RUNNING?", False)
+    # scan PERIME (timer reellement casse) -> DOWN legitime, l'alerte reste utile
+    assert wd.decide_verdict(wd.process_state_known(None, "not_found"), False, True, False, False) == ("DOWN", True)
+
+
 def test_watchdog_report_alert_text():
     import watchdog
     running = {
