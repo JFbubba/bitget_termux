@@ -282,6 +282,41 @@ def build_state(symbol=None, tf="5m"):
                 "per_buy_eff": se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT),
                 "abs_daily": se.ACCUM_ABS_MAX_DAILY_USDT}
 
+    def _microstructure_live():
+        """Microstructure TEMPS RÉEL du collecteur (OFI, queue, trade-sign, spread, markout, toxicité)."""
+        import microstructure as ms
+        return ms.summary(symbol)
+
+    def _system():
+        """Santé du fleet systemd + collecteur + kill-switch (lecture seule, best-effort)."""
+        out = {}
+        try:
+            import watchdog as wd
+            st = wd.evaluate()
+            out["loop"] = {"verdict": st.get("verdict"), "scan_age_min": st.get("age_min"),
+                           "fresh": st.get("fresh")}
+        except Exception:
+            out["loop"] = {}
+        svcs = {}
+        try:
+            import watchdog as wd
+            for name in ("bitget-microstructure", "bitget-dashboard", "bitget-bot"):
+                svcs[name.replace("bitget-", "")] = wd.service_active(name)
+        except Exception:
+            pass
+        out["services"] = svcs
+        try:
+            import risk_manager as rm
+            out["kill_switch"] = rm.kill_switch_active()
+        except Exception:
+            out["kill_switch"] = None
+        try:
+            import watchdog as wd
+            out["micro_age_s"] = round(wd.microstructure_age("BTCUSDT"), 1) if wd.microstructure_age("BTCUSDT") is not None else None
+        except Exception:
+            out["micro_age_s"] = None
+        return out
+
     # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
     stats = _cached("stats", 30, lambda: _safe(_stats, {}))
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
@@ -308,6 +343,8 @@ def build_state(symbol=None, tf="5m"):
     state["microstructure"] = _cached("micro", 120, lambda: _safe(_microstructure, {}))
     state["market_timing"] = _cached("mtiming", 300, lambda: _safe(_market_timing, {}))
     state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
+    state["micro_live"] = _cached(f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {}))
+    state["system"] = _cached("system", 20, lambda: _safe(_system, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")

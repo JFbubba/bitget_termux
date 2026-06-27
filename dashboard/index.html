@@ -244,6 +244,22 @@
   </div>
 
   <div class="bottom">
+    <div class="panel">
+      <h2>Microstructure · live <span class="dim" style="letter-spacing:0">— L2 + tape (collecteur 24/7)</span></h2>
+      <div class="row"><span class="k">OFI (Cont-Kukanov)</span><span id="ms-ofi">—</span></div>
+      <div class="row"><span class="k">déséquilibre carnet</span><span id="ms-qi">—</span></div>
+      <div class="row"><span class="k">agressivité tape</span><span id="ms-ts">—</span></div>
+      <div class="row"><span class="k">spread (bps)</span><span id="ms-sp">—</span></div>
+      <div class="row"><span class="k">markout (bps)</span><span id="ms-mk">—</span></div>
+      <div class="row"><span class="k">toxicité du flux</span><span id="ms-tox">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>Système · fleet <span class="dim" style="letter-spacing:0">— services · timers (lecture seule)</span></h2>
+      <div class="row"><span class="k">boucle / scan</span><span id="sy-loop">—</span></div>
+      <div class="row"><span class="k">collecteur micro.</span><span id="sy-micro">—</span></div>
+      <div class="row"><span class="k">dashboard · bot</span><span id="sy-svc">—</span></div>
+      <div class="row"><span class="k">kill-switch</span><span id="sy-kill">—</span></div>
+    </div>
     <div class="panel"><h2>Probability Lattice</h2><canvas id="lattice" height="150"></canvas></div>
     <div class="panel">
       <h2>Market · Sentiment</h2>
@@ -622,6 +638,23 @@ async function tick(){
     $("cp-caps").textContent=(cp.daily_eff!=null)?("$"+cp.daily_eff+"/j · mur $"+(cp.abs_daily!=null?cp.abs_daily:25)):"—";
     $("eg-micro").textContent=(mi.n_records)?(mi.n_records+" obs · "+(mi.best_feature||"—")+" t="+(mi.best_ic_t!=null?mi.best_ic_t:"—")):"accumule…";
     $("eg-mtim").textContent=(mtm.n_records)?(mtm.n_records+"j · macro t="+(mtm.macro_ic_t!=null?mtm.macro_ic_t:"—")+" · sent t="+(mtm.sentiment_ic_t!=null?mtm.sentiment_ic_t:"—")):"accumule…";
+    // --- microstructure LIVE (collecteur 24/7) + santé système (fleet) ---
+    const ml=st.micro_live||{},sysd=st.system||{},lp=sysd.loop||{},sv=sysd.services||{};
+    if(ml.n){
+      const sg=x=>(x>=0?"+":"")+(+x).toFixed(3);
+      $("ms-ofi").textContent=sg(ml.ofi||0);$("ms-ofi").className=(ml.ofi||0)>=0?"green":"red";
+      $("ms-qi").textContent=sg(ml.queue_imbalance||0);$("ms-qi").className=(ml.queue_imbalance||0)>=0?"green":"red";
+      $("ms-ts").textContent=sg(ml.trade_sign||0);$("ms-ts").className=(ml.trade_sign||0)>=0?"green":"red";
+      $("ms-sp").textContent=(ml.spread_bps!=null?(+ml.spread_bps).toFixed(3):"—");
+      $("ms-mk").textContent=sg(ml.markout_bps||0);$("ms-mk").className=(ml.markout_bps||0)>=0?"green":"red";
+      const tox=ml.toxicity||0;$("ms-tox").textContent=(tox*100).toFixed(1)+"%";$("ms-tox").className=tox>0.3?"red":tox>0.1?"amber":"green";
+    }else{["ms-ofi","ms-qi","ms-ts","ms-sp","ms-mk","ms-tox"].forEach(id=>{$(id).textContent="hors collecteur";$(id).className="dim";});}
+    $("sy-loop").textContent=(lp.verdict||"—")+(lp.scan_age_min!=null?(" · scan "+(+lp.scan_age_min).toFixed(1)+"min"):"");
+    $("sy-loop").className=(lp.verdict==="RUNNING"||lp.verdict==="RUNNING?")?"green":(lp.verdict==="STALE"?"amber":(lp.verdict?"red":"dim"));
+    $("sy-micro").textContent=(sysd.micro_age_s!=null)?("frais "+sysd.micro_age_s+"s"):(sv.microstructure?"actif":"—");
+    $("sy-micro").className=(sysd.micro_age_s!=null&&sysd.micro_age_s<180)?"green":(sysd.micro_age_s!=null?"amber":"dim");
+    $("sy-svc").textContent=(sv.dashboard?"dash ✓":"dash ✗")+" · "+(sv.bot?"bot ✓":"bot ✗");$("sy-svc").className=(sv.dashboard&&sv.bot)?"green":"amber";
+    $("sy-kill").textContent=(sysd.kill_switch==null)?"—":(sysd.kill_switch?"ARMÉ ⚠":"inactif");$("sy-kill").className=sysd.kill_switch?"red":"green";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
