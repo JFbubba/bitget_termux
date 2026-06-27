@@ -2601,13 +2601,18 @@ def test_spot_executor_order_styles():
     # taker = marché, size en quote (USDT)
     o = se.build_order(5.0, "x", style="taker")
     assert o["orderType"] == "market" and o["size"] == "5.0" and o["side"] == "buy"
-    # maker = limite post-only au bid, size en base (BTC)
+    # maker = limite post-only au bid, size en base (BTC), notation DÉCIMALE (pas sci.)
     m = se.build_order(5.0, "x", style="maker", quote=q)
     assert m["orderType"] == "limit" and m["force"] == "post_only"
     assert float(m["price"]) == 100.0 and abs(float(m["size"]) - 0.05) < 1e-6
+    assert "e" not in m["size"].lower()
+    # une toute petite quantité ne doit JAMAIS sortir en scientifique (Bitget la rejette)
+    tiny = se.build_order(5.0, "x", style="maker", quote={"bid": 60000.0, "ask": 60001.0})
+    assert "e" not in tiny["size"].lower() and tiny["size"].startswith("0.0000")
     # limit_ioc = limite IOC plafonnée au-dessus de l'ask (anti-slippage), fill immédiat
     i = se.build_order(5.0, "x", style="limit_ioc", quote=q, tol_pct=0.10)
     assert i["orderType"] == "limit" and i["force"] == "ioc" and float(i["price"]) > 100.1
+    assert "e" not in i["size"].lower()
     # repli : maker sans carnet -> marché (on achète quand même, jamais bloqué)
     assert se.build_order(5.0, "x", style="maker", quote=None)["orderType"] == "market"
 

@@ -34,6 +34,19 @@ def _cfg(name, fallback):
         return fallback
 
 
+def _limit(name, fallback):
+    """Plafond numérique : env > config > défaut. L'env permet une validation ponctuelle
+    sans éditer config.py (qui ferait échouer `git pull --ff-only`)."""
+    import os
+    v = os.getenv(name)
+    if v is not None:
+        try:
+            return float(v)
+        except ValueError:
+            pass
+    return float(_cfg(name, fallback))
+
+
 # ---------- registre des achats RÉELS (plafond journalier) ----------
 
 def _load_real():
@@ -91,10 +104,10 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
     amt = float(amount_usdt or 0)
     if amt <= 0:
         reasons.append("montant ≤ 0")
-    cap = float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0))
+    cap = _limit("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)
     if amt > cap:
         reasons.append(f"montant {amt} > plafond/achat {cap}")
-    daily_cap = float(_cfg("ACCUM_REAL_MAX_DAILY_USDT", 50.0))
+    daily_cap = _limit("ACCUM_REAL_MAX_DAILY_USDT", 5.0)
     sp = today_spent() if spent is None else float(spent)
     if sp + amt > daily_cap:
         reasons.append(f"plafond journalier dépassé ({sp}+{amt} > {daily_cap})")
@@ -104,6 +117,11 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
 
 
 # ---------- construction de la demande (pure) ----------
+
+def _qty(x, decimals=6):
+    """Quantité base en notation DÉCIMALE (jamais scientifique) — Bitget rejette '8.3e-05'."""
+    return f"{round(float(x), decimals):.{decimals}f}"
+
 
 def build_order(amount_usdt, client_oid, style="taker", quote=None, tol_pct=0.10):
     """Construit l'objet ordre d'ACHAT spot BTC selon le style. PUR.
@@ -119,10 +137,10 @@ def build_order(amount_usdt, client_oid, style="taker", quote=None, tol_pct=0.10
     if style == "maker":
         price = float(quote["bid"])
         return {**base, "orderType": "limit", "force": "post_only",
-                "price": str(round(price, 2)), "size": str(round(float(amount_usdt) / price, 6))}
+                "price": str(round(price, 2)), "size": _qty(float(amount_usdt) / price)}
     price = float(quote["ask"]) * (1.0 + float(tol_pct) / 100.0)        # limit_ioc : plafond
     return {**base, "orderType": "limit", "force": "ioc",
-            "price": str(round(price, 2)), "size": str(round(float(amount_usdt) / price, 6))}
+            "price": str(round(price, 2)), "size": _qty(float(amount_usdt) / price)}
 
 
 def build_command(amount_usdt, client_oid, style="taker", quote=None, tol_pct=0.10):
