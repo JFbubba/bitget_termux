@@ -59,6 +59,10 @@ COMMANDS = [
         "command": ["python", "mandate.py"],
     },
     {
+        "name": "Échelle d'edge : palier paper/réel par agent (mesuré)",
+        "command": ["python", "edge_ladder.py"],
+    },
+    {
         "name": "Pont Agent Hub <-> bot (lecture seule + garde de mandat)",
         "command": ["python", "bitget_hub_bridge.py"],
     },

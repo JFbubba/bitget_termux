@@ -102,8 +102,20 @@ def _fetch_macro_regime():
 def agent_macro(symbol):
     import runtime_cache as rc
     reg = rc.get("macro_regime", 1800, _fetch_macro_regime, fallback=None)  # 30 min
-    vote = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
-    return {"vote": vote, "confidence": 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1, "note": f"régime {reg}"}
+    base = 0.6 if reg == "RISK_ON" else -0.6 if reg == "RISK_OFF" else 0.0
+    base_conf = 0.5 if reg in ("RISK_ON", "RISK_OFF") else 0.1
+    # Affûtage skill-hub : framework 6 indicateurs (hawkish/dovish -> biais BTC).
+    try:
+        import macro_regime as mr
+        fw = rc.get("macro_framework", 1800, lambda: mr.vote(symbol), fallback=None)
+    except Exception:
+        fw = None
+    if fw and fw.get("confidence", 0) > 0:
+        wc = base_conf + fw["confidence"]
+        vote = _clamp((base * base_conf + fw["vote"] * fw["confidence"]) / wc) if wc > 0 else base
+        return {"vote": round(vote, 3), "confidence": round(min(1.0, wc / 1.5), 3),
+                "note": f"régime {reg} + {fw['note']}"}
+    return {"vote": base, "confidence": base_conf, "note": f"régime {reg}"}
 
 
 def agent_sentiment(symbol):

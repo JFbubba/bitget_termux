@@ -844,6 +844,33 @@ limite** ; « le plus possible » n'est cohérent que **borné par le MDD**.
 
 ---
 
+## §30 — Affûtage macro (skill-hub Bitget) + échelle d'edge par agent
+Demande : « mets les agents en edge » + paquet `bitget-skill-hub@1.0.2`. Deux volets.
+
+**(1) Affûtage de l'agent macro (`macro_regime.py`)** — extraction de la MÉTHODO
+déterministe des skills `btc-macro-analysis` / `macro-analyst` (sans embarquer leur
+snapshot ni dépendre de leur endpoint tiers `datahub.noxiaohao.com`) : framework
+**6 indicateurs -> posture monétaire -> biais BTC**, seuils de `rate-keys.md` (Core PCE
+<2 dovish / >2.5 hawkish / >3 fort ; chômage <4 tendu / >5 slack ; NFP <100k / >250k ;
+taux réel 10Y, DXY, VIX). Convention : hawkish = baissier BTC. `event_surprise`
+(actual vs forecast, inversé pour chômage/claims). Données tirées de NOS sources FRED
+sans clé (`macro_context` : VIXCLS, DTWEXBGS, DFII10, UNRATE, PCEPILFE→YoY, PAYEMS→Δ).
+Branché dans `swarm_brain.agent_macro` (combinaison pondérée par confiance avec l'ancien
+RISK_ON/OFF, fallback gracieux). Remplace un vote macro binaire (±0.6) par un biais gradué.
+
+**(2) Échelle d'edge (`edge_ladder.py`)** — généralise la « porte d'edge » du mandat à
+TOUS les agents : palier par agent depuis `validation_report.json` (T5) — LIVE (DSR≥0.90
+∧ n≥120 ∧ OOS>0 → éligible réel), PROBATION (DSR≥0.50 ∧ n≥30), PAPER (DSR≥0.10),
+NEGATIVE. Priors de poids ADVISORY (LIVE ×1.5 … NEGATIVE ×0.3) qui bornent EARCP sans
+l'écraser. Mécanisme « par paliers, agent par agent » : seul le palier LIVE ouvre le réel
+(cohérent avec `mandate.futures_live_allowed`). Étape de rapport dans `agent_control`.
+
+**Nature du skill-hub** : 6 skills Claude Code (macro/sentiment/technique/news/on-chain)
+qui donnent de l'edge analytique à l'agent de l'Agent Hub ; côté bot déterministe, seul
+le savoir-faire macro est réutilisé. Aucun ordre, scan sécurité étendu aux 2 modules.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

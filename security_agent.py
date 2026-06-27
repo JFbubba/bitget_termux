@@ -49,6 +49,8 @@ FILES_TO_SCAN = [
     "bitget_balance_reader.py",
     "bitget_hub_bridge.py",
     "mandate.py",
+    "macro_regime.py",
+    "edge_ladder.py",
     "accumulation_engine.py",
     "account_equity.py",
     "git_version.py",

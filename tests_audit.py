@@ -2645,6 +2645,48 @@ def test_hub_bridge_read_only_helpers():
     assert b._read(["x"], runner=lambda a: "pas du json") is None
 
 
+def test_macro_regime_pressures_and_bias():
+    import macro_regime as mr
+    # seuils inflation (rate-keys skill-hub)
+    assert mr.inflation_pressure(1.5) == -1.0      # dovish
+    assert mr.inflation_pressure(2.2) == 0.0       # neutre
+    assert mr.inflation_pressure(2.7) == 0.6       # hawkish
+    assert mr.inflation_pressure(3.5) == 1.0       # fort
+    assert mr.inflation_pressure(None) is None
+    # marché du travail
+    assert mr.labor_pressure(unemployment=3.5) > 0      # tendu -> hawkish
+    assert mr.labor_pressure(unemployment=5.5) < 0      # slack -> dovish
+    assert mr.labor_pressure(nfp_k=80) < 0 and mr.labor_pressure(nfp_k=300) > 0
+    # biais BTC : macro hawkish -> baissier ; dovish -> haussier
+    hawk = mr.btc_macro_bias({"core_pce": 3.5, "unemployment": 3.5, "tips_10y": 2.2,
+                              "dxy_change_pct": 3.0, "vix": 30})
+    dove = mr.btc_macro_bias({"core_pce": 1.5, "unemployment": 5.5, "tips_10y": 0.8,
+                              "dxy_change_pct": -3.0, "vix": 12})
+    assert hawk["bias"] < 0 < dove["bias"]
+    # surprise d'événement : CPI au-dessus du forecast = hawkish ; chômage = inversé
+    assert mr.event_surprise("CPI", 0.5, 0.3) > 0
+    assert mr.event_surprise("unemployment", 4.5, 4.0) < 0
+    # couverture partielle + vote vide
+    assert mr.policy_stance({"vix": 30})["coverage"] > 0
+    assert mr.vote(indicators={})["confidence"] == 0.0
+
+
+def test_edge_ladder_tiers_and_priors():
+    import edge_ladder as el
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) == "LIVE"
+    assert el.tier_of({"dsr": 0.95, "n": 40, "oos_sharpe": 0.3}) == "PROBATION"   # n trop faible
+    assert el.tier_of({"dsr": 0.60, "n": 50}) == "PROBATION"
+    assert el.tier_of({"dsr": 0.20, "n": 200}) == "PAPER"
+    assert el.tier_of({"dsr": 0.0, "n": 200}) == "NEGATIVE"
+    rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                       {"agent": "simons", "dsr": -0.1, "n": 200}]}
+    assert el.agent_tier("geometric", rep) == "LIVE"
+    assert el.agent_tier("simons", rep) == "NEGATIVE"
+    assert el.agent_tier("absent", rep) == "NEGATIVE"
+    assert el.weight_prior("geometric", rep) > el.weight_prior("simons", rep)
+    assert el.live_agents(rep) == ["geometric"]
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
