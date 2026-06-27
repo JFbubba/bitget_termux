@@ -111,10 +111,24 @@ def build_universe(top_n=None, min_volume=None, use_coingecko=True):
     return rank_by_volume(tickers, top_n=top_n, min_volume=min_volume, quality=quality)
 
 
+def _enabled():
+    """Univers dynamique armé ? Via .env (DYNAMIC_UNIVERSE=1) OU config — l'option .env
+    évite d'éditer un fichier suivi par git (sinon `git pull --ff-only` échouerait)."""
+    import os
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+    if os.getenv("DYNAMIC_UNIVERSE", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return bool(_cfg("DYNAMIC_UNIVERSE", False))
+
+
 def symbols(ttl=900):
-    """Liste de symboles à analyser. Si DYNAMIC_UNIVERSE est False -> config.SYMBOLS
+    """Liste de symboles à analyser. Si l'univers dynamique n'est pas armé -> config.SYMBOLS
     (comportement historique). Sinon univers dynamique, caché `ttl` s. Ne lève jamais."""
-    if not bool(_cfg("DYNAMIC_UNIVERSE", False)):
+    if not _enabled():
         return _anchors()
     now = time.time()
     hit = _CACHE.get("u")
@@ -127,7 +141,7 @@ def symbols(ttl=900):
 
 def build_report():
     uni = symbols()
-    dyn = bool(_cfg("DYNAMIC_UNIVERSE", False))
+    dyn = _enabled()
     return ("=== UNIVERS D'ANALYSE ===\n"
             f"Mode : {'DYNAMIQUE top-N (Bitget volume + filtre CoinGecko)' if dyn else 'liste figée (config.SYMBOLS)'}\n"
             f"{len(uni)} symboles : {', '.join(uni[:25])}{' …' if len(uni) > 25 else ''}\n"
