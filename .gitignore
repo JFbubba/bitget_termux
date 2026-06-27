@@ -43,6 +43,7 @@ strategies_out/
 .microstructure_buffer.json
 accumulation_ledger.json
 accumulation_real_ledger.json
+futures_real_ledger.json
 
 # Claude Code : hooks locaux (machine-specifique, contient des mots-cles d'ordre
 # pour le garde-fou ; ne doit pas etre suivi sinon safe_push_check les detecte)

@@ -3001,6 +3001,70 @@ def test_spot_executor_guards_and_dry():
     assert se._extract_usdt_available({"data": []}) is None
 
 
+def test_futures_executor_build_order():
+    import futures_executor as fe
+    # construction PURE : side neutre 'long'/'short', levier CLAMPÉ au mur ×5
+    o = fe.build_futures_order("geometric", "long", 100.0, 10.0, entry=50000,
+                               stop_loss=49000, take_profit=52000, client_oid="oid1")
+    assert o["symbol"] == "BTCUSDT" and o["side"] == "long" and o["reduce"] is False
+    assert o["leverage"] == 5.0                    # 10 demandé -> borné au mur ×5
+    assert o["clientOid"] == "oid1" and o["agent"] == "geometric"
+    assert o["entry"] == 50000.0 and o["stop_loss"] == 49000.0 and o["take_profit"] == 52000.0
+    assert o["execution_mode"] == "FUTURES_DRY_RUN_ONLY"
+    assert "e" not in o["size"].lower()            # quantité jamais en notation scientifique
+    # reduce + short, levier sous le mur conservé
+    m = fe.build_futures_order("savant", "short", 20.0, 2.0, reduce=True)
+    assert m["side"] == "short" and m["reduce"] is True and m["leverage"] == 2.0
+    # side invalide -> refus dur
+    try:
+        fe.build_futures_order("x", "buy", 10.0, 2.0)
+        assert False, "side invalide doit lever ValueError"
+    except ValueError:
+        pass
+
+
+def test_futures_executor_guards_8():
+    import futures_executor as fe
+    # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    assert fe.guards("geometric", 8, 2, **base)[0] is True
+    # 1. kill-switch
+    assert fe.guards("geometric", 8, 2, **{**base, "kill": True})[0] is False
+    # 2. double verrou (l'un OU l'autre coupé suffit à refuser)
+    assert fe.guards("geometric", 8, 2, **{**base, "live": False})[0] is False
+    assert fe.guards("geometric", 8, 2, **{**base, "autonomous": False})[0] is False
+    # 3. porte d'edge (agent non LIVE)
+    assert fe.guards("geometric", 8, 2, **{**base, "futures_live": False})[0] is False
+    # 4. levier > mur ×5
+    assert fe.guards("geometric", 8, 10, **base)[0] is False
+    # 5. caps : notional/trade puis exposition cumulée
+    assert fe.guards("geometric", 50, 2, **base)[0] is False
+    assert fe.guards("geometric", 8, 2, gross_open_usdt=15, **base)[0] is False
+    # 6. halte drawdown (equity réelle : -30% ≥ MDD 20%)
+    assert fe.guards("geometric", 8, 2, equity_curve=[100, 70], **base)[0] is False
+    # 8. idempotence clientOid (anti-doublon)
+    assert fe.guards("geometric", 8, 2, client_oid="dup", seen_oids=["dup"], **base)[0] is False
+
+
+def test_futures_executor_dry_and_real_path():
+    import futures_executor as fe
+    full = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    # DRY par défaut : aucun ordre. journal=False -> hermétique (pas d'écriture ledger)
+    r = fe.execute("geometric", "long", 8, 2, confirm=False, journal=False, **full)
+    assert r["ok"] is True and r["executed"] is False and r.get("dry") is True
+    # gardes qui échouent -> refus propre, jamais de réel, même avec --confirm
+    r2 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    live=False, autonomous=False, futures_live=False, kill=False)
+    assert r2["ok"] is False and r2["executed"] is False
+    # gardes vertes + confirm=True -> chemin réel NON câblé (étape 1) : NotImplementedError
+    raised = False
+    try:
+        fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, **full)
+    except NotImplementedError:
+        raised = True
+    assert raised   # le réel reste hors d'atteinte à l'étape 1
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)

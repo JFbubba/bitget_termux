@@ -39,6 +39,21 @@ EXEC_FORBIDDEN = [
 ]
 EXEC_REQUIRED_GUARDS = ["mandate_live_enabled", "kill_switch", "confirm"]
 
+# 2e module d'exécution BORNÉ (futures, RESEARCH_NOTES §34). À l'étape 1 il reste DRY-RUN
+# (chemin réel non câblé). Audité à part : on TOLÈRE le vocabulaire d'ordre futures borné
+# mais on reste STRICT sur ce qui est interdit même au module autorisé (retrait/transfert/
+# changement de levier hors mur/vente), et on EXIGE ses verrous (double verrou + edge +
+# kill_switch + confirm). Liste séparée -> AUTHORIZED_EXEC_FILES (spot) reste inchangé.
+FUTURES_EXEC_FILES = ["futures_executor.py"]
+FUTURES_EXEC_FORBIDDEN = [
+    "withdraw", "transfer", "set_leverage", "change_leverage", "setleverage",
+    "margin_", "_sell", "sell_", "cancel_order", "cancelorder",
+]
+FUTURES_EXEC_REQUIRED_GUARDS = [
+    "mandate_live_enabled", "futures_autonomous_live", "futures_live_allowed",
+    "kill_switch", "confirm",
+]
+
 FILES_TO_SCAN = [
     "config.py",
     "journal_scanner.py",
@@ -68,6 +83,7 @@ FILES_TO_SCAN = [
     "universe.py",
     "accumulation_engine.py",
     "spot_executor.py",
+    "futures_executor.py",
     "account_equity.py",
     "git_version.py",
     "system_health.py",
@@ -141,6 +157,25 @@ def scan_authorized_exec(filename):
 
 
 
+def scan_futures_exec(filename):
+    """Audit du 2e module d'exécution BORNÉ (futures, §34). Tolère le vocabulaire d'ordre
+    futures borné mais reste STRICT sur l'interdit dur (retrait/transfert/levier hors mur/
+    vente/annulation) et EXIGE les verrous (double verrou + edge + kill_switch + confirm).
+    Retourne la liste des soucis."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = []
+    for kw in FUTURES_EXEC_FORBIDDEN:
+        if kw.lower() in text:
+            issues.append(f"interdit:{kw}")
+    for guard in FUTURES_EXEC_REQUIRED_GUARDS:
+        if guard.lower() not in text:
+            issues.append(f"garde manquante:{guard}")
+    return issues
+
+
 def telegram_auth_is_present(text):
     import re
 
@@ -185,7 +220,10 @@ def main():
     dangerous_hits = {}
 
     for filename in FILES_TO_SCAN:
-        if filename in AUTHORIZED_EXEC_FILES:
+        if filename in FUTURES_EXEC_FILES:
+            hits = scan_futures_exec(filename)
+            label = "exec futures non conforme"
+        elif filename in AUTHORIZED_EXEC_FILES:
             hits = scan_authorized_exec(filename)
             label = "exec autorisé non conforme"
         else:
