@@ -27,6 +27,7 @@ sont enveloppés (try/except) et ne lèvent jamais vers l'appelant.
 
 import math
 import re
+import time
 import urllib.request
 from datetime import date, timedelta
 
@@ -192,35 +193,44 @@ def regime_index(regime):
 
 # ---------- fetch réseau (enveloppé, jamais levé) ----------
 
-def _http_get(url, timeout=12, retries=2):
+def _http_get(url, timeout=6, retries=1, deadline=None):
+    """GET texte, best-effort. `deadline` (référence time.monotonic) borne le temps
+    TOTAL : on n'entame pas de nouvelle tentative au-delà -> jamais de hang en série
+    sur cache froid. Lève la dernière exception (l'appelant via runtime_cache dégrade
+    alors vers la dernière valeur connue / fallback)."""
     last = None
     for _ in range(retries + 1):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         try:
             req = urllib.request.Request(url, headers=_UA)
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read().decode("utf-8", "ignore")
-        except Exception as e:  # 503 throttling FRED, etc. -> on retente
+        except Exception as e:  # 503 throttling FRED, lenteur RSS, etc. -> on retente
             last = e
-    raise last if last else RuntimeError("http_get")
+    raise last if last else TimeoutError("http_get: budget réseau dépassé")
 
 
-def fred_series(series_id, days=420, ttl=21600):
+def fred_series(series_id, days=420, ttl=21600, deadline=None):
     """Série FRED [(date, val)] via fredgraph.csv (SANS CLÉ), cachée 6 h par défaut.
-    Best-effort : ne lève jamais (liste vide si indisponible)."""
+    Best-effort : ne lève jamais (liste vide si indisponible). `deadline` borne le réseau."""
     def fetch():
         cosd = (date.today() - timedelta(days=days)).isoformat()
         url = (f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
                f"&cosd={cosd}")
-        return parse_fred_csv(_http_get(url))
+        return parse_fred_csv(_http_get(url, deadline=deadline))
     return rc.get(f"fred:{series_id}", ttl, fetch, fallback=[])
 
 
-def dashboard(ttl=21600):
+def dashboard(ttl=21600, budget=18.0):
     """Tableau de bord macro « Sentinel » : pour chaque série FRED, dernière valeur
-    + variation récente. Best-effort, cache 6 h. Retourne dict series_id -> résumé."""
+    + variation récente. Best-effort, cache 6 h. `budget` borne le temps réseau TOTAL
+    (anti-hang sur cache froid) : au-delà, les séries restantes dégradent en fallback.
+    Retourne dict series_id -> résumé."""
+    deadline = time.monotonic() + budget
     out = {}
     for sid, label in FRED_SERIES.items():
-        pts = fred_series(sid, ttl=ttl)
+        pts = fred_series(sid, ttl=ttl, deadline=deadline)
         s = series_summary(pts)
         s["label"] = label
         out[sid] = s
@@ -252,17 +262,19 @@ def nowcast(ttl=21600):
     return out
 
 
-def central_bank_headlines(limit=4, ttl=3600):
+def central_bank_headlines(limit=4, ttl=3600, budget=8.0):
     """Titres d'actualité des banques centrales (Fed, BCE), ASSAINIS. Best-effort.
+    `budget` borne le temps réseau TOTAL (anti-hang sur cache froid).
 
     Réponse à « se connecter aux institutionnels pour suivre leur actualité » :
     on lit les flux RSS officiels et on n'en garde que les TITRES, passés par
     prompt_guard (le contenu externe n'est jamais traité comme une instruction)."""
     def fetch():
+        deadline = time.monotonic() + budget
         items = []
         for name, url in CB_FEEDS.items():
             try:
-                titles = parse_rss_titles(_http_get(url), limit=limit)
+                titles = parse_rss_titles(_http_get(url, deadline=deadline), limit=limit)
             except Exception:
                 titles = []
             for t in titles:

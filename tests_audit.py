@@ -2883,6 +2883,176 @@ def test_edge_ladder_tiers_and_priors():
     assert el.live_agents(rep) == ["geometric"]
 
 
+# ---------- durcissement réseau best-effort (sources de données, SANS réseau) ----------
+
+class _BoomRequests:
+    """Faux module `requests` dont .get lève systématiquement : simule une panne
+    réseau de façon déterministe, SANS aucun appel réel."""
+    @staticmethod
+    def get(*a, **k):
+        raise RuntimeError("réseau simulé indisponible")
+
+
+def test_news_token_validation():
+    import os
+    import news_feed
+    saved = os.environ.get("CRYPTOPANIC_API_TOKEN")
+    try:
+        for bad in ["", "none", "NULL", "changeme", "your_token", "todo",
+                    "# colle ton token ici", "abc def ghij klmn", "tropcourt123"]:
+            os.environ["CRYPTOPANIC_API_TOKEN"] = bad
+            assert news_feed._token() is None, bad
+        os.environ["CRYPTOPANIC_API_TOKEN"] = "a1b2c3d4e5f6a7b8"   # 16 car., compact -> valide
+        assert news_feed._token() == "a1b2c3d4e5f6a7b8"
+    finally:
+        if saved is None:
+            os.environ.pop("CRYPTOPANIC_API_TOKEN", None)
+        else:
+            os.environ["CRYPTOPANIC_API_TOKEN"] = saved
+
+
+def test_news_fetch_degrades_without_token():
+    import os
+    import news_feed
+    saved = os.environ.get("CRYPTOPANIC_API_TOKEN")
+    try:
+        os.environ.pop("CRYPTOPANIC_API_TOKEN", None)
+        # sans token -> [] avant tout appel réseau (best-effort, jamais d'exception)
+        assert news_feed.fetch_news(currencies="BTC") == []
+    finally:
+        if saved is not None:
+            os.environ["CRYPTOPANIC_API_TOKEN"] = saved
+
+
+def test_news_build_report_unconfigured():
+    import news_feed
+    txt = news_feed.build_report([], configured=False)
+    assert "non configurée" in txt and "CRYPTOPANIC_API_TOKEN" in txt and "VERDICT: SAFE" in txt
+    assert "Aucune news." in news_feed.build_report([], configured=True)
+
+
+def test_macro_sentinel_http_deadline_guard():
+    import time
+    import macro_sentinel as ms
+    # deadline déjà dépassé -> aucune tentative réseau, lève TimeoutError (anti-hang)
+    raised = False
+    try:
+        ms._http_get("https://example.invalid/never", deadline=time.monotonic() - 1.0)
+    except TimeoutError:
+        raised = True
+    assert raised
+
+
+def test_bitget_market_data_best_effort_on_network_error():
+    import bitget_market_data as bmd
+    saved = bmd._get
+    def _boom(*a, **k):
+        raise RuntimeError("réseau simulé indisponible")
+    bmd._get = _boom
+    try:
+        assert bmd.fetch_orderbook("BTCUSDT") == {"bids": [], "asks": []}
+        assert bmd.fetch_recent_trades("BTCUSDT") == []
+        assert bmd.fetch_open_interest("BTCUSDT") == {"openInterestList": []}
+        assert bmd.fetch_funding_rate("BTCUSDT") == []
+        snap = bmd.market_snapshot("BTCUSDT")
+        assert snap["symbol"] == "BTCUSDT"
+        assert snap["mid_price"] is None and snap["funding_rate"] is None
+        assert snap["open_interest"] == 0.0
+    finally:
+        bmd._get = saved
+
+
+def test_technicals_fetch_candles_best_effort():
+    import technicals as tk
+    import bitget_market_data as bmd
+    saved = bmd._get
+    def _boom(*a, **k):
+        raise RuntimeError("réseau simulé indisponible")
+    bmd._get = _boom
+    try:
+        assert tk.fetch_candles("BTCUSDT", "15m", 60) == []
+    finally:
+        bmd._get = saved
+
+
+def test_econ_calendar_best_effort():
+    import econ_calendar as ec
+    saved = ec.requests
+    ec.requests = _BoomRequests
+    try:
+        assert ec.fetch_calendar() == []
+    finally:
+        ec.requests = saved
+
+
+def test_sentiment_index_best_effort():
+    import sentiment_index as si
+    saved = si.requests
+    si.requests = _BoomRequests
+    try:
+        assert si.fetch_fear_greed() is None
+    finally:
+        si.requests = saved
+
+
+def test_coingecko_best_effort_on_network_error():
+    import coingecko_data as cg
+    saved = cg.requests
+    cg.requests = _BoomRequests
+    try:
+        assert cg.fetch_markets(["BTC"]) == []
+        assert cg.fetch_global() == {"total_market_cap_usd": None,
+                                     "btc_dominance": None, "mcap_change_24h": None}
+    finally:
+        cg.requests = saved
+
+
+def test_defi_data_best_effort():
+    import defi_data as dd
+    saved = dd.requests
+    dd.requests = _BoomRequests
+    try:
+        assert dd.fetch_chains() == {"total_tvl": 0.0, "chain_count": 0, "top_chains": []}
+    finally:
+        dd.requests = saved
+
+
+def test_dex_scanner_best_effort():
+    import dex_scanner as dx
+    saved = dx.requests
+    dx.requests = _BoomRequests
+    try:
+        assert dx.fetch_search("pepe") == []
+    finally:
+        dx.requests = saved
+
+
+def test_polymarket_best_effort():
+    import polymarket_data as pm
+    saved = pm.requests
+    pm.requests = _BoomRequests
+    try:
+        assert pm.fetch_markets() == []
+        assert pm.fetch_markets("election") == []
+    finally:
+        pm.requests = saved
+
+
+def test_token_safety_best_effort_keeps_keys():
+    import token_safety as ts
+    saved = ts.requests
+    ts.requests = _BoomRequests
+    try:
+        res = ts.check_token("0x0000000000000000000000000000000000000000", "eth")
+        assert set(res.keys()) == {"chain", "address", "level", "flags", "details"}
+        assert res["level"] == "LOW" and res["flags"] == []
+        sol = ts.check_token("So11111111111111111111111111111111111111112", "solana")
+        assert set(sol.keys()) == {"chain", "address", "level", "flags", "details"}
+        assert sol["level"] == "LOW"
+    finally:
+        ts.requests = saved
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

@@ -35,9 +35,13 @@ def parse_chains(data, top=8):
 
 
 def fetch_chains(top=8):
-    response = requests.get(CHAINS_URL, timeout=15)
-    response.raise_for_status()
-    return parse_chains(response.json(), top=top)
+    # best-effort : agrégat vide si la source est injoignable (jamais d'exception)
+    try:
+        response = requests.get(CHAINS_URL, timeout=15)
+        response.raise_for_status()
+        return parse_chains(response.json(), top=top)
+    except Exception:
+        return {"total_tvl": 0.0, "chain_count": 0, "top_chains": []}
 
 
 def _human(n):

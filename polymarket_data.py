@@ -43,24 +43,28 @@ def parse_markets(data, query=None, limit=8):
 
 
 def fetch_markets(query=None, limit=8):
-    if query:
-        # vraie recherche plein-texte : public-search renvoie des events -> markets
-        r = requests.get(SEARCH, params={"q": query, "limit_per_type": "10"}, headers=UA, timeout=15)
+    # best-effort : liste vide si la source est injoignable (jamais d'exception)
+    try:
+        if query:
+            # vraie recherche plein-texte : public-search renvoie des events -> markets
+            r = requests.get(SEARCH, params={"q": query, "limit_per_type": "10"}, headers=UA, timeout=15)
+            r.raise_for_status()
+            markets = []
+            for event in (r.json().get("events") or []):
+                for m in (event.get("markets") or []):
+                    if not m.get("closed"):
+                        markets.append(m)
+            markets.sort(key=lambda m: float(m.get("volumeNum") or 0), reverse=True)
+            return parse_markets(markets, None, limit)
+        # sans mot-clé : top marchés par volume
+        r = requests.get(GAMMA, params={
+            "closed": "false", "active": "true", "limit": "150",
+            "order": "volumeNum", "ascending": "false",
+        }, headers=UA, timeout=15)
         r.raise_for_status()
-        markets = []
-        for event in (r.json().get("events") or []):
-            for m in (event.get("markets") or []):
-                if not m.get("closed"):
-                    markets.append(m)
-        markets.sort(key=lambda m: float(m.get("volumeNum") or 0), reverse=True)
-        return parse_markets(markets, None, limit)
-    # sans mot-clé : top marchés par volume
-    r = requests.get(GAMMA, params={
-        "closed": "false", "active": "true", "limit": "150",
-        "order": "volumeNum", "ascending": "false",
-    }, headers=UA, timeout=15)
-    r.raise_for_status()
-    return parse_markets(r.json(), None, limit)
+        return parse_markets(r.json(), None, limit)
+    except Exception:
+        return []
 
 
 def _human(n):

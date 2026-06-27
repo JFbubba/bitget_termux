@@ -30,9 +30,14 @@ def parse_fear_greed(data):
 
 
 def fetch_fear_greed(limit=1):
-    response = requests.get(FNG_URL, params={"limit": str(limit)}, timeout=10)
-    response.raise_for_status()
-    return parse_fear_greed(response.json())
+    # best-effort : None si la source est injoignable (jamais d'exception).
+    # Tous les appelants gèrent déjà None (poids sentiment neutre).
+    try:
+        response = requests.get(FNG_URL, params={"limit": str(limit)}, timeout=10)
+        response.raise_for_status()
+        return parse_fear_greed(response.json())
+    except Exception:
+        return None
 
 
 def build_report(fng):

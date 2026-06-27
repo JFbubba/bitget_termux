@@ -38,33 +38,49 @@ def _get(path, params):
 
 
 def fetch_orderbook(symbol, product_type=None, limit="50"):
-    return _get("/api/v2/mix/market/merge-depth", {
-        "symbol": symbol,
-        "productType": product_type or config.PRODUCT_TYPE,
-        "limit": str(limit),
-    })
+    # best-effort : carnet vide si la source est injoignable (jamais d'exception)
+    try:
+        return _get("/api/v2/mix/market/merge-depth", {
+            "symbol": symbol,
+            "productType": product_type or config.PRODUCT_TYPE,
+            "limit": str(limit),
+        })
+    except Exception:
+        return {"bids": [], "asks": []}
 
 
 def fetch_recent_trades(symbol, product_type=None, limit=100):
-    return _get("/api/v2/mix/market/fills", {
-        "symbol": symbol,
-        "productType": product_type or config.PRODUCT_TYPE,
-        "limit": str(limit),
-    })
+    # best-effort : aucune trade si la source est injoignable
+    try:
+        return _get("/api/v2/mix/market/fills", {
+            "symbol": symbol,
+            "productType": product_type or config.PRODUCT_TYPE,
+            "limit": str(limit),
+        })
+    except Exception:
+        return []
 
 
 def fetch_open_interest(symbol, product_type=None):
-    return _get("/api/v2/mix/market/open-interest", {
-        "symbol": symbol,
-        "productType": product_type or config.PRODUCT_TYPE,
-    })
+    # best-effort : OI vide si la source est injoignable
+    try:
+        return _get("/api/v2/mix/market/open-interest", {
+            "symbol": symbol,
+            "productType": product_type or config.PRODUCT_TYPE,
+        })
+    except Exception:
+        return {"openInterestList": []}
 
 
 def fetch_funding_rate(symbol, product_type=None):
-    return _get("/api/v2/mix/market/current-fund-rate", {
-        "symbol": symbol,
-        "productType": product_type or config.PRODUCT_TYPE,
-    })
+    # best-effort : funding indisponible si la source est injoignable
+    try:
+        return _get("/api/v2/mix/market/current-fund-rate", {
+            "symbol": symbol,
+            "productType": product_type or config.PRODUCT_TYPE,
+        })
+    except Exception:
+        return []
 
 
 # ---------- parseurs (purs, testables) ----------
@@ -106,30 +122,41 @@ def parse_funding_rate(data):
 # ---------- agrégat lecture seule ----------
 
 def market_snapshot(symbol="BTCUSDT", product_type=None, depth=20, trades_limit=100):
-    """Instantané microstructure (lecture seule) prêt pour analyse."""
+    """Instantané microstructure (lecture seule) prêt pour analyse.
+
+    Best-effort : les fetch_* dégradent déjà en forme vide ; cette garde globale
+    couvre toute exception résiduelle (calculs sur données partielles) et retourne
+    un instantané neutre plutôt que de lever vers l'appelant."""
     product_type = product_type or config.PRODUCT_TYPE
-    book = parse_orderbook(fetch_orderbook(symbol, product_type))
-    trades = parse_trades(fetch_recent_trades(symbol, product_type, limit=trades_limit))
-    open_interest = parse_open_interest(fetch_open_interest(symbol, product_type))
-    funding = parse_funding_rate(fetch_funding_rate(symbol, product_type))
+    try:
+        book = parse_orderbook(fetch_orderbook(symbol, product_type))
+        trades = parse_trades(fetch_recent_trades(symbol, product_type, limit=trades_limit))
+        open_interest = parse_open_interest(fetch_open_interest(symbol, product_type))
+        funding = parse_funding_rate(fetch_funding_rate(symbol, product_type))
 
-    imbalance = order_flow.order_book_imbalance(book["bids"], book["asks"], depth=depth)
-    cvd = order_flow.cumulative_volume_delta(trades) if trades else {"cvd": 0.0}
+        imbalance = order_flow.order_book_imbalance(book["bids"], book["asks"], depth=depth)
+        cvd = order_flow.cumulative_volume_delta(trades) if trades else {"cvd": 0.0}
 
-    best_bid = book["bids"][0][0] if book["bids"] else None
-    best_ask = book["asks"][0][0] if book["asks"] else None
-    mid = (best_bid + best_ask) / 2 if (best_bid and best_ask) else None
+        best_bid = book["bids"][0][0] if book["bids"] else None
+        best_ask = book["asks"][0][0] if book["asks"] else None
+        mid = (best_bid + best_ask) / 2 if (best_bid and best_ask) else None
 
-    return {
-        "symbol": symbol,
-        "mid_price": mid,
-        "book_imbalance": imbalance["imbalance"],
-        "bid_volume": imbalance["bid_volume"],
-        "ask_volume": imbalance["ask_volume"],
-        "cvd": cvd["cvd"],
-        "open_interest": open_interest,
-        "funding_rate": funding,
-    }
+        return {
+            "symbol": symbol,
+            "mid_price": mid,
+            "book_imbalance": imbalance["imbalance"],
+            "bid_volume": imbalance["bid_volume"],
+            "ask_volume": imbalance["ask_volume"],
+            "cvd": cvd["cvd"],
+            "open_interest": open_interest,
+            "funding_rate": funding,
+        }
+    except Exception:
+        return {
+            "symbol": symbol, "mid_price": None, "book_imbalance": 0.0,
+            "bid_volume": 0.0, "ask_volume": 0.0, "cvd": 0.0,
+            "open_interest": 0.0, "funding_rate": None,
+        }
 
 
 def build_report(snap):
