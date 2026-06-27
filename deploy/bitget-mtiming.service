@@ -1,0 +1,9 @@
+[Unit]
+Description=Bitget market-timing watch (eval temporelle macro/sentiment, lecture seule, accumule + alerte)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 market_timing_watch.py
+User=root
+Nice=15

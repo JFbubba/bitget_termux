@@ -2456,6 +2456,37 @@ def test_microstructure_watch_assess():
     assert mw.assess({})[0] is False                                                       # rien
 
 
+def test_market_timing_temporal_eval():
+    import math
+    import json as _json
+    from pathlib import Path
+    import market_timing as mt
+    # 1) evaluate TEMPOREL (PUR) : un vote macro qui PRECEDE le rendement marche -> IC fort
+    rows, price = [], 100.0
+    for i in range(60):
+        v = math.sin(i)
+        rows.append({"ts": i * 86400, "macro": v, "sentiment": 0.0, "market": price})
+        price = price * (1.0 + 0.01 * v)        # market_{t+1} suit macro_t -> rendement = 0.01*macro_t
+    ev = mt.evaluate(rows, horizon=1, agent="macro")
+    assert ev["n"] >= 40 and ev["ic"] > 0.8
+    assert "note" in mt.evaluate(rows[:5], horizon=1, agent="macro")    # accumulation -> insuffisant
+    assert mt.evaluate(rows, horizon=1, agent="sentiment")["n"] >= 40   # vote constant -> pas d'erreur
+    # 2) load_history + report (fichier temporaire)
+    th = Path(mt.HISTORY_FILE).with_name("market_timing_history_test.jsonl")
+    try:
+        with open(th, "w", encoding="utf-8") as f:
+            for i in range(3):
+                f.write(_json.dumps({"ts": i * 86400, "macro": 0.1 * i, "sentiment": 0.2, "market": 100 + i}) + "\n")
+        assert len(mt.load_history(th)) == 3
+        rep = mt.report(horizon=1, path=th)
+        assert rep["n_records"] == 3 and "macro" in rep["edge"] and "sentiment" in rep["edge"]
+    finally:
+        try:
+            th.unlink()
+        except Exception:
+            pass
+
+
 # ---------- collecteur WebSocket de microstructure (book_collector) ----------
 
 def test_book_collector_parsers():
