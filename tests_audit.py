@@ -2555,6 +2555,24 @@ def test_preorder_vol_target_leverage_gate():
         sb.peek, ms.closes = old
 
 
+def test_brain_validation_build_output_includes_live():
+    # le rapport inclut la section 'live' (edge sur votes reels) SANS toucher 'ranking'
+    # (replay) qui pilote la decision de palier. PUR (pas de run/reseau).
+    import brain_validation as bv
+    ranked = {"agents": [{"agent": "geometric", "dsr": 0.75, "ic_t": 1.2}],
+              "deflation": {"n_trials": 1}}
+    live = {"agents": [{"agent": "geometric", "ic": 0.1, "n": 50}], "n_entries": 90}
+    out = bv.build_output("BTCUSDT", ranked, live, now=1000)
+    assert out["symbol"] == "BTCUSDT" and out["generated_at"] == 1000
+    assert out["ranking"] == ranked["agents"]                 # decision inchangee (replay)
+    assert out["live"]["n_entries"] == 90
+    assert out["live"]["agents"][0]["agent"] == "geometric"
+    assert "weight_priors_advisory" in out
+    # live vide -> structure sure, pas de crash
+    out2 = bv.build_output("BTCUSDT", ranked, {}, now=1)
+    assert out2["live"]["agents"] == [] and out2["live"]["n_entries"] == 0
+
+
 def test_equity_curve_realized_and_drawdown():
     import equity_curve as ec
     # --- piste POSITIONS paper closes (realized_curve) : TP +risk*RR, SL -risk ---
