@@ -777,6 +777,38 @@ NÉGATIVES, met les actifs anti-corrélés sur des legs OPPOSÉS (bêta-neutre, 
 Le socle « isopérimétrique/Cheeger/Besov » reste une ANALOGIE ; les substituts
 implémentés (Hill, RIE, BNS, OFI, HRP, SPONGE) sont des méthodes quant ÉTABLIES.
 
+## §28 — Durcissement pré-réel (réponse à l'audit) : cerveau câblé + couche risque vivante
+Audit multi-agents (17 findings vérifiés) : le système était « sûr par VERROU »
+(`DRY_RUN_ONLY`), pas par garde active — le cerveau (11 agents) était DÉBRANCHÉ du
+pipeline de décision, et la couche risque/kill-switch était du CODE MORT. Corrigé :
+
+- **Cerveau → décision** (`preorder_engine.brain_adjustment`) : le cerveau (essaim)
+  est désormais GATE + MULTIPLICATEUR de taille. S'OPPOSE avec conviction ≥0.3 → rejet ;
+  d'ACCORD → taille ∝ conviction [0.4,1] ; NEUTRE → 0.6. Ne peut que RÉDUIRE la taille.
+  Fail-safe NEUTRE (indisponible → facteur 1.0). Un test réel valide MAINTENANT le cerveau.
+- **Kill-switch + caps durs vivants** (`execution_gateway._risk_gate` + `risk_state.py`) :
+  `risk_manager.check_trade` (kill-switch, notional, levier, positions, perte du jour)
+  appelé AVANT toute transition, même en dry-run. `risk_state` alimente la perte du jour
+  depuis le P&L paper. Test d'intégration : KILL_SWITCH bloque le dry-run.
+- **Caps portefeuille vivants** (`preorder_engine._apply_portfolio_guards`) :
+  `evaluate_portfolio_caps` (notionnel/risque/positions/SL agrégés) appliqué ; kill-switch
+  → tout rejeté.
+- **Watchdog étendu** : surveille les 3 services systemd + fraîcheur microstructure ;
+  `--arm-killswitch` pose KILL_SWITCH automatiquement sur anomalie sévère (boucle DOWN,
+  perte ≥ cap, microstructure figée).
+- **Apprentissage + validation planifiés** (`brain_cycle.py`, `brain_validation.py` dans
+  `agent_control.COMMANDS`) : EARCP s'entraîne à chaque cycle (read+learn) ; validation T5
+  auto-throttlée (~6h) → `validation_report.json` + poids a priori ADVISORY.
+- **Limites en SOURCE UNIQUE** (`config`) : levier 2.0, positions 3 partout (fin des
+  divergences risk_manager/risk_limits/config).
+- **Bugs corrigés** : `rie_denoise` (tri décorrélait valeurs/vecteurs propres), garde de
+  fraîcheur microstructure, lock du collecteur WS.
+
+**Reste avant un VRAI test** (paper d'abord) : laisser tourner quelques jours en paper
+avec le cerveau câblé → vérifier `brain_log`/`brain_weights` (11 agents entraînés) +
+`validation_report.json` (quels agents battent le seuil déflaté) ; ne passer au réel
+qu'après un track-record paper documenté ET la levée manuelle de `DRY_RUN_ONLY`.
+
 ---
 
 ## Feuille de route « cerveau » (issue de la recherche)
