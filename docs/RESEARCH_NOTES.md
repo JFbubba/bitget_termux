@@ -937,6 +937,84 @@ sur le VPS comme l'ordre marché (un achat 5$ par style). `ACCUM_SLIPPAGE_TOL_PC
 
 ---
 
+## §34 — DESIGN (non implémenté) : exécuteur futures réel borné (`futures_executor.py`)
+**Statut : SPÉCIFICATION SEULE — aucun code écrit, aucune porte modifiée, aucun verrou levé.**
+Demande propriétaire : « armer le chantier exécuteur futures ». Choix retenu : **design
+écrit d'abord, validé avant toute ligne de code**. Ce §34 est ce design ; rien n'est
+implémenté tant qu'il n'est pas approuvé.
+
+### Pourquoi un design avant le code (le mur, factuel)
+Un exécuteur futures réel doit appeler le venue (`place-order` / `/api/v2/mix/order` /
+`open_long`…). Ces mots-clés sont **bloqués en dur** par DEUX portes : `safe_push_check.sh`
+(étape 4, whitelist = `spot_executor.py` seul) et `security_agent.py`
+(`AUTHORIZED_EXEC_FILES = ["spot_executor.py"]` + liste interdite incluant levier/futures).
+Écrire ce module = **élargir le périmètre réel aux futures/levier**, ce que la règle #1 de
+CLAUDE.md interdit aujourd'hui. C'est une décision lourde et IRRÉVERSIBLE de sécurité, pas
+un simple verrou à lever. Elle ne se justifie que **quand un agent franchit la porte d'edge**
+— or aujourd'hui **0 agent éligible** (`geometric` DSR 0.75/n64 < 0.90/120). Donc : on
+conçoit, on ne branche pas.
+
+### Principe directeur : `futures_executor.py` = 2ᵉ (et dernier) module d'ordre autorisé
+Calqué sur la discipline `spot_executor.py` (§31), pas plus permissif :
+- **Périmètre verrouillé** : ouverture/fermeture de position futures **directionnelle**
+  sur signal d'un agent LIVE, levier ≤ `MANDATE_MAX_LEVERAGE` (×5). JAMAIS de retrait,
+  jamais de cross au-delà du cap, jamais d'agent non-LIVE.
+- **Mode `--dry` par défaut** : imprime la commande `bgc mix …`, n'exécute RIEN sans
+  `--confirm`. Aucun chemin autonome au premier jet (comme le spot : manuel d'abord).
+- **Délégation** : l'ordre réel passe par l'Agent Hub `bgc` (cf. §29), jamais d'appel HTTP
+  direct dans ce dépôt.
+
+### Ordre des gardes (TOUS doivent passer, court-circuit au 1ᵉʳ échec)
+1. `kill_switch` absent (fichier `KILL_SWITCH`) ;
+2. `mandate.live_enabled()` (`MANDATE_LIVE_ENABLED`) ET nouveau verrou dédié
+   `FUTURES_AUTONOMOUS_LIVE` (défaut **False**) — double verrou, comme l'accum ;
+3. `mandate.futures_live_allowed(agent, report)` **True** → l'agent est au palier LIVE
+   (replay DSR≥0.90/n≥120/OOS>0 **ET** confirmation live n≥60/ic_t≥2.0, cf. §3x / commit
+   5cdd027). Sans ça, refus sec ;
+4. levier demandé ≤ `mandate.max_leverage` (mur ×5) ET cohérent avec `target_leverage`
+   (vol-targeting, §32) ;
+5. notional ≤ `FUTURES_REAL_MAX_PER_TRADE_USDT` ET exposition cumulée ≤
+   `FUTURES_REAL_MAX_GROSS_USDT` (caps durs, petits au début) ;
+6. `mandate.drawdown_halt` non déclenché (equity_curve réelle, §28/B.1) ;
+7. session active + pas de black-out macro (`mandate.in_active_session` / `macro_blackout`) ;
+8. idempotence `clientOid` (rejoue sans doubler), comme spot.
+
+### Construction d'ordre (PUR, testable hors réel)
+`build_futures_order(...)` pur (comme `build_order` spot, §33) : prend signal + caps +
+contexte, retourne le descriptif d'ordre (symbole, side, taille, levier, marge, clientOid)
+SANS effet de bord. Testé dans `tests_audit.py`. Le passage réel est un mince wrapper
+au-dessus, gardé par les 8 points ci-dessus.
+
+### Ce qui doit changer dans les portes (UNIQUEMENT à l'étape réelle, sur GO explicite)
+- `safe_push_check.sh` étape 4 : ajouter `futures_executor.py` à la whitelist d'exclusion.
+- `security_agent.py` : `AUTHORIZED_EXEC_FILES += ["futures_executor.py"]` + un
+  `scan_authorized_exec` dédié futures (vérifie : verrous présents, caps présents, levier
+  borné, aucun `withdraw`/`transfer`, `--confirm` requis). Le futures reste interdit partout
+  ailleurs. **Cette extension est le point de non-retour : elle n'est faite que lorsqu'un
+  agent est réellement LIVE et sur décision explicite, jamais en autonomie.**
+
+### Config à ajouter (tous OFF / petits au départ)
+`FUTURES_AUTONOMOUS_LIVE=False`, `FUTURES_REAL_MAX_PER_TRADE_USDT` (ex. 10),
+`FUTURES_REAL_MAX_GROSS_USDT` (ex. 20), `FUTURES_REAL_LEDGER=futures_real_ledger.json`
+(gitignored). Réutilise `MANDATE_MAX_LEVERAGE`, seuils d'edge, MDD existants.
+
+### Séquence de mise en réel (test-first, calquée §31 — chaque étape = décision séparée)
+1. **Maintenant** : écrire le module en **DRY-RUN gaté** + `build_futures_order` pur + tests,
+   SANS toucher les portes (le wrapper réel lève `NotImplementedError` ou reste un stub
+   imprimant la commande) → reste paper, 3 portes vertes, poussable.
+2. **Quand un agent passe LIVE** (replay ET live au-dessus du seuil) : revue + extension des
+   2 portes sécurité (ci-dessus), sur GO explicite.
+3. `--dry` pour vérifier la commande vs `bgc mix … --help`.
+4. Un trade minime confirmé manuellement (`--confirm`), levier ×1-2, notional plancher.
+5. Vérifier fill + marge + SL ; seulement ensuite envisager le câblage autonome (palier
+   suivant, encore une décision séparée). **Jamais full-auto sur la machine aux clés (règle #3).**
+
+### Ligne dure conservée
+Aucune de ces étapes ne se fait sans (a) un agent réellement éligible et (b) un GO explicite
+du propriétaire. Le design ne lève rien ; il rend le chantier prêt et auditable.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
