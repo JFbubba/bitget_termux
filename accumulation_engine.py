@@ -222,8 +222,18 @@ def gate_advice(amount_usd, spot_balance):
 def _autonomous_live():
     """L'accumulation RÉELLE autonome est-elle armée ? DOUBLE verrou : le verrou réel
     global (MANDATE_LIVE_ENABLED) ET le verrou dédié ACCUM_AUTONOMOUS_LIVE. Les deux
-    doivent être True pour qu'un achat réel parte tout seul."""
-    return bool(_cfg("ACCUM_AUTONOMOUS_LIVE", False)) and _live_armed()
+    doivent être True pour qu'un achat réel parte tout seul.
+
+    Le 2e verrou s'arme via .env (ACCUM_AUTONOMOUS_LIVE=1) OU config — l'option .env
+    évite d'éditer un fichier suivi par git (sinon `git pull --ff-only` échouerait)."""
+    import os
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+    env_on = os.getenv("ACCUM_AUTONOMOUS_LIVE", "").strip().lower() in ("1", "true", "yes", "on")
+    return (env_on or bool(_cfg("ACCUM_AUTONOMOUS_LIVE", False))) and _live_armed()
 
 
 def _run_real(a, now):
