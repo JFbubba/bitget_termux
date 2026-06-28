@@ -3618,6 +3618,92 @@ def test_candle_reader_raises_when_both_sources_down():
         pass                                                 # contrat d'échec préservé
 
 
+# ---------- market_reader : ticker résilient + wrapper d'erreur des scanners ----------
+
+def _ticker_payload():
+    """Payload ticker Bitget factice (champs en str, comme l'API réelle)."""
+    return {"code": "00000", "data": [{
+        "symbol": "BTCUSDT", "lastPr": "100", "markPrice": "101",
+        "bidPr": "99.9", "askPr": "100.1", "high24h": "110", "low24h": "90",
+        "change24h": "0.05", "fundingRate": "0.0001",
+        "baseVolume": "1000", "usdtVolume": "100000",
+    }]}
+
+
+def _fake_ticker_requests(fail=0, payload=None):
+    """Faux `requests` pour le ticker : `fail` premiers appels lèvent, puis OK."""
+    state = {"calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception
+
+        @staticmethod
+        def get(url, *a, **k):
+            state["calls"] += 1
+            if state["calls"] <= fail:
+                raise RuntimeError("ticker blip (simulé)")
+            return _FakeResp(payload)
+
+    return _FakeRequests, state
+
+
+def _with_fake_ticker_net(fake_requests, fn):
+    """Exécute fn() avec market_reader.requests/time remplacés, puis restaure.
+
+    Les wrappers des scanners délèguent à market_reader.get_bitget_ticker, qui
+    résout `requests`/`time` au niveau module : patcher market_reader suffit."""
+    import market_reader as mr
+    saved_req, saved_time = mr.requests, mr.time
+    mr.requests, mr.time = fake_requests, _NoSleep
+    try:
+        return fn()
+    finally:
+        mr.requests, mr.time = saved_req, saved_time
+
+
+def test_market_reader_ticker_retries_then_succeeds():
+    import market_reader as mr
+    fake, state = _fake_ticker_requests(fail=2, payload=_ticker_payload())  # 2 blips puis OK
+    t = _with_fake_ticker_net(fake, lambda: mr.get_bitget_ticker("BTCUSDT"))
+    assert state["calls"] == 3                               # 2 retries + 1 succès
+    assert t["last_price"] == 100.0 and t["bid"] == 99.9
+    assert t["change_24h_percent"] == 5.0                    # 0.05 * 100
+    assert t["funding_rate_percent"] == 0.01                 # 0.0001 * 100
+
+
+def test_market_reader_ticker_raises_after_retries():
+    import market_reader as mr
+    fake, _ = _fake_ticker_requests(fail=99)                 # toujours KO
+    try:
+        _with_fake_ticker_net(fake, lambda: mr.get_bitget_ticker("BTCUSDT"))
+        assert False, "doit lever après 3 tentatives échouées"
+    except Exception:
+        pass                                                 # contrat d'échec (raise)
+
+
+def test_scanner_wrappers_convert_failure_to_error_dict():
+    import market_scanner as ms
+    import signal_scanner as ss
+    fake, _ = _fake_ticker_requests(fail=99)                 # ticker KO
+    def _check():
+        for mod in (ms, ss):
+            t = mod.get_bitget_ticker("BTCUSDT")
+            # contrat historique du scanner : dict d'erreur, jamais d'exception
+            assert "error" in t and t["symbol"] == "BTCUSDT"
+    _with_fake_ticker_net(fake, _check)
+
+
+def test_scanner_wrapper_success_passes_through():
+    import signal_scanner as ss
+    fake, _ = _fake_ticker_requests(payload=_ticker_payload())
+    def _check():
+        t = ss.get_bitget_ticker("BTCUSDT")
+        assert "error" not in t and t["last_price"] == 100.0
+        sig, reason = ss.analyze_market(t)                   # consomme bien le superset
+        assert isinstance(sig, str) and isinstance(reason, str)
+    _with_fake_ticker_net(fake, _check)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
