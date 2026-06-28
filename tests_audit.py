@@ -3000,6 +3000,14 @@ def test_accumulation_run_real_premium_guard_fail_closed():
         fp.is_fair_to_buy = lambda *a, **k: True
         r3 = ae._run_real(dict(base), now=2_000_000)
         assert r3["bought"] is True and calls == [5.0]
+
+        # 4) montant DCA élevé -> CLAMPÉ au cap réel aligné sur spot_executor (pas 50)
+        calls.clear()
+        r4 = ae._run_real(dict(base, amount_usd=50.0), now=3_000_000)
+        cap_accum = float(ae._cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0))
+        cap_spot = se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT)
+        assert r4["bought"] is True and calls == [cap_accum]   # clampé au cap, jamais 50
+        assert cap_accum <= cap_spot                           # INVARIANT : jamais au-dessus du backstop spot
     finally:
         (se._load_real, se.execute, fp.is_fair_to_buy) = saved
 

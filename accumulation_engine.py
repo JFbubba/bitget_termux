@@ -294,7 +294,10 @@ def _run_real(a, now):
     import spot_executor as se
     buys = se._load_real().get("buys", [])
     last_real = buys[-1]["ts"] if buys else None
-    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0)))
+    # Plafond/achat ALIGNÉ sur spot_executor (fallback 5 $, jamais 50) : on clampe le
+    # montant DCA au cap réel au lieu de proposer plus, ce que spot_executor rejetterait
+    # en bloc. spot_executor reste le backstop strict (mur absolu 25, _capped).
+    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)))
     a["mode"] = "RÉEL (auto)"
     # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
     # FAIL-CLOSED : si la garde premium est illisible (fair_price KO), on s'abstient
