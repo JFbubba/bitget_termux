@@ -3,21 +3,7 @@
 from candle_reader import get_bitget_candles
 
 
-def ema(values, period):
-    if len(values) < period:
-        raise ValueError("Pas assez de données pour calculer l'EMA")
-
-    multiplier = 2 / (period + 1)
-    ema_values = []
-
-    first_ema = sum(values[:period]) / period
-    ema_values.append(first_ema)
-
-    for price in values[period:]:
-        next_ema = (price - ema_values[-1]) * multiplier + ema_values[-1]
-        ema_values.append(next_ema)
-
-    return ema_values
+from indicators import ema
 
 
 def analyze_trend(symbol="BTCUSDT"):

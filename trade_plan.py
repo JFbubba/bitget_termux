@@ -3,56 +3,7 @@
 from candle_reader import get_bitget_candles
 
 
-def ema(values, period):
-    multiplier = 2 / (period + 1)
-    ema_values = []
-
-    first_ema = sum(values[:period]) / period
-    ema_values.append(first_ema)
-
-    for price in values[period:]:
-        next_ema = (price - ema_values[-1]) * multiplier + ema_values[-1]
-        ema_values.append(next_ema)
-
-    return ema_values
-
-
-def calculate_rsi(values, period=14):
-    gains = []
-    losses = []
-
-    for i in range(1, period + 1):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0))
-        losses.append(abs(min(change, 0)))
-
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
-
-    rsi_values = []
-
-    if avg_loss == 0:
-        rsi_values.append(100)
-    else:
-        rs = avg_gain / avg_loss
-        rsi_values.append(100 - (100 / (1 + rs)))
-
-    for i in range(period + 1, len(values)):
-        change = values[i] - values[i - 1]
-
-        gain = max(change, 0)
-        loss = abs(min(change, 0))
-
-        avg_gain = ((avg_gain * (period - 1)) + gain) / period
-        avg_loss = ((avg_loss * (period - 1)) + loss) / period
-
-        if avg_loss == 0:
-            rsi_values.append(100)
-        else:
-            rs = avg_gain / avg_loss
-            rsi_values.append(100 - (100 / (1 + rs)))
-
-    return rsi_values
+from indicators import ema, calculate_rsi
 
 
 def analyze_decision(symbol="BTCUSDT"):

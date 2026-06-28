@@ -16,75 +16,7 @@ RISK_PER_TRADE_PERCENT = 1.0
 from candle_reader import get_bitget_candles
 
 
-def ema(values, period):
-    multiplier = 2 / (period + 1)
-    ema_values = [sum(values[:period]) / period]
-
-    for price in values[period:]:
-        ema_values.append((price - ema_values[-1]) * multiplier + ema_values[-1])
-
-    return ema_values
-
-
-def calculate_rsi(values, period=14):
-    gains = []
-    losses = []
-
-    for i in range(1, period + 1):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0))
-        losses.append(abs(min(change, 0)))
-
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
-
-    rsi_values = []
-
-    if avg_loss == 0:
-        rsi_values.append(100)
-    else:
-        rs = avg_gain / avg_loss
-        rsi_values.append(100 - (100 / (1 + rs)))
-
-    for i in range(period + 1, len(values)):
-        change = values[i] - values[i - 1]
-        gain = max(change, 0)
-        loss = abs(min(change, 0))
-
-        avg_gain = ((avg_gain * (period - 1)) + gain) / period
-        avg_loss = ((avg_loss * (period - 1)) + loss) / period
-
-        if avg_loss == 0:
-            rsi_values.append(100)
-        else:
-            rs = avg_gain / avg_loss
-            rsi_values.append(100 - (100 / (1 + rs)))
-
-    return rsi_values
-
-
-def calculate_atr(candles, period=14):
-    true_ranges = []
-
-    for i in range(1, len(candles)):
-        high = candles[i]["high"]
-        low = candles[i]["low"]
-        previous_close = candles[i - 1]["close"]
-
-        tr = max(
-            high - low,
-            abs(high - previous_close),
-            abs(low - previous_close),
-        )
-
-        true_ranges.append(tr)
-
-    atr_values = [sum(true_ranges[:period]) / period]
-
-    for tr in true_ranges[period:]:
-        atr_values.append(((atr_values[-1] * (period - 1)) + tr) / period)
-
-    return atr_values
+from indicators import ema, calculate_rsi, calculate_atr
 
 
 def analyze_symbol(symbol):

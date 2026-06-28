@@ -3735,6 +3735,45 @@ def test_numeric_utils_wrappers_preserve_contracts():
     assert preorder_engine.safe_float(None) is None
 
 
+# ---------- indicateurs : source unique indicators.py (anti-reduplication) ----------
+
+def test_indicator_functions_are_centralized():
+    """Garde anti-reduplication : ema / calculate_rsi / calculate_atr ne doivent
+    plus être redéfinis localement — chaque module doit RÉUTILISER indicators.py
+    (la même fonction, pas une copie). L'identité (`is`) est plus forte qu'une
+    simple équivalence numérique : elle interdit toute copie divergente future.
+
+    L'équivalence numérique des ex-copies a été prouvée empiriquement avant la
+    migration (séries aléatoires, 0 divergence sur des milliers de comparaisons)."""
+    import importlib
+    import indicators
+
+    expected = {
+        "ema": ["position_sizer", "decision_engine", "trade_plan", "journal_scanner",
+                "portfolio_scanner", "trend_analyzer", "ranked_scanner", "atr_trade_plan"],
+        "calculate_rsi": ["position_sizer", "trade_plan", "journal_scanner", "rsi_analyzer",
+                          "decision_engine", "portfolio_scanner", "ranked_scanner", "atr_trade_plan"],
+        "calculate_atr": ["position_sizer", "atr_trade_plan", "journal_scanner",
+                          "portfolio_scanner", "ranked_scanner"],
+    }
+    # aucune def locale d'indicateur ne doit subsister hors indicators.py
+    import os
+    for path in os.listdir("."):
+        if not path.endswith(".py") or path in ("indicators.py", "tests_audit.py"):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        for fn in ("ema", "calculate_rsi", "calculate_atr"):
+            assert f"def {fn}(" not in src, f"{path} redéfinit {fn} localement (copie ?)"
+
+    # ... et chaque module expose bien la fonction CANONIQUE (identité d'objet)
+    for fn, mods in expected.items():
+        ref = getattr(indicators, fn)
+        for m in mods:
+            got = getattr(importlib.import_module(m), fn)
+            assert got is ref, f"{m}.{fn} n'est pas indicators.{fn} (copie locale ?)"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
