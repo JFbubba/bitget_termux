@@ -22,12 +22,7 @@ from pathlib import Path
 VALIDATION_REPORT = Path(__file__).resolve().parent / "validation_report.json"
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 # ---------- verrou réel ----------
@@ -114,12 +109,26 @@ def _load_report(path=None):
 
 
 def _passes_edge(agent, report, dsr_min, min_n):
-    """L'agent bat-il la porte d'edge (DSR ≥ seuil ET échantillon suffisant) dans le
-    rapport ? PUR, INDÉPENDANT du verrou réel -> testable seul. C'est le critère
-    statistique qui empêche de risquer du réel sur un edge non prouvé (résultat B)."""
-    for row in (report or {}).get("ranking", []):
+    """L'agent bat-il la porte d'edge ? Exige l'edge REPLAY (DSR ≥ seuil ET echantillon
+    suffisant dans 'ranking') ET une confirmation sur les VOTES REELS ('live' : echantillon
+    suffisant ET IC significatif). PUR, INDEPENDANT du verrou reel -> testable seul.
+    Conservateur : pas de preuve live -> False (on ne risque pas du reel sur un edge non
+    confirme par les votes reellement emis)."""
+    rep = report or {}
+    ranking_ok = False
+    for row in rep.get("ranking", []):
         if str(row.get("agent")) == str(agent):
-            return float(row.get("dsr", 0) or 0) >= float(dsr_min) and int(row.get("n", 0) or 0) >= int(min_n)
+            ranking_ok = (float(row.get("dsr", 0) or 0) >= float(dsr_min)
+                          and int(row.get("n", 0) or 0) >= int(min_n))
+            break
+    if not ranking_ok:
+        return False
+    live_min_n = int(_cfg("MANDATE_LIVE_MIN_SAMPLES", 60))
+    live_min_t = float(_cfg("MANDATE_LIVE_MIN_IC_T", 2.0))
+    for r in (rep.get("live", {}) or {}).get("agents", []):
+        if str(r.get("agent")) == str(agent):
+            return (int(r.get("n", 0) or 0) >= live_min_n
+                    and float(r.get("ic_t", 0) or 0) >= live_min_t)
     return False
 
 

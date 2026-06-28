@@ -17,6 +17,7 @@ CLI : python bitget_market_data.py [SYMBOL]
 """
 
 import sys
+import time
 
 import requests
 
@@ -24,17 +25,33 @@ import config
 import order_flow
 
 BASE_URL = "https://api.bitget.com"
+_RETRIES = 3
+_BACKOFF_BASE = 0.5  # 0.5s, 1s, 2s entre les tentatives
 
 
 # ---------- réseau (impur) ----------
 
 def _get(path, params):
-    response = requests.get(BASE_URL + path, params=params, timeout=10)
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("code") != "00000":
-        raise RuntimeError(f"Bitget {path}: {payload}")
-    return payload["data"]
+    """Fetch public Bitget avec RETRY + backoff (3 tentatives).
+
+    Lève si les 3 tentatives échouent : les appelants `fetch_*` capturent et
+    dégradent alors vers une valeur vide (carnet/trades/OI/funding). Le retry
+    encaisse les blips transitoires (timeout / rate-limit) qui, sans lui,
+    privaient le cerveau de microstructure pour tout un cycle."""
+    last_error = None
+    for attempt in range(_RETRIES):
+        try:
+            response = requests.get(BASE_URL + path, params=params, timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("code") != "00000":
+                raise RuntimeError(f"Bitget {path}: {payload}")
+            return payload["data"]
+        except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
+            last_error = exc
+            if attempt < _RETRIES - 1:
+                time.sleep(_BACKOFF_BASE * (2 ** attempt))
+    raise last_error
 
 
 def fetch_orderbook(symbol, product_type=None, limit="50"):
@@ -83,6 +100,16 @@ def fetch_funding_rate(symbol, product_type=None):
         return []
 
 
+def fetch_tickers(product_type=None):
+    # best-effort : tickers de TOUS les symboles en UNE requête (liste vide si KO)
+    try:
+        return _get("/api/v2/mix/market/tickers", {
+            "productType": product_type or config.PRODUCT_TYPE,
+        })
+    except Exception:
+        return []
+
+
 # ---------- parseurs (purs, testables) ----------
 
 def parse_orderbook(data):
@@ -117,6 +144,23 @@ def parse_funding_rate(data):
     if isinstance(data, dict) and "fundingRate" in data:
         return float(data["fundingRate"])
     return None
+
+
+def parse_ticker_prices(data):
+    """data [{"symbol","lastPr",...}] -> {SYMBOL: dernier prix (float)}. PUR.
+    Ignore les lignes mal formées (prix absent/invalide)."""
+    out = {}
+    for row in data or []:
+        if not isinstance(row, dict):
+            continue
+        sym = str(row.get("symbol", "")).upper()
+        if not sym:
+            continue
+        try:
+            out[sym] = float(row.get("lastPr"))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 # ---------- agrégat lecture seule ----------
@@ -157,6 +201,12 @@ def market_snapshot(symbol="BTCUSDT", product_type=None, depth=20, trades_limit=
             "bid_volume": 0.0, "ask_volume": 0.0, "cvd": 0.0,
             "open_interest": 0.0, "funding_rate": None,
         }
+
+
+def mark_prices(product_type=None):
+    """Derniers prix de TOUS les symboles en UNE requête : {SYMBOL: prix}.
+    Best-effort : dict vide si la source est injoignable."""
+    return parse_ticker_prices(fetch_tickers(product_type))
 
 
 def build_report(snap):

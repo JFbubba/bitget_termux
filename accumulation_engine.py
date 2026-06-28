@@ -27,14 +27,15 @@ LEDGER_FILE = Path(__file__).resolve().parent / "accumulation_ledger.json"
 DCA_BASE_USD = 10.0          # achat de base par intervalle
 DCA_MAX_MULTIPLIER = 5.0     # renfort max quand l'opportunité est maximale
 DCA_INTERVAL_H = 24.0        # un achat au plus toutes les 24 h (DCA quotidien)
+# Affûtage du TIMING d'entrée (RESEARCH_NOTES §38) : mélange une composante de survente
+# COURT TERME au score d'opportunité (lent). Validé en backtest cost-basis (avantage OOS
+# +0.69%->+0.77%, robuste sur 15 symboles ; plateau stable). st_weight=0 -> comportement
+# historique inchangé. NON-directionnel : améliore l'entrée d'un achat fait de toute façon.
+DCA_ST_WEIGHT = 0.30         # poids de la survente court-terme dans le score (0 = désactivé)
+DCA_ST_WINDOW = 24           # fenêtre (barres) de la moyenne mobile courte
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 # ---------- indicateurs purs ----------
@@ -63,10 +64,33 @@ def _clamp01(x):
     return max(0.0, min(1.0, x))
 
 
-def opportunity_score(closes, fear_greed=None, dd_window=90):
+def short_term_oversold(closes, window=24):
+    """Survente COURT TERME ∈ [0,1] : ampleur (z-score) du prix SOUS sa moyenne mobile
+    courte. Élevé = repli court-terme -> meilleur point d'entrée. PUR. C'est du TIMING
+    d'entrée (acheter sur faiblesse court-terme ce qu'on accumule de toute façon), PAS une
+    prédiction de direction. La reversion court-terme est réelle (RESEARCH_NOTES §35-38)."""
+    p = [float(c) for c in closes if c and c > 0]
+    if len(p) < int(window) + 1:
+        return 0.0
+    w = p[-int(window):]
+    ma = sum(w) / len(w)
+    rets = [math.log(w[i] / w[i - 1]) for i in range(1, len(w)) if w[i - 1] > 0]
+    if len(rets) < 2:
+        return 0.0
+    mu = sum(rets) / len(rets)
+    sd = (sum((x - mu) ** 2 for x in rets) / len(rets)) ** 0.5     # écart-type population
+    price = p[-1]
+    if sd <= 1e-9 or price <= 0:
+        return 0.0
+    z = (ma - price) / (price * sd)                                # >0 = sous la MA courte
+    return _clamp01(z / 3.0)
+
+
+def opportunity_score(closes, fear_greed=None, dd_window=90, st_weight=None, st_window=None):
     """Score d'OPPORTUNITÉ D'ACHAT ∈ [0,1] (1 = BTC bon marché -> accumuler fort). PUR.
     Combine : drawdown vs plus-haut récent, RSI bas (survente), Fear&Greed bas (peur),
-    prix sous la moyenne longue. Tous les sous-signaux : élevé = bon marché."""
+    prix sous la moyenne longue, ET une survente COURT TERME (affûtage timing, §38).
+    Tous les sous-signaux : élevé = bon marché. st_weight=0 -> score historique inchangé."""
     p = [float(c) for c in closes if c and c > 0]
     if len(p) < 20:
         return {"score": 0.0, "parts": {}, "n": len(p)}
@@ -81,9 +105,15 @@ def opportunity_score(closes, fear_greed=None, dd_window=90):
     s_fg = _clamp01((50.0 - float(fear_greed)) / 50.0) if fear_greed is not None else 0.0
     # pondération : drawdown + survente dominants, sentiment en appoint
     w = {"drawdown": 0.35, "rsi": 0.25, "below_ma": 0.20, "fear": 0.20}
+    score = w["drawdown"] * s_dd + w["rsi"] * s_rsi + w["below_ma"] * s_ma + w["fear"] * s_fg
     parts = {"drawdown": round(s_dd, 3), "rsi": round(s_rsi, 3),
              "below_ma": round(s_ma, 3), "fear": round(s_fg, 3)}
-    score = w["drawdown"] * s_dd + w["rsi"] * s_rsi + w["below_ma"] * s_ma + w["fear"] * s_fg
+    # affûtage TIMING (§38) : mélange la survente court-terme (validé cost-basis OOS).
+    stw = _cfg("ACCUM_ST_WEIGHT", DCA_ST_WEIGHT) if st_weight is None else st_weight
+    stk = _cfg("ACCUM_ST_WINDOW", DCA_ST_WINDOW) if st_window is None else st_window
+    s_st = short_term_oversold(p, stk) if stw else 0.0
+    score = (1.0 - float(stw)) * score + float(stw) * s_st
+    parts["short_term"] = round(s_st, 3)
     return {"score": round(_clamp01(score), 3), "parts": parts,
             "rsi": round(r, 1) if r is not None else None,
             "price": round(price, 2), "n": len(p)}
@@ -259,15 +289,19 @@ def _run_real(a, now):
     import spot_executor as se
     buys = se._load_real().get("buys", [])
     last_real = buys[-1]["ts"] if buys else None
-    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0)))
+    # Plafond/achat ALIGNÉ sur spot_executor (fallback 5 $, jamais 50) : on clampe le
+    # montant DCA au cap réel au lieu de proposer plus, ce que spot_executor rejetterait
+    # en bloc. spot_executor reste le backstop strict (mur absolu 25, _capped).
+    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)))
     a["mode"] = "RÉEL (auto)"
-    # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché
-    fair_ok = True
+    # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
+    # FAIL-CLOSED : si la garde premium est illisible (fair_price KO), on s'abstient
+    # plutôt que d'acheter à l'aveugle au-dessus du marché.
     try:
         import fair_price as fp
         fair_ok = fp.is_fair_to_buy(a.get("premium_pct"), _cfg("ACCUM_MAX_PREMIUM_PCT", 0.30))
     except Exception:
-        pass
+        fair_ok = False
     if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
         res = se.execute(amount, confirm=True, now=now)
         a["bought"] = bool(res.get("executed"))
@@ -276,7 +310,8 @@ def _run_real(a, now):
     else:
         a["bought"] = False
         if not fair_ok:
-            a["skip_reason"] = f"premium Bitget {a.get('premium_pct')}% > max -> on n'accumule pas au-dessus du marché"
+            a["skip_reason"] = ("garde premium indisponible ou Bitget en premium "
+                                f"({a.get('premium_pct')}%) -> on n'accumule pas au-dessus du marché")
     a["ledger"] = {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
                    "n_buys": len(buys)}
     return a

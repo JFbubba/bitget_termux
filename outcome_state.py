@@ -23,7 +23,6 @@ que cette fenêtre peut ne jamais se finaliser (voir AUDIT_BITGET.md, §aging).
 
 import csv
 import os
-import requests
 from datetime import datetime
 from pathlib import Path
 from config import (
@@ -48,13 +47,7 @@ def parse_time(value):
     return datetime.fromisoformat(value)
 
 
-def safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except (ValueError, TypeError):
-        return default
+from numeric_utils import safe_float
 
 
 def signal_id_from_row(row):
@@ -82,32 +75,12 @@ def load_finalized_signal_ids():
         return {row["signal_id"] for row in reader if row.get("signal_id")}
 
 
-def get_bitget_candles(symbol, product_type=PRODUCT_TYPE, granularity=TIMEFRAME, limit=CANDLE_LIMIT):
-    url = "https://api.bitget.com/api/v2/mix/market/candles"
-    params = {
-        "symbol": symbol,
-        "productType": product_type,
-        "granularity": granularity,
-        "limit": str(limit),
-    }
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-    result = response.json()
-    if result.get("code") != "00000":
-        raise RuntimeError(f"Erreur Bitget pour {symbol}: {result}")
+from candle_reader import get_bitget_candles as _get_bitget_candles
 
-    candles = []
-    for row in result["data"]:
-        timestamp_ms = int(row[0])
-        candles.append({
-            "time": datetime.fromtimestamp(timestamp_ms / 1000),
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-        })
-    candles.sort(key=lambda candle: candle["time"])
-    return candles
+
+def get_bitget_candles(symbol, product_type=PRODUCT_TYPE, granularity=TIMEFRAME, limit=CANDLE_LIMIT):
+    """Délègue à la source durcie (candle_reader) en gardant les défauts config."""
+    return _get_bitget_candles(symbol, product_type, granularity, limit)
 
 
 def _running_status(side, last_close, entry):

@@ -21,12 +21,7 @@ import subprocess
 HUB_CLI = "bgc"          # bitget-client (Agent Hub) ; lecture seule utilisée ici
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 # ---------- accès LECTURE SEULE aux outils de l'Agent Hub ----------

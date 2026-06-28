@@ -937,6 +937,291 @@ sur le VPS comme l'ordre marché (un achat 5$ par style). `ACCUM_SLIPPAGE_TOL_PC
 
 ---
 
+## §34 — DESIGN (non implémenté) : exécuteur futures réel borné (`futures_executor.py`)
+**Statut : SPÉCIFICATION SEULE — aucun code écrit, aucune porte modifiée, aucun verrou levé.**
+Demande propriétaire : « armer le chantier exécuteur futures ». Choix retenu : **design
+écrit d'abord, validé avant toute ligne de code**. Ce §34 est ce design ; rien n'est
+implémenté tant qu'il n'est pas approuvé.
+
+### Pourquoi un design avant le code (le mur, factuel)
+Un exécuteur futures réel doit appeler le venue (`place-order` / `/api/v2/mix/order` /
+`open_long`…). Ces mots-clés sont **bloqués en dur** par DEUX portes : `safe_push_check.sh`
+(étape 4, whitelist = `spot_executor.py` seul) et `security_agent.py`
+(`AUTHORIZED_EXEC_FILES = ["spot_executor.py"]` + liste interdite incluant levier/futures).
+Écrire ce module = **élargir le périmètre réel aux futures/levier**, ce que la règle #1 de
+CLAUDE.md interdit aujourd'hui. C'est une décision lourde et IRRÉVERSIBLE de sécurité, pas
+un simple verrou à lever. Elle ne se justifie que **quand un agent franchit la porte d'edge**
+— or aujourd'hui **0 agent éligible** (`geometric` DSR 0.75/n64 < 0.90/120). Donc : on
+conçoit, on ne branche pas.
+
+### Principe directeur : `futures_executor.py` = 2ᵉ (et dernier) module d'ordre autorisé
+Calqué sur la discipline `spot_executor.py` (§31), pas plus permissif :
+- **Périmètre verrouillé** : ouverture/fermeture de position futures **directionnelle**
+  sur signal d'un agent LIVE, levier ≤ `MANDATE_MAX_LEVERAGE` (×5). JAMAIS de retrait,
+  jamais de cross au-delà du cap, jamais d'agent non-LIVE.
+- **Mode `--dry` par défaut** : imprime la commande `bgc mix …`, n'exécute RIEN sans
+  `--confirm`. Aucun chemin autonome au premier jet (comme le spot : manuel d'abord).
+- **Délégation** : l'ordre réel passe par l'Agent Hub `bgc` (cf. §29), jamais d'appel HTTP
+  direct dans ce dépôt.
+
+### Ordre des gardes (TOUS doivent passer, court-circuit au 1ᵉʳ échec)
+1. `kill_switch` absent (fichier `KILL_SWITCH`) ;
+2. `mandate.live_enabled()` (`MANDATE_LIVE_ENABLED`) ET nouveau verrou dédié
+   `FUTURES_AUTONOMOUS_LIVE` (défaut **False**) — double verrou, comme l'accum ;
+3. `mandate.futures_live_allowed(agent, report)` **True** → l'agent est au palier LIVE
+   (replay DSR≥0.90/n≥120/OOS>0 **ET** confirmation live n≥60/ic_t≥2.0, cf. §3x / commit
+   5cdd027). Sans ça, refus sec ;
+4. levier demandé ≤ `mandate.max_leverage` (mur ×5) ET cohérent avec `target_leverage`
+   (vol-targeting, §32) ;
+5. notional ≤ `FUTURES_REAL_MAX_PER_TRADE_USDT` ET exposition cumulée ≤
+   `FUTURES_REAL_MAX_GROSS_USDT` (caps durs, petits au début) ;
+6. `mandate.drawdown_halt` non déclenché (equity_curve réelle, §28/B.1) ;
+7. session active + pas de black-out macro (`mandate.in_active_session` / `macro_blackout`) ;
+8. idempotence `clientOid` (rejoue sans doubler), comme spot.
+
+### Construction d'ordre (PUR, testable hors réel)
+`build_futures_order(...)` pur (comme `build_order` spot, §33) : prend signal + caps +
+contexte, retourne le descriptif d'ordre (symbole, side, taille, levier, marge, clientOid)
+SANS effet de bord. Testé dans `tests_audit.py`. Le passage réel est un mince wrapper
+au-dessus, gardé par les 8 points ci-dessus.
+
+### Ce qui doit changer dans les portes (UNIQUEMENT à l'étape réelle, sur GO explicite)
+- `safe_push_check.sh` étape 4 : ajouter `futures_executor.py` à la whitelist d'exclusion.
+- `security_agent.py` : `AUTHORIZED_EXEC_FILES += ["futures_executor.py"]` + un
+  `scan_authorized_exec` dédié futures (vérifie : verrous présents, caps présents, levier
+  borné, aucun `withdraw`/`transfer`, `--confirm` requis). Le futures reste interdit partout
+  ailleurs. **Cette extension est le point de non-retour : elle n'est faite que lorsqu'un
+  agent est réellement LIVE et sur décision explicite, jamais en autonomie.**
+
+### Config à ajouter (tous OFF / petits au départ)
+`FUTURES_AUTONOMOUS_LIVE=False`, `FUTURES_REAL_MAX_PER_TRADE_USDT` (ex. 10),
+`FUTURES_REAL_MAX_GROSS_USDT` (ex. 20), `FUTURES_REAL_LEDGER=futures_real_ledger.json`
+(gitignored). Réutilise `MANDATE_MAX_LEVERAGE`, seuils d'edge, MDD existants.
+
+### Séquence de mise en réel (test-first, calquée §31 — chaque étape = décision séparée)
+1. **Maintenant** : écrire le module en **DRY-RUN gaté** + `build_futures_order` pur + tests,
+   SANS toucher les portes (le wrapper réel lève `NotImplementedError` ou reste un stub
+   imprimant la commande) → reste paper, 3 portes vertes, poussable.
+2. **Quand un agent passe LIVE** (replay ET live au-dessus du seuil) : revue + extension des
+   2 portes sécurité (ci-dessus), sur GO explicite.
+3. `--dry` pour vérifier la commande vs `bgc mix … --help`.
+4. Un trade minime confirmé manuellement (`--confirm`), levier ×1-2, notional plancher.
+5. Vérifier fill + marge + SL ; seulement ensuite envisager le câblage autonome (palier
+   suivant, encore une décision séparée). **Jamais full-auto sur la machine aux clés (règle #3).**
+
+### Ligne dure conservée
+Aucune de ces étapes ne se fait sans (a) un agent réellement éligible et (b) un GO explicite
+du propriétaire. Le design ne lève rien ; il rend le chantier prêt et auditable.
+
+---
+
+## §35 — Breadth transversale : attaquer la PUISSANCE STATISTIQUE (pas le modèle)
+
+**Diagnostic du blocage d'edge.** Aucun agent n'est LIVE. La porte exige DSR ≥ 0.90 ET
+n ≥ 120. En mono-symbole (BTC), tous les agents ont **n = 64** (plafonné par la longueur
+d'historique) : l'échantillon échoue *directement*, et plombe le DSR (qui se dé-pénalise
+avec n). geometric battait pourtant le plancher de bruit (Sharpe 0.22 > sr0_max 0.135,
+PSR 0.96, DSR 0.75) → edge apparent mais **sous-alimenté**. Le facteur limitant n'était pas
+la capacité de modèle (donc un réseau de neurones n'aide pas — il sur-apprendrait sur n=64
+et le DSR/haircut/WFA le déflateraient ; cf. §1, contrainte propriétaire « aucun deep net »).
+
+**Levier honnête = la largeur (breadth).** Loi fondamentale (Grinold-Kahn) : IR ≈ IC·√(breadth).
+Évaluer chaque agent en COUPE TRANSVERSALE sur l'univers liquide multiplie le nombre de
+paris directionnels. PIÈGE : le crypto est très corrélé (beta commun) → empiler 20 symboles
+ne donne PAS 20× d'info indépendante. Sans correction, on promouvrait un agent en LIVE sur
+un edge factice → trade réel sur du vent.
+
+**Implémentation (`agent_validation.py`, ADVISORY — ne touche NI la porte NI les poids) :**
+- `average_cross_correlation(panel)` : ρ̄ = corrélation transversale moyenne des rendements-
+  stratégie sign(vote)·fwd entre symboles.
+- `effective_sample_size(n_nom, N, ρ̄)` : **n EFFECTIF** par variance inflation —
+  `n_eff = périodes · N/(1+(N−1)ρ̄)`. ρ̄→0 ⇒ n_eff≈n_nom (full breadth) ; ρ̄→1 ⇒ n_eff≈n d'un
+  seul symbole (AUCUNE inflation). ρ̄ écrêté à [0,1] (la corrélation négative n'est pas
+  créditée — conservateur pour une porte de promotion).
+- `rank_pure_agents_xs(...)` / `run_xs(...)` : DSR/PSR/IC-t recalculés sur n_eff.
+- Tests (`tests_audit.py`) : propriété de SÛRETÉ prouvée — séries indépendantes ⇒ n_eff≈n_nom ;
+  séries parfaitement corrélées ⇒ n_eff≈n d'un seul symbole (pas d'inflation).
+
+**Résultat live (12 symboles, 1h, 600 barres) — IMPORTANT, et négatif :** n_eff ≈ 350 (≥120
+franchi, ρ̄≈0.11 donc haircut modéré 768→350). MAIS l'edge de geometric **ne généralise pas** :
+IC +0.15→**−0.05**, Sharpe 0.22→0.04, **DSR 0.75→0.33**. Aucun agent ne passe DSR≥0.90.
+Conclusion honnête : la performance BTC mono-symbole était *sample-specific* (faible puissance
+= lecture flatteuse). La breadth ne « débloque » pas un agent — elle **réfute** l'edge supposé.
+Le vrai chantier n'est donc pas la plomberie de validation mais **l'ALPHA des agents** : leur
+signal doit montrer un IC/DSR transversal positif ET robuste. `rank_pure_agents_xs` est
+désormais l'**étalon honnête** pour mesurer tout nouvel agent/signal. Aucune promotion LIVE
+tant que cet étalon n'est pas franchi (toujours + GO explicite + double verrou + caps).
+
+---
+
+## §36 — Recherche d'alpha large (201 signaux, 8 familles) : résultat NÉGATIF honnête
+
+Suite à §35 (« le mur est l'alpha, pas la donnée »), balayage systématique de signaux
+déterministes (sans réseau de neurones, §1) mesurés à l'étalon transversal, sous discipline
+anti-data-mining stricte. **Aucun signal promu** ; on consigne la méthode et le résultat pour
+ne pas le re-courir à l'aveugle et ne JAMAIS promouvoir un signal qui échoue la barre honnête.
+
+**Protocole (orchestration multi-agents) :**
+- Panel **gelé** : 15 symboles liquides × ~1000 barres 1h (inclut XAUT/or → décorrélé). Split
+  temporel IS/OOS (`is_frac=0.7`) ; harnais d'éval = coupe transversale réutilisant
+  `agent_validation` (n effectif anti-inflation, rank IC, PSR/DSR). Identique pour tous.
+- 8 familles (momentum XS, tendance TS, reversion, vol/régime, volume/flux, structure,
+  saisonnalité, accélération) → **201 variants** générés et mesurés. **Sélection sur IS
+  uniquement** ; OOS réservé à une **vérif adverse indépendante** (re-exécution du code,
+  cohérence de signe, robustesse au re-split, breadth >55 % des symboles).
+- **Déflation multiple-testing GLOBALE** (le point clé) : `n_trials = 201` → SR0_max (Sharpe
+  max attendu sous H0) ≈ **0.21/période**. Le « gagnant » doit battre CE plancher, pas un seuil naïf.
+
+**Résultat :** la vérif adverse par candidat a laissé passer **2 survivants** (famille
+`acceleration` : *fade de courbure* = ajuste une parabole au log-prix, inverse l'accélération,
+normalise par la vol). OOS ic_t ≈ 2.0, breadth ≈ 0.85, robustes au re-split. **MAIS** sous la
+déflation globale : Sharpe OOS ≈ 0.04 ≪ SR0_max 0.21 → **DSR déflaté ≈ 0.01**. AUCUN signal ne
+passe (DSR≥0.90 + ic_t OOS≥2). Le re-split l'explique : leur edge se concentre dans la moitié
+**récente** (régime de reversion) — pas un edge intemporel. Motif répété sur TOUTES les familles :
+IC IS positif → IC OOS nul/négatif (le panel a un régime momentum en IS, reversion en OOS).
+
+**Leçon :** la vérif par-candidat ne suffit pas ; seule la déflation sur le nombre TOTAL d'essais
+attrape le data-mining. Les 2 « survivants » étaient des gagnants de loterie. Le fade de courbure
+est l'idée la moins fragile (à garder en watch/paper SI le propriétaire le souhaite, jamais en réel
+sur cette preuve). Caveat : un bug d'orchestration a passé des chemins « undefined » à quelques
+agents (quelques rejets non fiables) ; sans effet sur la conclusion (le meilleur Sharpe OOS de tout
+le balayage, 0.10, reste ≪ 0.21). Outils de recherche (harnais IS/OOS, panel, workflow) en scratch,
+non committés ; réutiliser `rank_pure_agents_xs` (étalon committé) pour toute reprise.
+
+---
+
+## §37 — Horizons COURTS (15m, 5m) + microstructure : confirmation du résultat NÉGATIF
+
+Suite §36, deux directions demandées : (1) microstructure comme source de signal, (2) horizons courts.
+
+**Contrainte de données (microstructure).** La vraie microstructure (carnet L2 + tape) est
+**LIVE-ONLY** : Bitget n'expose pas d'historique (`merge-depth`/`fills` = snapshot instantané ;
+`book_collector.py`/`.microstructure_buffer.json` ne gardent ~600 snapshots ≈ 10 min). **Non
+backtestable** sur panel gelé. Seuls des **proxys dérivés des bougies** (Amihud, Kyle-λ, entropie
+d'order-flow `regime_features`, biais de volume, vol de range) sont testables — et ils sont inclus
+comme famille dédiée. La vraie L2/tape ne peut être évaluée que par **journalisation live qui
+s'accumule** (chemin 2), sans verdict immédiat.
+
+**Méthode (identique §36, étalon transversal anti-data-mining).** Panels courts gelés (15 symboles
+× 1000 barres) : 15m (~250 h, horizon 4 = 1 h) et 5m (~83 h, horizon 6 = 30 min). 7 familles dont
+`microstructure_liquidity`. Sélection IS-only → vérif adverse OOS → déflation multiple-testing globale.
+
+**Résultats — négatifs, cohérents avec §35/§36 :**
+- **15m** : 180 candidats. 2 survivants (`vol_regime` = expansion de range × direction), OOS Sharpe
+  0.05–0.07 ; sous déflation (180 essais, SR0_max 0.15) → DSR ≈ 0.02–0.07. **Aucun ne passe.**
+- **5m** : 173 candidats. **0 survivant** (aucun ne franchit même la vérif adverse OOS : la reversion
+  d'accélération retombe à ic_t 1.43, le suivi de courbure s'effondre OOS).
+- **microstructure_liquidity** : 21 (15m) + 27 (5m) variants → **0 survivant** aux deux horizons.
+  Les proxys bougies (sans vrai L2/tape) n'ont pas d'edge.
+
+**Cause structurelle (le vrai mur).** À TOUS les horizons (5m/15m/1h), `rho` transversal ≈ 0.17–0.25 :
+le crypto bouge en *common-mode* (beta commun). Les paris directionnels ne sont donc pas
+indépendants → le `n` effectif est plafonné (~350–600 sur 1600–2400 nominal) → les t-stats honnêtes
+plafonnent ~1.5, sous la barre. Les signaux flatteurs en IS s'inversent/s'effondrent en OOS (régime).
+Le signe « gagnant » bascule avec l'horizon (courbure : fade à 1 h, suivi à 30 min) = non robuste.
+
+**Bilan recherche d'alpha (§35→§37).** ~554 candidats déterministes, 8 familles, 3 horizons : **aucun
+alpha directionnel robuste** ne franchit la barre honnête. Quasi-touches notées mais non promues :
+saisonnalité horaire (réelle, OOS-cohérente, mais panel 5m trop court ~3,5 j → à re-tester sur ≥30 j),
+et reversion court-terme (réelle mais common-mode). Frontières restantes : (a) vraie microstructure
+L2/tape via collecteur live qui accumule (chemin 2, pas de verdict instantané) ; (b) saisonnalité sur
+historique long ; (c) **acter que le directionnel pur n'a pas d'edge** → futures reste paper, l'autonomie
+se concentre sur l'accumulation spot (déjà réelle/cappée, ne suppose aucun edge directionnel).
+
+---
+
+## §38 — DÉCISION : pivot stratégique vers le spot (futures réel suspendu)
+
+**Décision du propriétaire (27/06), actée après §35-37.** La recherche d'alpha directionnel
+(~554 signaux, 8 familles, 3 horizons, étalon transversal honnête) n'a trouvé AUCUN edge robuste ;
+la cause est structurelle (crypto *common-mode*, rho 0.17-0.25 → n effectif plafonné). On en tire
+la conséquence honnête plutôt que de forcer.
+
+**Ce que ça fixe :**
+- Le **chantier futures réel (§34) est suspendu**, pas annulé : `futures_executor.py` reste DRY-RUN,
+  chemin réel `NotImplementedError`, jamais câblé. La porte d'edge (0 agent LIVE) le maintient paper
+  *de facto* ; cette décision le maintient paper *de jure*. Aucune étape ≥2 ne sera entreprise sans
+  (a) une source d'edge nouvelle et prouvée à l'étalon ET (b) un GO explicite — la barre reste haute.
+- **L'autonomie se concentre sur l'accumulation spot BTC** : déjà réelle, cappée (5 $/j, double verrou),
+  et NON-DIRECTIONNELLE par conception. `accumulation_engine.py` fait déjà un DCA *opportunity-aware*
+  (`opportunity_score` = RSI + fear/greed + drawdown → achète plus sur les creux), avec garde premium
+  et meilleur-prix (`fair_price`). Il n'a pas besoin d'edge directionnel : il améliore l'entrée d'un
+  achat qu'on fait de toute façon (≠ parier sur la direction).
+- **Corollaire utile de §35-37** : la reversion court-terme EST réelle (juste non tradeable en
+  cross-section market-neutral). Pour une accumulation MONO-actif, c'est exploitable honnêtement comme
+  *timing d'entrée* (acheter sur faiblesse court-terme = meilleur prix moyen), sans prétendre prédire.
+
+**Ligne dure inchangée.** Aucun verrou levé ici (`MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`,
+`FUTURES_AUTONOMOUS_LIVE` restent tels quels). Rien de full-auto. La décision REDIRIGE l'effort ;
+elle n'arme rien.
+
+**Premier livrable spot — affûtage du timing d'entrée (implémenté, validé).** Métrique honnête =
+*avantage de prix de revient* (cost basis) d'un DCA pondéré-opportunité vs DCA plat, **à budget
+égal** (isole le timing). Backtest (15 symboles, IS/OOS) : l'`opportunity_score` actuel est déjà
+bon (+0,69 % OOS, 93 % des symboles positifs ; +3-4 % sur BTC daily). Affûtage retenu : mêler une
+**survente court-terme** (`short_term_oversold`, z-score sous la MA-24) au score, poids
+`ACCUM_ST_WEIGHT=0.30` → avantage OOS **+0,69 %→+0,77 %**, plateau stable (k∈[20,28], α∈[0.25,0.35]),
+généralise (1h/15m/5m/daily). C'est du TIMING (acheter sur faiblesse court-terme ce qu'on accumule de
+toute façon), pas une prédiction — cohérent avec « reversion réelle mais common-mode » (§35-37).
+`ACCUM_ST_WEIGHT=0` → score historique inchangé (rétrocompatible). Le réel reste cappé/gaté/double
+verrou ; rien n'est armé.
+
+**Cadence adaptative — testée et REJETÉE (négatif honnête).** Question : acheter *quand* c'est bon
+(intervalle court quand bon marché, long quand cher) bat-il la grille fixe ? Backtest cost-basis
+(15 symboles, IS/OOS) : la cadence adaptative + sizing bat le moteur actuel de ~+1 % OOS sur le panel
+1h, MAIS **pas robuste** : seulement 67-86 % des symboles positifs (vs 93 % pour le sizing), **échoue
+à 15m** (40 % positifs), et surtout **BTC — l'actif accumulé — est NÉGATIF en in-sample** (sign-flip
+IS/OOS = régime-dépendant). Raison STRUCTURELLE : le sizing pondère sans différer le déploiement (on
+reste investi) ; la cadence adaptative DIFFÈRE les achats (« attendre le creux ») → se bat contre la
+dérive haussière séculaire, exactement le pari d'un accumulateur long terme. **Décision : garder
+l'intervalle FIXE.** Le moteur n'est pas modifié. (Outils de backtest en scratch, non committés.)
+
+**Vol-targeting du montant — testé et REJETÉ (négatif honnête).** Question : moduler la taille
+par la volatilité lisse-t-il le prix de revient ? Backtest cost-basis (15 symboles, IS/OOS) :
+- *inverse* (réduire la taille quand la vol explose, l'idée intuitive) : **contre-productif** —
+  OOS −0,28 % (27 % positifs), −0,55 % sur BTC. En crypto la vol explose dans les KRACHS (prix bas)
+  → réduire la taille y achète MOINS au plus bas.
+- *direct* (augmenter dans la vol) : marginal et incohérent (IS négatif 1h, échoue à 5m), et
+  **redondant** avec le drawdown qui capte déjà « acheter la capitulation ».
+**Décision : pas de vol-targeting du montant.** Moteur non modifié. C'est une validation du design :
+`opportunity_score` (drawdown/RSI) capte déjà l'effet recherché.
+
+**Bilan affûtage spot.** Trois leviers testés sur la métrique honnête cost-basis : (1) **sizing par
+survente court-terme → LIVRÉ** (robuste, +0,77 % OOS, 93 %) ; (2) cadence adaptative → rejetée
+(régime-dépendante, fight la dérive) ; (3) vol-targeting du montant → rejeté (contre-productif/
+redondant). Le moteur d'accumulation est dans un état stable et bien conçu ; l'espace d'amélioration
+honnête est largement épuisé. Le réel reste cappé/gaté/double verrou.
+
+---
+
+## §39 — Diagnostic des AGENTS du swarm : le « no edge » n'est (presque) pas un bug d'agent
+
+Question (propriétaire) : les agents fonctionnent-ils, un blocage masque-t-il un edge ? Évaluation
+chemin-2 des **11 agents** sur `brain_log.json` (500 votes journalisés) + diagnostic cause-racine
+(workflow 4 investigateurs). Constats honnêtes :
+
+- **Blocage structurel d'évaluation** : l'étalon ne rejouait que **4 agents sur 11** (les 7 live —
+  orderflow/derivs/liquidations/macro/sentiment/structure/technicals — ne sont pas rejouables sur
+  bougies). Le chemin 2 (`evaluate_from_log`) les évalue tous : c'est fait ici.
+- **macro & sentiment : SAINS, pas dégénérés.** Leur IC=0 est un **artefact de mesure** : ce sont des
+  signaux **marché-large** (macro ignore le symbole ; F&G est quotidien+global) → une IC *transversale*
+  est nulle par construction, et le log (4,3 h) est trop court. Données réelles, votes corrects.
+  **Aucun fix** (forcer 0 = régression).
+- **technicals : anti-prédictif mais NON robuste.** ~Toujours-long ; IC négatif = régime de reversion
+  court-terme **non robuste OOS** (3 flips de signe IS/OOS, IC poolée ≈ 0). **Ne PAS inverser**
+  (sur-ajustement) ; l'apprentissage EARCP le down-weighte déjà (juge à ~1 h).
+- **savant : seul vrai défaut → CORRIGÉ.** Un nudge Fear&Greed **symbole-indépendant** le figeait à
+  +0,15 ~83 % du temps ET **double-comptait l'agent `sentiment`**. Retiré : savant ne vote plus que sur
+  sa rupture de symétrie Mahalanobis (sa spécialité), spécificité par-symbole restaurée. Test mis à jour.
+
+**Insight le plus précieux** : tout le « no edge » (§35-38) ne mesurait que l'**alpha transversal**
+(cul-de-sac démontré). Les agents de **régime / market-timing** (macro, sentiment) ont un edge éventuel
+**temporel** (le vote prédit-il le rendement du MARCHÉ dans le temps ?), jamais évalué — la métrique
+transversale les zéro-note par construction. Frontière vierge, mais **time-gated** (semaines de votes
+vs rendements marché), à brancher comme la microstructure si on veut la creuser.
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

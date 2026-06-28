@@ -248,6 +248,134 @@ def rank_pure_agents(candles, horizon=8, warmup=80):
             "sr0_max": round(expected_max_sharpe(n_trials, var_sr), 4)}, "horizon": horizon}
 
 
+# ---------- chemin 1bis : breadth TRANSVERSALE (multi-symboles) ----------
+# Loi fondamentale de la gestion (Grinold-Kahn) : IR ≈ IC·√(breadth). Sur un seul
+# symbole, n est plafonné par la longueur d'historique (~64). Évaluer un agent en COUPE
+# TRANSVERSALE sur l'univers liquide multiplie le nombre de paris directionnels — MAIS le
+# crypto est très corrélé (beta commun), donc empiler 20 symboles ne donne PAS 20× d'info
+# indépendante. On corrige par un n EFFECTIF (variance inflation) : sans ça, on promouvrait
+# un agent en LIVE sur un edge factice -> trade réel sur du vent. ADVISORY : ce chemin ne
+# touche NI la porte d'edge (mandate/edge_ladder) NI les poids du cerveau.
+
+def average_cross_correlation(panel):
+    """Corrélation transversale MOYENNE (hors-diagonale) des séries de rendements-
+    stratégie {symbole: returns}. PUR. Mesure combien les paris bougent ENSEMBLE (beta
+    commun) -> sert à dégonfler le n. Retourne ρ̄ ∈ [−1,1] (0.0 si < 2 séries valides)."""
+    rows = [np.asarray(r, float) for r in panel.values() if r is not None and len(r) >= 2]
+    if len(rows) < 2:
+        return 0.0
+    L = min(len(r) for r in rows)
+    if L < 2:
+        return 0.0
+    M = np.vstack([r[-L:] for r in rows])           # N×L : fenêtre commune la plus récente
+    sd = M.std(axis=1)
+    if np.any(sd <= 1e-12):                          # série constante -> corr indéfinie
+        M = M[sd > 1e-12]
+        if M.shape[0] < 2:
+            return 0.0
+    C = np.corrcoef(M)
+    N = C.shape[0]
+    off = (C.sum() - np.trace(C)) / (N * (N - 1))
+    return float(np.clip(off, -1.0, 1.0))
+
+
+def effective_sample_size(n_nominal, n_symbols, rho_bar, periods=None):
+    """Taille d'échantillon EFFECTIVE corrigée de la corrélation transversale (variance
+    inflation). PUR. Empiler des symboles corrélés ne crée PAS d'observations indépendantes :
+        n_eff_par_période = N / (1 + (N−1)·ρ̄)        (ρ̄ écrêté ∈ [0,1])
+        n_eff             = périodes · n_eff_par_période
+    ρ̄→0 (indépendants) -> n_eff ≈ n_nominal ; ρ̄→1 (un seul beta) -> n_eff ≈ périodes (= n
+    d'un seul symbole) : AUCUNE inflation. Conservateur pour une PORTE de promotion : la
+    corrélation négative n'est PAS créditée (écrêtée à 0)."""
+    N = max(1, int(n_symbols))
+    rho = max(0.0, min(1.0, float(rho_bar)))         # pas de crédit pour ρ̄ < 0
+    eff_per_period = N / (1.0 + (N - 1) * rho)
+    per = (float(n_nominal) / N if N else 0.0) if periods is None else float(periods)
+    return float(max(1.0, per * eff_per_period))
+
+
+def _strat_and_series(signal_fn, candles, horizon, warmup, step=None):
+    """Rendements directionnels sign(vote)·fwd + (votes, fwd) d'un agent sur un symbole."""
+    votes, fwd = replay(signal_fn, candles, horizon, warmup, step)
+    v, f = np.asarray(votes, float), np.asarray(fwd, float)
+    return (np.sign(v) * f).tolist(), votes, fwd
+
+
+def rank_pure_agents_xs(candles_by_symbol, horizon=8, warmup=80):
+    """Validation TRANSVERSALE (breadth) des agents PURS sur plusieurs symboles. Met en
+    commun les paris directionnels et calcule DSR/PSR/IC sur un n EFFECTIF corrigé de la
+    corrélation transversale (anti-inflation). ADVISORY — ne touche NI la porte d'edge NI
+    les poids. Retourne {agents:[...trié par DSR...], deflation, horizon, n_symbols}."""
+    syms = [s for s, c in candles_by_symbol.items() if c and len(c) > warmup + horizon]
+    raw = {}
+    for name, fn in PURE_AGENTS.items():
+        all_v, all_f, panel, per_sym_ic = [], [], {}, []
+        for s in syms:
+            strat, votes, fwd = _strat_and_series(fn, candles_by_symbol[s], horizon, warmup)
+            if len(strat) >= 2:
+                panel[s] = strat
+                all_v.extend(votes); all_f.extend(fwd)
+                if len(votes) >= 5:
+                    per_sym_ic.append(rank_ic(votes, fwd))
+        m = evaluate(all_v, all_f)                   # n NOMINAL = toutes les paires (sym×période)
+        rho = average_cross_correlation(panel)
+        n_eff = effective_sample_size(m["n"], len(panel), rho)
+        frac = float(np.mean([1.0 if x > 0 else 0.0 for x in per_sym_ic])) if per_sym_ic else 0.0
+        raw[name] = {"m": m, "rho": rho, "n_eff": n_eff, "n_sym": len(panel), "bread_frac": frac}
+    # déflation multiple-testing (sur les agents testés), n EFFECTIF pour PSR/DSR/IC-t
+    sharpes = [d["m"]["_strat_sharpe_raw"] for d in raw.values() if d["m"]["n"] >= 5]
+    var_sr = float(np.var(sharpes, ddof=1)) if len(sharpes) >= 2 else 0.0
+    n_trials = max(2, len(sharpes))
+    out = []
+    for name, d in raw.items():
+        m, rho, n_eff = d["m"], d["rho"], d["n_eff"]
+        sr = m["_strat_sharpe_raw"]; sk = m.get("skew", 0.0); ku = m.get("kurt", 3.0)
+        ne = int(round(n_eff))
+        dsr = deflated_sharpe(sr, ne, sk, ku, n_trials, var_sr) if m["n"] >= 5 else 0.0
+        rr = replication_ratio(ne, sr=abs(sr)) if ne > 2 else None
+        row = {k: v for k, v in m.items() if not k.startswith("_")}
+        row["agent"] = name
+        row["n"] = ne                                # n EFFECTIF (ce que lirait une porte)
+        row["n_nominal"] = int(m["n"])               # paires brutes (transparence)
+        row["n_symbols"] = d["n_sym"]
+        row["rho_bar"] = round(rho, 3)
+        row["ic_t"] = round(ic_tstat(row.get("ic", 0.0), ne), 2)   # IC-t sur n EFFECTIF
+        row["psr"] = round(psr(sr, ne, sk, ku), 4)
+        row["dsr"] = round(dsr, 4)
+        row["repl_ratio"] = round(rr, 3) if rr is not None else None
+        row["oos_sharpe"] = round(sr * rr, 4) if rr is not None else None
+        row["wfa_pass"] = bool(d["bread_frac"] >= 2.0 / 3.0)       # cohérence transversale
+        row["wfa_frac"] = round(d["bread_frac"], 3)
+        out.append(row)
+    out.sort(key=lambda r: (r["dsr"], r.get("ic", 0)), reverse=True)
+    return {"agents": out, "horizon": horizon, "n_symbols": len(syms),
+            "deflation": {"n_trials": n_trials, "var_sharpe": round(var_sr, 6),
+                          "sr0_max": round(expected_max_sharpe(n_trials, var_sr), 4)}}
+
+
+def run_xs(symbols=None, timeframe="1h", limit=600, horizon=8, top_n=12, warmup=80):
+    """Replay TRANSVERSAL des agents purs sur l'univers liquide + breadth. Best-effort
+    (réseau). Retourne le ranking transversal ou {error}. ADVISORY (lecture seule)."""
+    if symbols is None:
+        try:
+            import universe
+            symbols = universe.symbols()
+        except Exception:
+            symbols = ["BTCUSDT"]
+    candles_by_symbol = {}
+    for s in list(symbols)[:top_n]:
+        try:
+            import market_sources as ms
+            c = ms.candles(s, timeframe, limit)
+            if c and len(c) > warmup + horizon:
+                candles_by_symbol[s] = c
+        except Exception:
+            pass
+    if len(candles_by_symbol) < 2:
+        return {"error": f"univers insuffisant pour la coupe transversale ({len(candles_by_symbol)} symbole(s))"}
+    return rank_pure_agents_xs(candles_by_symbol, horizon=horizon, warmup=warmup)
+
+
 # ---------- chemin 2 : évaluation de TOUS les agents depuis brain_log ----------
 
 def evaluate_from_log(log, horizon_entries=1):

@@ -1,4 +1,3 @@
-import csv
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -15,30 +14,13 @@ PENDING_ORDERS_FILE = Path("pending_orders.json")
 MAX_PREORDERS = 5
 
 
-def read_csv_rows(path):
-    if not path.exists():
-        return []
-
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
+from csv_utils import read_csv_rows, find_value
+from numeric_utils import safe_float as _safe_float
 
 
 def safe_float(value):
-    try:
-        if value in [None, ""]:
-            return None
-        return float(str(value).replace(",", "."))
-    except Exception:
-        return None
-
-
-def find_value(row, candidates):
-    lower_map = {k.lower(): v for k, v in row.items()}
-    for candidate in candidates:
-        value = lower_map.get(candidate.lower())
-        if value not in [None, ""]:
-            return value
-    return ""
+    # tolérance virgule décimale conservée (journaux potentiellement localisés).
+    return _safe_float(value, decimal_comma=True)
 
 
 def normalize_side(value):
@@ -192,6 +174,26 @@ def build_preorder(row, equity, equity_source, opened):
         notional *= brain_factor
         risk_usdt *= brain_factor
 
+    # VOL-TARGETING (mandate) : plafond de levier AUTO-IMPOSE = levier vise selon la
+    # conviction de l'essaim ET la vol conditionnelle (GARCH), borne par le mur dur.
+    # Effet : risk-off automatique quand la vol monte (le levier autorise baisse) ;
+    # un levier implicite au-dessus de ce plafond passe en REJECTED. Best-effort (paper).
+    vol_target_lev = None
+    if leverage is not None and side in ("LONG", "SHORT"):
+        try:
+            import market_sources as _ms
+            import mandate as _mdt
+            _closes = _ms.closes(symbol, limit=120) or []
+            _conv = brain_conv if brain_conv is not None else 0.0
+            if _closes:
+                vol_target_lev = _mdt.leverage_for(_conv, _closes)
+                if leverage > vol_target_lev:
+                    reasons.append(
+                        f"levier implicite {leverage:.2f}x > plafond vol-target "
+                        f"{vol_target_lev:.2f}x (conviction {_conv:.2f}, vol elevee -> risk-off)")
+        except Exception:
+            vol_target_lev = None
+
     status = "PENDING_APPROVAL" if not reasons else "REJECTED"
 
     return {
@@ -210,6 +212,7 @@ def build_preorder(row, equity, equity_source, opened):
         "sl_distance_percent": round(sl_distance_percent, 4) if sl_distance_percent is not None else None,
         "implied_leverage": leverage,
         "max_allowed_leverage": MAX_IMPLIED_LEVERAGE,
+        "vol_target_leverage": round(vol_target_lev, 2) if vol_target_lev is not None else None,
         "brain_bias": brain_bias,
         "brain_conviction": brain_conv,
         "brain_size_factor": round(brain_factor, 3),
@@ -233,6 +236,21 @@ def _apply_portfolio_guards(preorders, opened):
                 if o.get("status") == "PENDING_APPROVAL":
                     o["status"] = "REJECTED"
                     o.setdefault("reasons", []).append("KILL_SWITCH actif — tout trading arrêté")
+            return
+    except Exception:
+        pass
+    # Halte DRAWDOWN (MDD) : si le drawdown realise (courbe d'equity paper) depasse le
+    # seuil tolere (mandate, defaut 20%), on coupe TOUT nouveau risque -- comme le
+    # kill-switch. Branche drawdown_halt() qui etait code mais sans courbe a manger.
+    try:
+        import equity_curve
+        _dd = equity_curve.drawdown_state()
+        if _dd.get("halt"):
+            for o in preorders:
+                if o.get("status") == "PENDING_APPROVAL":
+                    o["status"] = "REJECTED"
+                    o.setdefault("reasons", []).append(
+                        f"halte drawdown : MDD {_dd['dd_pct']:.1f}% >= seuil tolere (risk-off)")
             return
     except Exception:
         pass

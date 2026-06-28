@@ -31,9 +31,10 @@ def append_journal(event):
 
 
 def _risk_gate(order):
-    """Vérifie kill-switch + caps durs (risk_manager) pour un ordre. Best-effort mais
-    FAIL-SAFE : le kill-switch (lu en premier dans check_trade) est robuste même si la
-    lecture de l'état paper échoue. Retourne (autorisé, raison)."""
+    """Vérifie kill-switch + caps durs (risk_manager) pour un ordre. FAIL-CLOSED :
+    si la garde risque est indisponible (lecture d'état KO, import échoué…),
+    l'ordre est BLOQUÉ plutôt qu'autorisé — défense en profondeur, une garde
+    qu'on ne peut pas évaluer ne doit jamais valoir « OK ». Retourne (autorisé, raison)."""
     try:
         import risk_manager
         import risk_state
@@ -44,14 +45,15 @@ def _risk_gate(order):
             proposed, open_positions=st["open_positions"],
             daily_loss_usd=st["daily_loss_usd"])
     except Exception as exc:
-        # même en cas d'erreur, on respecte le kill-switch (garde minimale)
+        # on précise le kill-switch s'il est armé (message plus clair), mais dans
+        # tous les cas une garde indisponible BLOQUE l'ordre (fail-closed).
         try:
             import risk_manager
             if risk_manager.kill_switch_active():
                 return False, "KILL_SWITCH actif"
         except Exception:
             pass
-        return True, f"garde risque indisponible ({type(exc).__name__})"
+        return False, f"garde risque indisponible ({type(exc).__name__}) — ordre bloqué (fail-closed)"
 
 
 def dry_run_execute(order_id):

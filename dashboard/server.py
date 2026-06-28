@@ -19,6 +19,7 @@ Config (env) :
 Voir dashboard/DEPLOY.md pour le déploiement VPS (SSH tunnel / nginx + ufw).
 """
 
+import csv
 import json
 import os
 import sys
@@ -59,6 +60,37 @@ def _safe(producer, default=None):
         return default
 
 
+def _num(value, default=None):
+    """Convertit en float de façon défensive (None/'' -> default)."""
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def enrich_positions(positions, prices):
+    """Ajoute prix courant + PnL % à chaque position (fonction pure, testable).
+    Prix courant = prix live du symbole, repli sur last_close. PnL signé selon le sens."""
+    prices = prices or {}
+    out = []
+    for p in positions or []:
+        q = dict(p)
+        entry = p.get("entry")
+        cur = prices.get(p.get("symbol")) or p.get("last_close")
+        q["current_price"] = cur
+        pnl = None
+        if entry and cur:
+            chg = (cur - entry) / entry * 100.0
+            pnl = chg if p.get("side") == "LONG" else -chg
+        q["pnl_pct"] = round(pnl, 3) if pnl is not None else None
+        out.append(q)
+    # perdantes d'abord (PnL croissant), valeurs inconnues en fin
+    out.sort(key=lambda x: (x.get("pnl_pct") is None, x.get("pnl_pct") if x.get("pnl_pct") is not None else 0.0))
+    return out
+
+
 def _count_csv(path):
     p = Path(path)
     if not p.exists():
@@ -67,7 +99,7 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
-def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None, liquidations=None):
+def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None, liquidations=None, positions=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -83,6 +115,7 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None
         "orderbook": orderbook or {"bids": [], "asks": []},
         "brain": brain or {},
         "liquidations": liquidations or {},
+        "positions": positions or [],
     }
 
 
@@ -113,7 +146,50 @@ def build_state(symbol=None, tf="5m"):
             "finalized": _count_csv(config.FINAL_OUTCOMES_FILE),
         }
 
+    def _positions():
+        """Positions PAPER en cours (lecture seule du registre open_outcomes_state.csv).
+        Renvoie une liste légère de dicts ; aucune valeur n'est calculée ici (prix
+        live ajoutés ensuite par _enrich_positions). Défensif : [] si absent/illisible."""
+        import config
+        p = Path(config.OPEN_STATE_FILE)
+        if not p.is_absolute():
+            p = REPO_ROOT / p
+        if not p.exists():
+            return []
+        out = []
+        with p.open("r", newline="", encoding="utf-8", errors="ignore") as f:
+            for row in csv.DictReader(f):
+                sym = (row.get("symbol") or "").upper()
+                side = (row.get("side") or "").upper()
+                if not sym or not side:
+                    continue
+                out.append({
+                    "symbol": sym, "side": side,
+                    "entry": _num(row.get("entry")),
+                    "stop_loss": _num(row.get("stop_loss")),
+                    "take_profit": _num(row.get("take_profit")),
+                    "last_close": _num(row.get("last_close")),
+                    "outcome": row.get("outcome") or "",
+                    "score": _num(row.get("score")),
+                    "rsi": _num(row.get("rsi")),
+                    "signal_timestamp": row.get("signal_timestamp") or "",
+                })
+        return out
+
+    def _prices():
+        """Derniers prix de TOUS les symboles en 1 requête mix (best-effort {})."""
+        import bitget_market_data as bmd
+        return bmd.mark_prices()
+
     def _symbols():
+        # univers DYNAMIQUE (top-N liquide ∩ qualité), repli sur config.SYMBOLS
+        try:
+            import universe
+            syms = list(universe.symbols())
+            if syms and len(syms) >= 2:
+                return syms
+        except Exception:
+            pass
         import config
         return config.SYMBOLS
 
@@ -254,7 +330,71 @@ def build_state(symbol=None, tf="5m"):
         import edge_ladder
         return edge_ladder.all_tiers()
 
-    stats = _safe(_stats, {})
+    def _microstructure():
+        """Edge microstructure accumulé (chemin 2) : n enregistrements + meilleure feature."""
+        import microstructure as ms
+        rep = ms.history_report()
+        feats = rep.get("edge") or {}
+        best = max(feats.values(), key=lambda m: abs(float(m.get("ic_t", 0) or 0)), default={})
+        return {"n_records": rep.get("n_records", 0), "symbols": rep.get("symbols", []),
+                "best_feature": best.get("feature"), "best_ic_t": best.get("ic_t"), "best_n": best.get("n")}
+
+    def _market_timing():
+        """Edge TEMPOREL market-timing (macro/sentiment) accumulé."""
+        import market_timing as mt
+        rep = mt.report(horizon=5)
+        ed = rep.get("edge") or {}
+        return {"n_records": rep.get("n_records", 0), "span_days": rep.get("span_days", 0),
+                "macro_ic_t": (ed.get("macro") or {}).get("ic_t"),
+                "sentiment_ic_t": (ed.get("sentiment") or {}).get("ic_t"),
+                "n": (ed.get("macro") or {}).get("n", 0)}
+
+    def _caps():
+        """Statut des 3 couches de cap réel + tripwire dépense (lecture seule)."""
+        import spot_executor as se
+        breach, spent, promise = se.daily_spend_breach()
+        return {"spent_today": spent, "promise": promise, "breach": bool(breach),
+                "daily_eff": se._capped("ACCUM_REAL_MAX_DAILY_USDT", 5.0, se.ACCUM_ABS_MAX_DAILY_USDT),
+                "per_buy_eff": se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT),
+                "abs_daily": se.ACCUM_ABS_MAX_DAILY_USDT}
+
+    def _microstructure_live():
+        """Microstructure TEMPS RÉEL du collecteur (OFI, queue, trade-sign, spread, markout, toxicité)."""
+        import microstructure as ms
+        return ms.summary(symbol)
+
+    def _system():
+        """Santé du fleet systemd + collecteur + kill-switch (lecture seule, best-effort)."""
+        out = {}
+        try:
+            import watchdog as wd
+            st = wd.evaluate()
+            out["loop"] = {"verdict": st.get("verdict"), "scan_age_min": st.get("age_min"),
+                           "fresh": st.get("fresh")}
+        except Exception:
+            out["loop"] = {}
+        svcs = {}
+        try:
+            import watchdog as wd
+            for name in ("bitget-microstructure", "bitget-dashboard", "bitget-bot"):
+                svcs[name.replace("bitget-", "")] = wd.service_active(name)
+        except Exception:
+            pass
+        out["services"] = svcs
+        try:
+            import risk_manager as rm
+            out["kill_switch"] = rm.kill_switch_active()
+        except Exception:
+            out["kill_switch"] = None
+        try:
+            import watchdog as wd
+            out["micro_age_s"] = round(wd.microstructure_age("BTCUSDT"), 1) if wd.microstructure_age("BTCUSDT") is not None else None
+        except Exception:
+            out["micro_age_s"] = None
+        return out
+
+    # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
+    stats = _cached("stats", 30, lambda: _safe(_stats, {}))
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
     macro = _cached("macro", 300, lambda: _safe(_macro, None))
     market = _cached("market", 600, lambda: _safe(_market, {}))
@@ -264,9 +404,13 @@ def build_state(symbol=None, tf="5m"):
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     liq = _cached(f"lq:{symbol}", 45, lambda: _safe(_liq, {}))
     health = _safe(_health, {})
-    symbols = _safe(_symbols, [symbol])
+    symbols = _cached("symbols", 300, lambda: _safe(_symbols, [symbol]))
+    # positions PAPER en cours + prix live (1 requête tickers), enrichies à chaque appel
+    positions_raw = _cached("positions", 15, lambda: _safe(_positions, []))
+    prices = _cached("prices", 10, lambda: _safe(_prices, {}))
+    positions = enrich_positions(positions_raw, prices)
 
-    state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq)
+    state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq, positions)
     state["tf"] = tf
     state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
     # futurtester : projection coûteuse (Monte Carlo) -> cache long, best-effort
@@ -275,6 +419,12 @@ def build_state(symbol=None, tf="5m"):
     state["accumulation"] = _cached("accum", 60, lambda: _safe(_accumulation, {}))
     state["mandate"] = _cached("mandate", 60, lambda: _safe(_mandate, {}))
     state["edge_ladder"] = _cached("edge", 60, lambda: _safe(_edge, {}))
+    # canaux d'edge accumulés (live, §37/§39) + statut des caps réels (lecture seule)
+    state["microstructure"] = _cached("micro", 120, lambda: _safe(_microstructure, {}))
+    state["market_timing"] = _cached("mtiming", 300, lambda: _safe(_market_timing, {}))
+    state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
+    state["micro_live"] = _cached(f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {}))
+    state["system"] = _cached("system", 20, lambda: _safe(_system, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")

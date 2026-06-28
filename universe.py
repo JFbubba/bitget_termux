@@ -18,12 +18,7 @@ import time
 _CACHE = {}
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _anchors():

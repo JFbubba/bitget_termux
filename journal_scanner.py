@@ -1,6 +1,5 @@
 import csv
 import os
-import requests
 import time
 from datetime import datetime
 from pathlib import Path
@@ -48,111 +47,15 @@ def load_open_positions():
     return open_positions
 
 
+from candle_reader import get_bitget_candles as _get_bitget_candles
+
+
 def get_bitget_candles(symbol, product_type=PRODUCT_TYPE, granularity=TIMEFRAME, limit=CANDLE_LIMIT):
-    url = "https://api.bitget.com/api/v2/mix/market/candles"
-
-    params = {
-        "symbol": symbol,
-        "productType": product_type,
-        "granularity": granularity,
-        "limit": str(limit),
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    result = response.json()
-
-    if result.get("code") != "00000":
-        raise RuntimeError(f"Erreur Bitget pour {symbol}: {result}")
-
-    candles = []
-
-    for row in result["data"]:
-        timestamp_ms = int(row[0])
-        candles.append({
-            "time": datetime.fromtimestamp(timestamp_ms / 1000),
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume_base": float(row[5]),
-            "volume_quote": float(row[6]),
-        })
-
-    candles.sort(key=lambda x: x["time"])
-    return candles
+    """Délègue à la source durcie (candle_reader) en gardant les défauts config."""
+    return _get_bitget_candles(symbol, product_type, granularity, limit)
 
 
-def ema(values, period):
-    multiplier = 2 / (period + 1)
-    ema_values = [sum(values[:period]) / period]
-
-    for price in values[period:]:
-        ema_values.append((price - ema_values[-1]) * multiplier + ema_values[-1])
-
-    return ema_values
-
-
-def calculate_rsi(values, period=14):
-    gains = []
-    losses = []
-
-    for i in range(1, period + 1):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0))
-        losses.append(abs(min(change, 0)))
-
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
-
-    rsi_values = []
-
-    if avg_loss == 0:
-        rsi_values.append(100)
-    else:
-        rs = avg_gain / avg_loss
-        rsi_values.append(100 - (100 / (1 + rs)))
-
-    for i in range(period + 1, len(values)):
-        change = values[i] - values[i - 1]
-        gain = max(change, 0)
-        loss = abs(min(change, 0))
-
-        avg_gain = ((avg_gain * (period - 1)) + gain) / period
-        avg_loss = ((avg_loss * (period - 1)) + loss) / period
-
-        if avg_loss == 0:
-            rsi_values.append(100)
-        else:
-            rs = avg_gain / avg_loss
-            rsi_values.append(100 - (100 / (1 + rs)))
-
-    return rsi_values
-
-
-def calculate_atr(candles, period=14):
-    true_ranges = []
-
-    for i in range(1, len(candles)):
-        high = candles[i]["high"]
-        low = candles[i]["low"]
-        previous_close = candles[i - 1]["close"]
-
-        tr = max(
-            high - low,
-            abs(high - previous_close),
-            abs(low - previous_close),
-        )
-
-        true_ranges.append(tr)
-
-    atr_values = [sum(true_ranges[:period]) / period]
-
-    for tr in true_ranges[period:]:
-        atr_values.append(((atr_values[-1] * (period - 1)) + tr) / period)
-
-    return atr_values
+from indicators import ema, calculate_rsi, calculate_atr
 
 
 def analyze_symbol(symbol):

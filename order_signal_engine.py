@@ -1,4 +1,3 @@
-import csv
 import os
 from pathlib import Path
 from datetime import datetime, timezone
@@ -18,23 +17,7 @@ SIDE_KEYWORDS = {
 }
 
 
-def read_csv_rows(path):
-    if not path.exists():
-        return []
-
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def find_value(row, candidates):
-    lower_map = {k.lower(): v for k, v in row.items()}
-
-    for candidate in candidates:
-        value = lower_map.get(candidate.lower())
-        if value not in [None, ""]:
-            return value
-
-    return ""
+from csv_utils import read_csv_rows, find_value
 
 
 def normalize_side(value):
@@ -52,13 +35,12 @@ def normalize_side(value):
     return "UNKNOWN"
 
 
+from numeric_utils import safe_float as _safe_float
+
+
 def safe_float(value):
-    try:
-        if value in [None, ""]:
-            return None
-        return float(str(value).replace(",", "."))
-    except Exception:
-        return None
+    # tolérance virgule décimale conservée (journaux potentiellement localisés).
+    return _safe_float(value, decimal_comma=True)
 
 
 def latest_rows_by_symbol_side(rows):

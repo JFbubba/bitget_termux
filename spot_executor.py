@@ -26,12 +26,7 @@ SYMBOL = "BTCUSDT"
 REAL_LEDGER = Path(__file__).resolve().parent / "accumulation_real_ledger.json"
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _limit(name, fallback):
@@ -45,6 +40,26 @@ def _limit(name, fallback):
         except ValueError:
             pass
     return float(_cfg(name, fallback))
+
+
+# Plafonds ABSOLUS en dur (defense-in-depth) : ni .env ni config ne peuvent les DÉPASSER.
+# La promesse documentée est 5 $/j ; ces murs laissent une MARGE délibérée pour un tuning
+# ponctuel (env/config peuvent ABAISSER le cap), mais bornent toute catastrophe (env ne peut
+# JAMAIS relever au-dessus). Motivation : écart du 27/06 (cap relevé en env -> 10 $ au lieu de
+# 5 $) ; un env var ne doit pas pouvoir desserrer un plafond d'argent réel sans revue/commit.
+ACCUM_ABS_MAX_PER_BUY_USDT = 25.0    # mur dur par achat (5x la promesse)
+ACCUM_ABS_MAX_DAILY_USDT = 25.0      # mur dur journalier (5x la promesse)
+# Promesse DOCUMENTEE (CLAUDE.md) = 5 $/jour. Independante du cap effectif (qu'un env peut
+# porter jusqu'au mur absolu 25). Sert de TRIPWIRE d'observabilite : si la depense reelle d'un
+# jour la depasse, on ALERTE (meme si le cap effectif l'a autorisee). Comble le trou revele par
+# l'ecart du 27/06 (10 $ depenses sans alerte temps reel).
+ACCUM_DAILY_PROMISE_USDT = 5.0
+
+
+def _capped(name, fallback, absolute):
+    """Plafond EFFECTIF = min(env > config > défaut, mur ABSOLU en dur). L'absolu ne peut
+    PAS être dépassé par env/config (mur réel infranchissable). PUR (lit l'env)."""
+    return min(_limit(name, fallback), float(absolute))
 
 
 # ---------- registre des achats RÉELS (plafond journalier) ----------
@@ -63,6 +78,15 @@ def today_spent(now=None, ledger=None):
     led = ledger if ledger is not None else _load_real()
     return round(sum(float(b.get("amount_usdt", 0)) for b in led.get("buys", [])
                      if int(float(b.get("ts", 0)) // 86400) == day), 2)
+
+
+def daily_spend_breach(promise=None, now=None, ledger=None):
+    """TRIPWIRE d'observabilité (indépendant du cap) : la dépense RÉELLE du jour dépasse-t-elle
+    la PROMESSE documentée (5 $/j) ? PUR si ledger injecté. Retourne (breach: bool, spent, promise).
+    Le cap effectif (jusqu'à 25 via env) PEUT autoriser plus que la promesse -> on veut le SAVOIR."""
+    promise = _limit("ACCUM_DAILY_PROMISE_USDT", ACCUM_DAILY_PROMISE_USDT) if promise is None else float(promise)
+    spent = today_spent(now=now, ledger=ledger)
+    return (spent > promise, spent, promise)
 
 
 def _record_real_buy(amount_usdt, oid, now=None):
@@ -101,13 +125,19 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
             kill = False
     if kill:
         reasons.append("kill_switch actif")
-    amt = float(amount_usdt or 0)
+    # fail-closed gracieux : un montant non numérique est REJETÉ (avec les raisons
+    # déjà accumulées), jamais propagé en exception qui crasherait l'appelant.
+    try:
+        amt = float(amount_usdt or 0)
+    except (TypeError, ValueError):
+        reasons.append("montant invalide (non numérique)")
+        return (False, reasons)
     if amt <= 0:
         reasons.append("montant ≤ 0")
-    cap = _limit("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)
+    cap = _capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, ACCUM_ABS_MAX_PER_BUY_USDT)
     if amt > cap:
         reasons.append(f"montant {amt} > plafond/achat {cap}")
-    daily_cap = _limit("ACCUM_REAL_MAX_DAILY_USDT", 5.0)
+    daily_cap = _capped("ACCUM_REAL_MAX_DAILY_USDT", 5.0, ACCUM_ABS_MAX_DAILY_USDT)
     sp = today_spent() if spent is None else float(spent)
     if sp + amt > daily_cap:
         reasons.append(f"plafond journalier dépassé ({sp}+{amt} > {daily_cap})")

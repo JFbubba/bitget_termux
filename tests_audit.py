@@ -473,6 +473,55 @@ def test_risk_manager():
     finally:
         del os.environ["TRADING_HALT"]
 
+
+def test_check_trade_depth_priority_boundaries_failclosed():
+    """Porte dure check_trade en profondeur : priorité du kill-switch, bornes
+    exactes (>= vs >), et DURCISSEMENT fail-closed (entrées dégénérées rejetées
+    proprement plutôt que de lever — sinon l'appelant fail-safe d'execution_gateway
+    pourrait laisser passer l'ordre)."""
+    import os
+    import risk_manager as rm
+    lim = {"max_position_usd": 50, "max_leverage": 3, "max_open_positions": 3, "max_daily_loss_usd": 25}
+
+    def ct(notional=30, leverage=2, open_positions=0, daily_loss_usd=0):
+        return rm.check_trade({"notional_usd": notional, "leverage": leverage},
+                              open_positions=open_positions, daily_loss_usd=daily_loss_usd, limits=lim)
+
+    # priorité : le kill-switch prime sur TOUTE autre violation
+    os.environ["TRADING_HALT"] = "1"
+    try:
+        ok, r = ct(notional=9999, leverage=99, open_positions=99, daily_loss_usd=9999)
+        assert not ok and "KILL_SWITCH" in r
+    finally:
+        del os.environ["TRADING_HALT"]
+
+    # bornes exactes
+    assert ct(daily_loss_usd=25)[0] is False         # loss == max -> halte (>=)
+    assert ct(daily_loss_usd=24.99)[0] is True
+    assert ct(open_positions=3)[0] is False          # positions == max -> rejet (>=)
+    assert ct(open_positions=2)[0] is True
+    assert ct(notional=50)[0] is True                # notional == max -> autorisé (>)
+    assert ct(notional=50.01)[0] is False
+    assert ct(leverage=3)[0] is True                 # levier == max -> autorisé (>)
+    assert ct(leverage=3.01)[0] is False
+
+    # notional invalide (<= 0)
+    assert ct(notional=0)[0] is False
+    assert ct(notional=-10)[0] is False
+
+    # DURCISSEMENT fail-closed : dégénérés REJETÉS proprement, jamais d'exception
+    ok, r = ct(leverage=-5)                          # levier négatif : ex-faille (passait OK) -> rejeté
+    assert not ok and "levier invalide" in r
+    ok, r = ct(notional="abc")                       # non numérique : ex-ValueError -> rejet propre
+    assert not ok and "notional invalide" in r
+    ok, r = ct(leverage="x")
+    assert not ok and "levier invalide" in r
+
+    # comportement préservé : levier 0 ou absent reste traité comme 1x (autorisé)
+    assert ct(leverage=0)[0] is True
+    assert rm.check_trade({"notional_usd": 30}, open_positions=0, daily_loss_usd=0, limits=lim)[0] is True
+
+
 def test_polymarket_parse():
     import polymarket_data as pm
     data = [
@@ -1360,6 +1409,20 @@ def test_watchdog_verdicts():
     assert watchdog.decide_verdict(False, False, True, False, False) == ("DOWN", True)
     assert watchdog.decide_verdict(False, False, False, False, False) == ("UNKNOWN", False)
 
+
+def test_watchdog_process_known_timer_architecture():
+    import watchdog as wd
+    # PID file present OU agent_loop trouve vivant -> etat CONNU
+    assert wd.process_state_known(1234, "not_found") is True
+    assert wd.process_state_known(None, "found") is True
+    # Architecture par TIMERS : pas de boucle persistante -> 'not_found' = INDETERMINE (pas DOWN)
+    assert wd.process_state_known(None, "not_found") is False
+    # indetermine + scan FRAIS -> RUNNING? (plus de faux DOWN -> fini le spam d'alerte 3 min)
+    assert wd.decide_verdict(wd.process_state_known(None, "not_found"), False, True, True, False) == ("RUNNING?", False)
+    # scan PERIME (timer reellement casse) -> DOWN legitime, l'alerte reste utile
+    assert wd.decide_verdict(wd.process_state_known(None, "not_found"), False, True, False, False) == ("DOWN", True)
+
+
 def test_watchdog_report_alert_text():
     import watchdog
     running = {
@@ -1926,12 +1989,15 @@ def test_savant_signal_fades_dislocation():
     assert -1.0 <= down["vote"] <= 1.0 and 0.0 <= down["confidence"] <= 1.0
 
 
-def test_savant_noise_immunity_contrarian():
+def test_savant_vote_independent_of_fear_greed():
     import savant_agent as sv
     cs = _savant_market(70, 3)
+    # savant ne fait PLUS le contrarian Fear&Greed (délégué à l'agent `sentiment` du swarm pour
+    # ne pas double-compter) : son vote ne dépend QUE de sa rupture de symétrie -> indépendant de F&G.
     fear = sv.signal(cs, fear_greed=10)["vote"]
     greed = sv.signal(cs, fear_greed=90)["vote"]
-    assert fear > greed                                      # FUD->long, FOMO->short (inefficience)
+    neutral = sv.signal(cs, fear_greed=50)["vote"]
+    assert fear == greed == neutral                          # fear_greed n'influe plus le vote savant
 
 
 def test_savant_value_at_risk_and_erfinv():
@@ -2297,6 +2363,57 @@ def test_validation_drawdown_calmar_wfa():
     assert "folds" in v.walk_forward_quorum(edge, fwd)
 
 
+def test_validation_effective_sample_size_anti_inflation():
+    import numpy as np
+    import agent_validation as v
+    # PROPRIETE DE SURETE : des symboles correles ne creent PAS d'observations independantes.
+    rng = np.random.default_rng(7)
+    L = 80
+    # cas 1 : 10 series INDEPENDANTES -> ρ̄≈0 -> n_eff ≈ n_nominal (full breadth)
+    indep = {f"S{i}": rng.normal(0, 1, L).tolist() for i in range(10)}
+    rho_i = v.average_cross_correlation(indep)
+    assert abs(rho_i) < 0.2
+    n_eff_i = v.effective_sample_size(10 * L, 10, rho_i)
+    assert n_eff_i > 0.7 * (10 * L)                         # gain de breadth quasi plein
+    # cas 2 : 10 series PARFAITEMENT correlees (meme beta) -> ρ̄≈1 -> n_eff ≈ L (1 symbole)
+    common = rng.normal(0, 1, L)
+    corr = {f"S{i}": (common + rng.normal(0, 1e-6, L)).tolist() for i in range(10)}
+    rho_c = v.average_cross_correlation(corr)
+    assert rho_c > 0.95
+    n_eff_c = v.effective_sample_size(10 * L, 10, rho_c)
+    assert n_eff_c < 1.5 * L                                # AUCUNE inflation : ~= n d'un seul symbole
+    assert n_eff_c < n_eff_i                                 # correle << independant
+    # ecretage : correlation negative non creditee (pas de n_eff > nominal)
+    assert v.effective_sample_size(10 * L, 10, -0.5) <= 10 * L + 1
+
+
+def test_validation_xs_breadth_ranking():
+    import numpy as np
+    import agent_validation as v
+    # panel synthetique : meme structure qu'un historique de bougies [ts,o,h,l,c,vol].
+    rng = np.random.default_rng(3)
+
+    def _candles(n):
+        c = 100.0
+        out = []
+        for i in range(n):
+            c *= float(np.exp(rng.normal(0, 0.01)))
+            out.append([i, c, c * 1.001, c * 0.999, c, 1000.0])
+        return out
+
+    cbs = {f"SYM{i}": _candles(200) for i in range(6)}
+    res = v.rank_pure_agents_xs(cbs, horizon=8, warmup=80)
+    assert res["n_symbols"] == 6 and len(res["agents"]) == 4
+    for row in res["agents"]:
+        # chaque ligne expose le n EFFECTIF, le n nominal, ρ̄ et la breadth — transparence
+        assert "n" in row and "n_nominal" in row and "rho_bar" in row and "n_symbols" in row
+        assert row["n"] <= row["n_nominal"]                 # n effectif jamais > nominal (anti-inflation)
+        assert -1.0 <= row["rho_bar"] <= 1.0
+        assert 0.0 <= row["dsr"] <= 1.0
+    # < 2 symboles exploitables -> pas de coupe transversale (best-effort, pas de crash)
+    assert v.rank_pure_agents_xs({"ONLY": _candles(200)})["n_symbols"] in (0, 1)
+
+
 # ---------- microstructure (carnet L2 + tape) : déblocage T4 ----------
 
 def test_microstructure_ofi_direction():
@@ -2345,6 +2462,92 @@ def test_microstructure_features_and_buffer():
         except Exception:
             pass
         ms.BUFFER_FILE = old
+
+
+def test_microstructure_history_accrual_and_edge():
+    import math
+    from pathlib import Path
+    import microstructure as ms
+    # 1) évaluation chemin 2 (PURE) : une feature qui PRÉCÈDE le mouvement du mid -> IC fort.
+    rows, mid = [], 100.0
+    for i in range(80):
+        o = math.sin(i)                                  # ofi varié
+        rows.append({"ts": i, "symbol": "X", "ofi": o, "queue_imbalance": 0.0,
+                     "trade_sign": 0.0, "spread_bps": 1.0, "mid": mid})
+        mid = mid * (1.0 + 0.001 * o)                    # mid_{t+1} suit ofi_t -> rendement = 0.001*ofi_t
+    ev = ms.evaluate_history(rows, horizon=1, feature="ofi")
+    assert ev["n"] >= 50 and ev["ic"] > 0.8              # ofi prédit le rendement futur du mid
+    assert "note" in ms.evaluate_history(rows[:5], horizon=1, feature="ofi")  # données insuffisantes
+    # 2) aggregate_recent + flush_history throttlé + load_history (fichiers temporaires)
+    oldbuf, oldhist = ms.BUFFER_FILE, ms.HISTORY_FILE
+    tb = Path(oldbuf).with_name(".microstructure_buffer_hist_test.json")
+    th = Path(oldhist).with_name("microstructure_history_test.jsonl")
+    try:
+        for f in (tb, th):
+            if f.exists():
+                f.unlink()
+        ms.BUFFER_FILE, ms.HISTORY_FILE = tb, th
+        ms._LAST_FLUSH.clear()
+        for i in range(5):
+            ms.append_snapshot("ZZZUSDT", {"ts": 1000 + i, "mid": 100.0 + i, "ofi": 0.2,
+                                           "queue_imbalance": 0.1, "trade_sign": 0.0, "spread_bps": 1.5})
+        agg = ms.aggregate_recent("ZZZUSDT", n=10)
+        assert agg["symbol"] == "ZZZUSDT" and agg["n"] == 5 and abs(agg["ofi"] - 0.2) < 1e-9 and agg["mid"] == 104.0
+        assert ms.flush_history(["ZZZUSDT"], now=2000) == 1            # 1 écriture
+        assert len(ms.load_history(th)) == 1
+        assert ms.flush_history(["ZZZUSDT"], now=2000) == 0            # throttle : pas de ré-écriture immédiate
+        assert ms.flush_history(["ZZZUSDT"], now=2000 + 61) == 1       # après l'intervalle -> ré-écrit
+    finally:
+        for f in (tb, th):
+            try:
+                Path(f).unlink()
+            except Exception:
+                pass
+        ms.BUFFER_FILE, ms.HISTORY_FILE = oldbuf, oldhist
+        ms._LAST_FLUSH.clear()
+
+
+def test_microstructure_watch_assess():
+    import microstructure_watch as mw
+    # edge significatif (n suffisant + t élevé) -> alerte ; seule la feature qualifiante
+    rep = {"edge": {"ofi": {"ic": 0.05, "ic_t": 3.5, "n": 800},
+                    "spread_bps": {"ic": 0.01, "ic_t": 0.4, "n": 800}}}
+    alert, hits = mw.assess(rep)
+    assert alert is True and len(hits) == 1 and "ofi" in hits[0]
+    assert mw.assess({"edge": {"ofi": {"ic": 0.2, "ic_t": 9.0, "n": 50}}})[0] is False    # n insuffisant
+    assert mw.assess({"edge": {"ofi": {"ic": 0.01, "ic_t": 1.0, "n": 5000}}})[0] is False  # t faible
+    assert mw.assess({})[0] is False                                                       # rien
+
+
+def test_market_timing_temporal_eval():
+    import math
+    import json as _json
+    from pathlib import Path
+    import market_timing as mt
+    # 1) evaluate TEMPOREL (PUR) : un vote macro qui PRECEDE le rendement marche -> IC fort
+    rows, price = [], 100.0
+    for i in range(60):
+        v = math.sin(i)
+        rows.append({"ts": i * 86400, "macro": v, "sentiment": 0.0, "market": price})
+        price = price * (1.0 + 0.01 * v)        # market_{t+1} suit macro_t -> rendement = 0.01*macro_t
+    ev = mt.evaluate(rows, horizon=1, agent="macro")
+    assert ev["n"] >= 40 and ev["ic"] > 0.8
+    assert "note" in mt.evaluate(rows[:5], horizon=1, agent="macro")    # accumulation -> insuffisant
+    assert mt.evaluate(rows, horizon=1, agent="sentiment")["n"] >= 40   # vote constant -> pas d'erreur
+    # 2) load_history + report (fichier temporaire)
+    th = Path(mt.HISTORY_FILE).with_name("market_timing_history_test.jsonl")
+    try:
+        with open(th, "w", encoding="utf-8") as f:
+            for i in range(3):
+                f.write(_json.dumps({"ts": i * 86400, "macro": 0.1 * i, "sentiment": 0.2, "market": 100 + i}) + "\n")
+        assert len(mt.load_history(th)) == 3
+        rep = mt.report(horizon=1, path=th)
+        assert rep["n_records"] == 3 and "macro" in rep["edge"] and "sentiment" in rep["edge"]
+    finally:
+        try:
+            th.unlink()
+        except Exception:
+            pass
 
 
 # ---------- collecteur WebSocket de microstructure (book_collector) ----------
@@ -2483,6 +2686,38 @@ def test_execution_risk_gate_blocks_killswitch_and_caps():
          rm.KILL_FILE, rs.snapshot) = old
 
 
+def test_execution_risk_gate_fail_closed_when_guard_unavailable():
+    """_risk_gate FAIL-CLOSED : si la garde risque est indisponible (snapshot KO),
+    l'ordre est BLOQUÉ et non autorisé (ex-comportement : il passait). Le
+    kill-switch reste signalé en priorité s'il est armé."""
+    import tempfile
+    from pathlib import Path
+    import execution_gateway as eg
+    import risk_state as rs
+    import risk_manager as rm
+    order = {"id": "X", "notional_usdt": 40.0, "implied_leverage": 1.5}
+    tmp = Path(tempfile.mkdtemp())
+    old = (rs.snapshot, rm.KILL_FILE)
+    try:
+        def boom(*a, **k):
+            raise RuntimeError("état de risque indisponible (simulé)")
+        rs.snapshot = boom
+        rm.KILL_FILE = tmp / "KILL_SWITCH"                  # absent -> kill-switch inactif
+        # garde indisponible, pas de kill-switch -> BLOQUÉ (avant : autorisait)
+        ok, reason = eg._risk_gate(order)
+        assert ok is False and "fail-closed" in reason
+        # kill-switch armé -> bloqué aussi, message dédié
+        rm.KILL_FILE.write_text("halt")
+        ok2, reason2 = eg._risk_gate(order)
+        assert ok2 is False and "KILL_SWITCH" in reason2
+    finally:
+        (rs.snapshot, rm.KILL_FILE) = old
+        try:
+            (tmp / "KILL_SWITCH").unlink()
+        except Exception:
+            pass
+
+
 def test_brain_validation_throttle():
     import time
     import brain_validation as bv
@@ -2523,6 +2758,107 @@ def test_preorder_brain_gate_and_multiplier():
     # opposition FAIBLE (< floor) -> pas de gate, taille réduite
     a2, _, _ = pe.brain_adjustment("LONG", "SHORT", 0.1)
     assert a2 == "scale"
+
+
+def test_preorder_vol_target_leverage_gate():
+    # vol-targeting branche dans build_preorder : un levier SOUS le mur dur (2.0) est
+    # REJETE si la vol conditionnelle fait tomber le plafond vise sous lui (risk-off
+    # auto en forte vol), et PASSE quand la vol est faible. Deterministe (stubs, 0 reseau).
+    import preorder_engine as pe
+    import swarm_brain as sb
+    import market_sources as ms
+    old = (sb.peek, ms.closes)
+    try:
+        sb.peek = lambda s: {"bias": "LONG", "adjusted_conviction": 0.6, "conviction": 0.6}
+        row = {"symbol": "BTCUSDT", "side": "LONG", "decision": "LONG",
+               "entry": 100.0, "stop_loss": 99.0, "take_profit": 103.0,
+               "implied_leverage": 1.8}                              # <= mur 2.0
+        low = [100 + 0.02 * ((i % 5) - 2) for i in range(80)]                 # vol faible
+        high = [100 * (1 + 0.05 * (1 if i % 2 else -1)) for i in range(80)]   # vol forte
+        # VOL FORTE -> plafond vol-target < 1.8 -> REJET
+        ms.closes = lambda *a, **k: high
+        hi = pe.build_preorder(row, 1000.0, "test", set())
+        assert hi["vol_target_leverage"] is not None and hi["vol_target_leverage"] < 1.8
+        assert hi["status"] == "REJECTED"
+        assert any("vol-target" in r for r in hi["reasons"])
+        # VOL FAIBLE -> plafond vol-target >= 1.8 -> pas de rejet par le levier
+        ms.closes = lambda *a, **k: low
+        lo = pe.build_preorder(row, 1000.0, "test", set())
+        assert lo["vol_target_leverage"] >= 1.8
+        assert not any("vol-target" in r for r in lo["reasons"])
+    finally:
+        sb.peek, ms.closes = old
+
+
+def test_brain_validation_build_output_includes_live():
+    # le rapport inclut la section 'live' (edge sur votes reels) SANS toucher 'ranking'
+    # (replay) qui pilote la decision de palier. PUR (pas de run/reseau).
+    import brain_validation as bv
+    ranked = {"agents": [{"agent": "geometric", "dsr": 0.75, "ic_t": 1.2}],
+              "deflation": {"n_trials": 1}}
+    live = {"agents": [{"agent": "geometric", "ic": 0.1, "n": 50}], "n_entries": 90}
+    out = bv.build_output("BTCUSDT", ranked, live, now=1000)
+    assert out["symbol"] == "BTCUSDT" and out["generated_at"] == 1000
+    assert out["ranking"] == ranked["agents"]                 # decision inchangee (replay)
+    assert out["live"]["n_entries"] == 90
+    assert out["live"]["agents"][0]["agent"] == "geometric"
+    assert "weight_priors_advisory" in out
+    # live vide -> structure sure, pas de crash
+    out2 = bv.build_output("BTCUSDT", ranked, {}, now=1)
+    assert out2["live"]["agents"] == [] and out2["live"]["n_entries"] == 0
+
+
+def test_equity_curve_realized_and_drawdown():
+    import equity_curve as ec
+    # --- piste POSITIONS paper closes (realized_curve) : TP +risk*RR, SL -risk ---
+    def cp(status, t, risk=10.0):
+        return {"status": status, "closed_at": t, "risk_usdt": risk}
+    payload = {"positions": [
+        cp("CLOSED_TP", "2026-06-27T01"), cp("CLOSED_SL", "2026-06-27T02"),
+        cp("CLOSED_SL", "2026-06-27T03"), {"status": "OPEN", "risk_usdt": 99}]}
+    assert ec.realized_curve(payload, start_equity=100.0, rr=2.0) == [100.0, 120.0, 110.0, 100.0]
+
+    # --- piste SIGNAUX autonome (outcomes_curve / drawdown_state, en R-multiples) ---
+    def ro(outcome, t, entry=100.0, sl=99.0, tp=102.0):
+        return {"updated_at": t, "outcome": outcome,
+                "entry": entry, "stop_loss": sl, "take_profit": tp}
+    assert ec._r_multiple(ro("TP TOUCHÉ", "t")) == 2.0        # reward/risk = 2/1
+    assert ec._r_multiple(ro("SL TOUCHÉ", "t")) == -1.0
+    assert ec._r_multiple(ro("AMBIGU", "t")) == 0.0
+    # risk_frac 0.1 : TP +2R -> 120 (peak) ; 3 SL -> 120*0.9^3 = 87.48 ; DD = 27.1% -> halte
+    rows = [ro("TP TOUCHÉ", "2026-01-01T01"), ro("SL TOUCHÉ", "2026-01-01T02"),
+            ro("SL TOUCHÉ", "2026-01-01T03"), ro("SL TOUCHÉ", "2026-01-01T04")]
+    st = ec.drawdown_state(rows=rows, start_equity=100.0, risk_frac=0.1)
+    assert st["halt"] is True and st["dd_pct"] >= 20.0 and st["n"] == 4
+    # tout TP -> aucun drawdown -> pas de halte
+    win = [ro("TP TOUCHÉ", "2026-01-01T01"), ro("TP TOUCHÉ", "2026-01-01T02")]
+    assert ec.drawdown_state(rows=win, start_equity=100.0, risk_frac=0.1)["halt"] is False
+
+
+def test_preorder_drawdown_halt_rejects():
+    # drawdown_halt branche dans _apply_portfolio_guards : si MDD depasse, TOUT pre-ordre
+    # PENDING passe REJECTED (risk-off), comme le kill-switch. Stubs deterministes.
+    import preorder_engine as pe
+    import risk_manager as rm
+    import equity_curve as ec
+    old = (rm.kill_switch_active, ec.drawdown_state)
+    try:
+        rm.kill_switch_active = lambda: False
+        ec.drawdown_state = lambda *a, **k: {"halt": True, "dd_pct": 25.0,
+                                             "equity": 75.0, "peak": 100.0, "n_closed": 9}
+        p = [{"id": "o1", "status": "PENDING_APPROVAL", "reasons": []}]
+        pe._apply_portfolio_guards(p, set())
+        assert p[0]["status"] == "REJECTED"
+        assert any("drawdown" in r.lower() for r in p[0]["reasons"])
+        # pas de halte -> pas de rejet par le drawdown
+        ec.drawdown_state = lambda *a, **k: {"halt": False, "dd_pct": 3.0,
+                                             "equity": 97.0, "peak": 100.0, "n_closed": 9}
+        p2 = [{"id": "o2", "status": "PENDING_APPROVAL", "reasons": [],
+               "notional_usdt": 1.0, "sl_distance_percent": 1.0}]
+        pe._apply_portfolio_guards(p2, set())
+        assert not any("drawdown" in r.lower() for r in p2[0]["reasons"])
+    finally:
+        rm.kill_switch_active, ec.drawdown_state = old
 
 
 def test_preorder_portfolio_guards():
@@ -2573,6 +2909,24 @@ def test_accumulation_opportunity_direction():
     assert ae.opportunity_score([100, 101], fear_greed=50)["score"] == 0.0  # trop court
 
 
+def test_accumulation_short_term_timing():
+    import numpy as np
+    import accumulation_engine as ae
+    # survente COURT TERME : prix sous sa MA courte -> élevé ; au-dessus -> 0 ; trop court -> 0
+    dip = [100.0] * 40 + [100, 99, 97, 94, 90]
+    rally = [100.0] * 40 + [100, 102, 105, 109, 114]
+    assert ae.short_term_oversold(dip, window=24) > 0.2
+    assert ae.short_term_oversold(rally, window=24) == 0.0
+    assert ae.short_term_oversold([100, 101, 102], window=24) == 0.0
+    # INVARIANT du blend (couvre la rétrocompat st_weight=0) : score = (1-w)*score0 + w*s_st
+    closes = list(np.linspace(100, 82, 120))
+    s0 = ae.opportunity_score(closes, fear_greed=None, st_weight=0.0, st_window=24)["score"]
+    s_st = ae.short_term_oversold(closes, 24)
+    sw = ae.opportunity_score(closes, fear_greed=None, st_weight=0.4, st_window=24)["score"]
+    assert abs(sw - ((1 - 0.4) * s0 + 0.4 * s_st)) <= 0.003
+    assert "short_term" in ae.opportunity_score(closes, st_weight=0.3)["parts"]
+
+
 def test_accumulation_dca_amount_and_throttle():
     import accumulation_engine as ae
     # DCA croît avec le score, toujours >= base, jamais 0 (on accumule toujours un peu)
@@ -2615,6 +2969,47 @@ def test_accumulation_autonomous_double_lock():
     assert ae._autonomous_decision(True, False) is False     # verrou réel global coupé
     assert ae._autonomous_decision(False, True) is False     # 2e verrou non armé
     assert ae._autonomous_decision(False, False) is False
+
+
+def test_accumulation_run_real_premium_guard_fail_closed():
+    """_run_real : la garde MEILLEUR PRIX est FAIL-CLOSED — si fair_price est
+    illisible, l'achat réel autonome est SUSPENDU (jamais d'achat « à l'aveugle »
+    au-dessus du marché). Hermétique : spot_executor.execute et fair_price sont
+    stubbés -> aucun ordre réel, aucun réseau."""
+    import accumulation_engine as ae
+    import spot_executor as se
+    import fair_price as fp
+    saved = (se._load_real, se.execute, fp.is_fair_to_buy)
+    calls = []
+    try:
+        se._load_real = lambda: {"buys": []}                 # aucun achat antérieur -> intervalle écoulé
+        se.execute = lambda amt, **k: (calls.append(amt), {"executed": True})[1]
+        base = {"price": 60000.0, "amount_usd": 5.0, "premium_pct": 0.0}
+
+        # 1) garde premium illisible -> FAIL-CLOSED : aucun achat, execute jamais appelé
+        fp.is_fair_to_buy = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("fair_price indispo"))
+        r1 = ae._run_real(dict(base), now=1_000_000)
+        assert r1["bought"] is False and calls == [] and "skip_reason" in r1
+
+        # 2) premium trop élevé -> pas d'achat
+        fp.is_fair_to_buy = lambda *a, **k: False
+        r2 = ae._run_real(dict(base), now=1_000_000)
+        assert r2["bought"] is False and calls == []
+
+        # 3) prix juste + intervalle écoulé -> achat délégué à spot_executor (montant plafonné)
+        fp.is_fair_to_buy = lambda *a, **k: True
+        r3 = ae._run_real(dict(base), now=2_000_000)
+        assert r3["bought"] is True and calls == [5.0]
+
+        # 4) montant DCA élevé -> CLAMPÉ au cap réel aligné sur spot_executor (pas 50)
+        calls.clear()
+        r4 = ae._run_real(dict(base, amount_usd=50.0), now=3_000_000)
+        cap_accum = float(ae._cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0))
+        cap_spot = se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT)
+        assert r4["bought"] is True and calls == [cap_accum]   # clampé au cap, jamais 50
+        assert cap_accum <= cap_spot                           # INVARIANT : jamais au-dessus du backstop spot
+    finally:
+        (se._load_real, se.execute, fp.is_fair_to_buy) = saved
 
 
 def test_universe_ranking_and_quality():
@@ -2727,24 +3122,38 @@ def test_mandate_drawdown_halt():
 
 def test_mandate_futures_edge_gate():
     import mandate as m
+    # La porte exige l'edge REPLAY (ranking : DSR ET échantillon) ET la confirmation sur
+    # les VOTES RÉELS (live : échantillon ET IC significatif). Seul 'geometric' a les deux.
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200},
                        {"agent": "savant", "dsr": 0.50, "n": 200},
-                       {"agent": "simons", "dsr": 0.95, "n": 40}]}   # DSR ok mais n trop faible
+                       {"agent": "simons", "dsr": 0.95, "n": 40}],   # DSR ok mais n trop faible
+           "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 2.5},
+                               {"agent": "savant", "n": 80, "ic_t": 2.5},
+                               {"agent": "simons", "n": 80, "ic_t": 2.5}], "n_entries": 120}}
     orig = m.live_enabled
     try:
         m.live_enabled = lambda: False           # verrou coupé -> personne, même bon DSR
         assert m.futures_live_allowed("geometric", rep) is False
-        m.live_enabled = lambda: True            # armé -> l'agent qui passe l'edge est autorisé
+        m.live_enabled = lambda: True            # armé -> l'agent qui passe les DEUX portes est autorisé
         assert m.futures_live_allowed("geometric", rep) is True
-        assert m.futures_live_allowed("savant", rep) is False        # DSR insuffisant
-        assert m.futures_live_allowed("simons", rep) is False        # échantillon insuffisant
+        assert m.futures_live_allowed("savant", rep) is False        # DSR replay insuffisant
+        assert m.futures_live_allowed("simons", rep) is False        # échantillon replay insuffisant
     finally:
         m.live_enabled = orig
-    # logique de la porte indépendamment du verrou (dsr ET échantillon)
+    # logique de la porte indépendamment du verrou (replay : dsr ET échantillon)
     assert m._passes_edge("geometric", rep, 0.90, 120) is True
     assert m._passes_edge("savant", rep, 0.90, 120) is False
     assert m._passes_edge("simons", rep, 0.90, 120) is False
     assert m._passes_edge("absent", rep, 0.90, 120) is False
+    # replay fort mais live absent / non confirmé -> porte fermée (conservateur)
+    rep_no_live = {"ranking": rep["ranking"]}
+    assert m._passes_edge("geometric", rep_no_live, 0.90, 120) is False
+    rep_weak_live = {"ranking": rep["ranking"],
+                     "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 1.0}]}}
+    assert m._passes_edge("geometric", rep_weak_live, 0.90, 120) is False   # IC live non significatif
+    rep_thin_live = {"ranking": rep["ranking"],
+                     "live": {"agents": [{"agent": "geometric", "n": 20, "ic_t": 2.5}]}}
+    assert m._passes_edge("geometric", rep_thin_live, 0.90, 120) is False   # échantillon live trop mince
 
 
 def test_mandate_numeraire_session_macro():
@@ -2853,6 +3262,54 @@ def test_hub_bridge_parse_assets_shapes():
     assert b._parse_assets({"ok": False, "error": {"code": "400"}}) is None
 
 
+def test_spot_executor_absolute_cap_ceiling():
+    import os
+    import spot_executor as se
+    # DEFENSE-IN-DEPTH (ecart du 27/06) : un override env NE PEUT PAS relever le cap reel
+    # au-dela du mur absolu en dur. _capped = min(env>config>defaut, absolu).
+    keys = ("ACCUM_REAL_MAX_PER_BUY_USDT", "ACCUM_REAL_MAX_DAILY_USDT")
+    saved = {k: os.environ.get(k) for k in keys}
+    try:
+        os.environ["ACCUM_REAL_MAX_PER_BUY_USDT"] = "1000"     # tentative de desserrage
+        os.environ["ACCUM_REAL_MAX_DAILY_USDT"] = "1000"
+        # le cap effectif reste plafonne au mur absolu (25), pas 1000
+        assert se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT) == 25.0
+        # un achat de 30$ depasse le mur absolu -> BLOQUE malgre env=1000
+        assert se.guards(30.0, balance=10000, spent=0, live=True, kill=False)[0] is False
+        # le scenario du 27/06 (10$ cumule) reste DANS la marge deliberee (<=25) -> autorise
+        assert se.guards(5.0, balance=10000, spent=5.0, live=True, kill=False)[0] is True
+        # mais au-dela du mur journalier absolu (25), bloque meme avec env=1000
+        assert se.guards(10.0, balance=10000, spent=20.0, live=True, kill=False)[0] is False
+        # env peut ABAISSER le cap (jamais relever) : env=2 -> cap effectif 2
+        os.environ["ACCUM_REAL_MAX_PER_BUY_USDT"] = "2"
+        assert se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT) == 2.0
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_spot_executor_daily_spend_tripwire():
+    import spot_executor as se
+    day = 20631
+    now = day * 86400 + 300
+    # 2 achats de 5$ le meme jour = 10$ > promesse 5$ -> tripwire declenche (ecart du 27/06)
+    led = {"buys": [{"ts": day * 86400 + 100, "amount_usdt": 5.0},
+                    {"ts": day * 86400 + 200, "amount_usdt": 5.0}]}
+    breach, spent, promise = se.daily_spend_breach(promise=5.0, now=now, ledger=led)
+    assert breach is True and spent == 10.0 and promise == 5.0
+    # exactement la promesse (5$) -> PAS d'alerte (strict >, 5 not > 5)
+    led1 = {"buys": [{"ts": day * 86400 + 100, "amount_usdt": 5.0}]}
+    assert se.daily_spend_breach(promise=5.0, now=now, ledger=led1)[0] is False
+    # achats d'un AUTRE jour -> rien compte aujourd'hui
+    led2 = {"buys": [{"ts": (day - 1) * 86400 + 100, "amount_usdt": 5.0}]}
+    assert se.daily_spend_breach(promise=5.0, now=now, ledger=led2)[0] is False
+    # tripwire INDEPENDANT du cap : meme si le cap effectif autorisait 25, la promesse reste 5
+    assert se.ACCUM_DAILY_PROMISE_USDT == 5.0 and se.ACCUM_ABS_MAX_DAILY_USDT == 25.0
+
+
 def test_spot_executor_guards_and_dry():
     import spot_executor as se
     # la commande est un ACHAT spot (jamais vente) ; tableau JSON `orders`
@@ -2886,6 +3343,111 @@ def test_spot_executor_guards_and_dry():
     assert se._extract_usdt_available({"data": []}) is None
 
 
+def test_spot_executor_guards_fail_closed_on_bad_amount():
+    """Garde réelle fail-closed GRACIEUX : un montant non numérique est REJETÉ
+    proprement (jamais d'exception qui crasherait execute/scheduler), avec les
+    raisons déjà détectées (verrou, kill) conservées."""
+    import spot_executor as se
+    ok, reasons = se.guards("abc", balance=100, spent=0, live=True, kill=False)
+    assert ok is False and any("non numérique" in r for r in reasons)
+    # raisons cumulées préservées : verrou coupé ET montant invalide
+    ok2, reasons2 = se.guards("abc", balance=100, spent=0, live=False, kill=False)
+    assert ok2 is False
+    assert any("non numérique" in r for r in reasons2)
+    assert any("MANDATE_LIVE_ENABLED" in r for r in reasons2)
+    # None / négatif : rejet propre (verrouillé)
+    assert se.guards(None, balance=100, spent=0, live=True, kill=False)[0] is False
+    assert se.guards(-5, balance=100, spent=0, live=True, kill=False)[0] is False
+    # execute ne lève plus sur montant non numérique et N'EXÉCUTE PAS (style taker -> sans réseau)
+    called = []
+    r = se.execute("abc", confirm=True, balance=100, spent=0, now=1_000_000, style="taker",
+                   runner=lambda c: (called.append(1), "x")[1])
+    assert r["ok"] is False and r["executed"] is False and not called   # runner jamais appelé
+
+
+def test_futures_executor_build_order():
+    import futures_executor as fe
+    # construction PURE : side neutre 'long'/'short', levier CLAMPÉ au mur ×5
+    o = fe.build_futures_order("geometric", "long", 100.0, 10.0, entry=50000,
+                               stop_loss=49000, take_profit=52000, client_oid="oid1")
+    assert o["symbol"] == "BTCUSDT" and o["side"] == "long" and o["reduce"] is False
+    assert o["leverage"] == 5.0                    # 10 demandé -> borné au mur ×5
+    assert o["clientOid"] == "oid1" and o["agent"] == "geometric"
+    assert o["entry"] == 50000.0 and o["stop_loss"] == 49000.0 and o["take_profit"] == 52000.0
+    assert o["execution_mode"] == "FUTURES_DRY_RUN_ONLY"
+    assert "e" not in o["size"].lower()            # quantité jamais en notation scientifique
+    # reduce + short, levier sous le mur conservé
+    m = fe.build_futures_order("savant", "short", 20.0, 2.0, reduce=True)
+    assert m["side"] == "short" and m["reduce"] is True and m["leverage"] == 2.0
+    # side invalide -> refus dur
+    try:
+        fe.build_futures_order("x", "buy", 10.0, 2.0)
+        assert False, "side invalide doit lever ValueError"
+    except ValueError:
+        pass
+
+
+def test_futures_executor_guards_8():
+    import futures_executor as fe
+    # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    assert fe.guards("geometric", 8, 2, **base)[0] is True
+    # 1. kill-switch
+    assert fe.guards("geometric", 8, 2, **{**base, "kill": True})[0] is False
+    # 2. double verrou (l'un OU l'autre coupé suffit à refuser)
+    assert fe.guards("geometric", 8, 2, **{**base, "live": False})[0] is False
+    assert fe.guards("geometric", 8, 2, **{**base, "autonomous": False})[0] is False
+    # 3. porte d'edge (agent non LIVE)
+    assert fe.guards("geometric", 8, 2, **{**base, "futures_live": False})[0] is False
+    # 4. levier > mur ×5
+    assert fe.guards("geometric", 8, 10, **base)[0] is False
+    # 5. caps : notional/trade puis exposition cumulée
+    assert fe.guards("geometric", 50, 2, **base)[0] is False
+    assert fe.guards("geometric", 8, 2, gross_open_usdt=15, **base)[0] is False
+    # 6. halte drawdown (equity réelle : -30% ≥ MDD 20%)
+    assert fe.guards("geometric", 8, 2, equity_curve=[100, 70], **base)[0] is False
+    # 8. idempotence clientOid (anti-doublon)
+    assert fe.guards("geometric", 8, 2, client_oid="dup", seen_oids=["dup"], **base)[0] is False
+
+
+def test_futures_guards_fail_closed_on_bad_inputs():
+    """guards : entrées numériques dégénérées REJETÉES proprement (jamais d'exception),
+    cohérent avec check_trade / spot_executor.guards. Gardes injectées passantes pour
+    isoler l'entrée invalide. Signature : guards(agent, notional_usdt, leverage, ...)."""
+    import futures_executor as fe
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    # levier non numérique -> rejet propre
+    ok, reasons = fe.guards("geometric", 8, "abc", **base)
+    assert ok is False and any("levier invalide" in r for r in reasons)
+    # notional non numérique -> rejet propre
+    ok2, reasons2 = fe.guards("geometric", "xx", 2, **base)
+    assert ok2 is False and any("notional invalide" in r for r in reasons2)
+    # contrôle positif : entrées valides -> toujours accepté
+    assert fe.guards("geometric", 8, 2, **base)[0] is True
+    # rejets ≤ 0 préservés (régression)
+    assert fe.guards("geometric", 8, 0, **base)[0] is False
+    assert fe.guards("geometric", 0, 2, **base)[0] is False
+
+
+def test_futures_executor_dry_and_real_path():
+    import futures_executor as fe
+    full = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    # DRY par défaut : aucun ordre. journal=False -> hermétique (pas d'écriture ledger)
+    r = fe.execute("geometric", "long", 8, 2, confirm=False, journal=False, **full)
+    assert r["ok"] is True and r["executed"] is False and r.get("dry") is True
+    # gardes qui échouent -> refus propre, jamais de réel, même avec --confirm
+    r2 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    live=False, autonomous=False, futures_live=False, kill=False)
+    assert r2["ok"] is False and r2["executed"] is False
+    # gardes vertes + confirm=True -> chemin réel NON câblé (étape 1) : NotImplementedError
+    raised = False
+    try:
+        fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, **full)
+    except NotImplementedError:
+        raised = True
+    assert raised   # le réel reste hors d'atteinte à l'étape 1
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)
@@ -2914,18 +3476,39 @@ def test_macro_regime_pressures_and_bias():
 
 def test_edge_ladder_tiers_and_priors():
     import edge_ladder as el
-    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) == "LIVE"
-    assert el.tier_of({"dsr": 0.95, "n": 40, "oos_sharpe": 0.3}) == "PROBATION"   # n trop faible
+    # LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation sur les VOTES RÉELS
+    # (échantillon live suffisant ET IC live significatif).
+    live_ok = {"n": 80, "ic_t": 2.5}
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}, live_ok) == "LIVE"
+    # replay fort mais live absent / non confirmé -> reste PROBATION (paper)
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) == "PROBATION"
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                      {"n": 80, "ic_t": 1.0}) == "PROBATION"   # IC live non significatif
+    assert el.tier_of({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                      {"n": 20, "ic_t": 2.5}) == "PROBATION"   # échantillon live trop mince
+    assert el.tier_of({"dsr": 0.95, "n": 40, "oos_sharpe": 0.3}, live_ok) == "PROBATION"  # n replay trop faible
     assert el.tier_of({"dsr": 0.60, "n": 50}) == "PROBATION"
     assert el.tier_of({"dsr": 0.20, "n": 200}) == "PAPER"
     assert el.tier_of({"dsr": 0.0, "n": 200}) == "NEGATIVE"
     rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
-                       {"agent": "simons", "dsr": -0.1, "n": 200}]}
+                       {"agent": "simons", "dsr": -0.1, "n": 200}],
+           "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 2.5}], "n_entries": 120}}
     assert el.agent_tier("geometric", rep) == "LIVE"
     assert el.agent_tier("simons", rep) == "NEGATIVE"
     assert el.agent_tier("absent", rep) == "NEGATIVE"
     assert el.weight_prior("geometric", rep) > el.weight_prior("simons", rep)
     assert el.live_agents(rep) == ["geometric"]
+    # même replay fort, sans section live -> aucun agent éligible au RÉEL
+    rep_no_live = {"ranking": rep["ranking"]}
+    assert el.agent_tier("geometric", rep_no_live) == "PROBATION"
+    assert el.live_agents(rep_no_live) == []
+    # observabilité : « à une confirmation live près » = replay OK mais live pas confirmé
+    assert el.live_pending({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}) is True
+    assert el.live_pending({"dsr": 0.95, "n": 200, "oos_sharpe": 0.3}, live_ok) is False  # déjà LIVE
+    assert el.live_pending({"dsr": 0.60, "n": 50}) is False                                # replay non battu
+    # le rapport signale les agents en attente de confirmation live, pas les confirmés
+    assert "confirmation live en attente" in el.build_report(rep_no_live)
+    assert "confirmation live en attente" not in el.build_report(rep)
 
 
 # ---------- durcissement réseau best-effort (sources de données, SANS réseau) ----------
@@ -3096,6 +3679,482 @@ def test_token_safety_best_effort_keeps_keys():
         assert sol["level"] == "LOW"
     finally:
         ts.requests = saved
+
+
+# ---------- candle_reader : résilience des bougies (retry + repli), SANS réseau ----------
+
+class _FakeResp:
+    """Réponse HTTP factice : .raise_for_status() inerte, .json() rend le payload."""
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class _NoSleep:
+    """Remplace `time` dans candle_reader pour neutraliser le backoff (tests rapides)."""
+    @staticmethod
+    def sleep(*a, **k):
+        pass
+
+
+def _fake_requests(bitget_fail=0, bitget_payload=None, coingecko_payload=None):
+    """Fabrique un faux module `requests` déterministe (aucun appel réel).
+
+    bitget_fail : nombre d'appels Bitget qui lèvent avant de réussir.
+    coingecko_payload=None -> le repli CoinGecko lève aussi (panne totale)."""
+    state = {"bitget_calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception  # référencé par le except de candle_reader
+
+        @staticmethod
+        def get(url, *a, **k):
+            if "coingecko" in url:
+                if coingecko_payload is None:
+                    raise RuntimeError("coingecko indispo (simulé)")
+                return _FakeResp(coingecko_payload)
+            state["bitget_calls"] += 1
+            if state["bitget_calls"] <= bitget_fail:
+                raise RuntimeError("bitget blip (simulé)")
+            return _FakeResp(bitget_payload)
+
+    return _FakeRequests, state
+
+
+def _with_fake_candle_net(fake_requests, fn):
+    """Exécute fn() avec candle_reader.requests/time remplacés, puis restaure."""
+    import candle_reader as cr
+    saved_req, saved_time = cr.requests, cr.time
+    cr.requests, cr.time = fake_requests, _NoSleep
+    try:
+        return fn()
+    finally:
+        cr.requests, cr.time = saved_req, saved_time
+
+
+def test_candle_reader_bitget_ok_sorted():
+    import candle_reader as cr
+    # données Bitget volontairement dans le désordre (ts en ms, valeurs en str)
+    payload = {"code": "00000", "data": [
+        ["2000", "10", "12", "9", "11", "100", "1000"],
+        ["1000", "8", "9", "7", "8", "50", "400"],
+    ]}
+    fake, _ = _fake_requests(bitget_payload=payload)
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert [c["close"] for c in out] == [8.0, 11.0]          # trié par temps croissant
+    assert out[0]["time"] < out[1]["time"]
+    assert out[0]["volume_base"] == 50.0                     # volume Bitget conservé
+
+
+def test_candle_reader_retries_then_succeeds():
+    import candle_reader as cr
+    payload = {"code": "00000", "data": [["1000", "8", "9", "7", "8", "50", "400"]]}
+    fake, state = _fake_requests(bitget_fail=2, bitget_payload=payload)  # 2 échecs puis OK
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert len(out) == 1 and out[0]["close"] == 8.0
+    assert state["bitget_calls"] == 3                        # 2 retries + 1 succès
+
+
+def test_candle_reader_falls_back_to_coingecko():
+    import candle_reader as cr
+    # Bitget KO sur les 3 tentatives -> repli CoinGecko (OHLC sans volume)
+    cg_payload = [["1000", "8", "9", "7", "8"], ["2000", "10", "12", "9", "11"]]
+    fake, state = _fake_requests(bitget_fail=99, coingecko_payload=cg_payload)
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert state["bitget_calls"] == 3                        # bien 3 tentatives Bitget
+    assert [c["close"] for c in out] == [8.0, 11.0]
+    assert all(c["volume_base"] == 0.0 for c in out)         # repli sans volume
+
+
+def test_candle_reader_raises_when_both_sources_down():
+    import candle_reader as cr
+    fake, _ = _fake_requests(bitget_fail=99, coingecko_payload=None)  # panne totale
+    try:
+        _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+        assert False, "doit lever quand Bitget ET CoinGecko échouent"
+    except Exception:
+        pass                                                 # contrat d'échec préservé
+
+
+# ---------- market_reader : ticker résilient + wrapper d'erreur des scanners ----------
+
+def _ticker_payload():
+    """Payload ticker Bitget factice (champs en str, comme l'API réelle)."""
+    return {"code": "00000", "data": [{
+        "symbol": "BTCUSDT", "lastPr": "100", "markPrice": "101",
+        "bidPr": "99.9", "askPr": "100.1", "high24h": "110", "low24h": "90",
+        "change24h": "0.05", "fundingRate": "0.0001",
+        "baseVolume": "1000", "usdtVolume": "100000",
+    }]}
+
+
+def _fake_ticker_requests(fail=0, payload=None):
+    """Faux `requests` pour le ticker : `fail` premiers appels lèvent, puis OK."""
+    state = {"calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception
+
+        @staticmethod
+        def get(url, *a, **k):
+            state["calls"] += 1
+            if state["calls"] <= fail:
+                raise RuntimeError("ticker blip (simulé)")
+            return _FakeResp(payload)
+
+    return _FakeRequests, state
+
+
+def _with_fake_ticker_net(fake_requests, fn):
+    """Exécute fn() avec market_reader.requests/time remplacés, puis restaure.
+
+    Les wrappers des scanners délèguent à market_reader.get_bitget_ticker, qui
+    résout `requests`/`time` au niveau module : patcher market_reader suffit."""
+    import market_reader as mr
+    saved_req, saved_time = mr.requests, mr.time
+    mr.requests, mr.time = fake_requests, _NoSleep
+    try:
+        return fn()
+    finally:
+        mr.requests, mr.time = saved_req, saved_time
+
+
+def test_market_reader_ticker_retries_then_succeeds():
+    import market_reader as mr
+    fake, state = _fake_ticker_requests(fail=2, payload=_ticker_payload())  # 2 blips puis OK
+    t = _with_fake_ticker_net(fake, lambda: mr.get_bitget_ticker("BTCUSDT"))
+    assert state["calls"] == 3                               # 2 retries + 1 succès
+    assert t["last_price"] == 100.0 and t["bid"] == 99.9
+    assert t["change_24h_percent"] == 5.0                    # 0.05 * 100
+    assert t["funding_rate_percent"] == 0.01                 # 0.0001 * 100
+
+
+def test_market_reader_ticker_raises_after_retries():
+    import market_reader as mr
+    fake, _ = _fake_ticker_requests(fail=99)                 # toujours KO
+    try:
+        _with_fake_ticker_net(fake, lambda: mr.get_bitget_ticker("BTCUSDT"))
+        assert False, "doit lever après 3 tentatives échouées"
+    except Exception:
+        pass                                                 # contrat d'échec (raise)
+
+
+def test_scanner_wrappers_convert_failure_to_error_dict():
+    import market_scanner as ms
+    import signal_scanner as ss
+    fake, _ = _fake_ticker_requests(fail=99)                 # ticker KO
+    def _check():
+        for mod in (ms, ss):
+            t = mod.get_bitget_ticker("BTCUSDT")
+            # contrat historique du scanner : dict d'erreur, jamais d'exception
+            assert "error" in t and t["symbol"] == "BTCUSDT"
+    _with_fake_ticker_net(fake, _check)
+
+
+def test_scanner_wrapper_success_passes_through():
+    import signal_scanner as ss
+    fake, _ = _fake_ticker_requests(payload=_ticker_payload())
+    def _check():
+        t = ss.get_bitget_ticker("BTCUSDT")
+        assert "error" not in t and t["last_price"] == 100.0
+        sig, reason = ss.analyze_market(t)                   # consomme bien le superset
+        assert isinstance(sig, str) and isinstance(reason, str)
+    _with_fake_ticker_net(fake, _check)
+
+
+# ---------- numeric_utils.safe_float : helper centralisé + wrappers conservés ----------
+
+def test_numeric_utils_safe_float_core():
+    from numeric_utils import safe_float
+    assert safe_float(None) is None                          # défaut None
+    assert safe_float("") is None
+    assert safe_float("abc") is None
+    assert safe_float("1.5") == 1.5
+    assert safe_float("1.5", 0.0) == 1.5                     # défaut positionnel
+    assert safe_float(None, 0.0) == 0.0
+    assert safe_float("abc", -1) == -1
+    assert safe_float(["x"]) is None                         # TypeError capté (plus robuste)
+    assert safe_float({}, 0.0) == 0.0
+    assert safe_float("3,14") is None                        # virgule NON tolérée par défaut
+    assert safe_float("3,14", decimal_comma=True) == 3.14    # ... sauf si demandé
+
+
+def test_numeric_utils_wrappers_preserve_contracts():
+    import outcome_report, journal_report, order_signal_engine, preorder_engine
+    # variante B (rapports) : défaut 0.0 préservé, jamais None
+    assert outcome_report.safe_float("") == 0.0
+    assert outcome_report.safe_float("abc") == 0.0
+    assert journal_report.safe_float(None) == 0.0
+    assert outcome_report.safe_float("2.5") == 2.5
+    # variante E (pré-ordres) : défaut None + virgule décimale préservés
+    assert order_signal_engine.safe_float("") is None
+    assert order_signal_engine.safe_float("3,14") == 3.14
+    assert preorder_engine.safe_float("3,14") == 3.14
+    assert preorder_engine.safe_float(None) is None
+
+
+# ---------- indicateurs : source unique indicators.py (anti-reduplication) ----------
+
+def test_indicator_functions_are_centralized():
+    """Garde anti-reduplication : ema / calculate_rsi / calculate_atr ne doivent
+    plus être redéfinis localement — chaque module doit RÉUTILISER indicators.py
+    (la même fonction, pas une copie). L'identité (`is`) est plus forte qu'une
+    simple équivalence numérique : elle interdit toute copie divergente future.
+
+    L'équivalence numérique des ex-copies a été prouvée empiriquement avant la
+    migration (séries aléatoires, 0 divergence sur des milliers de comparaisons)."""
+    import importlib
+    import indicators
+
+    expected = {
+        "ema": ["position_sizer", "decision_engine", "trade_plan", "journal_scanner",
+                "portfolio_scanner", "trend_analyzer", "ranked_scanner", "atr_trade_plan"],
+        "calculate_rsi": ["position_sizer", "trade_plan", "journal_scanner", "rsi_analyzer",
+                          "decision_engine", "portfolio_scanner", "ranked_scanner", "atr_trade_plan"],
+        "calculate_atr": ["position_sizer", "atr_trade_plan", "journal_scanner",
+                          "portfolio_scanner", "ranked_scanner"],
+    }
+    # aucune def locale d'indicateur ne doit subsister hors indicators.py
+    import os
+    for path in os.listdir("."):
+        if not path.endswith(".py") or path in ("indicators.py", "tests_audit.py"):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        for fn in ("ema", "calculate_rsi", "calculate_atr"):
+            assert f"def {fn}(" not in src, f"{path} redéfinit {fn} localement (copie ?)"
+
+    # ... et chaque module expose bien la fonction CANONIQUE (identité d'objet)
+    for fn, mods in expected.items():
+        ref = getattr(indicators, fn)
+        for m in mods:
+            got = getattr(importlib.import_module(m), fn)
+            assert got is ref, f"{m}.{fn} n'est pas indicators.{fn} (copie locale ?)"
+
+
+# ---------- csv_utils : lecture de lignes + recherche tolérante (SANS réseau) ----------
+
+def test_csv_utils_read_csv_rows():
+    import csv_utils
+    import os
+    import tempfile
+    from pathlib import Path
+    # fichier absent -> [] (jamais d'exception)
+    assert csv_utils.read_csv_rows(Path("/no/such/file_xyz.csv")) == []
+    # fichier present -> liste de dicts
+    fd, name = tempfile.mkstemp(suffix=".csv")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("Symbol,Entry\nBTCUSDT,100\nETHUSDT,50\n")
+        rows = csv_utils.read_csv_rows(Path(name))
+        assert len(rows) == 2
+        assert rows[0]["Symbol"] == "BTCUSDT" and rows[1]["Entry"] == "50"
+    finally:
+        os.unlink(name)
+
+
+def test_csv_utils_find_value():
+    import csv_utils
+    row = {"Entry": "100", "Stop_Loss": "", "TP": "120"}
+    # insensible a la casse, 1re cle non vide
+    assert csv_utils.find_value(row, ["entry"]) == "100"
+    assert csv_utils.find_value(row, ["ENTRY", "tp"]) == "100"
+    # saute les valeurs vides, prend la suivante
+    assert csv_utils.find_value(row, ["stop_loss", "tp"]) == "120"
+    # aucune correspondance -> ""
+    assert csv_utils.find_value(row, ["absent"]) == ""
+    assert csv_utils.find_value({}, ["x"]) == ""
+
+
+# ---------- bitget_market_data : retry du choke-point _get + dégradation (SANS réseau) ----------
+
+def _fake_bmd_requests(fail=0, data=None, code="00000"):
+    """Faux `requests` pour bitget_market_data : `fail` premiers appels lèvent."""
+    state = {"calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception
+
+        @staticmethod
+        def get(url, *a, **k):
+            state["calls"] += 1
+            if state["calls"] <= fail:
+                raise RuntimeError("microstructure blip (simulé)")
+            return _FakeResp({"code": code, "data": data})
+
+    return _FakeRequests, state
+
+
+def test_bitget_market_data_get_retries_then_succeeds():
+    import bitget_market_data as bmd
+    book = {"bids": [["100", "1"]], "asks": [["101", "2"]]}
+    fake, state = _fake_bmd_requests(fail=2, data=book)             # 2 blips puis OK
+    saved_req, saved_time = bmd.requests, bmd.time
+    bmd.requests, bmd.time = fake, _NoSleep
+    try:
+        out = bmd.fetch_orderbook("BTCUSDT")
+    finally:
+        bmd.requests, bmd.time = saved_req, saved_time
+    assert state["calls"] == 3                                      # 2 retries + 1 succès
+    assert out == book
+
+
+def test_bitget_market_data_degrades_gracefully_after_retries():
+    import bitget_market_data as bmd
+    fake, state = _fake_bmd_requests(fail=99)                       # toujours KO
+    saved_req, saved_time = bmd.requests, bmd.time
+    bmd.requests, bmd.time = fake, _NoSleep
+    try:
+        ob = bmd.fetch_orderbook("BTCUSDT")
+        tr = bmd.fetch_recent_trades("BTCUSDT")
+        oi = bmd.fetch_open_interest("BTCUSDT")
+    finally:
+        bmd.requests, bmd.time = saved_req, saved_time
+    # contrat de dégradation gracieuse préservé : valeurs vides, jamais d'exception
+    assert ob == {"bids": [], "asks": []}
+    assert tr == []
+    assert oi == {"openInterestList": []}
+    assert state["calls"] == 9                                      # 3 fetch × 3 tentatives (retry actif)
+
+
+# ---------- edge_ladder : porte d'edge (le réel exige replay ET confirmation live) ----------
+
+def _edge_report():
+    """Rapport de validation factice couvrant les 4 paliers. Valeurs extrêmes pour
+    rester non ambigu quelle que soit la config (seuils replay/live)."""
+    return {
+        "ranking": [
+            {"agent": "alpha", "dsr": 0.99, "n": 10000, "oos_sharpe": 2.0},  # replay OK + live OK -> LIVE
+            {"agent": "beta",  "dsr": 0.99, "n": 10000, "oos_sharpe": 2.0},  # replay OK, live absent -> PROBATION
+            {"agent": "gamma", "dsr": 0.30, "n": 5,     "oos_sharpe": 0.0},  # -> PAPER
+            {"agent": "delta", "dsr": 0.0,  "n": 5},                          # -> NEGATIVE
+        ],
+        "live": {"agents": [
+            {"agent": "alpha", "n": 100000, "ic_t": 10.0},                   # confirme le LIVE d'alpha
+        ]},
+    }
+
+
+def test_edge_ladder_tiers_and_live_gate():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.agent_tier("alpha", rep) == "LIVE"
+    assert el.agent_tier("beta", rep) == "PROBATION"     # replay seul ne suffit PAS au réel
+    assert el.agent_tier("gamma", rep) == "PAPER"
+    assert el.agent_tier("delta", rep) == "NEGATIVE"
+    assert el.agent_tier("inconnu", rep) == "NEGATIVE"   # absent -> bridé par défaut
+    assert el.all_tiers(rep) == {"alpha": "LIVE", "beta": "PROBATION",
+                                 "gamma": "PAPER", "delta": "NEGATIVE"}
+
+
+def test_edge_ladder_live_agents_requires_live_confirmation():
+    import edge_ladder as el
+    rep = _edge_report()
+    # PROPRIÉTÉ DE SÛRETÉ : seuls les agents au palier LIVE sont éligibles au réel,
+    # et beta (replay battu mais live NON confirmé) ne doit PAS y figurer.
+    assert el.live_agents(rep) == ["alpha"]
+    assert "beta" not in el.live_agents(rep)
+    assert el.live_pending(rep["ranking"][1]) is True    # beta : à une confirmation live près
+    assert el.live_pending(rep["ranking"][0],
+                           {"n": 100000, "ic_t": 10.0}) is False  # alpha déjà confirmé
+
+
+def test_edge_ladder_weight_prior_by_tier():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.weight_prior("alpha", rep) == 1.5          # LIVE
+    assert el.weight_prior("beta", rep) == 1.0           # PROBATION
+    assert el.weight_prior("gamma", rep) == 0.6          # PAPER
+    assert el.weight_prior("delta", rep) == 0.3          # NEGATIVE
+    # prior borné : ordonné par palier, jamais négatif
+    priors = [el.weight_prior(a, rep) for a in ("alpha", "beta", "gamma", "delta")]
+    assert priors == sorted(priors, reverse=True) and min(priors) > 0
+
+
+# ---------- mandate : sizing du capital réel (déploiement / risque par trade) ----------
+
+def test_mandate_risk_per_trade_usd():
+    import mandate
+    assert mandate.risk_per_trade_usd(1000, pct=0.75) == 7.5
+    assert mandate.risk_per_trade_usd(2000, pct=1.0) == 20.0
+    assert mandate.risk_per_trade_usd(0, pct=0.75) == 0.0
+    # le risque par trade reste une petite fraction de l'equity
+    assert mandate.risk_per_trade_usd(1000, pct=0.75) < 1000
+
+
+def test_mandate_deployable_usd_keeps_cash_floor():
+    import mandate
+    assert mandate.deployable_usd(1000, cash_floor_pct=10) == 900.0
+    assert mandate.deployable_usd(1000, cash_floor_pct=0) == 1000.0
+    assert mandate.deployable_usd(1000, cash_floor_pct=100) == 0.0   # plancher total -> rien déployable
+    # le déployable ne dépasse jamais l'equity et garde la réserve
+    assert mandate.deployable_usd(1000, cash_floor_pct=10) <= 1000
+
+
+# ---------- risk_limits : plafonds AGRÉGÉS de portefeuille ----------
+
+def test_risk_limits_portfolio_caps():
+    import risk_limits as rl
+
+    def mk(oid, notional, sl=None, status="PENDING_APPROVAL"):
+        return {"id": oid, "status": status, "notional_usdt": notional,
+                "sl_distance_percent": (rl.MIN_SL_DISTANCE_PERCENT + 1.0) if sl is None else sl}
+
+    # ordre propre, budget large -> aucun rejet
+    assert rl.evaluate_portfolio_caps([mk("a", 10.0)], 0, 1.0) == {}
+
+    # plafond du nombre de positions simultanées
+    capped = rl.evaluate_portfolio_caps([mk("a", 10.0)], rl.MAX_CONCURRENT_POSITIONS, 1.0)
+    assert "a" in capped and any("plafond positions" in r for r in capped["a"])
+
+    # plancher de distance de stop
+    sl_bad = rl.evaluate_portfolio_caps([mk("a", 10.0, sl=rl.MIN_SL_DISTANCE_PERCENT / 2)], 0, 1.0)
+    assert "a" in sl_bad and any("distance stop" in r for r in sl_bad["a"])
+
+    # plafond du notionnel total
+    notion = rl.evaluate_portfolio_caps([mk("a", rl.MAX_TOTAL_NOTIONAL_USDT + 100)], 0, 1.0)
+    assert "a" in notion and any("notionnel" in r for r in notion["a"])
+
+    # plafond du risque total cumulé
+    risky = rl.evaluate_portfolio_caps([mk("a", 10.0)], 0, rl.MAX_TOTAL_RISK_PERCENT + 1.0)
+    assert "a" in risky and any("risque" in r for r in risky["a"])
+
+    # les ordres NON PENDING_APPROVAL sont ignorés (jamais re-rejetés)
+    assert rl.evaluate_portfolio_caps([mk("z", 9e9, status="REJECTED")], 0, 1.0) == {}
+
+
+# ---------- config_utils : lecture config centralisée (anti-reduplication de _cfg) ----------
+
+def test_config_utils_cfg_and_centralized():
+    """cfg : lit config.<name>, repli sur fallback si absent. Garde anti-reduplication :
+    aucun module ne redéfinit _cfg localement, et les modules migrés utilisent bien la
+    fonction centralisée (identité d'objet)."""
+    import os
+    import config
+    import config_utils
+    # attribut absent -> fallback (best-effort)
+    assert config_utils.cfg("DEFINITELY_NOT_A_CONFIG_KEY_XYZ", 42) == 42
+    assert config_utils.cfg("DEFINITELY_NOT_A_CONFIG_KEY_XYZ", "d") == "d"
+    # attribut présent -> valeur de config
+    setattr(config, "_CFG_PROBE_XYZ", 99)
+    try:
+        assert config_utils.cfg("_CFG_PROBE_XYZ", 0) == 99
+    finally:
+        delattr(config, "_CFG_PROBE_XYZ")
+    # plus aucune def _cfg locale hors config_utils
+    for path in os.listdir("."):
+        if path.endswith(".py") and path not in ("config_utils.py", "tests_audit.py"):
+            with open(path, encoding="utf-8") as fh:
+                assert "def _cfg(" not in fh.read(), f"{path} redéfinit _cfg localement"
+    # les modules safety-critiques utilisent la fonction centralisée (identité)
+    import risk_manager, spot_executor, mandate, futures_executor
+    for mod in (risk_manager, spot_executor, mandate, futures_executor):
+        assert mod._cfg is config_utils.cfg
 
 
 def _run_all():

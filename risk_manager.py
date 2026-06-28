@@ -36,13 +36,7 @@ def _i(name, default):
         return int(default)
 
 
-def _cfg(name, fallback):
-    """Défaut depuis config (source unique #4), robuste si config indisponible."""
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def load_limits():
@@ -75,13 +69,23 @@ def check_trade(proposed, *, open_positions, daily_loss_usd, limits=None):
     if open_positions >= limits["max_open_positions"]:
         return False, f"trop de positions ouvertes ({open_positions} >= {limits['max_open_positions']})"
 
-    notional = float(proposed.get("notional_usd", 0) or 0)
+    # fail-closed : une entrée non numérique est REJETÉE, jamais propagée en
+    # exception (sinon l'appelant fail-safe pourrait laisser passer l'ordre).
+    try:
+        notional = float(proposed.get("notional_usd", 0) or 0)
+    except (TypeError, ValueError):
+        return False, "notional invalide (non numérique)"
     if notional <= 0:
         return False, "notional invalide (<= 0)"
     if notional > limits["max_position_usd"]:
         return False, f"taille {notional:.2f} > max {limits['max_position_usd']:.2f}"
 
-    leverage = float(proposed.get("leverage", 1) or 1)
+    try:
+        leverage = float(proposed.get("leverage", 1) or 1)
+    except (TypeError, ValueError):
+        return False, "levier invalide (non numérique)"
+    if leverage <= 0:
+        return False, "levier invalide (<= 0)"
     if leverage > limits["max_leverage"]:
         return False, f"levier {leverage:.1f} > max {limits['max_leverage']:.1f}"
 

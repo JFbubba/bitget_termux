@@ -1,5 +1,4 @@
 import csv
-import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -11,13 +10,7 @@ def parse_time(value):
     return datetime.fromisoformat(value)
 
 
-def safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except ValueError:
-        return default
+from numeric_utils import safe_float
 
 
 def load_accepted_signals():
@@ -35,38 +28,7 @@ def load_accepted_signals():
         return rows
 
 
-def get_bitget_candles(symbol, product_type="USDT-FUTURES", granularity="15m", limit=100):
-    url = "https://api.bitget.com/api/v2/mix/market/candles"
-
-    params = {
-        "symbol": symbol,
-        "productType": product_type,
-        "granularity": granularity,
-        "limit": str(limit),
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    result = response.json()
-
-    if result.get("code") != "00000":
-        raise RuntimeError(f"Erreur Bitget pour {symbol}: {result}")
-
-    candles = []
-
-    for row in result["data"]:
-        timestamp_ms = int(row[0])
-        candles.append({
-            "time": datetime.fromtimestamp(timestamp_ms / 1000),
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-        })
-
-    candles.sort(key=lambda candle: candle["time"])
-    return candles
+from candle_reader import get_bitget_candles
 
 
 def check_long_outcome(signal, candles):

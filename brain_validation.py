@@ -28,6 +28,23 @@ def _stale(now=None):
         return True                                  # pas de rapport -> lancer
 
 
+def build_output(symbol, ranked, live, now=None):
+    """Assemble le rapport de validation (PUR, testable). 'live' = edge mesure sur les
+    VOTES REELS journalises (brain_log, chemin 2) — ADDITIF / informatif : ne change PAS
+    la decision de palier (qui lit 'ranking', le replay). Sert a comparer edge backtest
+    vs edge live et a preparer une porte plus honnete (replay ET live)."""
+    import agent_validation as av
+    return {
+        "generated_at": int(time.time() if now is None else now),
+        "symbol": symbol,
+        "ranking": ranked.get("agents", []),
+        "deflation": ranked.get("deflation", {}),
+        "weight_priors_advisory": av.suggest_weight_priors(ranked),
+        "live": {"agents": (live or {}).get("agents", []),
+                 "n_entries": (live or {}).get("n_entries", 0)},
+    }
+
+
 def main():
     if not _stale():
         print(f"brain_validation : rapport récent (< {MIN_INTERVAL_H}h), saute. VERDICT: SAFE")
@@ -43,12 +60,18 @@ def main():
         if ranked.get("error"):
             print(f"brain_validation indisponible : {ranked['error']}")
             return
-        out = {"generated_at": int(time.time()), "symbol": symbol,
-               "ranking": ranked.get("agents", []), "deflation": ranked.get("deflation", {}),
-               "weight_priors_advisory": av.suggest_weight_priors(ranked)}
+        live = {}
+        try:
+            import swarm_brain
+            live = av.evaluate_from_log(swarm_brain._read_log())   # chemin 2 : votes reels
+        except Exception:
+            live = {}
+        out = build_output(symbol, ranked, live)
         REPORT_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
         passed = [a["agent"] for a in ranked.get("agents", []) if a.get("dsr", 0) >= 0.9]
-        print(f"brain_validation : rapport écrit. Agents battant le seuil déflaté : "
+        live_n = out["live"]["n_entries"]
+        print(f"brain_validation : rapport écrit (replay + live, {live_n} votes journalisés). "
+              f"Agents battant le seuil déflaté (replay) : "
               f"{passed or 'aucun (données trop minces)'}. ADVISORY. VERDICT: SAFE")
     except Exception as exc:
         print(f"brain_validation : {type(exc).__name__}")

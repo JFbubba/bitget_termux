@@ -137,7 +137,8 @@ def signal(candles, fear_greed=None, thresh=0.55):
     À CONTRE-COURANT du dislocation (les manipulations/dislocations tendent à se
     corriger), immunisé au bruit, avec VaR indicative. Déterministe, aucun NN.
 
-    fear_greed : 0..100 (optionnel) — traité comme bruit exploitable à contre-courant.
+    fear_greed : 0..100 (optionnel) — conservé pour compat ; n'influence PLUS le vote (le
+    contrarian Fear&Greed est l'affaire de l'agent `sentiment`, pour ne pas double-compter).
     Retourne un dict complet."""
     out = {"anomaly": 0.0, "symmetry_break": 0.0, "direction": 0, "vote": 0.0,
            "confidence": 0.0, "var": {}, "note": "données insuffisantes"}
@@ -157,13 +158,10 @@ def signal(candles, fear_greed=None, thresh=0.55):
     if sb >= thresh and direction != 0:
         vote = direction * min((sb - thresh) / (1.0 - thresh), 1.0) * 0.6
 
-    # immunité au bruit : sentiment extrême exploité à contre-courant (FUD->long, FOMO->short)
-    if fear_greed is not None:
-        if fear_greed < 25:
-            vote += 0.15
-        elif fear_greed > 75:
-            vote -= 0.15
-
+    # NB : le contrarian Fear&Greed est DÉLÉGUÉ à l'agent `sentiment` du swarm (qui fait déjà
+    # (50-FG)/50). L'ajouter ici figeait savant à une CONSTANTE marché-large ~83 % du temps et
+    # DOUBLE-COMPTAIT sentiment, détruisant sa spécificité PAR SYMBOLE. savant ne vote donc QUE
+    # sur sa rupture de symétrie Mahalanobis — son vrai domaine (RESEARCH_NOTES §39).
     vote = max(-1.0, min(1.0, vote))
     conf = min(sb, 1.0) * (0.7 if sb >= thresh else 0.2)
 

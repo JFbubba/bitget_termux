@@ -14,12 +14,7 @@ HAUSSIER. Chaque indicateur ne contribue que s'il est disponible (robuste aux tr
 """
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _clamp(x, lo=-1.0, hi=1.0):

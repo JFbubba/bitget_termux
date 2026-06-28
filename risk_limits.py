@@ -19,12 +19,7 @@ preorder_engine.main() après construction des pré-ordres.
 """
 
 # Plafonds — SOURCE UNIQUE : config (réconciliation audit #4), repli si config absent.
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 MAX_CONCURRENT_POSITIONS = int(_cfg("MAX_OPEN_POSITIONS", 3))   # = gate par-ordre (cohérent)

@@ -1,0 +1,13 @@
+[Unit]
+Description=Bitget microstructure edge watch (hebdomadaire)
+
+[Timer]
+# Check hebdo : l'edge microstructure s'accumule lentement (downsample 1/min).
+# Inutile de checker souvent ; silencieux sauf si une feature franchit le seuil d'IC.
+OnBootSec=20min
+OnUnitActiveSec=1w
+AccuracySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

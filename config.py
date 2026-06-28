@@ -58,6 +58,12 @@ MANDATE_BENCHMARK = "ABSOLUTE"             # benchmark absolu, horizon perpétue
 # Porte d'edge paper -> réel (futures) : un agent ne trade en RÉEL que s'il bat ça.
 MANDATE_FUTURES_DSR_MIN = 0.90             # Deflated Sharpe Ratio minimal (multiple-testing)
 MANDATE_FUTURES_MIN_SAMPLES = 120          # taille d'échantillon minimale (anti faux-positif)
+# Exécution FUTURES réelle (étape 1 = DRY-RUN ; RESEARCH_NOTES §34). Tout OFF / petit.
+# Le réel reste non câblé tant qu'aucun agent n'est LIVE et sans GO explicite (étape 2).
+FUTURES_AUTONOMOUS_LIVE = False             # 2e verrou futures (avec MANDATE_LIVE_ENABLED)
+FUTURES_REAL_MAX_PER_TRADE_USDT = 10.0      # plafond dur du notional par trade
+FUTURES_REAL_MAX_GROSS_USDT = 20.0          # plafond dur de l'exposition cumulée
+FUTURES_REAL_LEDGER = "futures_real_ledger.json"   # journal DRY-RUN (gitignored)
 # Numéraire dynamique : si le dollar se déprécie, tourner hors USD vers ces refuges.
 MANDATE_NUMERAIRE_REFUGES = ["BTCUSDT", "XAUTUSDT"]   # BTC, or tokenisé
 MANDATE_USD_WEAK_THRESHOLD = -3.0          # baisse % du DXY (fenêtre) déclenchant la rotation
@@ -74,6 +80,11 @@ MANDATE_LIVE_ENABLED = True
 # Accumulation RÉELLE (achat spot BTC) — plafonds DURS lus par spot_executor.py.
 ACCUM_REAL_MAX_PER_BUY_USDT = 5.0          # plafond dur par achat réel
 ACCUM_REAL_MAX_DAILY_USDT = 5.0            # plafond dur journalier (anti-boucle)
+# Affûtage TIMING d'entrée (RESEARCH_NOTES §38) : survente court-terme mêlée au score
+# d'opportunité. Validé en backtest cost-basis (avantage OOS +0.69%->+0.77%, robuste).
+# ACCUM_ST_WEIGHT=0 -> score historique inchangé. Non-directionnel (meilleur point d'entrée).
+ACCUM_ST_WEIGHT = 0.30                      # poids de la survente court-terme (0 = désactivé)
+ACCUM_ST_WINDOW = 24                        # fenêtre (barres) de la moyenne mobile courte
 # Style d'exécution de l'achat spot : "limit_ioc" (DÉFAUT, validé en réel) = limite IOC
 # plafonnée -> remplit tout de suite SANS slippage au-delà du plafond ; "taker" = marché ;
 # "maker" = limite post-only au bid (frais maker / meilleur prix mais peut ne pas remplir).

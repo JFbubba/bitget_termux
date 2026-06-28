@@ -1,5 +1,6 @@
-import requests
 import time
+
+from market_reader import get_bitget_ticker as _read_ticker
 
 
 SYMBOLS = [
@@ -12,36 +13,15 @@ SYMBOLS = [
 
 
 def get_bitget_ticker(symbol, product_type="USDT-FUTURES"):
-    url = "https://api.bitget.com/api/v2/mix/market/ticker"
+    """Ticker résilient (retry+backoff via market_reader), échec -> dict d'erreur.
 
-    params = {
-        "symbol": symbol,
-        "productType": product_type,
-    }
-
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    result = response.json()
-
-    if result.get("code") != "00000":
-        return {
-            "symbol": symbol,
-            "error": result.get("msg", "Erreur inconnue"),
-        }
-
-    data = result["data"][0]
-
-    return {
-        "symbol": data["symbol"],
-        "last_price": float(data["lastPr"]),
-        "mark_price": float(data["markPrice"]),
-        "change_24h_percent": float(data["change24h"]) * 100,
-        "funding_rate_percent": float(data["fundingRate"]) * 100,
-        "high_24h": float(data["high24h"]),
-        "low_24h": float(data["low24h"]),
-        "volume_usdt_24h": float(data["usdtVolume"]),
-    }
+    Préserve le contrat historique du scanner : en cas d'échec, renvoie
+    `{symbol, error}` au lieu de lever, pour que `print_market_row` affiche la
+    ligne d'erreur et continue sur les symboles suivants."""
+    try:
+        return _read_ticker(symbol, product_type)
+    except Exception as exc:
+        return {"symbol": symbol, "error": str(exc)}
 
 
 def print_market_row(ticker):

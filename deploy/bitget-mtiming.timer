@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget market-timing watch (quotidien)
+
+[Timer]
+# Quotidien : macro/sentiment bougent lentement (FRED mensuel, Fear&Greed quotidien).
+# Chaque jour : journalise un releve + evalue l'edge temporel. Silencieux sauf edge significatif
+# (alerte dedup hebdomadaire). Verdict DANS LE TEMPS (semaines/mois d'accumulation).
+OnBootSec=15min
+OnUnitActiveSec=1d
+AccuracySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

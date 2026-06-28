@@ -36,6 +36,14 @@
   .chip .v{font-size:14px;color:var(--accent)} .chip .l{font-size:9px;color:var(--dim)}
   .bar{height:6px;background:#10151d;border-radius:3px;overflow:hidden;margin:3px 0 7px}
   .bar i{display:block;height:100%;width:0}
+  /* positions en cours : grille cliquable (clic = charge l'actif sur le graphique) */
+  .pos-h,.pos-r{display:grid;grid-template-columns:84px 56px 1fr 1fr 78px 1fr 1fr 52px;gap:8px;
+    align-items:center;padding:3px 6px;font-size:10.5px}
+  .pos-h{color:var(--dim);font-size:9px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .pos-r{border-radius:4px;border:1px solid transparent;cursor:pointer}
+  .pos-r:hover{border-color:#33415a;background:var(--panel)}
+  .pos-r.on{border-color:var(--amber);background:#14110a}
+  .pos-r .sym{color:var(--accent)} .pos-r .num{text-align:right} .pos-r .r{text-align:right}
   .ob{font-size:11px}
   .ob .lvl{display:flex;justify-content:space-between;position:relative;padding:1px 4px}
   .ob .lvl span{position:relative;z-index:1}
@@ -84,6 +92,12 @@
   .vbar{position:relative;height:9px;background:#10151d;border-radius:3px}
   .vbar .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#2a313c}
   .vbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+  .ag .note{grid-column:1/-1;font-size:8.5px;color:var(--dim);opacity:.88;line-height:1.35;margin-top:1px}
+  .picker{display:inline-flex;gap:3px;flex-wrap:wrap;align-items:center;max-width:46vw}
+  .picker .chip{font-size:8.5px;letter-spacing:.5px;padding:2px 6px;border-radius:10px;cursor:pointer;
+    border:1px solid var(--line);color:var(--dim);background:#10151d;user-select:none}
+  .picker .chip:hover{color:var(--txt);border-color:#33415a}
+  .picker .chip.on{color:#04121d;background:var(--accent);border-color:var(--accent);font-weight:600}
   @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
 </style>
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
@@ -97,6 +111,7 @@
     <span class="badge" id="mode">PAPER</span>
     <span class="badge live">● LIVE</span>
     <span class="badge" id="sym">—</span>
+    <span class="picker" id="sym-pick" title="univers dynamique — clic pour changer de symbole"></span>
     <div class="met"><span class="l">PRICE</span><span class="v" id="t-price">—</span></div>
     <div class="met"><span class="l">WIN RATE</span><span class="v green" id="t-win">—</span></div>
     <div class="met"><span class="l">FINALISES</span><span class="v" id="t-final">—</span></div>
@@ -125,7 +140,7 @@
     </div>
 
     <div class="panel" style="position:relative">
-      <h2>BTC · <span id="c-tf">5M</span> · <span id="c-price">—</span>
+      <h2><span id="c-sym">BTC</span> · <span id="c-tf">5M</span> · <span id="c-price">—</span>
         <span id="tf-bar" style="float:right">
           <span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="1h">1h</span>
         </span>
@@ -152,6 +167,12 @@
       <h2>Order Book</h2>
       <div class="ob" id="ob"></div>
     </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Positions en cours <span class="dim" style="letter-spacing:0">— paper (signaux suivis) · PnL live · clic = afficher l'actif sur le graphique</span>
+      <span class="dim" id="pos-count" style="float:right;letter-spacing:0">—</span></h2>
+    <div id="positions"></div>
   </div>
 
   <div class="cycle" id="cycle">
@@ -187,7 +208,7 @@
   </div>
 
   <div class="panel full" style="margin-top:8px">
-    <h2>Accumulation BTC · Mandat · Échelle d'edge <span class="dim" style="letter-spacing:0">— spot DCA RÉEL (≤5$/j) · futures &amp; cerveau en paper</span></h2>
+    <h2>Accumulation BTC · Mandat · Échelle d'edge <span class="dim" style="letter-spacing:0">— spot DCA RÉEL (≤5$/j) · 3 couches de cap + tripwire · edge live accumulé · futures &amp; cerveau en paper</span></h2>
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:230px">
         <div class="row"><span class="k">mode accumulation</span><span id="ac-mode" class="amber">—</span></div>
@@ -204,6 +225,12 @@
         <div class="row"><span class="k">drawdown max</span><span id="md-dd">—</span></div>
         <div class="row"><span class="k">agents futures RÉEL</span><span id="md-live" class="dim">—</span></div>
         <div class="dim" id="ed-tiers" style="margin-top:6px;line-height:1.7;font-size:9.5px">—</div>
+      </div>
+      <div style="flex:1;min-width:230px">
+        <div class="row"><span class="k">dépense réelle du jour</span><span id="cp-spent">—</span></div>
+        <div class="row"><span class="k">caps réel (eff · mur abs)</span><span id="cp-caps">—</span></div>
+        <div class="row"><span class="k">edge microstructure</span><span id="eg-micro" class="dim">—</span></div>
+        <div class="row"><span class="k">edge market-timing</span><span id="eg-mtim" class="dim">—</span></div>
       </div>
     </div>
   </div>
@@ -238,6 +265,28 @@
   </div>
 
   <div class="bottom">
+    <div class="panel">
+      <h2>Microstructure · live <span class="dim" style="letter-spacing:0">— L2 + tape (collecteur 24/7)</span></h2>
+      <div class="row"><span class="k">OFI (Cont-Kukanov)</span><span id="ms-ofi">—</span></div>
+      <div class="row"><span class="k">déséquilibre carnet</span><span id="ms-qi">—</span></div>
+      <div class="row"><span class="k">agressivité tape</span><span id="ms-ts">—</span></div>
+      <div class="row"><span class="k">spread (bps)</span><span id="ms-sp">—</span></div>
+      <div class="row"><span class="k">markout (bps)</span><span id="ms-mk">—</span></div>
+      <div class="row"><span class="k">toxicité du flux</span><span id="ms-tox">—</span></div>
+      <div style="margin-top:6px;display:grid;gap:5px">
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">OFI</span><div class="vbar"><div class="zero"></div><i id="msb-ofi"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">carnet</span><div class="vbar"><div class="zero"></div><i id="msb-qi"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">tape</span><div class="vbar"><div class="zero"></div><i id="msb-ts"></i></div></div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center"><span class="dim" style="font-size:8.5px">toxicité</span><div class="bar" style="margin:0"><i id="msb-tox" style="background:var(--amber)"></i></div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Système · fleet <span class="dim" style="letter-spacing:0">— services · timers (lecture seule)</span></h2>
+      <div class="row"><span class="k">boucle / scan</span><span id="sy-loop">—</span></div>
+      <div class="row"><span class="k">collecteur micro.</span><span id="sy-micro">—</span></div>
+      <div class="row"><span class="k">dashboard · bot</span><span id="sy-svc">—</span></div>
+      <div class="row"><span class="k">kill-switch</span><span id="sy-kill">—</span></div>
+    </div>
     <div class="panel"><h2>Probability Lattice</h2><canvas id="lattice" height="150"></canvas></div>
     <div class="panel">
       <h2>Market · Sentiment</h2>
@@ -290,11 +339,28 @@ const $=id=>document.getElementById(id);
 const fmt=(v,d=2)=>(v===null||v===undefined||v==="")?"—":(typeof v==="number"?v.toFixed(d):v);
 function human(n){if(n===null||n===undefined)return"—";const u=["","K","M","B","T"];let i=0;n=Math.abs(n);while(n>=1000&&i<u.length-1){n/=1000;i++;}return n.toFixed(1)+u[i];}
 function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100,pct))+"%";}
+function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v||0)),pos=cv>=0,half=Math.abs(cv)*50;e.style.left=(pos?50:50-half)+"%";e.style.width=half+"%";e.style.background=pos?"#2ec27e":"#f5566b";}
 
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
 let _candles=[],chart=null,series={};
-let TF="5m",projLines=[];
+let TF="5m",SYMBOL="BTCUSDT",projLines=[],_drawnSym=null,_lastSymbols=[];
+// bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
+function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;renderPicker(_lastSymbols);tick();}
+function renderPicker(symbols){
+  const host=document.getElementById("sym-pick");if(!host)return;
+  _lastSymbols=symbols||_lastSymbols;
+  const want=(symbols||[]).join(",");
+  if(host.dataset.k!==want){                       // ne (re)construit que si l'univers change
+    host.dataset.k=want;host.innerHTML="";
+    (symbols||[]).forEach(s=>{
+      const c=document.createElement("span");c.className="chip";c.textContent=s.replace(/USDT$/,"");c.dataset.sym=s;
+      c.addEventListener("click",()=>selectSymbol(s));
+      host.appendChild(c);
+    });
+  }
+  host.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",c.dataset.sym===SYMBOL));
+}
 
 function emaSeries(vals,period){
   const out=vals.map(()=>null);if(vals.length<period)return out;
@@ -338,6 +404,8 @@ function applyChartLayers(){
 function drawChart(candles){
   if(candles)_candles=candles;
   if(!chart||!_candles.length)return;
+  const switched=(SYMBOL!==_drawnSym);
+  if(switched){clearProjLines();series.candles.setMarkers([]);}  // purge l'actif précédent
   series.candles.setData(_candles.map(k=>({time:k[0],open:k[1],high:k[2],low:k[3],close:k[4]})));
   const closes=_candles.map(k=>k[4]);
   series.ema20.setData(_lineData(emaSeries(closes,20)));
@@ -345,6 +413,7 @@ function drawChart(candles){
   series.vwap.setData(_lineData(vwapSeries(_candles)));
   series.volume.setData(_candles.map(k=>({time:k[0],value:k[5]||0,
     color:k[4]>=k[1]?"rgba(46,194,126,.45)":"rgba(245,86,107,.45)"})));
+  if(switched){chart.timeScale().fitContent();_drawnSym=SYMBOL;}  // recadre sur le nouvel actif
 }
 
 // pose la "conscience" du cerveau (biais + consensus + régime de vol) sur la dernière bougie
@@ -492,9 +561,11 @@ function renderBrain(b){
   agents.forEach(a=>{
     const v=a.vote||0,pos=v>=0,half=Math.min(Math.abs(v),1)*50,left=pos?50:50-half;
     const row=document.createElement("div");row.className="ag";row.dataset.ag=a.agent;
+    const nt=(notes[a.agent]||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
     row.innerHTML=`<div class="nm">${a.agent}</div>`+
       `<div class="vbar"><div class="zero"></div><i style="left:${left}%;width:${half}%;background:${pos?"#2ec27e":"#f5566b"}"></i></div>`+
-      `<div class="meta">${(v>=0?"+":"")}${v.toFixed(2)} · c${a.conf!=null?a.conf.toFixed(2):"—"} · w${a.weight!=null?a.weight.toFixed(2):"—"}</div>`;
+      `<div class="meta">${(v>=0?"+":"")}${v.toFixed(2)} · c${a.conf!=null?a.conf.toFixed(2):"—"} · w${a.weight!=null?a.weight.toFixed(2):"—"}</div>`+
+      `<div class="note">${nt||"—"}</div>`;
     row.title=notes[a.agent]||"";
     bindClickDbl(row,()=>{brainIso=(brainIso===a.agent)?null:a.agent;styleBrainIso();},
                      ()=>{brainIso=a.agent;styleBrainIso();});
@@ -520,6 +591,34 @@ function renderLiq(d){
       `<span class="dim">$${human(c.notional_usd)}</span></div>`;
   });
   $("lq-clusters").innerHTML=html||"<span class='dim'>n/a</span>";
+}
+
+// --- positions en cours (paper) : liste cliquable, clic = charge l'actif sur le graphique ---
+function renderPositions(list){
+  const host=$("positions");if(!host)return;
+  list=list||[];
+  $("pos-count").textContent=list.length?(list.length+" ouvertes"):"aucune";
+  if(!list.length){host.innerHTML="<div class='dim' style='padding:6px'>aucune position ouverte</div>";return;}
+  let html='<div class="pos-h"><span>SYMBOLE</span><span>SENS</span><span class="r">ENTRÉE</span>'+
+    '<span class="r">PRIX</span><span class="r">PnL</span><span class="r">SL</span><span class="r">TP</span><span class="r">RSI</span></div>';
+  list.forEach(p=>{
+    const long=p.side==="LONG",sideCls=long?"green":"red";
+    const pnl=p.pnl_pct,pnlCls=(pnl==null)?"dim":(pnl>=0?"green":"red");
+    const pnlTxt=(pnl==null)?"—":((pnl>=0?"+":"")+pnl.toFixed(2)+"%");
+    const on=(p.symbol===SYMBOL)?" on":"";
+    html+=`<div class="pos-r${on}" data-sym="${p.symbol}">`+
+      `<span class="sym">${p.symbol.replace(/USDT$/,"")}</span>`+
+      `<span class="${sideCls}">${p.side}</span>`+
+      `<span class="r">${fmt(p.entry)}</span>`+
+      `<span class="r">${fmt(p.current_price)}</span>`+
+      `<span class="r ${pnlCls}">${pnlTxt}</span>`+
+      `<span class="r dim">${fmt(p.stop_loss)}</span>`+
+      `<span class="r dim">${fmt(p.take_profit)}</span>`+
+      `<span class="r dim">${p.rsi!=null?(+p.rsi).toFixed(0):"—"}</span>`+
+      `</div>`;
+  });
+  host.innerHTML=html;
+  host.querySelectorAll(".pos-r").forEach(r=>r.addEventListener("click",()=>selectSymbol(r.dataset.sym)));
 }
 
 // --- futurtester : éventail d'issues + stress du biais (plages CONDITIONNELLES) ---
@@ -560,7 +659,8 @@ function renderFuture(f){
 async function tick(){
   const t0=performance.now();
   try{
-    const st=await(await fetch("/api/state?tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
+    const st=await(await fetch("/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
+    renderPicker(st.symbols);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
     $("mode").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
     const win=(s.win_rate==null)?null:s.win_rate;
@@ -581,7 +681,8 @@ async function tick(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
-    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});
+    $("c-sym").textContent=(st.symbol||"").replace(/USDT$/,"")||"—";
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});renderPositions(st.positions||[]);
     const pj=st.projection||{};
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
@@ -610,6 +711,32 @@ async function tick(){
     $("md-dd").textContent=(md.max_drawdown_pct!=null)?(md.max_drawdown_pct+"%"):"—";
     const fl=md.futures_live_agents||[];$("md-live").textContent=fl.length?fl.join(", "):"aucun (edge non prouvé)";$("md-live").className=fl.length?"green":"dim";
     const tiers=Object.entries(ed).map(([a,t])=>a+":"+t).join(" · ");$("ed-tiers").textContent="edge — "+(tiers||"—");
+    // --- caps réels (3 couches + tripwire) + canaux d'edge accumulés ---
+    const cp=st.caps||{},mi=st.microstructure||{},mtm=st.market_timing||{};
+    $("cp-spent").textContent=(cp.spent_today!=null)?("$"+cp.spent_today+" / promesse $"+(cp.promise!=null?cp.promise:5)):"—";$("cp-spent").className=cp.breach?"red":"green";
+    $("cp-caps").textContent=(cp.daily_eff!=null)?("$"+cp.daily_eff+"/j · mur $"+(cp.abs_daily!=null?cp.abs_daily:25)):"—";
+    $("eg-micro").textContent=(mi.n_records)?(mi.n_records+" obs · "+(mi.best_feature||"—")+" t="+(mi.best_ic_t!=null?mi.best_ic_t:"—")):"accumule…";
+    $("eg-mtim").textContent=(mtm.n_records)?(mtm.n_records+"j · macro t="+(mtm.macro_ic_t!=null?mtm.macro_ic_t:"—")+" · sent t="+(mtm.sentiment_ic_t!=null?mtm.sentiment_ic_t:"—")):"accumule…";
+    // --- microstructure LIVE (collecteur 24/7) + santé système (fleet) ---
+    const ml=st.micro_live||{},sysd=st.system||{},lp=sysd.loop||{},sv=sysd.services||{};
+    if(ml.n){
+      const sg=x=>(x>=0?"+":"")+(+x).toFixed(3);
+      $("ms-ofi").textContent=sg(ml.ofi||0);$("ms-ofi").className=(ml.ofi||0)>=0?"green":"red";
+      $("ms-qi").textContent=sg(ml.queue_imbalance||0);$("ms-qi").className=(ml.queue_imbalance||0)>=0?"green":"red";
+      $("ms-ts").textContent=sg(ml.trade_sign||0);$("ms-ts").className=(ml.trade_sign||0)>=0?"green":"red";
+      $("ms-sp").textContent=(ml.spread_bps!=null?(+ml.spread_bps).toFixed(3):"—");
+      $("ms-mk").textContent=sg(ml.markout_bps||0);$("ms-mk").className=(ml.markout_bps||0)>=0?"green":"red";
+      const tox=ml.toxicity||0;$("ms-tox").textContent=(tox*100).toFixed(1)+"%";$("ms-tox").className=tox>0.3?"red":tox>0.1?"amber":"green";
+      sbar("msb-ofi",ml.ofi);sbar("msb-qi",ml.queue_imbalance);sbar("msb-ts",ml.trade_sign);
+      {const tb=$("msb-tox");if(tb)tb.style.width=Math.min(100,tox*100)+"%";}
+    }else{["ms-ofi","ms-qi","ms-ts","ms-sp","ms-mk","ms-tox"].forEach(id=>{$(id).textContent="hors collecteur";$(id).className="dim";});
+      ["msb-ofi","msb-qi","msb-ts","msb-tox"].forEach(id=>{const e=$(id);if(e)e.style.width="0";});}
+    $("sy-loop").textContent=(lp.verdict||"—")+(lp.scan_age_min!=null?(" · scan "+(+lp.scan_age_min).toFixed(1)+"min"):"");
+    $("sy-loop").className=(lp.verdict==="RUNNING"||lp.verdict==="RUNNING?")?"green":(lp.verdict==="STALE"?"amber":(lp.verdict?"red":"dim"));
+    $("sy-micro").textContent=(sysd.micro_age_s!=null)?("frais "+sysd.micro_age_s+"s"):(sv.microstructure?"actif":"—");
+    $("sy-micro").className=(sysd.micro_age_s!=null&&sysd.micro_age_s<180)?"green":(sysd.micro_age_s!=null?"amber":"dim");
+    $("sy-svc").textContent=(sv.dashboard?"dash ✓":"dash ✗")+" · "+(sv.bot?"bot ✓":"bot ✗");$("sy-svc").className=(sv.dashboard&&sv.bot)?"green":"amber";
+    $("sy-kill").textContent=(sysd.kill_switch==null)?"—":(sysd.kill_switch?"ARMÉ ⚠":"inactif");$("sy-kill").className=sysd.kill_switch?"red":"green";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget watchdog (detection anomalie + alerte Telegram immediate, lecture seule)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+# --alert : envoie Telegram UNIQUEMENT si DOWN/STALE (silencieux si sain).
+# Pas de --arm-killswitch ici : auto-halte sans cooldown = blocage sur transitoire.
+ExecStart=/usr/bin/python3 watchdog.py --alert
+User=root
+Nice=10
+TimeoutStartSec=120
