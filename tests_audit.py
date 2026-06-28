@@ -473,6 +473,55 @@ def test_risk_manager():
     finally:
         del os.environ["TRADING_HALT"]
 
+
+def test_check_trade_depth_priority_boundaries_failclosed():
+    """Porte dure check_trade en profondeur : priorité du kill-switch, bornes
+    exactes (>= vs >), et DURCISSEMENT fail-closed (entrées dégénérées rejetées
+    proprement plutôt que de lever — sinon l'appelant fail-safe d'execution_gateway
+    pourrait laisser passer l'ordre)."""
+    import os
+    import risk_manager as rm
+    lim = {"max_position_usd": 50, "max_leverage": 3, "max_open_positions": 3, "max_daily_loss_usd": 25}
+
+    def ct(notional=30, leverage=2, open_positions=0, daily_loss_usd=0):
+        return rm.check_trade({"notional_usd": notional, "leverage": leverage},
+                              open_positions=open_positions, daily_loss_usd=daily_loss_usd, limits=lim)
+
+    # priorité : le kill-switch prime sur TOUTE autre violation
+    os.environ["TRADING_HALT"] = "1"
+    try:
+        ok, r = ct(notional=9999, leverage=99, open_positions=99, daily_loss_usd=9999)
+        assert not ok and "KILL_SWITCH" in r
+    finally:
+        del os.environ["TRADING_HALT"]
+
+    # bornes exactes
+    assert ct(daily_loss_usd=25)[0] is False         # loss == max -> halte (>=)
+    assert ct(daily_loss_usd=24.99)[0] is True
+    assert ct(open_positions=3)[0] is False          # positions == max -> rejet (>=)
+    assert ct(open_positions=2)[0] is True
+    assert ct(notional=50)[0] is True                # notional == max -> autorisé (>)
+    assert ct(notional=50.01)[0] is False
+    assert ct(leverage=3)[0] is True                 # levier == max -> autorisé (>)
+    assert ct(leverage=3.01)[0] is False
+
+    # notional invalide (<= 0)
+    assert ct(notional=0)[0] is False
+    assert ct(notional=-10)[0] is False
+
+    # DURCISSEMENT fail-closed : dégénérés REJETÉS proprement, jamais d'exception
+    ok, r = ct(leverage=-5)                          # levier négatif : ex-faille (passait OK) -> rejeté
+    assert not ok and "levier invalide" in r
+    ok, r = ct(notional="abc")                       # non numérique : ex-ValueError -> rejet propre
+    assert not ok and "notional invalide" in r
+    ok, r = ct(leverage="x")
+    assert not ok and "levier invalide" in r
+
+    # comportement préservé : levier 0 ou absent reste traité comme 1x (autorisé)
+    assert ct(leverage=0)[0] is True
+    assert rm.check_trade({"notional_usd": 30}, open_positions=0, daily_loss_usd=0, limits=lim)[0] is True
+
+
 def test_polymarket_parse():
     import polymarket_data as pm
     data = [
