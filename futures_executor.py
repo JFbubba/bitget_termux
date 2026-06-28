@@ -109,25 +109,35 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
     if not futures_live:
         reasons.append(f"agent '{agent}' non éligible LIVE (porte d'edge non franchie)")
 
-    # 4. levier ≤ mur dur
+    # 4. levier ≤ mur dur (fail-closed : non numérique -> rejeté, jamais d'exception)
     max_lev = _limit("MANDATE_MAX_LEVERAGE", 5.0)
-    lev = float(leverage or 0)
-    if lev <= 0:
-        reasons.append("levier ≤ 0")
-    elif lev > max_lev:
-        reasons.append(f"levier {lev} > mur dur {max_lev}")
+    try:
+        lev = float(leverage or 0)
+    except (TypeError, ValueError):
+        lev = None
+        reasons.append("levier invalide (non numérique)")
+    if lev is not None:
+        if lev <= 0:
+            reasons.append("levier ≤ 0")
+        elif lev > max_lev:
+            reasons.append(f"levier {lev} > mur dur {max_lev}")
 
-    # 5. caps notional par trade ET exposition cumulée
-    notion = float(notional_usdt or 0)
-    if notion <= 0:
-        reasons.append("notional ≤ 0")
-    per_cap = _limit("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0)
-    if notion > per_cap:
-        reasons.append(f"notional {notion} > plafond/trade {per_cap}")
-    gross_cap = _limit("FUTURES_REAL_MAX_GROSS_USDT", 20.0)
-    gross = float(gross_open_usdt or 0)
-    if gross + notion > gross_cap:
-        reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
+    # 5. caps notional par trade ET exposition cumulée (fail-closed sur non numérique)
+    try:
+        notion = float(notional_usdt or 0)
+    except (TypeError, ValueError):
+        notion = None
+        reasons.append("notional invalide (non numérique)")
+    if notion is not None:
+        if notion <= 0:
+            reasons.append("notional ≤ 0")
+        per_cap = _limit("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0)
+        if notion > per_cap:
+            reasons.append(f"notional {notion} > plafond/trade {per_cap}")
+        gross_cap = _limit("FUTURES_REAL_MAX_GROSS_USDT", 20.0)
+        gross = float(gross_open_usdt or 0)
+        if gross + notion > gross_cap:
+            reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
 
     # 6. halte drawdown (equity réelle)
     if equity_curve is not None:

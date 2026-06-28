@@ -3410,6 +3410,25 @@ def test_futures_executor_guards_8():
     assert fe.guards("geometric", 8, 2, client_oid="dup", seen_oids=["dup"], **base)[0] is False
 
 
+def test_futures_guards_fail_closed_on_bad_inputs():
+    """guards : entrées numériques dégénérées REJETÉES proprement (jamais d'exception),
+    cohérent avec check_trade / spot_executor.guards. Gardes injectées passantes pour
+    isoler l'entrée invalide. Signature : guards(agent, notional_usdt, leverage, ...)."""
+    import futures_executor as fe
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    # levier non numérique -> rejet propre
+    ok, reasons = fe.guards("geometric", 8, "abc", **base)
+    assert ok is False and any("levier invalide" in r for r in reasons)
+    # notional non numérique -> rejet propre
+    ok2, reasons2 = fe.guards("geometric", "xx", 2, **base)
+    assert ok2 is False and any("notional invalide" in r for r in reasons2)
+    # contrôle positif : entrées valides -> toujours accepté
+    assert fe.guards("geometric", 8, 2, **base)[0] is True
+    # rejets ≤ 0 préservés (régression)
+    assert fe.guards("geometric", 8, 0, **base)[0] is False
+    assert fe.guards("geometric", 0, 2, **base)[0] is False
+
+
 def test_futures_executor_dry_and_real_path():
     import futures_executor as fe
     full = dict(live=True, autonomous=True, futures_live=True, kill=False)
