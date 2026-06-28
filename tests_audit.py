@@ -3859,6 +3859,112 @@ def test_bitget_market_data_degrades_gracefully_after_retries():
     assert state["calls"] == 9                                      # 3 fetch × 3 tentatives (retry actif)
 
 
+# ---------- edge_ladder : porte d'edge (le réel exige replay ET confirmation live) ----------
+
+def _edge_report():
+    """Rapport de validation factice couvrant les 4 paliers. Valeurs extrêmes pour
+    rester non ambigu quelle que soit la config (seuils replay/live)."""
+    return {
+        "ranking": [
+            {"agent": "alpha", "dsr": 0.99, "n": 10000, "oos_sharpe": 2.0},  # replay OK + live OK -> LIVE
+            {"agent": "beta",  "dsr": 0.99, "n": 10000, "oos_sharpe": 2.0},  # replay OK, live absent -> PROBATION
+            {"agent": "gamma", "dsr": 0.30, "n": 5,     "oos_sharpe": 0.0},  # -> PAPER
+            {"agent": "delta", "dsr": 0.0,  "n": 5},                          # -> NEGATIVE
+        ],
+        "live": {"agents": [
+            {"agent": "alpha", "n": 100000, "ic_t": 10.0},                   # confirme le LIVE d'alpha
+        ]},
+    }
+
+
+def test_edge_ladder_tiers_and_live_gate():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.agent_tier("alpha", rep) == "LIVE"
+    assert el.agent_tier("beta", rep) == "PROBATION"     # replay seul ne suffit PAS au réel
+    assert el.agent_tier("gamma", rep) == "PAPER"
+    assert el.agent_tier("delta", rep) == "NEGATIVE"
+    assert el.agent_tier("inconnu", rep) == "NEGATIVE"   # absent -> bridé par défaut
+    assert el.all_tiers(rep) == {"alpha": "LIVE", "beta": "PROBATION",
+                                 "gamma": "PAPER", "delta": "NEGATIVE"}
+
+
+def test_edge_ladder_live_agents_requires_live_confirmation():
+    import edge_ladder as el
+    rep = _edge_report()
+    # PROPRIÉTÉ DE SÛRETÉ : seuls les agents au palier LIVE sont éligibles au réel,
+    # et beta (replay battu mais live NON confirmé) ne doit PAS y figurer.
+    assert el.live_agents(rep) == ["alpha"]
+    assert "beta" not in el.live_agents(rep)
+    assert el.live_pending(rep["ranking"][1]) is True    # beta : à une confirmation live près
+    assert el.live_pending(rep["ranking"][0],
+                           {"n": 100000, "ic_t": 10.0}) is False  # alpha déjà confirmé
+
+
+def test_edge_ladder_weight_prior_by_tier():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.weight_prior("alpha", rep) == 1.5          # LIVE
+    assert el.weight_prior("beta", rep) == 1.0           # PROBATION
+    assert el.weight_prior("gamma", rep) == 0.6          # PAPER
+    assert el.weight_prior("delta", rep) == 0.3          # NEGATIVE
+    # prior borné : ordonné par palier, jamais négatif
+    priors = [el.weight_prior(a, rep) for a in ("alpha", "beta", "gamma", "delta")]
+    assert priors == sorted(priors, reverse=True) and min(priors) > 0
+
+
+# ---------- mandate : sizing du capital réel (déploiement / risque par trade) ----------
+
+def test_mandate_risk_per_trade_usd():
+    import mandate
+    assert mandate.risk_per_trade_usd(1000, pct=0.75) == 7.5
+    assert mandate.risk_per_trade_usd(2000, pct=1.0) == 20.0
+    assert mandate.risk_per_trade_usd(0, pct=0.75) == 0.0
+    # le risque par trade reste une petite fraction de l'equity
+    assert mandate.risk_per_trade_usd(1000, pct=0.75) < 1000
+
+
+def test_mandate_deployable_usd_keeps_cash_floor():
+    import mandate
+    assert mandate.deployable_usd(1000, cash_floor_pct=10) == 900.0
+    assert mandate.deployable_usd(1000, cash_floor_pct=0) == 1000.0
+    assert mandate.deployable_usd(1000, cash_floor_pct=100) == 0.0   # plancher total -> rien déployable
+    # le déployable ne dépasse jamais l'equity et garde la réserve
+    assert mandate.deployable_usd(1000, cash_floor_pct=10) <= 1000
+
+
+# ---------- risk_limits : plafonds AGRÉGÉS de portefeuille ----------
+
+def test_risk_limits_portfolio_caps():
+    import risk_limits as rl
+
+    def mk(oid, notional, sl=None, status="PENDING_APPROVAL"):
+        return {"id": oid, "status": status, "notional_usdt": notional,
+                "sl_distance_percent": (rl.MIN_SL_DISTANCE_PERCENT + 1.0) if sl is None else sl}
+
+    # ordre propre, budget large -> aucun rejet
+    assert rl.evaluate_portfolio_caps([mk("a", 10.0)], 0, 1.0) == {}
+
+    # plafond du nombre de positions simultanées
+    capped = rl.evaluate_portfolio_caps([mk("a", 10.0)], rl.MAX_CONCURRENT_POSITIONS, 1.0)
+    assert "a" in capped and any("plafond positions" in r for r in capped["a"])
+
+    # plancher de distance de stop
+    sl_bad = rl.evaluate_portfolio_caps([mk("a", 10.0, sl=rl.MIN_SL_DISTANCE_PERCENT / 2)], 0, 1.0)
+    assert "a" in sl_bad and any("distance stop" in r for r in sl_bad["a"])
+
+    # plafond du notionnel total
+    notion = rl.evaluate_portfolio_caps([mk("a", rl.MAX_TOTAL_NOTIONAL_USDT + 100)], 0, 1.0)
+    assert "a" in notion and any("notionnel" in r for r in notion["a"])
+
+    # plafond du risque total cumulé
+    risky = rl.evaluate_portfolio_caps([mk("a", 10.0)], 0, rl.MAX_TOTAL_RISK_PERCENT + 1.0)
+    assert "a" in risky and any("risque" in r for r in risky["a"])
+
+    # les ordres NON PENDING_APPROVAL sont ignorés (jamais re-rejetés)
+    assert rl.evaluate_portfolio_caps([mk("z", 9e9, status="REJECTED")], 0, 1.0) == {}
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
