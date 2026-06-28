@@ -3808,6 +3808,57 @@ def test_csv_utils_find_value():
     assert csv_utils.find_value({}, ["x"]) == ""
 
 
+# ---------- bitget_market_data : retry du choke-point _get + dégradation (SANS réseau) ----------
+
+def _fake_bmd_requests(fail=0, data=None, code="00000"):
+    """Faux `requests` pour bitget_market_data : `fail` premiers appels lèvent."""
+    state = {"calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception
+
+        @staticmethod
+        def get(url, *a, **k):
+            state["calls"] += 1
+            if state["calls"] <= fail:
+                raise RuntimeError("microstructure blip (simulé)")
+            return _FakeResp({"code": code, "data": data})
+
+    return _FakeRequests, state
+
+
+def test_bitget_market_data_get_retries_then_succeeds():
+    import bitget_market_data as bmd
+    book = {"bids": [["100", "1"]], "asks": [["101", "2"]]}
+    fake, state = _fake_bmd_requests(fail=2, data=book)             # 2 blips puis OK
+    saved_req, saved_time = bmd.requests, bmd.time
+    bmd.requests, bmd.time = fake, _NoSleep
+    try:
+        out = bmd.fetch_orderbook("BTCUSDT")
+    finally:
+        bmd.requests, bmd.time = saved_req, saved_time
+    assert state["calls"] == 3                                      # 2 retries + 1 succès
+    assert out == book
+
+
+def test_bitget_market_data_degrades_gracefully_after_retries():
+    import bitget_market_data as bmd
+    fake, state = _fake_bmd_requests(fail=99)                       # toujours KO
+    saved_req, saved_time = bmd.requests, bmd.time
+    bmd.requests, bmd.time = fake, _NoSleep
+    try:
+        ob = bmd.fetch_orderbook("BTCUSDT")
+        tr = bmd.fetch_recent_trades("BTCUSDT")
+        oi = bmd.fetch_open_interest("BTCUSDT")
+    finally:
+        bmd.requests, bmd.time = saved_req, saved_time
+    # contrat de dégradation gracieuse préservé : valeurs vides, jamais d'exception
+    assert ob == {"bids": [], "asks": []}
+    assert tr == []
+    assert oi == {"openInterestList": []}
+    assert state["calls"] == 9                                      # 3 fetch × 3 tentatives (retry actif)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

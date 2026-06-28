@@ -17,6 +17,7 @@ CLI : python bitget_market_data.py [SYMBOL]
 """
 
 import sys
+import time
 
 import requests
 
@@ -24,17 +25,33 @@ import config
 import order_flow
 
 BASE_URL = "https://api.bitget.com"
+_RETRIES = 3
+_BACKOFF_BASE = 0.5  # 0.5s, 1s, 2s entre les tentatives
 
 
 # ---------- réseau (impur) ----------
 
 def _get(path, params):
-    response = requests.get(BASE_URL + path, params=params, timeout=10)
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("code") != "00000":
-        raise RuntimeError(f"Bitget {path}: {payload}")
-    return payload["data"]
+    """Fetch public Bitget avec RETRY + backoff (3 tentatives).
+
+    Lève si les 3 tentatives échouent : les appelants `fetch_*` capturent et
+    dégradent alors vers une valeur vide (carnet/trades/OI/funding). Le retry
+    encaisse les blips transitoires (timeout / rate-limit) qui, sans lui,
+    privaient le cerveau de microstructure pour tout un cycle."""
+    last_error = None
+    for attempt in range(_RETRIES):
+        try:
+            response = requests.get(BASE_URL + path, params=params, timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("code") != "00000":
+                raise RuntimeError(f"Bitget {path}: {payload}")
+            return payload["data"]
+        except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
+            last_error = exc
+            if attempt < _RETRIES - 1:
+                time.sleep(_BACKOFF_BASE * (2 ** attempt))
+    raise last_error
 
 
 def fetch_orderbook(symbol, product_type=None, limit="50"):
