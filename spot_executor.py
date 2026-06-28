@@ -130,7 +130,13 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
             kill = False
     if kill:
         reasons.append("kill_switch actif")
-    amt = float(amount_usdt or 0)
+    # fail-closed gracieux : un montant non numérique est REJETÉ (avec les raisons
+    # déjà accumulées), jamais propagé en exception qui crasherait l'appelant.
+    try:
+        amt = float(amount_usdt or 0)
+    except (TypeError, ValueError):
+        reasons.append("montant invalide (non numérique)")
+        return (False, reasons)
     if amt <= 0:
         reasons.append("montant ≤ 0")
     cap = _capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, ACCUM_ABS_MAX_PER_BUY_USDT)

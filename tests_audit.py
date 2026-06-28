@@ -3302,6 +3302,28 @@ def test_spot_executor_guards_and_dry():
     assert se._extract_usdt_available({"data": []}) is None
 
 
+def test_spot_executor_guards_fail_closed_on_bad_amount():
+    """Garde réelle fail-closed GRACIEUX : un montant non numérique est REJETÉ
+    proprement (jamais d'exception qui crasherait execute/scheduler), avec les
+    raisons déjà détectées (verrou, kill) conservées."""
+    import spot_executor as se
+    ok, reasons = se.guards("abc", balance=100, spent=0, live=True, kill=False)
+    assert ok is False and any("non numérique" in r for r in reasons)
+    # raisons cumulées préservées : verrou coupé ET montant invalide
+    ok2, reasons2 = se.guards("abc", balance=100, spent=0, live=False, kill=False)
+    assert ok2 is False
+    assert any("non numérique" in r for r in reasons2)
+    assert any("MANDATE_LIVE_ENABLED" in r for r in reasons2)
+    # None / négatif : rejet propre (verrouillé)
+    assert se.guards(None, balance=100, spent=0, live=True, kill=False)[0] is False
+    assert se.guards(-5, balance=100, spent=0, live=True, kill=False)[0] is False
+    # execute ne lève plus sur montant non numérique et N'EXÉCUTE PAS (style taker -> sans réseau)
+    called = []
+    r = se.execute("abc", confirm=True, balance=100, spent=0, now=1_000_000, style="taker",
+                   runner=lambda c: (called.append(1), "x")[1])
+    assert r["ok"] is False and r["executed"] is False and not called   # runner jamais appelé
+
+
 def test_futures_executor_build_order():
     import futures_executor as fe
     # construction PURE : side neutre 'long'/'short', levier CLAMPÉ au mur ×5
