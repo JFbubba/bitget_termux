@@ -296,13 +296,14 @@ def _run_real(a, now):
     last_real = buys[-1]["ts"] if buys else None
     amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 50.0)))
     a["mode"] = "RÉEL (auto)"
-    # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché
-    fair_ok = True
+    # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
+    # FAIL-CLOSED : si la garde premium est illisible (fair_price KO), on s'abstient
+    # plutôt que d'acheter à l'aveugle au-dessus du marché.
     try:
         import fair_price as fp
         fair_ok = fp.is_fair_to_buy(a.get("premium_pct"), _cfg("ACCUM_MAX_PREMIUM_PCT", 0.30))
     except Exception:
-        pass
+        fair_ok = False
     if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
         res = se.execute(amount, confirm=True, now=now)
         a["bought"] = bool(res.get("executed"))
@@ -311,7 +312,8 @@ def _run_real(a, now):
     else:
         a["bought"] = False
         if not fair_ok:
-            a["skip_reason"] = f"premium Bitget {a.get('premium_pct')}% > max -> on n'accumule pas au-dessus du marché"
+            a["skip_reason"] = ("garde premium indisponible ou Bitget en premium "
+                                f"({a.get('premium_pct')}%) -> on n'accumule pas au-dessus du marché")
     a["ledger"] = {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
                    "n_buys": len(buys)}
     return a

@@ -2971,6 +2971,39 @@ def test_accumulation_autonomous_double_lock():
     assert ae._autonomous_decision(False, False) is False
 
 
+def test_accumulation_run_real_premium_guard_fail_closed():
+    """_run_real : la garde MEILLEUR PRIX est FAIL-CLOSED — si fair_price est
+    illisible, l'achat réel autonome est SUSPENDU (jamais d'achat « à l'aveugle »
+    au-dessus du marché). Hermétique : spot_executor.execute et fair_price sont
+    stubbés -> aucun ordre réel, aucun réseau."""
+    import accumulation_engine as ae
+    import spot_executor as se
+    import fair_price as fp
+    saved = (se._load_real, se.execute, fp.is_fair_to_buy)
+    calls = []
+    try:
+        se._load_real = lambda: {"buys": []}                 # aucun achat antérieur -> intervalle écoulé
+        se.execute = lambda amt, **k: (calls.append(amt), {"executed": True})[1]
+        base = {"price": 60000.0, "amount_usd": 5.0, "premium_pct": 0.0}
+
+        # 1) garde premium illisible -> FAIL-CLOSED : aucun achat, execute jamais appelé
+        fp.is_fair_to_buy = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("fair_price indispo"))
+        r1 = ae._run_real(dict(base), now=1_000_000)
+        assert r1["bought"] is False and calls == [] and "skip_reason" in r1
+
+        # 2) premium trop élevé -> pas d'achat
+        fp.is_fair_to_buy = lambda *a, **k: False
+        r2 = ae._run_real(dict(base), now=1_000_000)
+        assert r2["bought"] is False and calls == []
+
+        # 3) prix juste + intervalle écoulé -> achat délégué à spot_executor (montant plafonné)
+        fp.is_fair_to_buy = lambda *a, **k: True
+        r3 = ae._run_real(dict(base), now=2_000_000)
+        assert r3["bought"] is True and calls == [5.0]
+    finally:
+        (se._load_real, se.execute, fp.is_fair_to_buy) = saved
+
+
 def test_universe_ranking_and_quality():
     import universe as u
     data = {"data": [
