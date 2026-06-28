@@ -2686,6 +2686,38 @@ def test_execution_risk_gate_blocks_killswitch_and_caps():
          rm.KILL_FILE, rs.snapshot) = old
 
 
+def test_execution_risk_gate_fail_closed_when_guard_unavailable():
+    """_risk_gate FAIL-CLOSED : si la garde risque est indisponible (snapshot KO),
+    l'ordre est BLOQUÉ et non autorisé (ex-comportement : il passait). Le
+    kill-switch reste signalé en priorité s'il est armé."""
+    import tempfile
+    from pathlib import Path
+    import execution_gateway as eg
+    import risk_state as rs
+    import risk_manager as rm
+    order = {"id": "X", "notional_usdt": 40.0, "implied_leverage": 1.5}
+    tmp = Path(tempfile.mkdtemp())
+    old = (rs.snapshot, rm.KILL_FILE)
+    try:
+        def boom(*a, **k):
+            raise RuntimeError("état de risque indisponible (simulé)")
+        rs.snapshot = boom
+        rm.KILL_FILE = tmp / "KILL_SWITCH"                  # absent -> kill-switch inactif
+        # garde indisponible, pas de kill-switch -> BLOQUÉ (avant : autorisait)
+        ok, reason = eg._risk_gate(order)
+        assert ok is False and "fail-closed" in reason
+        # kill-switch armé -> bloqué aussi, message dédié
+        rm.KILL_FILE.write_text("halt")
+        ok2, reason2 = eg._risk_gate(order)
+        assert ok2 is False and "KILL_SWITCH" in reason2
+    finally:
+        (rs.snapshot, rm.KILL_FILE) = old
+        try:
+            (tmp / "KILL_SWITCH").unlink()
+        except Exception:
+            pass
+
+
 def test_brain_validation_throttle():
     import time
     import brain_validation as bv
