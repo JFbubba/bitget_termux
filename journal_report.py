@@ -15,13 +15,13 @@ def load_journal():
         return list(reader)
 
 
+from numeric_utils import safe_float as _safe_float
+
+
 def safe_float(value, default=0.0):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except ValueError:
-        return default
+    # défaut 0.0 conservé : les rapports formatent le résultat (%.4f) et ne
+    # tolèrent pas None. Délègue la conversion au helper partagé.
+    return _safe_float(value, default)
 
 
 def summarize(rows):

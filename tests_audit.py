@@ -3704,6 +3704,37 @@ def test_scanner_wrapper_success_passes_through():
     _with_fake_ticker_net(fake, _check)
 
 
+# ---------- numeric_utils.safe_float : helper centralisé + wrappers conservés ----------
+
+def test_numeric_utils_safe_float_core():
+    from numeric_utils import safe_float
+    assert safe_float(None) is None                          # défaut None
+    assert safe_float("") is None
+    assert safe_float("abc") is None
+    assert safe_float("1.5") == 1.5
+    assert safe_float("1.5", 0.0) == 1.5                     # défaut positionnel
+    assert safe_float(None, 0.0) == 0.0
+    assert safe_float("abc", -1) == -1
+    assert safe_float(["x"]) is None                         # TypeError capté (plus robuste)
+    assert safe_float({}, 0.0) == 0.0
+    assert safe_float("3,14") is None                        # virgule NON tolérée par défaut
+    assert safe_float("3,14", decimal_comma=True) == 3.14    # ... sauf si demandé
+
+
+def test_numeric_utils_wrappers_preserve_contracts():
+    import outcome_report, journal_report, order_signal_engine, preorder_engine
+    # variante B (rapports) : défaut 0.0 préservé, jamais None
+    assert outcome_report.safe_float("") == 0.0
+    assert outcome_report.safe_float("abc") == 0.0
+    assert journal_report.safe_float(None) == 0.0
+    assert outcome_report.safe_float("2.5") == 2.5
+    # variante E (pré-ordres) : défaut None + virgule décimale préservés
+    assert order_signal_engine.safe_float("") is None
+    assert order_signal_engine.safe_float("3,14") == 3.14
+    assert preorder_engine.safe_float("3,14") == 3.14
+    assert preorder_engine.safe_float(None) is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

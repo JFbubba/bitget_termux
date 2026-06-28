@@ -14,13 +14,7 @@ def append_journal(event):
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
-def safe_float(value):
-    try:
-        if value in [None, ""]:
-            return None
-        return float(value)
-    except Exception:
-        return None
+from numeric_utils import safe_float
 
 
 def parse_time(value):

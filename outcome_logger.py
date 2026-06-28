@@ -12,13 +12,7 @@ def parse_time(value):
     return datetime.fromisoformat(value)
 
 
-def safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except ValueError:
-        return default
+from numeric_utils import safe_float
 
 
 def signal_id_from_row(row):

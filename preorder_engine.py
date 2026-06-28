@@ -23,13 +23,12 @@ def read_csv_rows(path):
         return list(csv.DictReader(f))
 
 
+from numeric_utils import safe_float as _safe_float
+
+
 def safe_float(value):
-    try:
-        if value in [None, ""]:
-            return None
-        return float(str(value).replace(",", "."))
-    except Exception:
-        return None
+    # tolérance virgule décimale conservée (journaux potentiellement localisés).
+    return _safe_float(value, decimal_comma=True)
 
 
 def find_value(row, candidates):

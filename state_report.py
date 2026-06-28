@@ -17,13 +17,7 @@ def load_csv(path):
         return list(reader)
 
 
-def safe_float(value, default=None):
-    try:
-        if value is None or value == "":
-            return default
-        return float(value)
-    except ValueError:
-        return default
+from numeric_utils import safe_float
 
 
 def print_final_report(final_rows):
