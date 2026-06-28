@@ -3518,6 +3518,106 @@ def test_token_safety_best_effort_keeps_keys():
         ts.requests = saved
 
 
+# ---------- candle_reader : résilience des bougies (retry + repli), SANS réseau ----------
+
+class _FakeResp:
+    """Réponse HTTP factice : .raise_for_status() inerte, .json() rend le payload."""
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class _NoSleep:
+    """Remplace `time` dans candle_reader pour neutraliser le backoff (tests rapides)."""
+    @staticmethod
+    def sleep(*a, **k):
+        pass
+
+
+def _fake_requests(bitget_fail=0, bitget_payload=None, coingecko_payload=None):
+    """Fabrique un faux module `requests` déterministe (aucun appel réel).
+
+    bitget_fail : nombre d'appels Bitget qui lèvent avant de réussir.
+    coingecko_payload=None -> le repli CoinGecko lève aussi (panne totale)."""
+    state = {"bitget_calls": 0}
+
+    class _FakeRequests:
+        RequestException = Exception  # référencé par le except de candle_reader
+
+        @staticmethod
+        def get(url, *a, **k):
+            if "coingecko" in url:
+                if coingecko_payload is None:
+                    raise RuntimeError("coingecko indispo (simulé)")
+                return _FakeResp(coingecko_payload)
+            state["bitget_calls"] += 1
+            if state["bitget_calls"] <= bitget_fail:
+                raise RuntimeError("bitget blip (simulé)")
+            return _FakeResp(bitget_payload)
+
+    return _FakeRequests, state
+
+
+def _with_fake_candle_net(fake_requests, fn):
+    """Exécute fn() avec candle_reader.requests/time remplacés, puis restaure."""
+    import candle_reader as cr
+    saved_req, saved_time = cr.requests, cr.time
+    cr.requests, cr.time = fake_requests, _NoSleep
+    try:
+        return fn()
+    finally:
+        cr.requests, cr.time = saved_req, saved_time
+
+
+def test_candle_reader_bitget_ok_sorted():
+    import candle_reader as cr
+    # données Bitget volontairement dans le désordre (ts en ms, valeurs en str)
+    payload = {"code": "00000", "data": [
+        ["2000", "10", "12", "9", "11", "100", "1000"],
+        ["1000", "8", "9", "7", "8", "50", "400"],
+    ]}
+    fake, _ = _fake_requests(bitget_payload=payload)
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert [c["close"] for c in out] == [8.0, 11.0]          # trié par temps croissant
+    assert out[0]["time"] < out[1]["time"]
+    assert out[0]["volume_base"] == 50.0                     # volume Bitget conservé
+
+
+def test_candle_reader_retries_then_succeeds():
+    import candle_reader as cr
+    payload = {"code": "00000", "data": [["1000", "8", "9", "7", "8", "50", "400"]]}
+    fake, state = _fake_requests(bitget_fail=2, bitget_payload=payload)  # 2 échecs puis OK
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert len(out) == 1 and out[0]["close"] == 8.0
+    assert state["bitget_calls"] == 3                        # 2 retries + 1 succès
+
+
+def test_candle_reader_falls_back_to_coingecko():
+    import candle_reader as cr
+    # Bitget KO sur les 3 tentatives -> repli CoinGecko (OHLC sans volume)
+    cg_payload = [["1000", "8", "9", "7", "8"], ["2000", "10", "12", "9", "11"]]
+    fake, state = _fake_requests(bitget_fail=99, coingecko_payload=cg_payload)
+    out = _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+    assert state["bitget_calls"] == 3                        # bien 3 tentatives Bitget
+    assert [c["close"] for c in out] == [8.0, 11.0]
+    assert all(c["volume_base"] == 0.0 for c in out)         # repli sans volume
+
+
+def test_candle_reader_raises_when_both_sources_down():
+    import candle_reader as cr
+    fake, _ = _fake_requests(bitget_fail=99, coingecko_payload=None)  # panne totale
+    try:
+        _with_fake_candle_net(fake, lambda: cr.get_bitget_candles("BTCUSDT", limit=10))
+        assert False, "doit lever quand Bitget ET CoinGecko échouent"
+    except Exception:
+        pass                                                 # contrat d'échec préservé
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
