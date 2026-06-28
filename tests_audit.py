@@ -3774,6 +3774,40 @@ def test_indicator_functions_are_centralized():
             assert got is ref, f"{m}.{fn} n'est pas indicators.{fn} (copie locale ?)"
 
 
+# ---------- csv_utils : lecture de lignes + recherche tolérante (SANS réseau) ----------
+
+def test_csv_utils_read_csv_rows():
+    import csv_utils
+    import os
+    import tempfile
+    from pathlib import Path
+    # fichier absent -> [] (jamais d'exception)
+    assert csv_utils.read_csv_rows(Path("/no/such/file_xyz.csv")) == []
+    # fichier present -> liste de dicts
+    fd, name = tempfile.mkstemp(suffix=".csv")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("Symbol,Entry\nBTCUSDT,100\nETHUSDT,50\n")
+        rows = csv_utils.read_csv_rows(Path(name))
+        assert len(rows) == 2
+        assert rows[0]["Symbol"] == "BTCUSDT" and rows[1]["Entry"] == "50"
+    finally:
+        os.unlink(name)
+
+
+def test_csv_utils_find_value():
+    import csv_utils
+    row = {"Entry": "100", "Stop_Loss": "", "TP": "120"}
+    # insensible a la casse, 1re cle non vide
+    assert csv_utils.find_value(row, ["entry"]) == "100"
+    assert csv_utils.find_value(row, ["ENTRY", "tp"]) == "100"
+    # saute les valeurs vides, prend la suivante
+    assert csv_utils.find_value(row, ["stop_loss", "tp"]) == "120"
+    # aucune correspondance -> ""
+    assert csv_utils.find_value(row, ["absent"]) == ""
+    assert csv_utils.find_value({}, ["x"]) == ""
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

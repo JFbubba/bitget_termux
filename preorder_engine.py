@@ -1,4 +1,3 @@
-import csv
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -15,29 +14,13 @@ PENDING_ORDERS_FILE = Path("pending_orders.json")
 MAX_PREORDERS = 5
 
 
-def read_csv_rows(path):
-    if not path.exists():
-        return []
-
-    with path.open("r", encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
-
-
+from csv_utils import read_csv_rows, find_value
 from numeric_utils import safe_float as _safe_float
 
 
 def safe_float(value):
     # tolérance virgule décimale conservée (journaux potentiellement localisés).
     return _safe_float(value, decimal_comma=True)
-
-
-def find_value(row, candidates):
-    lower_map = {k.lower(): v for k, v in row.items()}
-    for candidate in candidates:
-        value = lower_map.get(candidate.lower())
-        if value not in [None, ""]:
-            return value
-    return ""
 
 
 def normalize_side(value):
