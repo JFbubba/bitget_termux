@@ -22,12 +22,7 @@ from pathlib import Path
 FINAL_OUTCOMES_FILE = Path("final_outcomes_journal.csv")
 
 
-def _cfg(name, default):
-    try:
-        import config
-        return getattr(config, name, default)
-    except Exception:
-        return default
+from config_utils import cfg as _cfg
 
 
 def _read_outcomes(path=None):

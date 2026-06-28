@@ -26,12 +26,7 @@ TIERS = ("LIVE", "PROBATION", "PAPER", "NEGATIVE")
 _PRIOR = {"LIVE": 1.5, "PROBATION": 1.0, "PAPER": 0.6, "NEGATIVE": 0.3}
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _load(report=None):

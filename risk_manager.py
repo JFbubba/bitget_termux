@@ -36,13 +36,7 @@ def _i(name, default):
         return int(default)
 
 
-def _cfg(name, fallback):
-    """Défaut depuis config (source unique #4), robuste si config indisponible."""
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def load_limits():

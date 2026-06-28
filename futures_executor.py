@@ -27,12 +27,7 @@ SYMBOL = "BTCUSDT"
 EXECUTION_MODE = "FUTURES_DRY_RUN_ONLY"   # verrou dur : aucun ordre réel à l'étape 1
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _limit(name, fallback):

@@ -22,12 +22,7 @@ from pathlib import Path
 VALIDATION_REPORT = Path(__file__).resolve().parent / "validation_report.json"
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 # ---------- verrou réel ----------

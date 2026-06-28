@@ -26,12 +26,7 @@ SYMBOL = "BTCUSDT"
 REAL_LEDGER = Path(__file__).resolve().parent / "accumulation_real_ledger.json"
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 def _limit(name, fallback):

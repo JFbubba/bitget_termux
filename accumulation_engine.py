@@ -35,12 +35,7 @@ DCA_ST_WEIGHT = 0.30         # poids de la survente court-terme dans le score (0
 DCA_ST_WINDOW = 24           # fenêtre (barres) de la moyenne mobile courte
 
 
-def _cfg(name, fallback):
-    try:
-        import config
-        return getattr(config, name, fallback)
-    except Exception:
-        return fallback
+from config_utils import cfg as _cfg
 
 
 # ---------- indicateurs purs ----------

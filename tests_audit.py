@@ -4128,6 +4128,35 @@ def test_risk_limits_portfolio_caps():
     assert rl.evaluate_portfolio_caps([mk("z", 9e9, status="REJECTED")], 0, 1.0) == {}
 
 
+# ---------- config_utils : lecture config centralisée (anti-reduplication de _cfg) ----------
+
+def test_config_utils_cfg_and_centralized():
+    """cfg : lit config.<name>, repli sur fallback si absent. Garde anti-reduplication :
+    aucun module ne redéfinit _cfg localement, et les modules migrés utilisent bien la
+    fonction centralisée (identité d'objet)."""
+    import os
+    import config
+    import config_utils
+    # attribut absent -> fallback (best-effort)
+    assert config_utils.cfg("DEFINITELY_NOT_A_CONFIG_KEY_XYZ", 42) == 42
+    assert config_utils.cfg("DEFINITELY_NOT_A_CONFIG_KEY_XYZ", "d") == "d"
+    # attribut présent -> valeur de config
+    setattr(config, "_CFG_PROBE_XYZ", 99)
+    try:
+        assert config_utils.cfg("_CFG_PROBE_XYZ", 0) == 99
+    finally:
+        delattr(config, "_CFG_PROBE_XYZ")
+    # plus aucune def _cfg locale hors config_utils
+    for path in os.listdir("."):
+        if path.endswith(".py") and path not in ("config_utils.py", "tests_audit.py"):
+            with open(path, encoding="utf-8") as fh:
+                assert "def _cfg(" not in fh.read(), f"{path} redéfinit _cfg localement"
+    # les modules safety-critiques utilisent la fonction centralisée (identité)
+    import risk_manager, spot_executor, mandate, futures_executor
+    for mod in (risk_manager, spot_executor, mandate, futures_executor):
+        assert mod._cfg is config_utils.cfg
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
