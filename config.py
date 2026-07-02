@@ -152,6 +152,14 @@ FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heure
 FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
 FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
 
+# Jambes cash-and-carry automatiques (carry_auto, §45) — short perp COUVERT par le
+# BTC spot détenu (delta-neutre, levier ×1, sans SL : hedgé). Entrée : ATTRACTIF
+# (carry_monitor, seuil 5 %) ; sortie par hystérésis sous le seuil ci-dessous.
+FUTURES_AUTO_CARRY = 1                # 0 = débrayer les jambes carry
+FUTURES_CARRY_NOTIONAL_USDT = 15.0    # short max (toujours ≤ 95 % de la couverture spot)
+FUTURES_CARRY_SEUIL_SORTIE_PCT = 2.0  # APR net sous lequel on FERME (hystérésis vs 5 %)
+FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de funding
+
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
                                          # compte en mode multi-devises (assetMode union,
                                          # constaté le 02/07) -> crossed FORCÉ (Bitget

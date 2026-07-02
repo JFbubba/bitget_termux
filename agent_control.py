@@ -68,6 +68,10 @@ COMMANDS = [
         "command": ["python", "futures_auto.py"],
     },
     {
+        "name": "Jambes cash-and-carry couvertes par le spot (§45 : décide, délègue)",
+        "command": ["python", "carry_auto.py"],
+    },
+    {
         "name": "Mandat de gestion : règles dures + agents autorisés en réel",
         "command": ["python", "mandate.py"],
     },

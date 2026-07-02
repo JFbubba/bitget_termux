@@ -98,6 +98,20 @@ def consensus_frais(entries, now=None, max_age_s=900):
     return None
 
 
+def proprietaire_position(events):
+    """PUR. Agent PROPRIÉTAIRE de la position ouverte : l'agent du dernier ordre RÉEL
+    d'OUVERTURE (reduce=False) journalisé. En mode one-way il n'y a qu'UNE position
+    nette par symbole : chaque boucle (auto_dir, carry) ne touche QUE la sienne — une
+    position d'un autre agent (ex. 'validation' manuelle) n'est JAMAIS touchée."""
+    for e in reversed(events or []):
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        order = e.get("order") or {}
+        if not order.get("reduce"):
+            return order.get("agent")
+    return None
+
+
 def dernier_ordre_auto_ts(events, agent="auto_dir"):
     """PUR. ts du dernier ordre RÉEL passé par la boucle auto (throttle). None sinon."""
     for e in reversed(events or []):
@@ -193,6 +207,15 @@ def run(now=None):
         out["decision"] = {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
         return out
     out["position"] = pos
+    # propriété : une position ouverte par un AUTRE agent (carry, validation...)
+    # n'est jamais touchée par la boucle directionnelle.
+    if pos:
+        owner = proprietaire_position(_executor_events())
+        out["owner"] = owner
+        if owner != "auto_dir":
+            out["decision"] = {"action": "rien", "side": None,
+                               "raison": f"position détenue par '{owner}' — pas à nous"}
+            return out
     d = decider(c, (pos or {}).get("side") if pos else None)
     out["decision"] = d
     if d["action"] == "rien":
@@ -247,6 +270,14 @@ def status(now=None):
         out["decision"] = {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
         return out
     out["position"] = pos
+    if pos:
+        owner = proprietaire_position(_executor_events())
+        out["owner"] = owner
+        if owner != "auto_dir":
+            out["decision"] = {"action": "rien", "side": None,
+                               "raison": f"position détenue par '{owner}' — pas à nous"}
+            out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now)
+            return out
     out["decision"] = decider(c, (pos or {}).get("side") if pos else None)
     out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now)
     return out

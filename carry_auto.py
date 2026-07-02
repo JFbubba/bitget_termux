@@ -1,0 +1,224 @@
+"""
+carry_auto.py — jambes CASH-AND-CARRY automatiques bornées (§45, full live).
+
+Classement : décision seulement — AUCUN ordre en dur ici (délègue tout à
+`futures_executor`, comme futures_auto). La stratégie : le BTC SPOT déjà détenu
+par l'accumulation (jamais vendu — la politique hold est INTACTE) sert de jambe
+longue ; quand le funding paie (carry_monitor : APR net ≥ seuil ATTRACTIF 5 %),
+on ouvre un SHORT perp COUVERT par ce spot -> delta ≈ 0, on encaisse le funding
+sans pari directionnel. C'est la SEULE famille de rendement mesurée positive
+(§35-40). Sortie par hystérésis quand l'APR net retombe sous le seuil de sortie.
+
+Règles de sûreté propres au carry :
+  • le short est TOUJOURS ≤ la couverture spot (delta-neutre par construction,
+    marge de 5 % pour les frais/poussières) — couverture insuffisante -> rien ;
+  • levier ×1, PAS de SL/TP : la jambe est HEDGÉE par le spot (un SL casserait
+    la neutralité en laissant le spot nu) ;
+  • propriété de position (futures_auto.proprietaire_position) : le carry ne
+    touche QUE ses propres shorts ; position d'un autre agent -> rien ;
+  • relevé carry PÉRIMÉ (> 2 h) ou illisible -> rien (fail-closed à l'entrée) ;
+    en POSITION, un relevé illisible ne force PAS la sortie (position hedgée,
+    fermer à l'aveugle serait le vrai risque) ;
+  • au plus un ordre carry toutes FUTURES_CARRY_MIN_INTERVAL_H heures (8 h =
+    la période de funding : inutile d'agir plus vite).
+
+Débrayage : FUTURES_AUTO_CARRY=0, ou KILL_SWITCH (gardes exécuteur).
+CLI : python carry_auto.py [--status]
+"""
+
+import time
+
+from config_utils import cfg as _cfg
+from numeric_utils import safe_float
+
+SYMBOL = "BTCUSDT"
+MARGE_COUVERTURE = 0.95      # le short n'utilise que 95 % de la couverture spot
+
+
+# ---------- cœurs purs (testables) ----------
+
+def decider_carry(apr_net, attrait, position, owner, couverture_usdt,
+                  seuil_sortie_pct=None, notional_cfg=None, min_notional=6.0):
+    """PUR. Décision carry :
+      • FLAT : attrait ATTRACTIF ET couverture spot suffisante -> OUVRIR un short
+        de min(notional_cfg, 95 % de la couverture) ; sinon rien ;
+      • POSITION à nous (owner 'carry', side short) : APR net < seuil de sortie
+        -> FERMER (le carry ne paie plus) ; APR illisible -> TENIR (hedgé, on ne
+        ferme pas à l'aveugle) ; sinon TENIR (on encaisse) ;
+      • position d'un AUTRE agent ou d'un autre sens -> RIEN (pas à nous).
+    Retourne {"action", "side", "notional", "raison"}."""
+    sortie = float(_cfg("FUTURES_CARRY_SEUIL_SORTIE_PCT", 2.0)
+                   if seuil_sortie_pct is None else seuil_sortie_pct)
+    apr = safe_float(apr_net)
+    if position:
+        if owner != "carry":
+            return {"action": "rien", "side": None, "notional": None,
+                    "raison": f"position détenue par '{owner}' — pas à nous"}
+        if str(position.get("side")) != "short":
+            return {"action": "rien", "side": None, "notional": None,
+                    "raison": "position carry attendue SHORT — anomalie, on ne touche pas"}
+        if apr is None:
+            return {"action": "rien", "side": "short", "notional": None,
+                    "raison": "APR illisible — position hedgée, on tient (pas de sortie aveugle)"}
+        if apr < sortie:
+            return {"action": "fermer", "side": "short",
+                    "notional": position.get("notional_usdt"),
+                    "raison": f"APR net {apr:+.2f} % < seuil de sortie {sortie} % — le carry ne paie plus"}
+        return {"action": "rien", "side": "short", "notional": None,
+                "raison": f"carry en place, APR net {apr:+.2f} % — on encaisse"}
+    # flat
+    if str(attrait) != "ATTRACTIF":
+        return {"action": "rien", "side": None, "notional": None,
+                "raison": f"carry {attrait or 'illisible'} — pas d'entrée"}
+    couverture = safe_float(couverture_usdt) or 0.0
+    plafond = float(_cfg("FUTURES_CARRY_NOTIONAL_USDT", 15.0)
+                    if notional_cfg is None else notional_cfg)
+    notional = min(plafond, couverture * MARGE_COUVERTURE)
+    if notional < float(min_notional):
+        return {"action": "rien", "side": None, "notional": None,
+                "raison": f"couverture spot insuffisante ({couverture:.2f} $ détenus, "
+                          f"short possible {notional:.2f} $ < min {min_notional} $)"}
+    return {"action": "ouvrir", "side": "short", "notional": round(notional, 2),
+            "raison": f"carry ATTRACTIF (APR net {apr:+.2f} %) couvert par le spot"}
+
+
+def releve_carry(journal_entry, max_age_s=7200, now=None):
+    """PUR. (apr_net, attrait) du relevé BTCUSDT journalisé par carry_monitor,
+    (None, None) si absent ou PÉRIMÉ (> max_age_s)."""
+    now = time.time() if now is None else now
+    e = journal_entry or {}
+    ts = safe_float(e.get("ts"))
+    if ts is None or now - ts > max_age_s:
+        return None, None
+    for r in e.get("resultats") or []:
+        if isinstance(r, dict) and str(r.get("symbol", "")).upper() == SYMBOL:
+            return safe_float(r.get("apr_net_pct")), r.get("attrait")
+    return None, None
+
+
+# ---------- lectures (best-effort, lecture seule) ----------
+
+def _releve():
+    try:
+        import json as _json
+        import carry_monitor as cm
+        journal = _json.loads(cm.JOURNAL_FILE.read_text(encoding="utf-8"))
+        return journal[-1] if journal else None
+    except Exception:
+        return None
+
+
+def couverture_spot_usdt():
+    """Valeur USDT du BTC SPOT détenu (la jambe longue déjà en portefeuille).
+    None si illisible (fail-closed à l'entrée)."""
+    try:
+        import bitget_balance_reader as br
+        import futures_executor as fe
+        btc = None
+        for r in (br.get_spot_assets("BTC") or {}).get("data") or []:
+            if str(r.get("coin", "")).upper() == "BTC":
+                btc = (safe_float(r.get("available")) or 0.0) + (safe_float(r.get("frozen")) or 0.0)
+        if btc is None:
+            return None
+        prix = fe._mark_price()
+        return btc * prix if prix else None
+    except Exception:
+        return None
+
+
+# ---------- cycle ----------
+
+def _etat(now=None):
+    """Lectures communes run/status. Retourne (out, decision) sans exécuter."""
+    import futures_auto as fa
+    now = time.time() if now is None else now
+    out = {"ts": int(now), "armed": bool(int(_cfg("FUTURES_AUTO_CARRY", 1) or 0))}
+    if not out["armed"]:
+        return out, {"action": "rien", "raison": "FUTURES_AUTO_CARRY=0 (débrayé)"}
+    apr, attrait = releve_carry(_releve(), now=now)
+    out["apr_net_pct"], out["attrait"] = apr, attrait
+    pos = fa.position_nette()
+    if isinstance(pos, dict) and pos.get("erreur"):
+        return out, {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
+    out["position"] = pos
+    owner = fa.proprietaire_position(fa._executor_events()) if pos else None
+    out["owner"] = owner
+    couverture = couverture_spot_usdt() if not pos else None
+    out["couverture_usdt"] = round(couverture, 2) if couverture is not None else None
+    d = decider_carry(apr, attrait, pos, owner, couverture)
+    return out, d
+
+
+def status(now=None):
+    """Préview STRICTEMENT LECTURE SEULE (jamais d'exécution)."""
+    out, d = _etat(now)
+    out["consultation"] = True
+    out["decision"] = d
+    return out
+
+
+def run(now=None):
+    """Un cycle carry. N'exécute que si armé, décision non-rien, throttle écoulé."""
+    import futures_auto as fa
+    now = time.time() if now is None else now
+    out, d = _etat(now)
+    out["decision"] = d
+    if d["action"] == "rien":
+        return out
+    min_h = float(_cfg("FUTURES_CARRY_MIN_INTERVAL_H", 8.0))
+    if not fa.throttle_ok(fa.dernier_ordre_auto_ts(fa._executor_events(), agent="carry"),
+                          now=now, min_h=min_h):
+        out["decision"] = {**d, "action": "rien",
+                           "raison": d["raison"] + " — throttle carry (intervalle non écoulé)"}
+        return out
+    import futures_executor as fe
+    if d["action"] == "fermer":
+        notional = min(float(d.get("notional") or 0),
+                       fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                                  fe.FUT_ABS_MAX_PER_TRADE_USDT))
+        res = fe.execute("carry", "short", notional, 1.0, reduce=True, confirm=True, now=now)
+    else:                                          # ouvrir un short couvert, levier 1, sans SL/TP
+        res = fe.execute("carry", "short", float(d["notional"]), 1.0,
+                         confirm=True, now=now)
+    out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
+                       "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
+    if out["resultat"]["executed"]:
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram(f"⚡ CARRY RÉEL (§45) : {d['action'].upper()} short couvert — "
+                             f"{d['raison']}. oid {res.get('clientOid')} · voir /futures")
+        except Exception:
+            pass
+    return out
+
+
+def build_report(r=None):
+    r = run() if r is None else r
+    d = r.get("decision") or {}
+    lignes = ["=== JAMBES CASH-AND-CARRY (§45, couvertes par le spot) ==="
+              + (" — CONSULTATION" if r.get("consultation") else "")]
+    lignes.append(f"Armé : {r.get('armed')} · APR net {r.get('apr_net_pct')} % · "
+                  f"attrait {r.get('attrait')} · position {r.get('position') or 'flat'}"
+                  + (f" (owner {r.get('owner')})" if r.get("owner") else "")
+                  + (f" · couverture spot {r.get('couverture_usdt')} $"
+                     if r.get("couverture_usdt") is not None else ""))
+    lignes.append(f"Décision : {str(d.get('action', 'rien')).upper()} — {d.get('raison', '')}")
+    res = r.get("resultat")
+    if res:
+        etat = "EXÉCUTÉ" if res.get("executed") else f"refusé/échec ({res.get('reasons')})"
+        lignes.append(f"Exécution : {etat} (oid {res.get('clientOid')})")
+    lignes.append("Short TOUJOURS ≤ couverture spot (delta-neutre), levier ×1, sans SL "
+                  "(hedgé). Toute exécution via futures_executor. VERDICT: SAFE")
+    return "\n".join(lignes)
+
+
+def main():
+    import sys
+    if "--status" in sys.argv[1:]:
+        print(build_report(status()))
+        return
+    print(build_report())
+
+
+if __name__ == "__main__":
+    main()

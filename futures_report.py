@@ -97,6 +97,12 @@ def snapshot():
         st = fa.status()
     except Exception:
         st = {"erreur": "status boucle indisponible"}
+    carry = {}
+    try:
+        import carry_auto as ca
+        carry = ca.status()
+    except Exception:
+        carry = {"erreur": "status carry indisponible"}
     events = fa._executor_events()
     debut = premier_ordre_reel_ts(events)
     led = {}
@@ -106,6 +112,7 @@ def snapshot():
         pass
     return {
         "boucle": st,
+        "carry": carry,
         "equity_usdt": fe._futures_equity(),
         "stop_journalier": led.get("daily_loss_state") or {},
         "stop_pct": float(_cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0)),
@@ -144,6 +151,10 @@ def build_report(s=None):
         f"Boucle : {'ARMÉE' if b.get('armed') else 'débrayée'} · consensus {b.get('consensus')} · "
         f"position {b.get('position') or 'flat'}",
         f"Décision (préview) : {str(d.get('action', '?')).upper()} {d.get('side') or ''} — {d.get('raison', '')}",
+        (lambda c, cd: f"Carry : {'armé' if c.get('armed') else 'débrayé'} · APR net "
+                       f"{c.get('apr_net_pct')} % ({c.get('attrait')}) · couverture "
+                       f"{c.get('couverture_usdt')} $ -> {str(cd.get('action', 'rien')).upper()}"
+         )(s.get("carry") or {}, (s.get("carry") or {}).get("decision") or {}),
         f"Equity : {_n(s.get('equity_usdt'))} USDT · stop journalier −{s.get('stop_pct')} % "
         f"(ouverture du jour : {_n(stj.get('open_equity'))})",
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "

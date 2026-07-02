@@ -1489,9 +1489,23 @@ Les avertissements ont été présentés par écrit à chaque option ; le choix 
   exécution passe par futures_executor et ses gardes. Débrayage :
   FUTURES_AUTO_DIRECTIONAL=0.
 
-**Reste à câbler** : jambes cash-and-carry automatiques (carry_monitor ATTRACTIF
--> short perp contre le spot détenu), réconciliation futures (miroir de §43),
-surfaces dashboard/Telegram de la boucle auto.
+**Câblé (fin du chantier §45)** :
+- Observabilité complète : `futures_report.py` (lecture seule — préview de
+  décision via status() garanti sans exécution, position, equity + stop
+  journalier, réconciliation des fills DU BOT bornée au 1er ordre réel
+  journalisé — le trading manuel antérieur est exclu), Telegram `/futures`,
+  panneau dashboard, alertes push ⚡ à chaque exécution réelle.
+- **Jambes cash-and-carry (`carry_auto.py`)** : le BTC spot accumulé (jamais
+  vendu) sert de jambe longue ; entrée = carry_monitor ATTRACTIF (APR net ≥
+  5 %), short perp TOUJOURS ≤ 95 % de la couverture spot (delta-neutre par
+  construction), levier ×1, SANS SL (hedgé — un stop casserait la neutralité),
+  sortie par hystérésis (APR net < 2 %), throttle 8 h (période de funding),
+  relevé périmé (> 2 h) -> pas d'entrée ; en position, relevé illisible ->
+  TENIR (pas de sortie aveugle).
+- **Propriété de position** (`proprietaire_position`) : en one-way il n'y a
+  qu'UNE position nette — chaque boucle (auto_dir, carry) ne touche QUE la
+  sienne ; une position d'un autre agent (ex. 'validation' manuelle) n'est
+  JAMAIS touchée. Mutuelle exclusion honnête plutôt que netting silencieux.
 
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 

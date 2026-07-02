@@ -4676,6 +4676,58 @@ def test_futures_auto_status_lecture_seule():
         fa._brain_entries, fa.position_nette, fa._executor_events, fe.execute = orig
 
 
+def test_futures_auto_proprietaire_position():
+    import futures_auto as fa
+    # propriétaire = agent du dernier ordre RÉEL d'OUVERTURE (reduce=False)
+    ev = [{"action": "FUTURES_REAL", "ts": 1, "order": {"agent": "auto_dir", "reduce": False}},
+          {"action": "FUTURES_REAL", "ts": 2, "order": {"agent": "auto_dir", "reduce": True}},
+          {"action": "FUTURES_REAL", "ts": 3, "order": {"agent": "carry", "reduce": False}}]
+    assert fa.proprietaire_position(ev) == "carry"
+    # les dry-run/refus ne donnent pas la propriété
+    assert fa.proprietaire_position([{"action": "FUTURES_DRY_RUN",
+                                      "order": {"agent": "x", "reduce": False}}]) is None
+    assert fa.proprietaire_position([]) is None
+
+
+def test_carry_auto_decider_couverture_et_hysteresis():
+    import carry_auto as ca
+    k = dict(seuil_sortie_pct=2.0, notional_cfg=15.0, min_notional=6.0)
+    # FLAT + ATTRACTIF + couverture large -> ouvrir un short ≤ 95 % de la couverture
+    d = ca.decider_carry(6.5, "ATTRACTIF", None, None, 30.0, **k)
+    assert d["action"] == "ouvrir" and d["side"] == "short"
+    assert d["notional"] == 15.0                        # plafond config < couverture
+    d2 = ca.decider_carry(6.5, "ATTRACTIF", None, None, 10.0, **k)
+    assert d2["notional"] == round(10.0 * 0.95, 2)      # couverture qui borne
+    # couverture insuffisante -> RIEN (jamais de short nu)
+    assert ca.decider_carry(6.5, "ATTRACTIF", None, None, 5.0, **k)["action"] == "rien"
+    assert ca.decider_carry(6.5, "ATTRACTIF", None, None, None, **k)["action"] == "rien"
+    # pas attractif -> rien
+    assert ca.decider_carry(3.0, "NEUTRE", None, None, 30.0, **k)["action"] == "rien"
+    # POSITION à nous : APR au-dessus de la sortie -> tenir ; en-dessous -> fermer
+    pos = {"side": "short", "notional_usdt": 14.0}
+    assert ca.decider_carry(4.0, "NEUTRE", pos, "carry", None, **k)["action"] == "rien"
+    f = ca.decider_carry(1.0, "NEGATIF", pos, "carry", None, **k)
+    assert f["action"] == "fermer" and f["notional"] == 14.0
+    # APR illisible en position -> TENIR (hedgé : pas de sortie aveugle)
+    assert ca.decider_carry(None, None, pos, "carry", None, **k)["action"] == "rien"
+    # position d'un autre agent / d'un autre sens -> on ne touche pas
+    assert ca.decider_carry(1.0, "NEGATIF", pos, "auto_dir", None, **k)["action"] == "rien"
+    assert ca.decider_carry(1.0, "NEGATIF", {"side": "long"}, "carry", None, **k)["action"] == "rien"
+
+
+def test_carry_auto_releve_frais():
+    import carry_auto as ca
+    e = {"ts": 1000, "resultats": [{"symbol": "BTCUSDT", "apr_net_pct": 5.4,
+                                    "attrait": "ATTRACTIF"},
+                                   {"symbol": "ETHUSDT", "apr_net_pct": -1.0,
+                                    "attrait": "NEGATIF"}]}
+    assert ca.releve_carry(e, now=2000) == (5.4, "ATTRACTIF")
+    # relevé PÉRIMÉ (> 2 h) ou absent -> (None, None) : fail-closed à l'entrée
+    assert ca.releve_carry(e, now=1000 + 7201) == (None, None)
+    assert ca.releve_carry(None, now=0) == (None, None)
+    assert ca.releve_carry({"ts": 10, "resultats": []}, now=20) == (None, None)
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)

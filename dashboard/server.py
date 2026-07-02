@@ -379,12 +379,17 @@ def build_state(symbol=None, tf="5m"):
         import futures_report as fr
         s = fr.snapshot()
         b = s.get("boucle") or {}
+        c = s.get("carry") or {}
         return {"armed": b.get("armed"), "consensus": b.get("consensus"),
                 "position": b.get("position"), "decision": b.get("decision"),
                 "throttle_pret": b.get("throttle_pret"),
                 "equity": s.get("equity_usdt"), "stop": s.get("stop_journalier"),
                 "stop_pct": s.get("stop_pct"), "fills_bot": s.get("fills_bot"),
-                "caps": s.get("caps"), "events": s.get("events")}
+                "caps": s.get("caps"), "events": s.get("events"),
+                "carry": {"armed": c.get("armed"), "apr": c.get("apr_net_pct"),
+                          "attrait": c.get("attrait"),
+                          "couverture": c.get("couverture_usdt"),
+                          "action": (c.get("decision") or {}).get("action")}}
 
     def _carry():
         """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""

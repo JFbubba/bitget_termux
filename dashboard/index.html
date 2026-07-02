@@ -322,6 +322,7 @@
       <div class="row"><span class="k">equity · stop jour</span><span id="fu2-eq">—</span></div>
       <div class="row"><span class="k">PnL réalisé bot (net)</span><span id="fu2-pnl">—</span></div>
       <div class="row"><span class="k">caps (eff · murs)</span><span id="fu2-caps">—</span></div>
+      <div class="row"><span class="k">carry (couvert spot)</span><span id="fu2-carry">—</span></div>
     </div>
     <div class="panel">
       <h2>Vol implicite · Carry <span class="dim" style="letter-spacing:0">— DVOL/VRP · cash-and-carry PAPER</span></h2>
@@ -814,6 +815,9 @@ async function tick(){
     $("fu2-pnl").className=(fbt.n_fills&&fbt.net_usdt<0)?"red":(fbt.n_fills?"green":"dim");
     const fca=fu2.caps||{};
     $("fu2-caps").textContent=(fca.per_trade!=null)?("$"+fca.per_trade+"/trade · $"+fca.gross+" cumulé (murs "+fca.mur_per_trade+"/"+fca.mur_gross+")"):"—";
+    const fcr=fu2.carry||{};
+    $("fu2-carry").textContent=(fcr.apr!=null)?("APR "+(fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% ("+(fcr.attrait||"—")+") · couv $"+(fcr.couverture!=null?fcr.couverture:"—")+" -> "+(fcr.action||"rien")):"—";
+    $("fu2-carry").className=fcr.attrait==="ATTRACTIF"?"green":"dim";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
