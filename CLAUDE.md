@@ -63,7 +63,8 @@ EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
 
 ```bash
 cd ~/bitget_termux_repo && bash update_vps.sh   # pull -> deps -> tests -> gate SAFE -> restart services
-python accumulation_engine.py BTCUSDT           # état accumulation (mode, opportunité, premium)
+python accumulation_engine.py --status BTCUSDT  # état accumulation (CONSULTATION — sans --status c'est un CYCLE qui peut acheter en réel)
+python accum_reconcile.py                       # prix de revient RÉEL + réconciliation registre↔fills↔compte (lecture seule)
 python universe.py                              # univers d'analyse courant
 ```
 

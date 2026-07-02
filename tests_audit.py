@@ -3441,6 +3441,103 @@ def test_accum_backtest_run_backtest_structure_et_selection_is():
     assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
 
 
+# ---------- accum_reconcile : réconciliation de l'accumulation réelle ----------
+
+def _fill(oid, ts_ms, size, amount, side="buy", fee_btc=None):
+    """Fill spot Bitget factice (aide de test)."""
+    import json as _json
+    f = {"orderId": oid, "cTime": ts_ms, "size": str(size), "amount": str(amount),
+         "side": side, "symbol": "BTCUSDT"}
+    if fee_btc is not None:
+        f["feeDetail"] = _json.dumps({"feeCoin": "BTC", "totalFee": str(-fee_btc)})
+    return f
+
+
+def test_accum_reconcile_group_fills_vwap_et_frais():
+    import accum_reconcile as ar
+    # un ordre rempli en DEUX fills -> agrégé, VWAP, frais sommés
+    rows = [_fill("A", 1000_000, 0.00008, 4.9, fee_btc=8e-8),
+            _fill("A", 1000_500, 0.000001, 0.0613, fee_btc=1e-9),
+            _fill("B", 2000_000, 0.0001, 6.0, fee_btc=1e-7),
+            _fill("C", 3000_000, 0.0001, 6.0, side="sell"),        # vente ignorée (hors périmètre)
+            {"orderId": "D", "cTime": None, "size": "x", "amount": "1"}]  # illisible ignoré
+    g = ar.group_fills(rows)
+    assert [x["order_id"] for x in g] == ["A", "B"]
+    a = g[0]
+    assert a["size_btc"] == round(0.000081, 8) and a["amount_usdt"] == round(4.9613, 6)
+    assert a["price_avg"] == round(4.9613 / 0.000081, 2)           # VWAP, pas moyenne simple
+    assert abs(a["fee_btc"] - 8.1e-8) < 1e-12
+    assert a["ts"] == 1000.0                                        # ts = premier fill
+    # feeDetail JSON string / autre devise / illisible -> 0.0, jamais d'exception
+    assert ar._fee_btc('{"feeCoin": "BTC", "totalFee": "-0.00000008"}') == 8e-8
+    assert ar._fee_btc({"feeCoin": "BGB", "totalFee": "-0.01"}) == 0.0
+    assert ar._fee_btc("pas du json") == 0.0 and ar._fee_btc(None) == 0.0
+    assert ar.group_fills(None) == [] and ar.group_fills([]) == []
+
+
+def test_accum_reconcile_match_et_fenetre():
+    import accum_reconcile as ar
+    groups = ar.group_fills([_fill("A", 1_000_000_000, 0.00008, 5.0),
+                             _fill("B", 1_000_100_000, 0.00008, 5.0),
+                             _fill("AVANT", 900_000_000, 0.001, 60.0)])  # antérieur au registre
+    buys = [{"ts": 1_000_003, "amount_usdt": 5.0},                 # ↔ A (Δt 3 s)
+            {"ts": 1_000_103, "amount_usdt": 5.0},                 # ↔ B
+            {"ts": 1_000_500, "amount_usdt": 5.0}]                 # sans fill -> orphelin
+    paires, orphelins, fills_orphelins = ar.match_buys(buys, groups)
+    assert len(paires) == 2 and len(orphelins) == 1
+    assert paires[0]["fill"]["order_id"] == "A" and paires[1]["fill"]["order_id"] == "B"
+    # le fill ANTÉRIEUR au 1er achat journalisé n'est PAS compté comme écart
+    assert fills_orphelins == []
+    # montant trop différent -> pas d'appariement même si le temps colle
+    g2 = ar.group_fills([_fill("X", 1_000_000_000, 0.001, 60.0)])
+    p2, o2, _ = ar.match_buys([{"ts": 1_000_001, "amount_usdt": 5.0}], g2)
+    assert not p2 and len(o2) == 1
+    assert ar.match_buys([], []) == ([], [], [])
+
+
+def test_accum_reconcile_bilan_cost_basis_et_anomalies():
+    import accum_reconcile as ar
+    paires = [{"buy": {"ts": 1, "amount_usdt": 5.0},
+               "fill": {"order_id": "A", "ts": 1.0, "size_btc": 0.0001,
+                        "amount_usdt": 5.0, "fee_btc": 1e-8, "price_avg": 50000.0}}]
+    # solde qui COUVRE le cumul net -> OK ; PnL latent vs prix courant
+    b = ar.bilan(paires, [], [], btc_compte=0.0001, prix=55000.0)
+    assert b["ok"] and b["cost_basis"] == 50000.0
+    assert abs(b["pnl_latent_pct"] - 10.0) < 1e-9
+    assert b["ecart_btc"] > 0                                       # frais -> léger surplus
+    # solde INFÉRIEUR au cumul acheté net -> ANOMALIE (on ne vend jamais)
+    b2 = ar.bilan(paires, [], [], btc_compte=0.00005, prix=55000.0)
+    assert not b2["ok"] and any("vente/retrait" in a for a in b2["anomalies"])
+    # achats sans fill / fills sans achat -> anomalies nommées
+    b3 = ar.bilan([], [{"ts": 1}], [{"order_id": "Z"}], btc_compte=None, prix=None)
+    assert not b3["ok"] and len(b3["anomalies"]) == 2
+    assert b3["cost_basis"] is None and b3["pnl_latent_pct"] is None
+    # rapport texte : se construit sur un bilan vide et reste SAFE
+    assert "VERDICT: SAFE" in ar.build_report({**b3, "n_registre": 1, "fenetre_fills": 1})
+
+
+def test_accumulation_status_lecture_seule():
+    # --status / status() : consultation qui ne doit JAMAIS acheter ni écrire —
+    # avec le double verrou armé, run() peut déclencher un achat réel ; les
+    # commandes chat/CLI de consultation passent par status().
+    import accumulation_engine as ae
+    orig_analyze, orig_bal, orig_gate = ae.analyze, ae.real_spot_balance, ae.gate_advice
+    orig_run_real = ae._run_real
+    achats = []
+    try:
+        ae.analyze = lambda s="BTCUSDT": {"score": 0.5, "amount_usd": 20.0, "price": 100.0}
+        ae.real_spot_balance = lambda: 100.0
+        ae.gate_advice = lambda a, b: None
+        ae._run_real = lambda a, now: achats.append(1)              # sentinelle : jamais appelé
+        a = ae.status("BTCUSDT")
+        assert a["bought"] is False and achats == []                # AUCUN achat déclenché
+        assert "consultation" in a["mode"]
+        assert "ledger" in a                                        # résumé du registre présent
+    finally:
+        ae.analyze, ae.real_spot_balance, ae.gate_advice = orig_analyze, orig_bal, orig_gate
+        ae._run_real = orig_run_real
+
+
 # ---------- stablecoin_flow : flux de capitaux stablecoins (DefiLlama) ----------
 
 def test_stablecoin_flow_parse_serie():

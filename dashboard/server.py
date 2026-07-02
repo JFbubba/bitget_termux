@@ -334,6 +334,10 @@ def build_state(symbol=None, tf="5m"):
         out["premium_pct"] = a.get("premium_pct")           # premium Bitget vs médiane marché
         out["fair"] = a.get("fair")
         out["spot_free_usdt"] = _safe(lambda: __import__("spot_executor")._spot_free_usdt(), None)
+        # réconciliation réelle (registre ↔ fills ↔ compte) : prix de revient RÉEL,
+        # PnL latent, anomalies. Cache long (les fills bougent 1x/jour).
+        out["reconcile"] = _cached("reconcile", 900,
+                                   lambda: _safe(__import__("accum_reconcile").snapshot, None))
         return out
 
     def _mandate():

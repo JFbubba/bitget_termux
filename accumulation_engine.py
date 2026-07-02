@@ -345,6 +345,38 @@ def run(symbol="BTCUSDT", now=None):
     return a
 
 
+def status(symbol="BTCUSDT"):
+    """État d'accumulation STRICTEMENT LECTURE SEULE : comme run() mais sans jamais
+    acheter ni écrire un registre. Pour Telegram/dashboard/CLI --status : avec le
+    double verrou armé, run() peut déclencher un achat réel (throttlé 1/j) — une
+    commande de consultation ne doit JAMAIS emprunter ce chemin."""
+    a = analyze(symbol)
+    a["live_armed"] = _live_armed()
+    a["spot_balance"] = real_spot_balance()
+    a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
+    a["bought"] = False
+    if _autonomous_live():
+        a["mode"] = "RÉEL (auto) — consultation"
+        real = _load_real_summary()
+        a["ledger"] = real
+    else:
+        a["mode"] = "paper — consultation"
+        led = load_ledger()
+        a["ledger"] = {k: led.get(k) for k in ("total_btc", "total_cost_usd", "avg_price", "n_buys")}
+    return a
+
+
+def _load_real_summary():
+    """Résumé du registre RÉEL (lecture seule). {} si absent/illisible."""
+    try:
+        import spot_executor as se
+        buys = se._load_real().get("buys", [])
+        return {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
+                "n_buys": len(buys)}
+    except Exception:
+        return {}
+
+
 def build_report(a):
     led = a.get("ledger", {})
     mode = a.get("mode", "paper")
@@ -383,8 +415,13 @@ def build_report(a):
 
 def main():
     import sys
-    sym = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
-    print(build_report(run(sym)))
+    args = [x for x in sys.argv[1:]]
+    consult = "--status" in args
+    args = [x for x in args if x != "--status"]
+    sym = args[0] if args else "BTCUSDT"
+    # --status = consultation pure (jamais d'achat) ; sans flag = CYCLE (peut acheter
+    # en réel si le double verrou est armé — c'est le chemin du scheduler).
+    print(build_report(status(sym) if consult else run(sym)))
 
 
 if __name__ == "__main__":

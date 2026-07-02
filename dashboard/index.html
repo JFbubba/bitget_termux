@@ -218,6 +218,8 @@
         <div class="row"><span class="k">DCA recommandé</span><span id="ac-dca">—</span></div>
         <div class="row"><span class="k">prix vs marché (premium)</span><span id="ac-prem">—</span></div>
         <div class="row"><span class="k">USDT spot libre</span><span id="ac-bal">—</span></div>
+        <div class="row"><span class="k">prix de revient RÉEL</span><span id="ac-cb">—</span></div>
+        <div class="row"><span class="k">réconciliation fills/compte</span><span id="ac-rec">—</span></div>
       </div>
       <div style="flex:1;min-width:230px">
         <div class="row"><span class="k">verrou réel (mandat)</span><span id="md-lock" class="amber">—</span></div>
@@ -723,6 +725,13 @@ async function tick(){
     $("ac-dca").textContent=(ac.dca_reco!=null)?("$"+ac.dca_reco+" (plafond $5)"):"—";
     const prm=ac.premium_pct;$("ac-prem").textContent=(prm!=null)?((prm>=0?"+":"")+prm.toFixed(2)+"%"+(prm>0.3?" cher":prm<-0.3?" bon":"")):"—";$("ac-prem").className=(prm!=null&&prm>0.3)?"red":(prm!=null&&prm<-0.3)?"green":"";
     $("ac-bal").textContent=(ac.spot_free_usdt!=null)?("$"+(+ac.spot_free_usdt).toFixed(2)):"—";
+    const rc=ac.reconcile;
+    if(rc&&rc.cost_basis!=null){
+      $("ac-cb").textContent="$"+rc.cost_basis+(rc.pnl_latent_pct!=null?(" · PnL "+(rc.pnl_latent_pct>=0?"+":"")+rc.pnl_latent_pct.toFixed(2)+"%"):"");
+      $("ac-cb").className=(rc.pnl_latent_pct||0)>=0?"green":"red";
+      $("ac-rec").textContent=rc.ok?("OK · "+rc.n_apparies+"/"+(rc.n_registre!=null?rc.n_registre:"?")+" appariés · écart "+(rc.ecart_btc!=null?((rc.ecart_btc>=0?"+":"")+rc.ecart_btc.toFixed(8)):"—")+" BTC"):("⚠ "+(rc.anomalies||[]).join(" ; "));
+      $("ac-rec").className=rc.ok?"green":"red";
+    }else{$("ac-cb").textContent="—";$("ac-rec").textContent="—";}
     $("md-lock").textContent=md.live_enabled?"ARMÉ":"verrouillé";$("md-lock").className=md.live_enabled?"green":"amber";
     $("md-lev").textContent=(md.max_leverage!=null)?("×"+md.max_leverage):"—";
     $("md-dd").textContent=(md.max_drawdown_pct!=null)?(md.max_drawdown_pct+"%"):"—";

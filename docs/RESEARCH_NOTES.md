@@ -1375,6 +1375,46 @@ que l'avantage du DCA opportuniste est un edge de RÉGIME moderne, pas une loi.
 292/292 tests (+5 : équivalence préfixes, invariance d'échelle du cost basis,
 formes du mélange, régression clés JSON, structure/sélection-IS du protocole).
 
+---
+
+## §43 — Le réel rendu MESURABLE : réconciliation registre ↔ fills ↔ compte
+
+**Contexte.** Demande du propriétaire : « passer en réel ». Constat d'audit : le réel
+est DÉJÀ actif — double verrou levé avant cette session (MANDATE_LIVE_ENABLED +
+ACCUM_AUTONOMOUS_LIVE=1), 6 achats réels journalisés (5 $/j à 12:00 UTC via
+bitget-scan). Le futures réel reste IMPOSSIBLE honnêtement : 0 agent au palier LIVE
+(la coupe transversale §41 classe tout PAPER) et décision propriétaire §38 — le
+chemin vers le futures réel passe par l'étalon, pas par un interrupteur. Le vrai
+manque du réel n'était pas un verrou à lever mais une CÉCITÉ post-achat : le registre
+ne notait ni prix de remplissage, ni quantité BTC, ni frais — prix de revient réel
+inconnaissable, écart registre/compte indétectable.
+
+**Livré (`accum_reconcile.py`, LECTURE SEULE — n'écrit JAMAIS dans le registre de
+l'exécuteur).** Cœurs purs : `group_fills` (agrégation par ordre, VWAP, frais BTC),
+`match_buys` (appariement temps±300s / montant±35 % — les fills spot Bitget
+n'exposent pas le clientOid), `bilan` (prix de revient réel, PnL latent, écart
+solde). Réconciliation 3 SOURCES : registre (intentions) ↔ fills (exécutions vues
+par Bitget, --read-only) ↔ solde BTC du compte. Invariant exploité : on n'achète
+QUE du BTC -> un solde < cumul acheté net des frais = vente/retrait hors périmètre
+= ANOMALIE. Fenêtre de fills bornée par l'API : AFFICHÉE (jamais de faux « OK » sur
+fenêtre tronquée). Mesure du jour : 6/6 appariés, 29.94 USDT -> 0.00049900 BTC,
+prix de revient réel 59 994.81 $, PnL latent ~+2.9 %, solde couvre le cumul
+(+179 sats de poussière antérieure), zéro anomalie.
+
+**Corollaire de sécurité découvert et corrigé.** `python accumulation_engine.py`
+(documenté « état accumulation » dans CLAUDE.md) exécute en fait run() = un CYCLE —
+qui, verrous levés, peut ACHETER en réel. Une commande de consultation ne doit
+jamais emprunter ce chemin : ajout de `status()` / `--status` (consultation pure,
+testée : ne déclenche jamais _run_real, n'écrit rien), CLAUDE.md corrigé, et les
+nouvelles commandes Telegram `/accum` (statut) et `/accum_reel` (réconciliation)
+n'utilisent QUE ces chemins. Dashboard : prix de revient réel + PnL + verdict de
+réconciliation dans le panneau accumulation (cache 15 min).
+
+**Garde-fous** : aucun verrou touché (ils étaient déjà levés par le propriétaire),
+aucun nouveau chemin d'ordre (spot_executor inchangé), tout nouveau code en lecture
+seule, 297/297 tests (+4 : VWAP/frais, appariement/fenêtre, bilan/anomalies,
+status lecture seule).
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

@@ -130,6 +130,8 @@ def handle_command(text):
             "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
             "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 13 agents\n"
             "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
+            "/accum [SYMBOL] - état accumulation BTC (consultation, jamais d'achat)\n"
+            "/accum_reel - prix de revient RÉEL + réconciliation fills/compte (lecture seule)\n"
             "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
             "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
             "/tradfi - macro TradFi temps quasi-réel (VIX/DXY/SPX/10Y/or/pétrole)\n"
@@ -174,6 +176,7 @@ def handle_command(text):
             "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
             "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
+            "/accum [SYMBOL] - état accumulation (consultation) · /accum_reel - réconciliation réelle\n"
             "/ask QUESTION - assistant IA conversationnel (lecture seule)\n"
             "/price SYMBOLES · /news [DEVISES] - prix & news\n"
             "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
@@ -391,6 +394,20 @@ def handle_command(text):
         sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
         return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/accum_reel"):
+        # réconciliation registre ↔ fills ↔ compte (lecture seule, aucun ordre)
+        result = subprocess.run(["python", "accum_reconcile.py"], capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ accum_reconcile.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/accum"):
+        # --status OBLIGATOIRE : sans lui, le script exécute un CYCLE qui peut acheter
+        # en réel (double verrou armé) — une commande chat doit rester consultation.
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "accumulation_engine.py", "--status", sym],
+                                capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ accumulation_engine.py\n{result.stderr[-1500:]}"
 
     if text.startswith("/calendar") or text.startswith("/eco"):
         parts = text.split()
@@ -797,7 +814,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /accum /accum_reel /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
