@@ -4629,6 +4629,53 @@ def test_futures_auto_sl_tp_et_fraicheur():
     assert fa.dernier_ordre_auto_ts([]) is None
 
 
+def test_futures_report_resume_fills_et_borne():
+    import futures_report as fr
+    rows = [
+        {"symbol": "BTCUSDT", "cTime": 2_000_000, "quoteVolume": "22.14", "profit": "-0.003",
+         "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.0132"}]},
+        {"symbol": "BTCUSDT", "cTime": 4_000_000, "quoteVolume": "10.00", "profit": "0.05",
+         "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.006"}]},
+        {"symbol": "ETHUSDT", "cTime": 4_000_000, "quoteVolume": "99", "profit": "9"},  # autre symbole ignoré
+        {"symbol": "BTCUSDT", "cTime": None},                                            # illisible ignoré
+    ]
+    tout = fr.resume_fills(rows)
+    assert tout["n_fills"] == 2 and abs(tout["pnl_realise_usdt"] - 0.047) < 1e-9
+    assert abs(tout["frais_usdt"] - 0.0192) < 1e-9
+    assert abs(tout["net_usdt"] - (0.047 - 0.0192)) < 1e-9
+    # BORNE : les fills antérieurs au 1er ordre du bot (trading manuel) sont exclus
+    borne = fr.resume_fills(rows, depuis_ts=3_000)                # cTime ms vs depuis_ts s
+    assert borne["n_fills"] == 1 and borne["pnl_realise_usdt"] == 0.05
+    assert fr.resume_fills(None) == {"n_fills": 0, "volume_usdt": 0.0,
+                                     "pnl_realise_usdt": 0.0, "frais_usdt": 0.0, "net_usdt": 0.0}
+    # 1er ordre réel du journal exécuteur = borne ; dry-run/refus ne comptent pas
+    ev = [{"action": "FUTURES_DRY_RUN", "ts": 1.0},
+          {"action": "FUTURES_REAL", "ts": 7.5}, {"action": "FUTURES_REAL", "ts": 9.0}]
+    assert fr.premier_ordre_reel_ts(ev) == 7.5
+    assert fr.premier_ordre_reel_ts([{"action": "FUTURES_REFUSED", "ts": 1}]) is None
+    assert fr.compte_events(ev) == {"FUTURES_DRY_RUN": 1, "FUTURES_REAL": 2}
+
+
+def test_futures_auto_status_lecture_seule():
+    # status() : préview de décision qui n'appelle JAMAIS l'exécuteur (Telegram /futures).
+    import futures_auto as fa
+    import futures_executor as fe
+    import time as _t
+    orig = (fa._brain_entries, fa.position_nette, fa._executor_events, fe.execute)
+    ordres = []
+    try:
+        fa._brain_entries = lambda: [{"symbol": "BTCUSDT", "ts": _t.time(), "consensus": 0.9}]
+        fa.position_nette = lambda: None
+        fa._executor_events = lambda: []
+        fe.execute = lambda *a, **k: ordres.append(1)   # sentinelle : jamais appelé
+        st = fa.status()
+        assert st["consultation"] is True
+        assert st["decision"]["action"] == "ouvrir"     # il DIRAIT ouvrir (consensus 0.9)...
+        assert ordres == []                             # ...mais n'exécute RIEN
+    finally:
+        fa._brain_entries, fa.position_nette, fa._executor_events, fe.execute = orig
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)

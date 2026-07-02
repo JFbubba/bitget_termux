@@ -373,6 +373,19 @@ def build_state(symbol=None, tf="5m"):
         import deribit_vol as dv
         return {"BTC": dv.snapshot("BTC"), "ETH": dv.snapshot("ETH")}
 
+    def _futures_live():
+        """Futures réel §45 (LECTURE SEULE) : préview de décision de la boucle auto,
+        position, equity, stop journalier, PnL réalisé du bot — via futures_report."""
+        import futures_report as fr
+        s = fr.snapshot()
+        b = s.get("boucle") or {}
+        return {"armed": b.get("armed"), "consensus": b.get("consensus"),
+                "position": b.get("position"), "decision": b.get("decision"),
+                "throttle_pret": b.get("throttle_pret"),
+                "equity": s.get("equity_usdt"), "stop": s.get("stop_journalier"),
+                "stop_pct": s.get("stop_pct"), "fills_bot": s.get("fills_bot"),
+                "caps": s.get("caps"), "events": s.get("events")}
+
     def _carry():
         """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""
         import carry_monitor as cm
@@ -481,6 +494,8 @@ def build_state(symbol=None, tf="5m"):
     state["flows"] = _cached("flows", 3600, lambda: _safe(_flows, {}))
     state["vol_iv"] = _cached("voliv", 1800, lambda: _safe(_vol_iv, {}))
     state["carry"] = _cached("carry", 1800, lambda: _safe(_carry, {}))
+    # futures réel §45 : préview de décision + réconciliation (lecture seule)
+    state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")

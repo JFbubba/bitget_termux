@@ -223,6 +223,26 @@ def run(now=None):
     return out
 
 
+def status(now=None):
+    """Décision PRÉVISUALISÉE, STRICTEMENT LECTURE SEULE : même lecture que run()
+    mais n'appelle JAMAIS l'exécuteur (pour Telegram /futures, dashboard, CLI
+    --status). C'est « ce que la boucle ferait », pas ce qu'elle fait."""
+    now = time.time() if now is None else now
+    out = {"ts": int(now), "consultation": True,
+           "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
+    c = consensus_frais(_brain_entries(), now=now)
+    out["consensus"] = c
+    pos = position_nette()
+    if isinstance(pos, dict) and pos.get("erreur"):
+        out["position"] = None
+        out["decision"] = {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
+        return out
+    out["position"] = pos
+    out["decision"] = decider(c, (pos or {}).get("side") if pos else None)
+    out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now)
+    return out
+
+
 def build_report(r=None):
     r = run() if r is None else r
     d = r.get("decision") or {}
@@ -241,6 +261,13 @@ def build_report(r=None):
 
 
 def main():
+    import sys
+    # --status = consultation pure (jamais d'exécution) ; sans flag = CYCLE (le
+    # chemin du scheduler : peut exécuter via futures_executor si tout est vert).
+    if "--status" in sys.argv[1:]:
+        r = status()
+        print(build_report(r).replace("(§45, bornée)", "(§45, bornée) — CONSULTATION"))
+        return
     print(build_report())
 
 

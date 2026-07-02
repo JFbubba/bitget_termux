@@ -315,6 +315,15 @@
       <div class="row"><span class="k">flux (dry powder)</span><span id="fl-sig" class="amber">—</span></div>
     </div>
     <div class="panel">
+      <h2>Futures RÉEL · Boucle auto <span class="dim" style="letter-spacing:0">— §45 · décision préview (lecture seule)</span></h2>
+      <div class="row"><span class="k">boucle</span><span id="fu2-armed" class="amber">—</span></div>
+      <div class="row"><span class="k">consensus · décision</span><span id="fu2-dec">—</span></div>
+      <div class="row"><span class="k">position</span><span id="fu2-pos">—</span></div>
+      <div class="row"><span class="k">equity · stop jour</span><span id="fu2-eq">—</span></div>
+      <div class="row"><span class="k">PnL réalisé bot (net)</span><span id="fu2-pnl">—</span></div>
+      <div class="row"><span class="k">caps (eff · murs)</span><span id="fu2-caps">—</span></div>
+    </div>
+    <div class="panel">
       <h2>Vol implicite · Carry <span class="dim" style="letter-spacing:0">— DVOL/VRP · cash-and-carry PAPER</span></h2>
       <div class="row"><span class="k">DVOL BTC · VRP</span><span id="iv-btc">—</span></div>
       <div class="row"><span class="k">DVOL ETH · VRP</span><span id="iv-eth">—</span></div>
@@ -789,6 +798,22 @@ async function tick(){
       $("cr-best").className=b.attrait==="ATTRACTIF"?"green":b.apr_net_pct>0?"amber":"red";
       $("cr-rows").textContent=crRows.map(r=>r.symbol.replace(/USDT$/,"")+" "+(r.apr_net_pct>=0?"+":"")+r.apr_net_pct+"%").join(" · ")+" (seuil "+(cry.seuil_pct!=null?cry.seuil_pct:5)+"%)";
     }else{$("cr-best").textContent="—";$("cr-rows").textContent="accumule…";}
+    // --- futures réel §45 : boucle auto (préview) + réconciliation ---
+    const fu2=st.futures_live||{};
+    $("fu2-armed").textContent=(fu2.armed==null)?"—":(fu2.armed?("ARMÉE"+(fu2.throttle_pret===false?" · throttle":"")):"débrayée");
+    $("fu2-armed").className=fu2.armed?"green":"amber";
+    const fd=fu2.decision||{};
+    $("fu2-dec").textContent=((fu2.consensus!=null)?((fu2.consensus>=0?"+":"")+(+fu2.consensus).toFixed(2)):"—")+" -> "+(fd.action||"—")+(fd.side?(" "+fd.side):"");
+    const fp=fu2.position;
+    $("fu2-pos").textContent=fp?(fp.side+" "+fp.size_btc+" BTC (~$"+fp.notional_usdt+")"):"flat";
+    $("fu2-pos").className=fp?(fp.side==="long"?"green":"red"):"dim";
+    const fst=fu2.stop||{};
+    $("fu2-eq").textContent=(fu2.equity!=null)?("$"+(+fu2.equity).toFixed(2)+(fst.open_equity!=null?(" · ouv $"+(+fst.open_equity).toFixed(2)+" · −"+(fu2.stop_pct!=null?fu2.stop_pct:5)+"%"):"")):"—";
+    const fbt=fu2.fills_bot||{};
+    $("fu2-pnl").textContent=(fbt.n_fills)?(((fbt.net_usdt>=0?"+":"")+(+fbt.net_usdt).toFixed(4))+" $ ("+fbt.n_fills+" fills, frais "+(+fbt.frais_usdt).toFixed(4)+")"):"aucun trade bot";
+    $("fu2-pnl").className=(fbt.n_fills&&fbt.net_usdt<0)?"red":(fbt.n_fills?"green":"dim");
+    const fca=fu2.caps||{};
+    $("fu2-caps").textContent=(fca.per_trade!=null)?("$"+fca.per_trade+"/trade · $"+fca.gross+" cumulé (murs "+fca.mur_per_trade+"/"+fca.mur_gross+")"):"—";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
