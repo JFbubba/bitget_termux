@@ -142,6 +142,16 @@ FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à
 FUTURES_REAL_MAX_PER_TRADE_USDT = 15.0   # cap effectif par ordre (mur dur : 50)
 FUTURES_REAL_MAX_GROSS_USDT = 60.0       # cap effectif exposition cumulée (mur dur : 250)
 FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
+# Boucle directionnelle automatique (futures_auto, §45) — décide, délègue à l'exécuteur.
+FUTURES_AUTO_DIRECTIONAL = 1          # 0 = débrayer la boucle (aucune décision d'ordre)
+FUTURES_AUTO_NOTIONAL_USDT = 10.0     # taille d'ouverture (≤ cap/trade 15, murs 50)
+FUTURES_AUTO_LEVERAGE = 2.0           # levier demandé (mur ×5)
+FUTURES_AUTO_SEUIL_ENTREE = 0.35      # |consensus| minimal pour OUVRIR (conviction rare)
+FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (conviction morte)
+FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
+FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
+FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
+
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
                                          # compte en mode multi-devises (assetMode union,
                                          # constaté le 02/07) -> crossed FORCÉ (Bitget

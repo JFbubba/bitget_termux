@@ -4582,6 +4582,53 @@ def test_futures_executor_caps_murs_absolus():
     assert ok is False and any("plafond/trade" in r for r in reasons)
 
 
+def test_futures_auto_decider_politique_frugale():
+    import futures_auto as fa
+    k = dict(seuil_entree=0.35, seuil_sortie=0.15)
+    # pas de position : conviction forte -> ouvrir ; faible -> rien
+    assert fa.decider(0.5, None, **k) == {"action": "ouvrir", "side": "long",
+                                          "raison": fa.decider(0.5, None, **k)["raison"]}
+    assert fa.decider(-0.5, None, **k)["action"] == "ouvrir"
+    assert fa.decider(-0.5, None, **k)["side"] == "short"
+    assert fa.decider(0.2, None, **k)["action"] == "rien"
+    # position alignée + conviction vivante -> TENIR (jamais de pyramidage)
+    assert fa.decider(0.5, "long", **k)["action"] == "rien"
+    assert fa.decider(0.16, "long", **k)["action"] == "rien"
+    # conviction morte -> fermer ; consensus opposé -> fermer (flip au cycle suivant)
+    assert fa.decider(0.05, "long", **k)["action"] == "fermer"
+    assert fa.decider(-0.5, "long", **k)["action"] == "fermer"
+    assert fa.decider(0.5, "short", **k)["action"] == "fermer"
+    # consensus illisible -> fail-closed
+    assert fa.decider(None, "long", **k)["action"] == "rien"
+    assert fa.decider("x", None, **k)["action"] == "rien"
+
+
+def test_futures_auto_sl_tp_et_fraicheur():
+    import futures_auto as fa
+    # SL/TP : long -> SL sous, TP au-dessus, distance ATR prioritaire, RR appliqué
+    sl, tp = fa.sl_tp("long", 60000.0, atr=400.0, sl_pct=1.5, rr=2.0)
+    assert sl == 60000.0 - 600.0 and tp == 60000.0 + 1200.0
+    sl2, tp2 = fa.sl_tp("short", 60000.0, atr=None, sl_pct=1.0, rr=2.0)
+    assert sl2 == 60600.0 and tp2 == 58800.0          # % du prix en repli, miroir short
+    assert fa.sl_tp("long", None) == (None, None)
+    # fraîcheur du consensus : périmé (> 15 min) -> None (jamais de décision sur du vieux)
+    log = [{"symbol": "BTCUSDT", "ts": 1000.0, "consensus": 0.4}]
+    assert fa.consensus_frais(log, now=1500.0) == 0.4
+    assert fa.consensus_frais(log, now=1000.0 + 901.0) is None
+    assert fa.consensus_frais([], now=0) is None
+    assert fa.consensus_frais([{"symbol": "ETHUSDT", "ts": 10, "consensus": 1}], now=20) is None
+    # throttle : au plus un ordre / min_h heures
+    assert fa.throttle_ok(None, now=0, min_h=4) is True
+    assert fa.throttle_ok(1000.0, now=1000.0 + 3.9 * 3600, min_h=4) is False
+    assert fa.throttle_ok(1000.0, now=1000.0 + 4.1 * 3600, min_h=4) is True
+    # dernier ordre auto dans le journal de l'exécuteur (les autres agents ne comptent pas)
+    ev = [{"action": "FUTURES_REAL", "ts": 5.0, "order": {"agent": "validation"}},
+          {"action": "FUTURES_REAL", "ts": 9.0, "order": {"agent": "auto_dir"}},
+          {"action": "FUTURES_DRY_RUN", "ts": 12.0, "order": {"agent": "auto_dir"}}]
+    assert fa.dernier_ordre_auto_ts(ev) == 9.0
+    assert fa.dernier_ordre_auto_ts([]) is None
+
+
 def test_macro_regime_pressures_and_bias():
     import macro_regime as mr
     # seuils inflation (rate-keys skill-hub)

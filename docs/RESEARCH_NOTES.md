@@ -1475,11 +1475,23 @@ Les avertissements ont été présentés par écrit à chaque option ; le choix 
   reste permise après breach (fermer n'aggrave jamais le risque).
 - Montée en taille progressive : premiers ordres au minimum du contrat (~6-8 $).
 
-**Reste à câbler (chantier suivant)** : la boucle décision -> exécution
-(carry_monitor ATTRACTIF -> jambes cash-and-carry ; pré-ordres directionnels ->
-futures_executor), la réconciliation futures (miroir de §43), et les surfaces
-dashboard/Telegram. Tant que ce n'est pas fait, les ordres réels passent par le
-CLI `futures_executor` — le full-auto de bout en bout arrive par étapes.
+**Câblé ensuite (même jour)** :
+- Compte réel constaté : assetMode UNION (marge multi-devises) -> l'isolé est
+  interdit par Bitget ; mode de marge ADAPTATIF (`resolve_marge_mode`, crossed
+  forcé en union). Compte en mode couverture -> `_ensure_position_mode` le règle
+  en one-way avant l'ordre (idempotent, fail-closed).
+- **Boucle directionnelle automatique (`futures_auto.py`)**, câblée au cycle de
+  scan : consensus FRAIS du cerveau (< 15 min, sinon rien) -> ouvrir/fermer/rien.
+  Politique frugale (le §38 a montré que sur-trader détruit) : UNE position max,
+  pas de pyramidage, flip en 2 cycles, entrée à |consensus| ≥ 0.35, sortie sous
+  0.15, throttle 1 ordre/4 h, SL/TP PRÉRÉGLÉS côté exchange (1.5·ATR, RR 2 —
+  protégé même si le VPS meurt), notional 10 $ ×2. Décision seulement : toute
+  exécution passe par futures_executor et ses gardes. Débrayage :
+  FUTURES_AUTO_DIRECTIONAL=0.
+
+**Reste à câbler** : jambes cash-and-carry automatiques (carry_monitor ATTRACTIF
+-> short perp contre le spot détenu), réconciliation futures (miroir de §43),
+surfaces dashboard/Telegram de la boucle auto.
 
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 

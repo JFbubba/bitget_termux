@@ -64,6 +64,10 @@ COMMANDS = [
         "command": ["python", "carry_monitor.py"],
     },
     {
+        "name": "Boucle futures directionnelle bornée (§45 : décide, délègue à l'exécuteur)",
+        "command": ["python", "futures_auto.py"],
+    },
+    {
         "name": "Mandat de gestion : règles dures + agents autorisés en réel",
         "command": ["python", "mandate.py"],
     },
