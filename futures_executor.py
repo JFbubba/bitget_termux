@@ -59,6 +59,11 @@ def _autonomous_on():
     """2e verrou FUTURES_AUTONOMOUS_LIVE : .env OU config (comme l'accumulation —
     l'option .env évite d'éditer un fichier suivi par git)."""
     import os
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     env_on = os.getenv("FUTURES_AUTONOMOUS_LIVE", "").strip().lower() in ("1", "true", "yes", "on")
     return env_on or bool(_cfg("FUTURES_AUTONOMOUS_LIVE", False))
 
