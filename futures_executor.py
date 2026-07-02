@@ -303,8 +303,15 @@ def daily_loss_breach(now=None):
         led = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         led = {}
+    ancien = led.get("daily_loss_state") or {}
     breach, state = daily_loss_state_check(_futures_equity(), led.get("daily_loss_state"), now=now)
     led["daily_loss_state"] = state
+    if state.get("day") is not None and state.get("day") != ancien.get("day"):
+        # journal d'EQUITY quotidien (une ligne par jour UTC, cap 400) : la courbe
+        # qui tranchera la revue des caps — gratuite, le tripwire lit déjà l'equity.
+        led.setdefault("equity_journal", []).append(
+            {"day": state["day"], "open_equity": state.get("open_equity")})
+        led["equity_journal"] = led["equity_journal"][-400:]
     jour = int((time.time() if now is None else now) // 86400)
     deja_alerte = int(led.get("daily_loss_alert_day", -1) or -1) == jour
     if breach and state.get("open_equity") and not deja_alerte:

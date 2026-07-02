@@ -2,9 +2,14 @@
 
 ## Phase actuelle
 
-Paper / dry-run only.
+FULL LIVE borne (decision proprietaire du 02/07/2026, RESEARCH_NOTES §45) :
+- accumulation spot BTC reelle (2-5 $/j proportionnel a l'opportunite, §44) ;
+- boucle futures directionnelle reelle bornee (10 $ x2, seuil consensus 0.35) ;
+- jambes cash-and-carry reelles couvertes par le spot (seuil APR net 5 %).
+Murs durs : 50 $/trade, 250 $ cumule, stop journalier -5 % -> kill-switch.
 
-Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les garde-fous.
+Objectif : laisser les donnees trancher (PnL net de frais via /futures), monter
+les caps par paliers si l'execution est propre, debrayer ce qui ne paie pas.
 
 ## Priorite 1  Securite
 
@@ -54,9 +59,10 @@ d'adoption SAFE : voir [docs/EXTERNAL_TOOLS.md](docs/EXTERNAL_TOOLS.md).
 Prochaines adoptions : prediction-mcp (Polymarket, cote PC), module
 CVD/order-flow + zones de liquidation, squelette de skill "analyse".
 
-## Interdit
+## Interdit (revise §45)
 
-Pas de live trading.
-Pas dordre reel.
+Ordres reels UNIQUEMENT via les 2 modules autorises (spot_executor, futures_executor).
+Jamais de retrait, jamais de virement, jamais de margin trading, jamais de vente spot.
 Pas de secrets dans Git.
-Pas dactivation can_trade=True.
+Pas dactivation can_trade=True sur les agents du cerveau (ils DECIDENT, les executeurs executent).
+Pas de depassement des murs durs (50/250, stop -5 %) sans decision proprietaire explicite.

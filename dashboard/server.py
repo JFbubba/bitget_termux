@@ -503,7 +503,9 @@ def build_state(symbol=None, tf="5m"):
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
-    state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")
+    fut_armed = (state.get("futures_live") or {}).get("armed")
+    state["mode"] = (("RÉEL spot 2–5$/j" if armed else "paper accumulation")
+                     + " · " + ("RÉEL futures borné §45" if fut_armed else "PAPER futures"))
     return state
 
 

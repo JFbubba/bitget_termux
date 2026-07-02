@@ -110,10 +110,24 @@ def snapshot():
         led = json.loads(fe._ledger_path().read_text(encoding="utf-8"))
     except Exception:
         pass
+    ej = led.get("equity_journal") or []
+    delta7 = None
+    eq_now = fe._futures_equity()
+    if eq_now and len(ej) >= 2:
+        base = None
+        jour_now = int(time.time() // 86400)
+        for row in ej:
+            if isinstance(row, dict) and (jour_now - int(row.get("day", 0))) <= 7:
+                base = safe_float(row.get("open_equity"))
+                break
+        if base:
+            delta7 = round((eq_now / base - 1.0) * 100.0, 3)
     return {
         "boucle": st,
         "carry": carry,
-        "equity_usdt": fe._futures_equity(),
+        "equity_usdt": eq_now,
+        "equity_7j_delta_pct": delta7,
+        "equity_journal_n": len(ej),
         "stop_journalier": led.get("daily_loss_state") or {},
         "stop_pct": float(_cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0)),
         "events": compte_events(events),
@@ -156,7 +170,9 @@ def build_report(s=None):
                        f"{c.get('couverture_usdt')} $ -> {str(cd.get('action', 'rien')).upper()}"
          )(s.get("carry") or {}, (s.get("carry") or {}).get("decision") or {}),
         f"Equity : {_n(s.get('equity_usdt'))} USDT · stop journalier −{s.get('stop_pct')} % "
-        f"(ouverture du jour : {_n(stj.get('open_equity'))})",
+        f"(ouverture du jour : {_n(stj.get('open_equity'))})"
+        + (f" · 7 j : {_n(s.get('equity_7j_delta_pct'), '{:+.2f}')} %"
+           if s.get("equity_7j_delta_pct") is not None else ""),
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "
         f"(murs {_n(caps.get('mur_per_trade'))}/{_n(caps.get('mur_gross'))})",
         f"Journal exécuteur : {s.get('events') or 'vide'}",
