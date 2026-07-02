@@ -305,18 +305,26 @@ def daily_loss_breach(now=None):
         led = {}
     breach, state = daily_loss_state_check(_futures_equity(), led.get("daily_loss_state"), now=now)
     led["daily_loss_state"] = state
+    jour = int((time.time() if now is None else now) // 86400)
+    deja_alerte = int(led.get("daily_loss_alert_day", -1) or -1) == jour
+    if breach and state.get("open_equity") and not deja_alerte:
+        led["daily_loss_alert_day"] = jour            # dédup : une alerte par jour UTC
     try:
         path.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
     if breach and state.get("open_equity"):
         try:
-            (Path(__file__).resolve().parent / "KILL_SWITCH").touch()
-            import telegram_notifier as tn
-            tn.send_telegram("🛑 STOP PERTE JOURNALIER FUTURES franchi — kill-switch ARMÉ "
-                             "(plus aucun ordre réel). Lever : supprimer KILL_SWITCH.")
+            (Path(__file__).resolve().parent / "KILL_SWITCH").touch()   # idempotent
         except Exception:
             pass
+        if not deja_alerte:
+            try:
+                import telegram_notifier as tn
+                tn.send_telegram("🛑 STOP PERTE JOURNALIER FUTURES franchi — kill-switch ARMÉ "
+                                 "(plus aucun ordre réel). Lever : supprimer KILL_SWITCH.")
+            except Exception:
+                pass
     return breach
 
 

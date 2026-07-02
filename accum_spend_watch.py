@@ -1,14 +1,19 @@
 """
-accum_spend_watch.py — TRIPWIRE d'observabilite de la depense spot reelle quotidienne.
+accum_spend_watch.py — TRIPWIRE horaire : depense spot quotidienne + stop de perte futures.
 
-Classement : SAFE. Lecture seule, AUCUN ordre, AUCUNE cle. Si la depense reelle du jour
-depasse la PROMESSE documentee (ACCUM_DAILY_PROMISE_USDT = 5 $/j), envoie une ALERTE Telegram
-— MEME si le cap effectif l'a autorisee (un env peut porter le cap jusqu'au mur absolu 25).
-Comble le trou revele par l'ecart du 27/06 (10 $ depenses sans alerte temps reel). N'agit pas,
-ne corrige rien : il OBSERVE et signale. Independant du cap d'execution (defense en profondeur).
+Classement : SAFE. AUCUN ordre, AUCUNE cle. Deux verifications par passage :
+  1. SPOT : si la depense reelle du jour depasse la PROMESSE documentee
+     (ACCUM_DAILY_PROMISE_USDT = 5 $/j), ALERTE Telegram — meme si le cap effectif
+     l'a autorisee. Observe et signale, ne corrige rien.
+  2. FUTURES (§45) : verifie PROACTIVEMENT le stop de perte journalier
+     (futures_executor.daily_loss_breach) — sans ce passage horaire, le stop ne
+     serait evalue qu'au moment d'un ordre : une equity qui plonge avec une
+     position OUVERTE et aucune tentative d'ordre n'armerait pas le kill-switch.
+     En cas de franchissement, daily_loss_breach ARME le kill-switch (ecriture
+     protectrice, dedup d'alerte 1/jour dans le ledger executeur).
 
-Dedup : alerte AU PLUS une fois par jour UTC (etat dans .accum_spend_alert.json, gitignored)
-pour ne pas spammer a chaque passage horaire du timer.
+Dedup spot : alerte AU PLUS une fois par jour UTC (etat dans .accum_spend_alert.json,
+gitignored) pour ne pas spammer a chaque passage horaire du timer.
 """
 
 import json
@@ -32,16 +37,16 @@ def _mark_alert_day(day):
         pass
 
 
-def main():
+def _watch_spot():
     try:
         import spot_executor as se
         breach, spent, promise = se.daily_spend_breach()
     except Exception as exc:
-        print(f"accum_spend_watch: indisponible ({type(exc).__name__}). VERDICT: SAFE")
+        print(f"accum_spend_watch: spot indisponible ({type(exc).__name__}).")
         return
     if not breach:
         print(f"accum_spend_watch: dépense du jour {spent}$ <= promesse {promise}$/j. "
-              f"Aucun dépassement. VERDICT: SAFE")
+              f"Aucun dépassement.")
         return
     day = int(time.time() // 86400)
     if _last_alert_day() == day:
@@ -57,6 +62,25 @@ def main():
         pass
     _mark_alert_day(day)
     print("accum_spend_watch: ALERTE ->", msg)
+
+
+def _watch_futures():
+    """Stop de perte journalier futures évalué PROACTIVEMENT (pas seulement à l'ordre) :
+    equity qui plonge avec position ouverte + aucune tentative d'ordre -> le kill-switch
+    s'arme quand même (via daily_loss_breach, dédup d'alerte 1/jour)."""
+    try:
+        import futures_executor as fe
+        breach = fe.daily_loss_breach()
+        print("accum_spend_watch: stop journalier futures "
+              + ("FRANCHI — kill-switch armé." if breach else "ok."))
+    except Exception as exc:
+        print(f"accum_spend_watch: futures indisponible ({type(exc).__name__}).")
+
+
+def main():
+    _watch_spot()
+    _watch_futures()
+    print("Tripwire lecture/alerte (seule écriture : kill-switch protecteur). VERDICT: SAFE")
 
 
 if __name__ == "__main__":

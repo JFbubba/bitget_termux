@@ -4558,6 +4558,47 @@ def test_futures_executor_daily_loss_state():
     assert fe.daily_loss_state_check(0.0, st3, now=86400 * 11)[0] is True
 
 
+def test_futures_daily_loss_breach_kill_switch_et_dedup():
+    # breach réel (état injecté via ledger temp + equity stubbée) : KILL_SWITCH armé,
+    # alerte Telegram UNE seule fois par jour (dédup), breach reste True aux passages
+    # suivants (tripwire horaire). Hermétique : aucun réseau, fichiers temporaires.
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_eq = fe._futures_equity
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    import telegram_notifier as tn
+    orig_send = tn.send_telegram
+    alertes = []
+    ks = fe.Path(fe.__file__).resolve().parent / "KILL_SWITCH"
+    ks_avant = ks.exists()
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led_test.json")
+            tn.send_telegram = lambda m: alertes.append(m)
+            # jour J : ouverture à 100 (pas de breach)
+            fe._futures_equity = lambda: 100.0
+            assert fe.daily_loss_breach(now=86400 * 50) is False
+            # même jour : -6% -> breach, kill-switch armé, UNE alerte
+            fe._futures_equity = lambda: 94.0
+            assert fe.daily_loss_breach(now=86400 * 50 + 3600) is True
+            assert ks.exists() and len(alertes) == 1
+            # passage horaire suivant : toujours breach, PAS de nouvelle alerte (dédup)
+            assert fe.daily_loss_breach(now=86400 * 50 + 7200) is True
+            assert len(alertes) == 1
+        finally:
+            fe._futures_equity = orig_eq
+            tn.send_telegram = orig_send
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            else:
+                delattr(config, "FUTURES_REAL_LEDGER")
+            if not ks_avant and ks.exists():
+                ks.unlink()                        # ne laisse pas le kill-switch du test armé
+
+
 def test_futures_executor_caps_murs_absolus():
     import futures_executor as fe
     import os

@@ -74,6 +74,9 @@ EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
 cd ~/bitget_termux_repo && bash update_vps.sh   # pull -> deps -> tests -> gate SAFE -> restart services
 python accumulation_engine.py --status BTCUSDT  # état accumulation (CONSULTATION — sans --status c'est un CYCLE qui peut acheter en réel)
 python accum_reconcile.py                       # prix de revient RÉEL + réconciliation registre↔fills↔compte (lecture seule)
+python futures_report.py                        # futures §45 : boucles, position, equity/stop, PnL bot (lecture seule)
+python futures_auto.py --status                 # boucle directionnelle (CONSULTATION — sans --status = CYCLE qui peut trader)
+python carry_auto.py --status                   # jambes carry (CONSULTATION — sans --status = CYCLE qui peut trader)
 python universe.py                              # univers d'analyse courant
 ```
 
