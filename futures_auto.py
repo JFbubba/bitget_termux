@@ -220,6 +220,15 @@ def run(now=None):
                          gross_open_usdt=(pos or {}).get("notional_usdt") or 0.0)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
+    if out["resultat"]["executed"]:
+        # alerte immédiate : un ordre RÉEL est parti (en plus du journal exécuteur)
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram(f"⚡ FUTURES RÉEL (boucle auto §45) : {d['action'].upper()} "
+                             f"{d.get('side') or ''} — {d['raison']}. "
+                             f"oid {res.get('clientOid')} · voir /futures")
+        except Exception:
+            pass
     return out
 
 
