@@ -149,6 +149,44 @@ def journaliser(resultats, min_intervalle_s=3600):
         return False
 
 
+def transitions_attractif(precedent, courant):
+    """PUR. Symboles qui PASSENT en ATTRACTIF depuis le relevé précédent (front
+    montant seulement : déjà-attractif ne ré-alerte pas ; un symbole nouveau dans
+    l'univers alerte s'il arrive directement ATTRACTIF)."""
+    avant = {r.get("symbol"): r.get("attrait") for r in (precedent or [])
+             if isinstance(r, dict)}
+    return [r for r in (courant or []) if isinstance(r, dict)
+            and r.get("attrait") == "ATTRACTIF"
+            and avant.get(r.get("symbol")) != "ATTRACTIF"]
+
+
+def _dernier_releve():
+    """Dernier relevé journalisé ([] si journal absent/illisible). Lecture seule."""
+    try:
+        journal = json.loads(JOURNAL_FILE.read_text(encoding="utf-8"))
+        return (journal[-1] or {}).get("resultats") or []
+    except Exception:
+        return []
+
+
+def _alerte_attractif(nouveaux):
+    """Alerte Telegram best-effort quand le carry (re)devient payant. Le moniteur
+    reste PAPER : l'alerte invite une DÉCISION HUMAINE, n'exécute rien."""
+    if not nouveaux:
+        return
+    try:
+        import telegram_notifier as tn
+        seuil = _cfg("CARRY_SEUIL_APR_PCT", 5.0)
+        lignes = [f"💰 CARRY ATTRACTIF (seuil {seuil} %/an) — cash-and-carry delta-neutre, PAPER :"]
+        for r in nouveaux:
+            lignes.append(f"  {r['symbol']} : APR net {_fmt_pct(r.get('apr_net_pct'))} "
+                          f"(brut {_fmt_pct(r.get('apr_brut_pct'))})")
+        lignes.append("Décision humaine uniquement — aucune exécution automatique (§38).")
+        tn.send_telegram("\n".join(lignes))
+    except Exception:
+        pass
+
+
 # ---------- rapport ----------
 
 
@@ -175,7 +213,11 @@ def build_report(resultats=None):
 
 def main():
     res = evaluer()
-    journaliser(res)
+    precedent = _dernier_releve()                 # AVANT d'écrire (sinon on se compare à soi-même)
+    if journaliser(res):
+        # alerte UNIQUEMENT quand une nouvelle entrée est journalisée (throttle 1h) :
+        # sinon un état attractif stable ré-alerterait à chaque cycle de 5 min.
+        _alerte_attractif(transitions_attractif(precedent, res))
     print(build_report(res))
 
 

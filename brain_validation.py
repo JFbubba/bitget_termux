@@ -16,7 +16,10 @@ import time
 from pathlib import Path
 
 REPORT_FILE = Path(__file__).resolve().parent / "validation_report.json"
-MIN_INTERVAL_H = 6.0
+# Légèrement SOUS la période du timer dédié (bitget-validation.timer, 6h) : un timer
+# qui tire pile à 6h ne doit pas être sauté par son propre throttle (ceinture-bretelles
+# si quelqu'un relance le script à la main entre deux tirs).
+MIN_INTERVAL_H = 5.5
 
 
 def _stale(now=None):

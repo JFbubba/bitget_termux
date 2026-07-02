@@ -3441,6 +3441,27 @@ def test_accum_backtest_run_backtest_structure_et_selection_is():
     assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
 
 
+# ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
+
+def test_carry_transitions_attractif_front_montant():
+    import carry_monitor as cm
+    avant = [{"symbol": "BTCUSDT", "attrait": "NEUTRE"},
+             {"symbol": "ETHUSDT", "attrait": "ATTRACTIF"}]
+    apres = [{"symbol": "BTCUSDT", "attrait": "ATTRACTIF", "apr_net_pct": 6.2},
+             {"symbol": "ETHUSDT", "attrait": "ATTRACTIF", "apr_net_pct": 5.1},
+             {"symbol": "SOLUSDT", "attrait": "NEGATIF"}]
+    t = cm.transitions_attractif(avant, apres)
+    # BTC passe en ATTRACTIF -> alerte ; ETH y était déjà -> silence (pas de spam)
+    assert [r["symbol"] for r in t] == ["BTCUSDT"]
+    # symbole NOUVEAU directement attractif -> alerte aussi
+    t2 = cm.transitions_attractif([], [{"symbol": "X", "attrait": "ATTRACTIF"}])
+    assert len(t2) == 1
+    # entrées dégénérées tolérées, jamais d'exception
+    assert cm.transitions_attractif(None, None) == []
+    assert cm.transitions_attractif([{"symbol": "A", "attrait": "ATTRACTIF"}],
+                                    [None, {"symbol": "A", "attrait": "ATTRACTIF"}]) == []
+
+
 # ---------- accum_reconcile : réconciliation de l'accumulation réelle ----------
 
 def _fill(oid, ts_ms, size, amount, side="buy", fee_btc=None):

@@ -54,10 +54,11 @@ COMMANDS = [
         "name": "Envoyer le résumé compact et les signaux sur Telegram",
         "command": ["python", "telegram_notifier.py"],
     },
-    {
-        "name": "Validation T5 des agents (auto-throttlée ~6h, advisory)",
-        "command": ["python", "brain_validation.py"],
-    },
+    # Validation T5 : SORTIE du cycle de scan — §41 l'a rendue TRANSVERSALE (univers
+    # complet, n effectif), donc lourde : le STEP_TIMEOUT=90s de scan_paper la tuerait
+    # à chaque tentative dès le rapport périmé (90s brûlées par cycle, rapport jamais
+    # rafraîchi). Elle tourne sur son timer dédié : deploy/bitget-validation.timer
+    # (6h, TimeoutStartSec=1500).
     {
         "name": "Moniteur carry non-directionnel (PAPER, journal auto-throttlé ~1h)",
         "command": ["python", "carry_monitor.py"],
