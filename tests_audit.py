@@ -3327,6 +3327,99 @@ def test_onchain_btc_fetch_failsafe_et_succes():
         rc._MEM.clear()
 
 
+# ---------- accum_backtest : backtest cost-basis de l'accumulation (§42) ----------
+
+def test_accum_backtest_ribbon_signals_equiv_prefixes():
+    # PROPRIÉTÉ : ribbon_signals (une passe O(n)) reproduit EXACTEMENT
+    # hash_ribbons rejoué sur chaque préfixe (la version canonique).
+    import math
+    import accum_backtest as ab
+    import onchain_btc as oc
+    v = [100 + 40 * math.sin(i / 17.0) + ((i * 37) % 11 - 5) for i in range(200)]
+    fast = ab.ribbon_signals(v)
+    assert len(fast) == len(v)
+    for t in range(len(v)):
+        assert fast[t] == oc.hash_ribbons(v[:t + 1])["signal"]
+    # entrées dégénérées -> neutre, jamais d'exception
+    assert ab.ribbon_signals([]) == []
+    assert ab.ribbon_signals(None) == []
+    assert ab.ribbon_signals([1, 2, 3], courte=0) == [0.0, 0.0, 0.0]
+    assert ab.ribbon_signals([1, "x", None, 2]) == [0.0, 0.0]   # illisibles filtrés
+
+
+def test_accum_backtest_cost_basis_et_avantage():
+    import accum_backtest as ab
+    # cost basis = Σ$/Σbtc ; acheter PLUS quand c'est BAS -> meilleur prix de revient
+    prix = [100.0, 50.0, 100.0]
+    assert ab.cost_basis([1, 1, 1], prix) < 100.0
+    assert ab.cost_basis([1, 3, 1], prix) < ab.cost_basis([1, 1, 1], prix)
+    # INVARIANCE D'ÉCHELLE : ×c ne change rien -> comparaison à budget égal automatique
+    assert abs(ab.cost_basis([2, 6, 2], prix) - ab.cost_basis([1, 3, 1], prix)) < 1e-9
+    assert ab.avantage_pct([1, 3, 1], prix) > 0        # surpondère le creux -> avantage
+    assert ab.avantage_pct([3, 1, 3], prix) < 0        # surpondère le haut -> désavantage
+    assert abs(ab.avantage_pct([1, 1, 1], prix)) < 1e-9  # plat vs plat = 0
+    # dégénéré -> None, jamais d'exception
+    assert ab.cost_basis([], []) is None
+    assert ab.avantage_pct([0, 0], [0, 0]) is None
+
+
+def test_accum_backtest_score_hr_formes():
+    import accum_backtest as ab
+    # "boost" : seule la reprise (signal>0) renforce ; la capitulation est ignorée
+    assert ab.score_hr(0.4, 1.0, 0.3, "boost") == 0.7
+    assert ab.score_hr(0.4, -0.3, 0.3, "boost") == 0.4
+    # "signed" : la capitulation réduit aussi
+    assert ab.score_hr(0.4, -0.3, 0.3, "signed") < 0.4
+    # borné [0,1], entrées illisibles neutres
+    assert ab.score_hr(0.9, 1.0, 0.5, "boost") == 1.0
+    assert ab.score_hr(0.05, -1.0, 0.5, "signed") == 0.0
+    assert ab.score_hr(None, None, 0.3, "boost") == 0.0
+
+
+def test_accum_backtest_align_series_normalise_cles_json():
+    # RÉGRESSION : le cache runtime passe par JSON -> les clés int du F&G
+    # deviennent des str ; l'alignement doit les retrouver quand même.
+    import accum_backtest as ab
+    prix = [{"t": j * 86400, "v": 100.0 + j} for j in range(5)]
+    hs = [{"t": j * 86400, "v": 50.0} for j in range(5)]
+    fng_str = {str(j): 40.0 + j for j in range(5)}     # clés str (post-JSON)
+    closes, fg, hashrates = ab.align_series(prix, hs, fng_str)
+    assert closes == [100.0, 101.0, 102.0, 103.0, 104.0]
+    assert fg == [40.0, 41.0, 42.0, 43.0, 44.0]        # F&G retrouvé malgré les str
+    assert hashrates == [50.0] * 5
+    # jour sans F&G -> None (le score dégrade comme en production)
+    closes2, fg2, _ = ab.align_series(prix, hs, {"1": 25.0})
+    assert fg2 == [None, 25.0, None, None, None]
+    # F&G absent/illisible -> tous None, pas d'exception
+    assert ab.align_series(prix, hs, None)[1] == [None] * 5
+    assert ab.align_series(prix, hs, {"pas_un_jour": 1.0})[1] == [None] * 5
+
+
+def test_accum_backtest_run_backtest_structure_et_selection_is():
+    # Backtest synthétique de bout en bout : structure du rapport, sélection sur
+    # IS seulement, verdict booléen. PUR (aucun réseau).
+    import math
+    import accum_backtest as ab
+    n = 900
+    closes = [100 + 30 * math.sin(i / 40.0) + i * 0.05 for i in range(n)]
+    hashrates = [1000 + 200 * math.sin(i / 55.0) for i in range(n)]
+    fg = [None] * n
+    res = ab.run_backtest(closes, fg, hashrates)
+    assert res["n_jours"] == n and res["n_essais"] == 8
+    assert len(res["grille"]) == 8
+    assert res["baseline"]["poids"] == 0.0             # la baseline EST le moteur actuel
+    for g in res["grille"]:
+        assert g["is"] is not None and g["oos"] is not None
+    assert res["meilleur"] in res["grille"]
+    assert res["meilleur"]["is"] == max(g["is"] for g in res["grille"])  # choix sur IS
+    assert isinstance(res["retenu"], bool)
+    assert "jours_reprise" in res["signal_hr"]
+    # le rapport texte se construit et reste SAFE
+    txt = ab.build_report(res)
+    assert "VERDICT: SAFE" in txt and "essais" in txt
+    assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
+
+
 # ---------- stablecoin_flow : flux de capitaux stablecoins (DefiLlama) ----------
 
 def test_stablecoin_flow_parse_serie():

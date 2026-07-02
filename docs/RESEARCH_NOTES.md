@@ -1328,6 +1328,53 @@ performance réelle — le plancher d'exploration EARCP reste vivant.
 vertes (287/287 tests, +4 : carte des priors + dérate live, adoucissement/fail-safe/
 débrayage, ranking_mode). Le rapport reste gitignoré (état local).
 
+---
+
+## §42 — Backtest cost-basis COMMITTÉ ; Hash Ribbons testé et REJETÉ (négatif honnête)
+
+**Contexte.** Dernier item ouvert de §40 : Hash Ribbons (reprise des mineurs,
+`onchain_btc`) comme entrée de l'`opportunity_score` d'accumulation — sous condition
+du backtest cost-basis §38, dont les outils étaient restés en scratch non committés
+(irreproductibles). Les deux points sont réglés ensemble.
+
+**1. L'outillage est maintenant COMMITTÉ et testé : `accum_backtest.py`.** Cœurs purs
+(`ribbon_signals` — équivalence prouvée par test avec `hash_ribbons` rejoué sur chaque
+préfixe, en une passe O(n) au lieu de O(n³) —, `cost_basis`, `avantage_pct`,
+`score_hr`, `simulate_amounts`, `folds_positifs`, `run_backtest`) + collecte réseau
+best-effort cachée (prix journalier blockchain.info depuis 2009, hashrate complet,
+F&G historique alternative.me 2018+). Fidélité production : le score est calculé sur
+une FENÊTRE de 200 jours (comme `analyze()` qui lit `_closes(limit=200)`), défauts du
+moteur figés (st_weight 0.30, base 10 $, mult 5). Protocole anti-surapprentissage :
+grille (2 formes × 4 poids) choisie sur IS (70 % chrono), jugée UNE fois sur OOS,
+robustesse = 5 plis contigus, nombre d'essais AFFICHÉ dans le rapport. Piège trouvé
+en route (test de régression ajouté) : le cache runtime passe par JSON — les clés
+int d'un dict deviennent des str au rechargement ; sans normalisation, le F&G
+historique était silencieusement perdu (couverture 0 jour).
+
+**2. Verdict Hash Ribbons : REJETÉ, données nettes.** Sur l'historique complet
+(5 794 j) : chaque combinaison (boost/signed × w∈{0.1..0.5}) fait PIRE que la
+baseline en IS ET en OOS, dégradation MONOTONE avec le poids (OOS +5.52 % baseline
+→ +2.44 % à w=0.5). Sur l'ère moderne 2018+ (3 070 j, F&G réel) : baseline
+IS +6.46 %/OOS +1.27 %/plis 100 % positifs, et le ribbon dégrade encore tout,
+monotone (OOS +1.27 → −0.69 à w=0.5). Explication structurelle (cohérente avec les
+rejets §38) : la « reprise » des ribbons CONFIRME le creux après coup — elle se
+déclenche quand le hashrate (et le prix) a déjà rebondi ; surpondérer ces jours-là
+achète APRÈS le bas, là où le moteur achète le creux lui-même (drawdown/RSI/peur/
+survente CT). 495 j de reprise sur 5 794 : le signal n'est pas rare au sens utile.
+**Décision : `opportunity_score` NON modifié.** `onchain_btc` reste une source
+advisory d'observabilité (dashboard/Telegram), pas une entrée de sizing.
+
+**Bonus de validation.** Le backtest committé revalide le moteur DÉPLOYÉ sur son
+terrain réel (BTC daily 2018+) : +1.27 % OOS, 100 % des plis positifs — cohérent
+avec §38 (+0.77 % OOS panel 15 symboles). Sur l'historique complet pré-2018 la
+baseline est négative par époques (bulles paraboliques 2011-2017 : « acheter le
+drawdown » se fait devancer par le plat quand ça ne corrige jamais) — rappel utile
+que l'avantage du DCA opportuniste est un edge de RÉGIME moderne, pas une loi.
+
+**Garde-fous** : lecture seule de bout en bout, aucun état modifié, aucun verrou,
+292/292 tests (+5 : équivalence préfixes, invariance d'échelle du cost basis,
+formes du mélange, régression clés JSON, structure/sélection-IS du protocole).
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
