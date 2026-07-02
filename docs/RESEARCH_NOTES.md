@@ -1415,6 +1415,29 @@ aucun nouveau chemin d'ordre (spot_executor inchangé), tout nouveau code en lec
 seule, 297/297 tests (+4 : VWAP/frais, appariement/fenêtre, bilan/anomalies,
 status lecture seule).
 
+---
+
+## §44 — Sizing réel proportionnel : l'edge validé s'exprime enfin sous le cap
+
+**Découverte.** Le montant recommandé par le moteur (base 10 $, mult ×5 -> 10..50 $)
+dépasse TOUJOURS le cap réel de 5 $ : `min(recommandé, cap)` donnait donc 5 $ PLAT
+chaque jour — le sizing opportuniste, précisément l'edge validé au backtest
+cost-basis (§38 : +0.77 % OOS, 93 % des symboles ; revalidé §42 : +1.27 % OOS BTC
+daily 2018+), était structurellement NEUTRALISÉ en production. Les 6 premiers achats
+réels le confirment : tous à 5.00 $.
+
+**Décision propriétaire (02/07, sur question explicite)** : sizing **variable 2–5 $**.
+`real_dca_amount(score) = cap·(f + (1−f)·score)`, `f = ACCUM_REAL_FLOOR_FRAC = 0.4`
+(écrêté [0.1, 1] ; 1.0 = retour au plat) : 5 $ en capitulation, ~2 $ les jours chers,
+moyenne ~3 $/j. Options écartées : garder 5 $ plat (edge décoratif) ; moduler autour
+de 5 $/j (aurait exigé de RELEVER le cap par achat — verrou propriétaire, non
+demandé). Propriétés : montant ≤ cap PAR CONSTRUCTION (plus un clamp après coup),
+jamais 0 (plancher), spot_executor reste le backstop strict (gardes + mur absolu
+25 $ inchangés), promesse ≤5 $/j renforcée (la dépense moyenne BAISSE). Affiché
+partout : rapport CLI/Telegram (« RÉEL prévu »), dashboard (« $x réel (2–5 ∝
+score) »). La réconciliation §43 mesurera l'effet sur le prix de revient réel dans
+les semaines qui viennent — c'est elle qui dira si l'edge de backtest se matérialise.
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

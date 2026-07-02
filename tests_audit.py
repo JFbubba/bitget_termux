@@ -3537,6 +3537,30 @@ def test_accum_reconcile_bilan_cost_basis_et_anomalies():
     assert "VERDICT: SAFE" in ar.build_report({**b3, "n_registre": 1, "fenetre_fills": 1})
 
 
+def test_accumulation_real_dca_amount_proportionnel_sous_cap():
+    import accumulation_engine as ae
+    # échelle §44 : cap·(0.4 + 0.6·score) ∈ [2, 5] avec cap 5 — JAMAIS au-dessus du cap
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=0.4) == 2.0
+    assert ae.real_dca_amount(0.5, cap=5.0, floor_frac=0.4) == 3.5
+    assert ae.real_dca_amount(1.0, cap=5.0, floor_frac=0.4) == 5.0
+    # monotone : plus l'opportunité est haute, plus on achète
+    vals = [ae.real_dca_amount(s, cap=5.0, floor_frac=0.4) for s in (0, 0.25, 0.5, 0.75, 1)]
+    assert vals == sorted(vals)
+    # bornes : score dégénéré écrêté, jamais 0, jamais > cap
+    assert ae.real_dca_amount(None, cap=5.0, floor_frac=0.4) == 2.0
+    assert ae.real_dca_amount(9.0, cap=5.0, floor_frac=0.4) == 5.0
+    assert ae.real_dca_amount(-3.0, cap=5.0, floor_frac=0.4) == 2.0
+    # config dégénérée : floor écrêté [0.1, 1] (1.0 = retour au plat, jamais > cap)
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=7.0) == 5.0
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=-1.0) == 0.5
+    # tout montant produit passe la garde per-buy de spot_executor (amt <= cap)
+    import spot_executor as se
+    for s in (0.0, 0.3, 0.7, 1.0):
+        amt = ae.real_dca_amount(s, cap=5.0, floor_frac=0.4)
+        ok, raisons = se.guards(amt, balance=100.0, spent=0.0, live=True, kill=False)
+        assert ok, raisons
+
+
 def test_accumulation_status_lecture_seule():
     # --status / status() : consultation qui ne doit JAMAIS acheter ni écrire —
     # avec le double verrou armé, run() peut déclencher un achat réel ; les
@@ -3944,7 +3968,7 @@ def test_accumulation_run_real_premium_guard_fail_closed():
     try:
         se._load_real = lambda: {"buys": []}                 # aucun achat antérieur -> intervalle écoulé
         se.execute = lambda amt, **k: (calls.append(amt), {"executed": True})[1]
-        base = {"price": 60000.0, "amount_usd": 5.0, "premium_pct": 0.0}
+        base = {"price": 60000.0, "amount_usd": 20.0, "score": 0.5, "premium_pct": 0.0}
 
         # 1) garde premium illisible -> FAIL-CLOSED : aucun achat, execute jamais appelé
         fp.is_fair_to_buy = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("fair_price indispo"))
@@ -3956,18 +3980,24 @@ def test_accumulation_run_real_premium_guard_fail_closed():
         r2 = ae._run_real(dict(base), now=1_000_000)
         assert r2["bought"] is False and calls == []
 
-        # 3) prix juste + intervalle écoulé -> achat délégué à spot_executor (montant plafonné)
+        # 3) prix juste + intervalle écoulé -> achat au montant PROPORTIONNEL à
+        #    l'opportunité (§44 : real_dca_amount, plus le clamp plat au cap)
         fp.is_fair_to_buy = lambda *a, **k: True
         r3 = ae._run_real(dict(base), now=2_000_000)
-        assert r3["bought"] is True and calls == [5.0]
+        assert r3["bought"] is True and calls == [ae.real_dca_amount(0.5)]
+        assert r3["real_amount_usd"] == ae.real_dca_amount(0.5)
 
-        # 4) montant DCA élevé -> CLAMPÉ au cap réel aligné sur spot_executor (pas 50)
+        # 4) le montant réel est piloté par le SCORE (jamais par amount_usd paper) et
+        #    reste ≤ backstop spot_executor quel que soit le score
         calls.clear()
-        r4 = ae._run_real(dict(base, amount_usd=50.0), now=3_000_000)
-        cap_accum = float(ae._cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0))
+        r4 = ae._run_real(dict(base, amount_usd=50.0, score=1.0), now=3_000_000)
         cap_spot = se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT)
-        assert r4["bought"] is True and calls == [cap_accum]   # clampé au cap, jamais 50
-        assert cap_accum <= cap_spot                           # INVARIANT : jamais au-dessus du backstop spot
+        assert r4["bought"] is True and calls == [ae.real_dca_amount(1.0)]  # pas 50
+        assert calls[0] <= cap_spot                            # INVARIANT : jamais au-dessus du backstop
+        calls.clear()
+        r5 = ae._run_real(dict(base, score=0.0), now=4_000_000)
+        assert calls == [ae.real_dca_amount(0.0)]              # jour cher -> plancher, jamais 0
+        assert 0 < calls[0] <= cap_spot
     finally:
         (se._load_real, se.execute, fp.is_fair_to_buy) = saved
 

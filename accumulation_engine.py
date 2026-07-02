@@ -128,6 +128,23 @@ def dca_amount(score, base=None, max_mult=None):
     return round(float(base) * (1.0 + (float(max_mult) - 1.0) * _clamp01(score)), 2)
 
 
+def real_dca_amount(score, cap=None, floor_frac=None):
+    """Montant de l'achat RÉEL ∈ [floor_frac·cap, cap], proportionnel à l'opportunité.
+    PUR. montant = cap·(f + (1−f)·score), f = ACCUM_REAL_FLOOR_FRAC (défaut 0.4).
+
+    Pourquoi (décision propriétaire, §44) : le montant recommandé paper (base 10 $,
+    mult ×5 -> 10..50 $) dépasse TOUJOURS le cap réel 5 $ -> min() le clampait à
+    5 $ plat et NEUTRALISAIT le sizing opportuniste — précisément l'edge validé
+    au backtest cost-basis (§38, +0.77 % OOS). Cette échelle exprime le MÊME score
+    SOUS le cap : 5 $ les jours bon marché, ~2 $ les jours chers, moyenne ~3 $/j
+    (toujours ≤ promesse 5 $/j, aucun plafond touché). Jamais 0 : on accumule
+    toujours un plancher (f écrêté [0.1, 1])."""
+    cap = float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)) if cap is None else float(cap)
+    f = float(_cfg("ACCUM_REAL_FLOOR_FRAC", 0.4)) if floor_frac is None else float(floor_frac)
+    f = max(0.1, min(1.0, f))
+    return round(cap * (f + (1.0 - f) * _clamp01(float(score or 0.0))), 2)
+
+
 def should_buy(last_buy_ts, now, interval_h=None):
     """Throttle DCA : a-t-on attendu l'intervalle depuis le dernier achat ? PUR."""
     interval_h = _cfg("DCA_INTERVAL_H", DCA_INTERVAL_H) if interval_h is None else interval_h
@@ -289,10 +306,12 @@ def _run_real(a, now):
     import spot_executor as se
     buys = se._load_real().get("buys", [])
     last_real = buys[-1]["ts"] if buys else None
-    # Plafond/achat ALIGNÉ sur spot_executor (fallback 5 $, jamais 50) : on clampe le
-    # montant DCA au cap réel au lieu de proposer plus, ce que spot_executor rejetterait
-    # en bloc. spot_executor reste le backstop strict (mur absolu 25, _capped).
-    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)))
+    # Sizing RÉEL proportionnel à l'opportunité SOUS le cap (§44) : l'ancien
+    # min(recommandé, cap) donnait 5 $ plat (recommandé toujours > cap) et
+    # neutralisait l'edge de sizing validé §38. spot_executor reste le backstop
+    # strict (gardes + mur absolu 25, _capped).
+    amount = real_dca_amount(a.get("score"))
+    a["real_amount_usd"] = amount
     a["mode"] = "RÉEL (auto)"
     # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
     # FAIL-CLOSED : si la garde premium est illisible (fair_price KO), on s'abstient
@@ -357,6 +376,7 @@ def status(symbol="BTCUSDT"):
     a["bought"] = False
     if _autonomous_live():
         a["mode"] = "RÉEL (auto) — consultation"
+        a["real_amount_usd"] = real_dca_amount(a.get("score"))
         real = _load_real_summary()
         a["ledger"] = real
     else:
@@ -407,7 +427,9 @@ def build_report(a):
             + bal_line + prem_line + skip_line +
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
-            f"DCA recommandé : {a.get('amount_usd')} $  ({advis})  "
+            f"DCA recommandé : {a.get('amount_usd')} $  ({advis})"
+            + (f"  · RÉEL prévu : {a.get('real_amount_usd')} $ (proportionnel au score, §44)"
+               if a.get("real_amount_usd") is not None else "") + "  "
             f"{('-> ACHAT ' + mode + ' journalisé') if a.get('bought') else '(intervalle non écoulé)'}\n"
             + cumul + "\n"
             "Spot, on ne vend jamais (hold). EARN: piste future. VERDICT: SAFE")

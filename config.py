@@ -131,6 +131,12 @@ BRAIN_WEIGHT_MAX = 3.0
 BRAIN_EDGE_PRIORS = 1                 # 0 = débrayer (poids EARCP purs)
 BRAIN_EDGE_PRIOR_ALPHA = 0.5          # adoucissement (1.0 = prior plein, 0.0 = neutre)
 
+# === Accumulation RÉELLE : sizing proportionnel à l'opportunité (§44) ===
+# montant réel = cap·(FLOOR + (1−FLOOR)·score) ∈ [2, 5] $ avec cap 5 : restaure
+# l'edge de sizing validé (§38) que le clamp plat à 5 $ neutralisait. Décision
+# propriétaire du 02/07. FLOOR=1.0 -> retour au 5 $ plat.
+ACCUM_REAL_FLOOR_FRAC = 0.4
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21

@@ -329,6 +329,9 @@ def build_state(symbol=None, tf="5m"):
         a = _safe(lambda: ae.analyze("BTCUSDT"), {})        # analyze = lecture seule
         out["opportunity"] = a.get("score")
         out["dca_reco"] = a.get("amount_usd")
+        # montant RÉEL prévu (sizing proportionnel §44) quand l'autonome est armé
+        if out.get("autonomous_armed"):
+            out["dca_real"] = _safe(lambda: ae.real_dca_amount(a.get("score")), None)
         out["rsi"] = a.get("rsi")
         out["fear_greed"] = a.get("fear_greed")
         out["premium_pct"] = a.get("premium_pct")           # premium Bitget vs médiane marché
