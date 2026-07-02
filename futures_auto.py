@@ -112,10 +112,14 @@ def proprietaire_position(events):
     return None
 
 
-def dernier_ordre_auto_ts(events, agent="auto_dir"):
-    """PUR. ts du dernier ordre RÉEL passé par la boucle auto (throttle). None sinon."""
+def dernier_ordre_auto_ts(events, agent="auto_dir",
+                          actions=("FUTURES_REAL", "FUTURES_REAL_FAILED")):
+    """PUR. ts de la dernière TENTATIVE d'ordre réel de la boucle (throttle). Les
+    ÉCHECS comptent aussi : sinon un ordre qui échoue serait retenté à chaque cycle
+    de 5 min (martèlement de l'exchange + spam d'alertes) au lieu d'attendre
+    l'intervalle. None si aucune tentative."""
     for e in reversed(events or []):
-        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+        if not isinstance(e, dict) or e.get("action") not in actions:
             continue
         if ((e.get("order") or {}).get("agent")) == agent:
             return safe_float(e.get("ts"))
@@ -229,9 +233,12 @@ def run(now=None):
         notional = min(float(pos["notional_usdt"]),
                        fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
                                   fe.FUT_ABS_MAX_PER_TRADE_USDT))
+        # taille EXACTE de la position (reduceOnly borne à la position) : un notional
+        # arrondi vers le bas laisserait une poussière sous le minimum, infermable.
         res = fe.execute("auto_dir", pos["side"], notional,
                          float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
-                         reduce=True, confirm=True, now=now)
+                         reduce=True, confirm=True, now=now,
+                         size_btc=pos.get("size_btc"))
     else:                                          # ouvrir
         prix = fe._mark_price()
         sl, tp = sl_tp(d["side"], prix, atr=_atr())
@@ -243,15 +250,19 @@ def run(now=None):
                          gross_open_usdt=(pos or {}).get("notional_usdt") or 0.0)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
-    if out["resultat"]["executed"]:
-        # alerte immédiate : un ordre RÉEL est parti (en plus du journal exécuteur)
-        try:
-            import telegram_notifier as tn
+    try:
+        import telegram_notifier as tn
+        if out["resultat"]["executed"]:
             tn.send_telegram(f"⚡ FUTURES RÉEL (boucle auto §45) : {d['action'].upper()} "
                              f"{d.get('side') or ''} — {d['raison']}. "
                              f"oid {res.get('clientOid')} · voir /futures")
-        except Exception:
-            pass
+        else:
+            # échec d'exécution = à savoir TOUT DE SUITE (le throttle espace les retentes)
+            tn.send_telegram(f"⚠️ FUTURES boucle auto : ÉCHEC {d['action']} "
+                             f"{d.get('side') or ''} — {res.get('reasons') or 'réponse exchange'}. "
+                             f"Retente après throttle · voir /futures")
+    except Exception:
+        pass
     return out
 
 

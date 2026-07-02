@@ -176,19 +176,25 @@ def run(now=None):
         notional = min(float(d.get("notional") or 0),
                        fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
                                   fe.FUT_ABS_MAX_PER_TRADE_USDT))
-        res = fe.execute("carry", "short", notional, 1.0, reduce=True, confirm=True, now=now)
+        # taille EXACTE (reduceOnly borne à la position — pas de poussière infermable)
+        res = fe.execute("carry", "short", notional, 1.0, reduce=True, confirm=True,
+                         now=now, size_btc=(out.get("position") or {}).get("size_btc"))
     else:                                          # ouvrir un short couvert, levier 1, sans SL/TP
         res = fe.execute("carry", "short", float(d["notional"]), 1.0,
                          confirm=True, now=now)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
-    if out["resultat"]["executed"]:
-        try:
-            import telegram_notifier as tn
+    try:
+        import telegram_notifier as tn
+        if out["resultat"]["executed"]:
             tn.send_telegram(f"⚡ CARRY RÉEL (§45) : {d['action'].upper()} short couvert — "
                              f"{d['raison']}. oid {res.get('clientOid')} · voir /futures")
-        except Exception:
-            pass
+        else:
+            tn.send_telegram(f"⚠️ CARRY : ÉCHEC {d['action']} — "
+                             f"{res.get('reasons') or 'réponse exchange'}. "
+                             f"Retente après throttle · voir /futures")
+    except Exception:
+        pass
     return out
 
 

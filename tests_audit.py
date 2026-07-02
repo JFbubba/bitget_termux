@@ -4627,6 +4627,30 @@ def test_futures_auto_sl_tp_et_fraicheur():
           {"action": "FUTURES_DRY_RUN", "ts": 12.0, "order": {"agent": "auto_dir"}}]
     assert fa.dernier_ordre_auto_ts(ev) == 9.0
     assert fa.dernier_ordre_auto_ts([]) is None
+    # les ÉCHECS comptent pour le throttle : pas de martèlement toutes les 5 min
+    ev2 = ev + [{"action": "FUTURES_REAL_FAILED", "ts": 15.0, "order": {"agent": "auto_dir"}}]
+    assert fa.dernier_ordre_auto_ts(ev2) == 15.0
+
+
+def test_futures_executor_fermeture_taille_exacte():
+    import futures_executor as fe
+    # fermeture avec size_btc EXPLICITE : taille exacte de la position, pas un
+    # notional re-converti (le floor laisserait une poussière infermable)
+    o = fe.build_futures_order("auto_dir", "long", 14.0, 2.0, client_oid="cx",
+                               reduce=True, size_btc=0.00023)
+    bo = fe.to_bitget_order(o, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo["size"] == "0.0002" and bo["reduceOnly"] == "YES"   # 0.00023 arrondi au vol_place
+    # poussière SOUS le minimum : relevée au min du contrat (reduceOnly borne à la
+    # position côté exchange -> la poussière est fermée, jamais bloquée)
+    o2 = fe.build_futures_order("carry", "short", 3.0, 1.0, client_oid="cy",
+                                reduce=True, size_btc=0.00004)
+    bo2 = fe.to_bitget_order(o2, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo2["size"] == "0.0001" and bo2["reduceOnly"] == "YES"
+    # size_btc IGNORÉ sur une OUVERTURE (le sizing d'ouverture reste notional/caps)
+    o3 = fe.build_futures_order("auto_dir", "long", 8.0, 2.0, client_oid="cz",
+                                size_btc=0.005)
+    bo3 = fe.to_bitget_order(o3, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo3["size"] == "0.0001"                                # notional 8$ -> floor au pas
 
 
 def test_futures_report_resume_fills_et_borne():

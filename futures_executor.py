@@ -217,7 +217,8 @@ def _qty(x, decimals=6):
 
 
 def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
-                        stop_loss=None, take_profit=None, client_oid=None, *, reduce=False):
+                        stop_loss=None, take_profit=None, client_oid=None, *, reduce=False,
+                        size_btc=None):
     """Construit la demande d'ordre futures BORNÉE. PUR, sans effet de bord.
 
       • side ∈ {'long','short'} (vocabulaire neutre — l'open/close venue vient à l'étape 2) ;
@@ -243,6 +244,10 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
         "clientOid": str(client_oid) if client_oid is not None else None,
         "execution_mode": _execution_mode(),
     }
+    if size_btc is not None:
+        # taille EXPLICITE (fermetures : la taille exacte de la position, pas un
+        # notional re-converti qui laisserait une poussière infermable après floor)
+        order["size_btc"] = float(size_btc)
     if entry is not None:
         order["entry"] = float(entry)
     if stop_loss is not None:
@@ -377,10 +382,18 @@ def to_bitget_order(order, spec, price, marge_mode=None):
       position = sa marge —, crossed FORCÉ en compte multi-devises,
       cf. resolve_marge_mode) ; TP/SL préréglés arrondis au tick.
     None si la taille est infaisable (sous les minima)."""
-    size = size_for(order.get("notional_usdt"), price, spec)
+    from numeric_utils import safe_float
+    reduce = bool(order.get("reduce"))
+    explicite = safe_float(order.get("size_btc")) if reduce else None
+    if explicite is not None and explicite > 0:
+        # fermeture à taille EXACTE : reduceOnly borne à la position côté exchange,
+        # on relève au minimum du contrat pour que même une poussière soit fermable.
+        mini = safe_float((spec or {}).get("min_size")) or 0.0001
+        size = max(explicite, mini)
+    else:
+        size = size_for(order.get("notional_usdt"), price, spec)
     if size is None:
         return None
-    reduce = bool(order.get("reduce"))
     long_ = str(order.get("side")) == "long"
     side = ("sell" if long_ else "buy") if reduce else ("buy" if long_ else "sell")
     vol_place = int((spec or {}).get("vol_place") or 4)
@@ -536,7 +549,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
-            marge_mode=None, **gate_overrides):
+            marge_mode=None, size_btc=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
@@ -547,7 +560,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                          gross_open_usdt=gross_open_usdt, client_oid=oid, seen_oids=seen_oids,
                          hour_utc=hour_utc, macro_events=macro_events, now=now, **gate_overrides)
     order = build_futures_order(agent, side, notional_usdt, leverage, entry, stop_loss,
-                                take_profit, oid, reduce=reduce)
+                                take_profit, oid, reduce=reduce, size_btc=size_btc)
     mode = order.get("execution_mode")
     preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "
