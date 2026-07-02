@@ -31,10 +31,12 @@ Objectif : fiabiliser le moteur local, Telegram, les journaux, les tests et les 
 - [x] Taille des journaux (/system_health)
 - [x] Nombre de pre-ordres pending/rejected/dry-run (/system_health)
 - [x] Statut pause/resume (/pause_status)
+- [x] Dashboard : sources orthogonales §40 (on-chain BTC, stablecoins, DVOL/VRP, carry)
+- [x] Dashboard : echelle d'edge enrichie (mode xs / n effectif, proche LIVE, priors EARCP)
 
 ## Priorite 4  Qualite strategie
 
-- Backtest offline simple
+- [x] Backtest offline simple (accum_backtest.py : cost-basis IS/OOS committe, §42)
 - Journal des signaux ignores
 - [x] Indicateurs volume : niveau ancre + biais (concept Unbiased Level Pro)
 - [x] Indicateurs pro calculables : momentum, volume profile, Sharpe, sizing risque capital, timing horaire (pro_indicators.py)

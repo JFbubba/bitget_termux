@@ -303,6 +303,23 @@
       <div class="row"><span class="k">petrole WTI</span><span id="ma-oil">—</span></div>
       <div class="row"><span class="k">symboles suivis</span><span id="ma-syms">—</span></div>
     </div>
+    <div class="panel">
+      <h2>On-chain BTC · Stablecoins <span class="dim" style="letter-spacing:0">— advisory lent (§40)</span></h2>
+      <div class="row"><span class="k">hash ribbons</span><span id="oc-rib" class="amber">—</span></div>
+      <div class="row"><span class="k">congestion mempool</span><span id="oc-cong">—</span></div>
+      <div class="row"><span class="k">difficulté (est.)</span><span id="oc-diff">—</span></div>
+      <div class="row"><span class="k">stablecoins (offre)</span><span id="fl-total">—</span></div>
+      <div class="row"><span class="k">momentum 7j · 30j</span><span id="fl-pct">—</span></div>
+      <div class="row"><span class="k">flux (dry powder)</span><span id="fl-sig" class="amber">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>Vol implicite · Carry <span class="dim" style="letter-spacing:0">— DVOL/VRP · cash-and-carry PAPER</span></h2>
+      <div class="row"><span class="k">DVOL BTC · VRP</span><span id="iv-btc">—</span></div>
+      <div class="row"><span class="k">DVOL ETH · VRP</span><span id="iv-eth">—</span></div>
+      <div class="row"><span class="k">régime vol BTC</span><span id="iv-reg" class="amber">—</span></div>
+      <div class="row"><span class="k">meilleur carry net</span><span id="cr-best">—</span></div>
+      <div class="dim" id="cr-rows" style="margin-top:6px;line-height:1.7">—</div>
+    </div>
     <div class="panel" id="panel-future" style="grid-column:span 2">
       <h2>Futur · Éventail <span class="dim" style="letter-spacing:0">— plages CONDITIONNELLES (Monte Carlo σ/sauts calibrés), PAS une prédiction</span></h2>
       <div style="display:flex;gap:14px;flex-wrap:wrap">
@@ -710,7 +727,11 @@ async function tick(){
     $("md-lev").textContent=(md.max_leverage!=null)?("×"+md.max_leverage):"—";
     $("md-dd").textContent=(md.max_drawdown_pct!=null)?(md.max_drawdown_pct+"%"):"—";
     const fl=md.futures_live_agents||[];$("md-live").textContent=fl.length?fl.join(", "):"aucun (edge non prouvé)";$("md-live").className=fl.length?"green":"dim";
-    const tiers=Object.entries(ed).map(([a,t])=>a+":"+t).join(" · ");$("ed-tiers").textContent="edge — "+(tiers||"—");
+    const tiers=Object.entries(ed.tiers||{}).map(([a,t])=>a+":"+t).join(" · ");
+    const edMode=ed.mode?(" · ranking "+ed.mode+(ed.n_symbols?(" ("+ed.n_symbols+" sym, n effectif)"):"")):"";
+    const edPend=(ed.pending&&ed.pending.length)?(" · proche LIVE: "+ed.pending.join(",")):"";
+    const edPri=Object.entries(ed.priors||{}).map(([a,p])=>a+"×"+p).join(" ");
+    $("ed-tiers").textContent="edge — "+(tiers||"—")+edMode+edPend+(edPri?(" · priors EARCP: "+edPri):"");
     // --- caps réels (3 couches + tripwire) + canaux d'edge accumulés ---
     const cp=st.caps||{},mi=st.microstructure||{},mtm=st.market_timing||{};
     $("cp-spent").textContent=(cp.spent_today!=null)?("$"+cp.spent_today+" / promesse $"+(cp.promise!=null?cp.promise:5)):"—";$("cp-spent").className=cp.breach?"red":"green";
@@ -737,6 +758,28 @@ async function tick(){
     $("sy-micro").className=(sysd.micro_age_s!=null&&sysd.micro_age_s<180)?"green":(sysd.micro_age_s!=null?"amber":"dim");
     $("sy-svc").textContent=(sv.dashboard?"dash ✓":"dash ✗")+" · "+(sv.bot?"bot ✓":"bot ✗");$("sy-svc").className=(sv.dashboard&&sv.bot)?"green":"amber";
     $("sy-kill").textContent=(sysd.kill_switch==null)?"—":(sysd.kill_switch?"ARMÉ ⚠":"inactif");$("sy-kill").className=sysd.kill_switch?"red":"green";
+    // --- sources orthogonales §40 : on-chain, stablecoins, DVOL/VRP, carry ---
+    const onc=st.onchain||{},flx=st.flows||{},ivv=st.vol_iv||{},cry=st.carry||{};
+    if(onc.etat){const rb=onc.etat.split(" ")[0];$("oc-rib").textContent=rb+(onc.signal!=null?(" ("+(onc.signal>=0?"+":"")+onc.signal.toFixed(1)+")"):"");
+      $("oc-rib").className=onc.signal>0?"green":(onc.signal<0?"amber":"dim");}
+    $("oc-cong").textContent=(onc.congestion!=null)?((onc.congestion*100).toFixed(0)+"%"+(onc.frais_rapide!=null?(" · "+onc.frais_rapide+" sat/vB"):"")):"—";
+    $("oc-cong").className=(onc.congestion||0)>0.5?"red":(onc.congestion||0)>0.2?"amber":"green";
+    $("oc-diff").textContent=(onc.diff_pct!=null)?((onc.diff_pct>=0?"+":"")+(+onc.diff_pct).toFixed(2)+"%"):"—";
+    $("fl-total").textContent=(flx.total_mds!=null)?("$"+flx.total_mds+" Mds"):"—";
+    $("fl-pct").textContent=(flx.pct_7j!=null||flx.pct_30j!=null)?(((flx.pct_7j!=null)?((flx.pct_7j>=0?"+":"")+flx.pct_7j.toFixed(2)+"%"):"—")+" · "+((flx.pct_30j!=null)?((flx.pct_30j>=0?"+":"")+flx.pct_30j.toFixed(2)+"%"):"—")):"—";
+    const fsg=flx.signal;$("fl-sig").textContent=(fsg!=null)?((fsg>=0?"+":"")+fsg.toFixed(2)+(fsg>0.15?" expansion":fsg<-0.15?" contraction":" neutre")):"—";
+    $("fl-sig").className=(fsg||0)>0.15?"green":(fsg||0)<-0.15?"red":"dim";
+    const ivb=ivv.BTC||{},ive=ivv.ETH||{};
+    const ivTxt=v=>((v.niveau!=null)?v.niveau.toFixed(1):"—")+" · VRP "+((v.vrp!=null)?((v.vrp>=0?"+":"")+v.vrp.toFixed(1)):"—");
+    $("iv-btc").textContent=ivTxt(ivb);$("iv-eth").textContent=ivTxt(ive);
+    $("iv-reg").textContent=(ivb.regime||"—")+(ivb.expansion?" · expansion ⚠":"");
+    $("iv-reg").className=ivb.regime==="stress"?"red":ivb.regime==="calme"?"green":"amber";
+    const crRows=cry.rows||[];
+    if(crRows.length){const b=crRows[0];
+      $("cr-best").textContent=b.symbol.replace(/USDT$/,"")+" "+(b.apr_net_pct>=0?"+":"")+b.apr_net_pct+"%/an · "+b.attrait;
+      $("cr-best").className=b.attrait==="ATTRACTIF"?"green":b.apr_net_pct>0?"amber":"red";
+      $("cr-rows").textContent=crRows.map(r=>r.symbol.replace(/USDT$/,"")+" "+(r.apr_net_pct>=0?"+":"")+r.apr_net_pct+"%").join(" · ")+" (seuil "+(cry.seuil_pct!=null?cry.seuil_pct:5)+"%)";
+    }else{$("cr-best").textContent="—";$("cr-rows").textContent="accumule…";}
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}

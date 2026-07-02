@@ -259,6 +259,27 @@ def test_dashboard_assemble_state():
                              liquidations={"skew": {"net": 0.3}})
     assert st2["brain"]["bias"] == "LONG" and st2["liquidations"]["skew"]["net"] == 0.3
 
+
+def test_dashboard_edge_summary():
+    # résumé d'échelle d'edge du dashboard (§41) : paliers + pending + priors +
+    # provenance du ranking, sans réseau (rapport factice), fail-safe sur {}/None.
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server2", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rep = _edge_report()
+    rep.update({"ranking_mode": "xs", "n_symbols": 9})
+    s = mod.edge_summary(rep)
+    assert s["mode"] == "xs" and s["n_symbols"] == 9
+    assert s["tiers"]["alpha"] == "LIVE" and s["tiers"]["delta"] == "NEGATIVE"
+    assert s["pending"] == ["beta"]                    # replay OK, live pas confirmé
+    assert s["priors"]["alpha"] == 1.5 and s["priors"]["delta"] == 0.3
+    assert [t["agent"] for t in s["top"]] == ["alpha", "beta", "gamma", "delta"]
+    vide = mod.edge_summary({})
+    assert vide["tiers"] == {} and vide["pending"] == [] and vide["top"] == []
+    assert mod.edge_summary(None)["priors"] == {}
+
 def test_macro_risk_regime():
     import macro_context as mc
     on = mc.compute_risk_regime(vix=15.0, yield_2s10s=0.5, dxy_change_pct=-1.0)

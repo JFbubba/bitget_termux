@@ -99,6 +99,20 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
+def edge_summary(rep):
+    """Résumé de l'échelle d'edge pour le dashboard (fonction pure, testable) :
+    paliers + « proche LIVE » + priors EARCP + provenance du ranking (§41)."""
+    import edge_ladder as el
+    rep = rep or {}
+    pending = [r.get("agent") for r in rep.get("ranking", [])
+               if el.live_pending(r, el._live_row(rep, r.get("agent")))]
+    top = [{"agent": r.get("agent"), "dsr": r.get("dsr"), "n": r.get("n")}
+           for r in rep.get("ranking", [])[:6]]
+    return {"tiers": el.all_tiers(rep), "pending": pending,
+            "priors": el.weight_priors(rep), "mode": rep.get("ranking_mode"),
+            "n_symbols": rep.get("n_symbols"), "top": top}
+
+
 def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None, liquidations=None, positions=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
@@ -327,8 +341,38 @@ def build_state(symbol=None, tf="5m"):
         return mandate.summary()
 
     def _edge():
-        import edge_ladder
-        return edge_ladder.all_tiers()
+        """Échelle d'edge ENRICHIE (§41) — voir edge_summary (pur, testé)."""
+        import edge_ladder as el
+        return edge_summary(el._load())
+
+    def _onchain():
+        """On-chain BTC (§40) : Hash Ribbons, congestion mempool, difficulté.
+        Advisory LENT (observabilité seulement : rejeté comme entrée de sizing, §42)."""
+        import onchain_btc as oc
+        s = oc.snapshot()
+        rb = s.get("ribbon") or {}
+        return {"hashrate_ths": s.get("hashrate_ths"), "etat": oc.etat_ribbon(rb),
+                "signal": rb.get("signal"), "congestion": s.get("congestion"),
+                "frais_rapide": (s.get("frais") or {}).get("rapide"),
+                "diff_pct": (s.get("difficulte") or {}).get("variation_pct")}
+
+    def _flows():
+        """Flux stablecoins (§40) : offre totale, momentum 7j/30j, signal dry-powder."""
+        import stablecoin_flow as sf
+        return sf.snapshot()
+
+    def _vol_iv():
+        """Vol implicite Deribit (§40) : DVOL, VRP = DVOL − RV, régime par devise."""
+        import deribit_vol as dv
+        return {"BTC": dv.snapshot("BTC"), "ETH": dv.snapshot("ETH")}
+
+    def _carry():
+        """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""
+        import carry_monitor as cm
+        import config_utils as cu
+        rows = [r for r in cm.evaluer() if r.get("apr_net_pct") is not None]
+        rows.sort(key=lambda r: r["apr_net_pct"], reverse=True)
+        return {"seuil_pct": cu.cfg("CARRY_SEUIL_APR_PCT", 5.0), "rows": rows[:6]}
 
     def _microstructure():
         """Edge microstructure accumulé (chemin 2) : n enregistrements + meilleure feature."""
@@ -425,6 +469,11 @@ def build_state(symbol=None, tf="5m"):
     state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
     state["micro_live"] = _cached(f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {}))
     state["system"] = _cached("system", 20, lambda: _safe(_system, {}))
+    # sources orthogonales §40 (lentes par nature -> caches longs, best-effort)
+    state["onchain"] = _cached("onchain", 3600, lambda: _safe(_onchain, {}))
+    state["flows"] = _cached("flows", 3600, lambda: _safe(_flows, {}))
+    state["vol_iv"] = _cached("voliv", 1800, lambda: _safe(_vol_iv, {}))
+    state["carry"] = _cached("carry", 1800, lambda: _safe(_carry, {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")
