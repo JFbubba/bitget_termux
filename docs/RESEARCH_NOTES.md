@@ -1438,6 +1438,49 @@ partout : rapport CLI/Telegram (« RÉEL prévu »), dashboard (« $x réel (2�
 score) »). La réconciliation §43 mesurera l'effet sur le prix de revient réel dans
 les semaines qui viennent — c'est elle qui dira si l'edge de backtest se matérialise.
 
+---
+
+## §45 — DÉCISION propriétaire : changement des règles, futures réel câblé
+
+**Décision du propriétaire (02/07/2026)** : « Je veux changer les règles et passer en
+full live. » Trois questions d'engagement posées et répondues explicitement :
+périmètre = **carry + directionnel** (en connaissance de cause : l'espérance
+directionnelle mesurée est NÉGATIVE, 0 agent LIVE, §35-41) ; validation =
+**directement réel** (pas d'étape demo) ; capital = **tout le solde futures**
+(~106 USDT au moment de la décision, ~260 USDT spot réservés à l'accumulation).
+Les avertissements ont été présentés par écrit à chaque option ; le choix est acté.
+
+**Ce qui change** :
+- `futures_executor` passe à l'ÉTAPE 2 : chemin réel CÂBLÉ (l'étape 1 levait
+  NotImplementedError). Mapping API v2 : mode one-way (side buy/sell + reduceOnly),
+  marge ISOLÉE (perte max d'une position = sa marge), ordres MARKET (tailles petites),
+  TP/SL préréglés arrondis au tick, taille arrondie VERS LE BAS au pas du contrat,
+  levier fixé AVANT l'ordre (borné ×5, fail-closed si l'exchange refuse).
+- Porte d'edge : OUTREPASSABLE par `FUTURES_EDGE_GATE_OVERRIDE=1` (config, décision
+  propriétaire datée). La remettre à 0 referme la porte instantanément. Les 7 autres
+  gardes restent NON négociables.
+- `security_agent.scan_futures_exec` : le réglage de levier (borné) et le side
+  'sell' (shorts) entrent au périmètre du module futures ; retrait/virement/
+  annulation restent INTERDITS DURS.
+- Armement : `FUTURES_AUTONOMOUS_LIVE=1` (.env) — double verrou complet avec
+  `MANDATE_LIVE_ENABLED`.
+
+**Ce que l'ingénierie impose en échange (non négociable)** :
+- Murs ABSOLUS en dur : 50 $/trade, 250 $ d'exposition cumulée — env/config peuvent
+  ABAISSER, jamais dépasser. Caps effectifs de DÉPART : 15/trade, 60 cumulé —
+  montée par paliers sur décision propriétaire si l'exécution est propre.
+- **Stop de perte JOURNALIER** (−5 % d'equity futures vs ouverture du jour) :
+  franchi -> KILL_SWITCH armé automatiquement + alerte Telegram. FAIL-CLOSED :
+  equity illisible = pas d'ouverture (on ne trade pas à l'aveugle). Une RÉDUCTION
+  reste permise après breach (fermer n'aggrave jamais le risque).
+- Montée en taille progressive : premiers ordres au minimum du contrat (~6-8 $).
+
+**Reste à câbler (chantier suivant)** : la boucle décision -> exécution
+(carry_monitor ATTRACTIF -> jambes cash-and-carry ; pré-ordres directionnels ->
+futures_executor), la réconciliation futures (miroir de §43), et les surfaces
+dashboard/Telegram. Tant que ce n'est pas fait, les ordres réels passent par le
+CLI `futures_executor` — le full-auto de bout en bout arrive par étapes.
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

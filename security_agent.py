@@ -45,9 +45,20 @@ EXEC_REQUIRED_GUARDS = ["mandate_live_enabled", "kill_switch", "confirm"]
 # changement de levier hors mur/vente), et on EXIGE ses verrous (double verrou + edge +
 # kill_switch + confirm). Liste séparée -> AUTHORIZED_EXEC_FILES (spot) reste inchangé.
 FUTURES_EXEC_FILES = ["futures_executor.py"]
+# §45 (02/07/2026, décision propriétaire) : le chemin réel futures est câblé — le
+# réglage du levier (BORNÉ au mur ×5 par les gardes) et le side 'sell' (shorts du
+# carry/directionnel) font désormais partie du périmètre du module. Restent INTERDITS
+# DURS : retrait, virement, annulation (aucun besoin : ordres market/IOC), les noms
+# de fonctions de vente spot (_sell/sell_), et le MARGIN TRADING — motif précisé le
+# 02/07 (option 1 approuvée par le propriétaire) : l'ancien motif large "margin_"
+# matchait par accident les paramètres API légitimes (marginCoin/marginMode via
+# MARGIN_COIN) ; on interdit désormais la liste EXACTE et complète des outils du
+# module margin de bitget-core (écritures ET lectures : ce module n'a RIEN à y faire).
 FUTURES_EXEC_FORBIDDEN = [
-    "withdraw", "transfer", "set_leverage", "change_leverage", "setleverage",
-    "margin_", "_sell", "sell_", "cancel_order", "cancelorder",
+    "withdraw", "transfer", "_sell", "sell_",
+    "cancel_order", "cancelorder",
+    "margin_borrow", "margin_repay", "margin_place_order", "margin_cancel_orders",
+    "margin_get_assets", "margin_get_orders", "margin_get_records",
 ]
 FUTURES_EXEC_REQUIRED_GUARDS = [
     "mandate_live_enabled", "futures_autonomous_live", "futures_live_allowed",

@@ -4386,7 +4386,8 @@ def test_futures_executor_build_order():
     assert o["leverage"] == 5.0                    # 10 demandé -> borné au mur ×5
     assert o["clientOid"] == "oid1" and o["agent"] == "geometric"
     assert o["entry"] == 50000.0 and o["stop_loss"] == 49000.0 and o["take_profit"] == 52000.0
-    assert o["execution_mode"] == "FUTURES_DRY_RUN_ONLY"
+    # le mode reflète l'armement du double verrou (dry hors armement, réel borné sinon)
+    assert o["execution_mode"] in ("FUTURES_DRY_RUN_ONLY", "FUTURES_REAL_BOUNDED")
     assert "e" not in o["size"].lower()            # quantité jamais en notation scientifique
     # reduce + short, levier sous le mur conservé
     m = fe.build_futures_order("savant", "short", 20.0, 2.0, reduce=True)
@@ -4402,20 +4403,23 @@ def test_futures_executor_build_order():
 def test_futures_executor_guards_8():
     import futures_executor as fe
     # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps
-    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=0)
     assert fe.guards("geometric", 8, 2, **base)[0] is True
     # 1. kill-switch
     assert fe.guards("geometric", 8, 2, **{**base, "kill": True})[0] is False
     # 2. double verrou (l'un OU l'autre coupé suffit à refuser)
     assert fe.guards("geometric", 8, 2, **{**base, "live": False})[0] is False
     assert fe.guards("geometric", 8, 2, **{**base, "autonomous": False})[0] is False
-    # 3. porte d'edge (agent non LIVE)
+    # 3. porte d'edge (agent non LIVE) — SANS override, la porte refuse toujours
     assert fe.guards("geometric", 8, 2, **{**base, "futures_live": False})[0] is False
+    # 3bis. override §45 (décision propriétaire) : la porte s'ouvre ; à 0 elle referme
+    assert fe.guards("geometric", 8, 2,
+                     **{**base, "futures_live": False, "edge_override": 1})[0] is True
     # 4. levier > mur ×5
     assert fe.guards("geometric", 8, 10, **base)[0] is False
-    # 5. caps : notional/trade puis exposition cumulée
+    # 5. caps : notional/trade (config §45 : 15) puis exposition cumulée (60)
     assert fe.guards("geometric", 50, 2, **base)[0] is False
-    assert fe.guards("geometric", 8, 2, gross_open_usdt=15, **base)[0] is False
+    assert fe.guards("geometric", 8, 2, gross_open_usdt=55, **base)[0] is False
     # 6. halte drawdown (equity réelle : -30% ≥ MDD 20%)
     assert fe.guards("geometric", 8, 2, equity_curve=[100, 70], **base)[0] is False
     # 8. idempotence clientOid (anti-doublon)
@@ -4441,23 +4445,112 @@ def test_futures_guards_fail_closed_on_bad_inputs():
     assert fe.guards("geometric", 0, 2, **base)[0] is False
 
 
+_FUT_SPEC = {"min_size": 0.0001, "step": 0.0001, "vol_place": 4, "price_place": 1,
+             "min_usdt": 5.0}
+
+
 def test_futures_executor_dry_and_real_path():
     import futures_executor as fe
-    full = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    full = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=0)
     # DRY par défaut : aucun ordre. journal=False -> hermétique (pas d'écriture ledger)
     r = fe.execute("geometric", "long", 8, 2, confirm=False, journal=False, **full)
     assert r["ok"] is True and r["executed"] is False and r.get("dry") is True
     # gardes qui échouent -> refus propre, jamais de réel, même avec --confirm
     r2 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
-                    live=False, autonomous=False, futures_live=False, kill=False)
+                    live=False, autonomous=False, futures_live=False, kill=False, edge_override=0)
     assert r2["ok"] is False and r2["executed"] is False
-    # gardes vertes + confirm=True -> chemin réel NON câblé (étape 1) : NotImplementedError
-    raised = False
+    # gardes vertes + confirm=True -> chemin RÉEL (étape 2, §45) via runner injecté :
+    # 1) levier fixé AVANT l'ordre (2 appels holdSide en isolé), 2) ordre market mappé
+    calls = []
+    def _runner_ok(cmd):
+        calls.append(cmd)
+        return '{"data": {"orderId": "123"}}'
+    r3 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0, **full)
+    assert r3["executed"] is True
+    assert calls[0][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
+    bo = r3["bitget_order"]
+    assert bo["side"] == "buy" and bo["reduceOnly"] == "NO" and bo["orderType"] == "market"
+    assert bo["marginMode"] == "isolated" and bo["size"] == "0.0001"   # 8$/60000 -> plancher au pas
+    # échec exchange -> executed False, jamais d'exception
+    r4 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    runner=lambda c: '{"ok": false, "error": "x"}',
+                    daily_loss=False, spec=_FUT_SPEC, price=60000.0, **full)
+    assert r4["executed"] is False
+    # stop de perte journalier franchi -> OUVERTURE refusée, RÉDUCTION permise
+    r5 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    daily_loss=True, spec=_FUT_SPEC, price=60000.0, **full)
+    assert r5["ok"] is False and any("stop de perte" in x for x in r5["reasons"])
+    r6 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, reduce=True,
+                    runner=_runner_ok, daily_loss=True, spec=_FUT_SPEC, price=60000.0, **full)
+    assert r6["executed"] is True                     # fermer n'aggrave jamais le risque
+
+
+def test_futures_executor_size_et_mapping_bitget():
+    import futures_executor as fe
+    # taille : arrondie VERS LE BAS au pas, refus sous les minima (taille OU notional)
+    assert fe.size_for(8.0, 60000.0, _FUT_SPEC) == 0.0001         # 0.000133 -> plancher
+    assert fe.size_for(13.0, 60000.0, _FUT_SPEC) == 0.0002
+    assert fe.size_for(4.0, 60000.0, _FUT_SPEC) is None           # floor -> 0 < taille min
+    assert fe.size_for(5.9, 60000.0, _FUT_SPEC) is None           # 0.000098 -> floor 0 -> refus
+    assert fe.size_for(8.0, None, _FUT_SPEC) is None
+    assert fe.size_for(8.0, 60000.0, None) is None
+    # mapping : short ouvre en sell ; reduce d'un long ferme en sell + reduceOnly
+    o_short = fe.build_futures_order("carry", "short", 12.0, 1.0, client_oid="c1")
+    bo = fe.to_bitget_order(o_short, _FUT_SPEC, 60000.0)
+    assert bo["side"] == "sell" and bo["reduceOnly"] == "NO" and bo["clientOid"] == "c1"
+    o_red = fe.build_futures_order("carry", "long", 12.0, 1.0, client_oid="c2", reduce=True)
+    br_ = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0)
+    assert br_["side"] == "sell" and br_["reduceOnly"] == "YES"
+    assert "presetStopLossPrice" not in br_                        # pas de TP/SL sur une réduction
+    # TP/SL préréglés arrondis au tick (price_place=1)
+    o_tp = fe.build_futures_order("x", "long", 12.0, 2.0, stop_loss=58999.96,
+                                  take_profit=62000.049, client_oid="c3")
+    bt = fe.to_bitget_order(o_tp, _FUT_SPEC, 60000.0)
+    assert bt["presetStopLossPrice"] == "59000.0" and bt["presetStopSurplusPrice"] == "62000.0"
+    # infaisable -> None (jamais un ordre que l'exchange gonflerait)
+    assert fe.to_bitget_order(fe.build_futures_order("x", "long", 3.0, 1.0), _FUT_SPEC, 60000.0) is None
+
+
+def test_futures_executor_daily_loss_state():
+    import futures_executor as fe
+    # jour 1 : l'equity courante devient l'ouverture, pas de breach
+    b, st = fe.daily_loss_state_check(100.0, None, now=86400 * 10, stop_pct=5.0)
+    assert b is False and st == {"day": 10, "open_equity": 100.0}
+    # même jour, -4% -> pas de breach ; -6% -> breach ; l'ouverture ne bouge pas
+    assert fe.daily_loss_state_check(96.0, st, now=86400 * 10 + 3600, stop_pct=5.0)[0] is False
+    b2, st2 = fe.daily_loss_state_check(94.0, st, now=86400 * 10 + 7200, stop_pct=5.0)
+    assert b2 is True and st2["open_equity"] == 100.0
+    # nouveau jour -> reset de l'ouverture (94 devient la base)
+    b3, st3 = fe.daily_loss_state_check(94.0, st2, now=86400 * 11 + 60, stop_pct=5.0)
+    assert b3 is False and st3 == {"day": 11, "open_equity": 94.0}
+    # FAIL-CLOSED : equity illisible/nulle -> breach (on ne trade pas à l'aveugle)
+    assert fe.daily_loss_state_check(None, st3, now=86400 * 11)[0] is True
+    assert fe.daily_loss_state_check(0.0, st3, now=86400 * 11)[0] is True
+
+
+def test_futures_executor_caps_murs_absolus():
+    import futures_executor as fe
+    import os
+    # l'env peut ABAISSER le cap effectif, JAMAIS dépasser le mur absolu en dur
+    old = os.environ.get("FUTURES_REAL_MAX_PER_TRADE_USDT")
     try:
-        fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, **full)
-    except NotImplementedError:
-        raised = True
-    assert raised   # le réel reste hors d'atteinte à l'étape 1
+        os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = "9999"
+        assert fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                          fe.FUT_ABS_MAX_PER_TRADE_USDT) == fe.FUT_ABS_MAX_PER_TRADE_USDT
+        os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = "3"
+        assert fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                          fe.FUT_ABS_MAX_PER_TRADE_USDT) == 3.0
+    finally:
+        if old is None:
+            os.environ.pop("FUTURES_REAL_MAX_PER_TRADE_USDT", None)
+        else:
+            os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = old
+    # un notional au-dessus du mur est refusé même tout-verrous-ouverts
+    ok, reasons = fe.guards("carry", fe.FUT_ABS_MAX_PER_TRADE_USDT + 1, 2,
+                            live=True, autonomous=True, futures_live=True,
+                            kill=False, edge_override=1)
+    assert ok is False and any("plafond/trade" in r for r in reasons)
 
 
 def test_macro_regime_pressures_and_bias():

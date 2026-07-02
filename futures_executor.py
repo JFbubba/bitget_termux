@@ -1,22 +1,22 @@
 """
-futures_executor.py — EXÉCUTION FUTURES (DRY-RUN strict). Étape 1 de RESEARCH_NOTES §34.
+futures_executor.py — EXÉCUTION FUTURES RÉELLE BORNÉE. Étape 2 (RESEARCH_NOTES §45).
 
-⚠️ 2e module d'exécution, destiné à devenir le SEUL endroit autorisé à passer un ordre
-FUTURES réel BORNÉ. À l'ÉTAPE 1 il reste 100 % DRY-RUN : il CONSTRUIT et JOURNALISE une
-demande bornée, mais le chemin réel n'est PAS câblé (lève NotImplementedError). Aucun
-ordre futures réel ne peut partir tant que les TROIS conditions ne sont pas réunies :
-  • un agent réellement éligible LIVE (mandate.futures_live_allowed — porte d'edge), ET
-  • le DOUBLE verrou armé (MANDATE_LIVE_ENABLED ET FUTURES_AUTONOMOUS_LIVE), ET
-  • le chemin réel implémenté (étape 2, sous GO explicite du propriétaire).
+⚠️ 2e module d'exécution AUTORISÉ — avec spot_executor, les SEULS endroits qui peuvent
+passer un ordre réel. Le chemin réel est CÂBLÉ depuis le §45 : décision explicite du
+propriétaire (02/07/2026, trois questions d'engagement répondues : périmètre carry +
+directionnel, directement réel, plafond = solde). La porte d'edge (agent LIVE) peut
+être OUTREPASSÉE par `FUTURES_EDGE_GATE_OVERRIDE` (config, décision §45) — remettre
+à 0 la referme instantanément.
 
-Périmètre BORNÉ par conception (calqué sur spot_executor.py / §31) :
-  ouverture/réduction d'une position futures directionnelle (side 'long'/'short', reduce),
-  levier ≤ mandate.max_leverage() (mur ×5), notional + exposition cumulée plafonnés.
-  JAMAIS de retrait, JAMAIS de changement de levier hors mur, JAMAIS d'agent non-LIVE.
+Périmètre BORNÉ par conception :
+  ouverture/réduction d'une position futures (side 'long'/'short', reduce), marge
+  ISOLÉE (la perte max d'une position = sa marge), levier ≤ mur ×5, notional/trade et
+  exposition cumulée plafonnés par _capped (env/config peuvent ABAISSER, JAMAIS
+  dépasser les murs absolus en dur), stop de perte JOURNALIER (arme le kill-switch).
+  JAMAIS de retrait, JAMAIS de virement, JAMAIS d'annulation ici.
 
-Gardes DURS (les 8 de §34, court-circuit au 1er échec) : voir guards().
-Mode --dry par DÉFAUT : imprime le preview, n'exécute RIEN. Et même --confirm reste
-inoffensif à l'étape 1 : le chemin réel lève NotImplementedError (futures non câblé).
+Gardes DURS (8 de §34 + pré-vol perte journalière) : voir guards() et execute().
+Mode --dry par DÉFAUT : imprime le preview, n'exécute RIEN sans --confirm.
 """
 
 import json
@@ -24,7 +24,15 @@ import time
 from pathlib import Path
 
 SYMBOL = "BTCUSDT"
-EXECUTION_MODE = "FUTURES_DRY_RUN_ONLY"   # verrou dur : aucun ordre réel à l'étape 1
+PRODUCT_TYPE = "USDT-FUTURES"
+MARGIN_COIN = "USDT"
+
+# Murs ABSOLUS en dur (defense-in-depth, comme spot_executor) : ni .env ni config ne
+# peuvent les DÉPASSER (les abaisser, oui). Le plafond réel effectif démarre BAS
+# (config : 15/trade, 60 cumulé) et monte progressivement si l'exécution est propre —
+# le mur cumulé 250 ≈ le solde autorisé par le propriétaire (§45).
+FUT_ABS_MAX_PER_TRADE_USDT = 50.0
+FUT_ABS_MAX_GROSS_USDT = 250.0
 
 
 from config_utils import cfg as _cfg
@@ -40,6 +48,29 @@ def _limit(name, fallback):
         except ValueError:
             pass
     return float(_cfg(name, fallback))
+
+
+def _capped(name, fallback, absolute):
+    """Plafond EFFECTIF = min(env > config > défaut, mur ABSOLU en dur). PUR (lit l'env)."""
+    return min(_limit(name, fallback), float(absolute))
+
+
+def _autonomous_on():
+    """2e verrou FUTURES_AUTONOMOUS_LIVE : .env OU config (comme l'accumulation —
+    l'option .env évite d'éditer un fichier suivi par git)."""
+    import os
+    env_on = os.getenv("FUTURES_AUTONOMOUS_LIVE", "").strip().lower() in ("1", "true", "yes", "on")
+    return env_on or bool(_cfg("FUTURES_AUTONOMOUS_LIVE", False))
+
+
+def _execution_mode():
+    """Mode affiché dans les previews/journaux : RÉEL borné si le double verrou est armé."""
+    try:
+        import mandate
+        live = bool(mandate.live_enabled())
+    except Exception:
+        live = False
+    return "FUTURES_REAL_BOUNDED" if (live and _autonomous_on()) else "FUTURES_DRY_RUN_ONLY"
 
 
 # ---------- journal DRY-RUN (gitignored) ----------
@@ -67,7 +98,7 @@ def _journal(event):
 
 def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt=0.0,
            client_oid=None, seen_oids=None, hour_utc=None, macro_events=None, now=None,
-           live=None, autonomous=None, futures_live=None, kill=None):
+           live=None, autonomous=None, futures_live=None, kill=None, edge_override=None):
     """Vérifie TOUTES les gardes avant un ordre futures. Retourne (ok, raisons).
     PUR si l'état est injecté (live/autonomous/futures_live/kill/equity_curve/...)."""
     reasons = []
@@ -90,18 +121,22 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
         except Exception:
             live = False
     if autonomous is None:
-        autonomous = bool(_cfg("FUTURES_AUTONOMOUS_LIVE", False))
+        autonomous = _autonomous_on()
     if not (live and autonomous):
         reasons.append("double verrou coupé (MANDATE_LIVE_ENABLED ET FUTURES_AUTONOMOUS_LIVE requis)")
 
-    # 3. porte d'edge : agent réellement éligible LIVE (replay ET live)
+    # 3. porte d'edge : agent réellement éligible LIVE (replay ET live). Peut être
+    # OUTREPASSÉE par FUTURES_EDGE_GATE_OVERRIDE — décision propriétaire §45
+    # (02/07/2026), consciente que 0 agent n'a d'edge mesuré. Remettre à 0 la referme.
     if futures_live is None:
         try:
             import mandate
             futures_live = mandate.futures_live_allowed(agent)
         except Exception:
             futures_live = False
-    if not futures_live:
+    if edge_override is None:
+        edge_override = int(_cfg("FUTURES_EDGE_GATE_OVERRIDE", 0) or 0)
+    if not futures_live and not edge_override:
         reasons.append(f"agent '{agent}' non éligible LIVE (porte d'edge non franchie)")
 
     # 4. levier ≤ mur dur (fail-closed : non numérique -> rejeté, jamais d'exception)
@@ -126,10 +161,10 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
     if notion is not None:
         if notion <= 0:
             reasons.append("notional ≤ 0")
-        per_cap = _limit("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0)
+        per_cap = _capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0, FUT_ABS_MAX_PER_TRADE_USDT)
         if notion > per_cap:
             reasons.append(f"notional {notion} > plafond/trade {per_cap}")
-        gross_cap = _limit("FUTURES_REAL_MAX_GROSS_USDT", 20.0)
+        gross_cap = _capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0, FUT_ABS_MAX_GROSS_USDT)
         gross = float(gross_open_usdt or 0)
         if gross + notion > gross_cap:
             reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
@@ -201,7 +236,7 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
         "marginUsdt": round(notion / lev, 2) if lev else None,
         "size": _qty(notion / float(entry)) if entry else None,
         "clientOid": str(client_oid) if client_oid is not None else None,
-        "execution_mode": EXECUTION_MODE,
+        "execution_mode": _execution_mode(),
     }
     if entry is not None:
         order["entry"] = float(entry)
@@ -212,24 +247,233 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
     return order
 
 
-# ---------- exécution (DRY à l'étape 1 ; réel NON câblé) ----------
+# ---------- stop de perte JOURNALIER (arme le kill-switch, fail-closed) ----------
 
-def _place_real(order, runner=None):
-    """Chemin RÉEL — NON CÂBLÉ à l'étape 1 (RESEARCH_NOTES §34). Passer un ordre futures
-    réel exige l'étape 2 : agent LIVE éligible + extension auditée des portes + GO explicite
-    du propriétaire. Tant que ce n'est pas fait, on REFUSE de prétendre exécuter."""
-    raise NotImplementedError(
-        "Futures réel non câblé (étape 1 DRY-RUN). Voir RESEARCH_NOTES §34 étape 2 : "
-        "requiert un agent LIVE et le GO explicite du propriétaire.")
+def daily_loss_state_check(equity, state, now=None, stop_pct=None):
+    """PUR. Compare l'equity courante à l'equity d'OUVERTURE du jour (mémorisée dans
+    `state` = {"day", "open_equity"}). Retourne (breach, nouvel_état). Nouveau jour ->
+    l'equity courante devient l'ouverture. Equity illisible -> BREACH (fail-closed :
+    on ne trade pas à l'aveugle)."""
+    stop_pct = float(_cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0) if stop_pct is None else stop_pct)
+    now = time.time() if now is None else now
+    day = int(now // 86400)
+    from numeric_utils import safe_float
+    eq = safe_float(equity)
+    state = dict(state or {})
+    if eq is None or eq <= 0:
+        return True, state                        # aveugle -> on n'ouvre pas
+    if state.get("day") != day or safe_float(state.get("open_equity")) is None:
+        state = {"day": day, "open_equity": eq}
+        return False, state
+    ouverture = float(state["open_equity"])
+    breach = eq < ouverture * (1.0 - stop_pct / 100.0)
+    return breach, state
+
+
+def _futures_equity():
+    """Equity USDT du wallet futures (lecture seule). None si illisible."""
+    try:
+        import bitget_balance_reader as br
+        from numeric_utils import safe_float
+        for r in (br.get_futures_accounts() or {}).get("data") or []:
+            if str(r.get("marginCoin", "")).upper() == MARGIN_COIN:
+                return safe_float(r.get("accountEquity") or r.get("usdtEquity")
+                                  or r.get("available"))
+    except Exception:
+        pass
+    return None
+
+
+def daily_loss_breach(now=None):
+    """Stop de perte JOURNALIER réel : lit l'equity futures, compare à l'ouverture du
+    jour (état persisté dans le ledger), et si le stop est franchi ARME LE KILL-SWITCH
+    (toute la machine s'arrête d'acheter/ouvrir). Fail-closed sur equity illisible."""
+    path = _ledger_path()
+    try:
+        led = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        led = {}
+    breach, state = daily_loss_state_check(_futures_equity(), led.get("daily_loss_state"), now=now)
+    led["daily_loss_state"] = state
+    try:
+        path.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    if breach and state.get("open_equity"):
+        try:
+            (Path(__file__).resolve().parent / "KILL_SWITCH").touch()
+            import telegram_notifier as tn
+            tn.send_telegram("🛑 STOP PERTE JOURNALIER FUTURES franchi — kill-switch ARMÉ "
+                             "(plus aucun ordre réel). Lever : supprimer KILL_SWITCH.")
+        except Exception:
+            pass
+    return breach
+
+
+# ---------- mapping vers l'API Bitget v2 (purs) ----------
+
+def size_for(notional_usdt, price, spec):
+    """PUR. Taille en BTC : notional/prix, arrondie VERS LE BAS au pas du contrat.
+    None si spec/prix illisibles, sous la taille minimale ou sous le notional minimal
+    (on n'envoie jamais un ordre que l'exchange rejetterait ou gonflerait)."""
+    from numeric_utils import safe_float
+    notional, price = safe_float(notional_usdt), safe_float(price)
+    if not spec or notional is None or price is None or price <= 0 or notional <= 0:
+        return None
+    step = safe_float(spec.get("step")) or 0.0001
+    mini = safe_float(spec.get("min_size")) or step
+    min_usdt = safe_float(spec.get("min_usdt")) or 5.0
+    vol_place = int(safe_float(spec.get("vol_place")) or 4)
+    brut = notional / price
+    size = int(brut / step) * step                # arrondi VERS LE BAS au pas
+    size = round(size, vol_place)
+    if size < mini or size * price < min_usdt:
+        return None
+    return size
+
+
+def to_bitget_order(order, spec, price):
+    """PUR. Demande bornée -> ordre API Bitget v2 (mode ONE-WAY) :
+      long/short -> side buy/sell ; reduce -> side OPPOSÉ + reduceOnly YES ;
+      ordre MARKET (taille petite, slippage négligeable, remplit toujours) ;
+      marge ISOLÉE (perte max = marge de la position) ; TP/SL préréglés arrondis
+    au tick. None si la taille est infaisable (sous les minima)."""
+    size = size_for(order.get("notional_usdt"), price, spec)
+    if size is None:
+        return None
+    reduce = bool(order.get("reduce"))
+    long_ = str(order.get("side")) == "long"
+    side = ("sell" if long_ else "buy") if reduce else ("buy" if long_ else "sell")
+    vol_place = int((spec or {}).get("vol_place") or 4)
+    price_place = int((spec or {}).get("price_place") or 1)
+    o = {"symbol": SYMBOL, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
+         "marginMode": str(_cfg("FUTURES_MARGIN_MODE", "isolated")),
+         "orderType": "market", "side": side,
+         "size": f"{size:.{vol_place}f}",
+         "reduceOnly": "YES" if reduce else "NO"}
+    if order.get("clientOid"):
+        o["clientOid"] = str(order["clientOid"])
+    if not reduce:                                # TP/SL préréglés à l'ouverture seulement
+        if order.get("take_profit") is not None:
+            o["presetStopSurplusPrice"] = f"{round(float(order['take_profit']), price_place):.{price_place}f}"
+        if order.get("stop_loss") is not None:
+            o["presetStopLossPrice"] = f"{round(float(order['stop_loss']), price_place):.{price_place}f}"
+    return o
+
+
+# ---------- lectures marché (best-effort, cachées) ----------
+
+def _contract_spec():
+    """Spécifications du contrat BTCUSDT (pas, minima, décimales). None si illisible."""
+    def _fetch():
+        import bitget_hub_bridge as hub
+        from numeric_utils import safe_float
+        d = hub._read(["futures", "futures_get_contracts", "--productType", PRODUCT_TYPE,
+                       "--symbol", SYMBOL])
+        rows = (d or {}).get("data") or []
+        r = rows[0] if rows else {}
+        if not r:
+            return None
+        return {"min_size": safe_float(r.get("minTradeNum")),
+                "step": safe_float(r.get("sizeMultiplier")),
+                "vol_place": int(safe_float(r.get("volumePlace")) or 4),
+                "price_place": int(safe_float(r.get("pricePlace")) or 1),
+                "min_usdt": safe_float(r.get("minTradeUSDT"))}
+    try:
+        import runtime_cache as rc
+        return rc.get("fut_contract_spec", 86400, _fetch, fallback=None)
+    except Exception:
+        return None
+
+
+def _mark_price():
+    """Dernier prix du perp BTCUSDT (lecture seule). None si illisible."""
+    try:
+        import bitget_hub_bridge as hub
+        from numeric_utils import safe_float
+        d = hub._read(["futures", "futures_get_ticker", "--productType", PRODUCT_TYPE,
+                       "--symbol", SYMBOL])
+        rows = (d or {}).get("data") or []
+        r = rows[0] if rows else {}
+        return safe_float(r.get("lastPr") or r.get("markPrice") or r.get("last"))
+    except Exception:
+        return None
+
+
+# ---------- exécution RÉELLE (étape 2, §45) ----------
+
+def _run(cmd, runner=None):
+    """Lance la commande bgc d'ÉCRITURE (sans --read-only). runner injectable (tests)."""
+    if runner is not None:
+        return runner(cmd)
+    try:
+        import bitget_hub_bridge as hub
+        if not hub.available():
+            return None
+        import subprocess
+        p = subprocess.run(["bgc", *cmd], capture_output=True, text=True,
+                           timeout=30, env=hub._hub_env())
+        return ((p.stdout or "") + (p.stderr or "")).strip() or None
+    except Exception:
+        return None
+
+
+def _ensure_leverage(leverage, runner=None):
+    """Fixe le levier (déjà borné au mur par build_futures_order) AVANT l'ordre.
+    Marge isolée : les deux holdSide. Fail-closed : échec -> False (pas d'ordre)."""
+    lev = str(int(max(1, round(float(leverage)))))
+    sides = (["long", "short"] if str(_cfg("FUTURES_MARGIN_MODE", "isolated")) == "isolated"
+             else [None])
+    for hs in sides:
+        cmd = ["futures", "futures_set_leverage", "--symbol", SYMBOL,
+               "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN,
+               "--leverage", lev]
+        if hs:
+            cmd += ["--holdSide", hs]
+        out = _run(cmd, runner=runner)
+        compact = (out or "").replace(" ", "").lower()
+        if not out or "error" in compact or '"ok":false' in compact:
+            return False
+    return True
+
+
+def _place_real(order, runner=None, spec=None, price=None):
+    """Chemin RÉEL (étape 2, §45 — décision propriétaire du 02/07/2026). Mappe la
+    demande bornée vers l'API v2 (one-way, marge isolée, market), fixe le levier borné,
+    exécute via l'Agent Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
+    spec = _contract_spec() if spec is None else spec
+    if not spec:
+        return {"ok": False, "executed": False,
+                "reasons": ["spécifications contrat illisibles (fail-closed)"]}
+    price = (order.get("entry") or _mark_price()) if price is None else price
+    if not price:
+        return {"ok": False, "executed": False,
+                "reasons": ["prix du perp illisible (fail-closed)"]}
+    bo = to_bitget_order(order, spec, price)
+    if bo is None:
+        return {"ok": False, "executed": False,
+                "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
+                            "sous les minima du contrat)"]}
+    if not _ensure_leverage(order.get("leverage") or 1, runner=runner):
+        return {"ok": False, "executed": False,
+                "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
+    out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    success = (bool(out) and '"ok":false' not in compact and "error" not in compact
+               and ("orderid" in compact or '"data"' in compact))
+    return {"ok": True, "executed": success, "bitget_order": bo,
+            "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
 
 
 def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
-            macro_events=None, journal=True, **gate_overrides):
-    """Ordre futures SI confirm=True ET les 8 gardes passent — mais le réel reste NON câblé
-    (lève NotImplementedError). Sinon DRY (construit, journalise, n'exécute rien). Retourne
-    un dict de résultat. gate_overrides (live/autonomous/futures_live/kill) injectables."""
+            macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
+            **gate_overrides):
+    """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
+    journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
+    Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
+    edge_override) + daily_loss/spec/price injectables (tests hermétiques)."""
     now = time.time() if now is None else now
     oid = f"fut{str(agent)[:3]}{int(now * 1000)}"
     ok, reasons = guards(agent, notional_usdt, leverage, equity_curve=equity_curve,
@@ -237,9 +481,10 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                          hour_utc=hour_utc, macro_events=macro_events, now=now, **gate_overrides)
     order = build_futures_order(agent, side, notional_usdt, leverage, entry, stop_loss,
                                 take_profit, oid, reduce=reduce)
-    preview = (f"[DRY] futures {order['side']}{' reduce' if order['reduce'] else ''} "
+    mode = order.get("execution_mode")
+    preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "
-               f"agent={agent} oid={oid} [{EXECUTION_MODE}]")
+               f"agent={agent} oid={oid} [{mode}]")
 
     if not ok:
         if journal:
@@ -254,19 +499,32 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                       "real_order_sent": False})
         return {"ok": True, "executed": False, "dry": True, "preview": preview,
                 "clientOid": oid,
-                "note": "DRY — étape 1. Le réel reste non câblé (NotImplementedError au confirm)."}
+                "note": "DRY — ajouter confirm=True pour le RÉEL (gardes + stop journalier)."}
 
-    # confirm=True ET gardes passées : chemin réel — NON câblé à l'étape 1.
+    # confirm=True ET gardes passées : PRÉ-VOL stop de perte journalier (fail-closed),
+    # puis chemin RÉEL (étape 2, §45). L'ouverture est bloquée après breach ; une
+    # RÉDUCTION reste permise (fermer une position n'aggrave jamais le risque).
+    if daily_loss is None and not reduce:
+        daily_loss = daily_loss_breach(now=now)
+    if daily_loss and not reduce:
+        if journal:
+            _journal({"action": "FUTURES_REFUSED", "ts": now, "order": order,
+                      "reasons": ["stop de perte journalier franchi"], "real_order_sent": False})
+        return {"ok": False, "executed": False, "preview": preview, "clientOid": oid,
+                "reasons": ["stop de perte journalier franchi (kill-switch armé)"]}
+    res = _place_real(order, runner=runner, spec=spec, price=price)
     if journal:
-        _journal({"action": "FUTURES_REAL_BLOCKED", "ts": now, "order": order,
-                  "real_order_sent": False, "reason": "réel non câblé (étape 1)"})
-    return _place_real(order, runner=runner)   # lève NotImplementedError
+        _journal({"action": "FUTURES_REAL" if res.get("executed") else "FUTURES_REAL_FAILED",
+                  "ts": now, "order": order, "bitget_order": res.get("bitget_order"),
+                  "real_order_sent": bool(res.get("executed")),
+                  "reasons": res.get("reasons"), "response": res.get("response")})
+    return {**res, "preview": preview, "clientOid": oid}
 
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description="Ordre futures borné (DRY-RUN, étape 1 §34).")
-    p.add_argument("--agent", default="geometric", help="agent (doit être LIVE pour le réel)")
+    p = argparse.ArgumentParser(description="Ordre futures RÉEL borné (étape 2, §45).")
+    p.add_argument("--agent", default="carry", help="origine de l'ordre (agent/stratégie)")
     p.add_argument("--side", default="long", choices=["long", "short"], help="sens")
     p.add_argument("--reduce", action="store_true", help="réduit/ferme au lieu d'ouvrir")
     p.add_argument("--usdt", type=float, default=10.0, help="notional en USDT")
@@ -275,22 +533,23 @@ def main():
     p.add_argument("--sl", type=float, help="stop loss (optionnel)")
     p.add_argument("--tp", type=float, help="take profit (optionnel)")
     p.add_argument("--confirm", action="store_true",
-                   help="tente le réel (étape 1 : lève NotImplementedError si les gardes passent)")
+                   help="exécute le VRAI ordre (sinon DRY : preview seulement)")
     args = p.parse_args()
 
-    print("=== ORDRE FUTURES (DRY-RUN, étape 1 §34) ===")
-    try:
-        r = execute(args.agent, args.side, args.usdt, args.leverage, args.entry,
-                    args.sl, args.tp, reduce=args.reduce, confirm=args.confirm)
-    except NotImplementedError as e:
-        print(f"Preview construit, mais réel NON câblé : {e}")
-        return
+    print("=== ORDRE FUTURES RÉEL BORNÉ (étape 2, §45) ===")
+    r = execute(args.agent, args.side, args.usdt, args.leverage, args.entry,
+                args.sl, args.tp, reduce=args.reduce, confirm=args.confirm)
     print(f"Preview : {r.get('preview')}")
     if not r.get("ok"):
-        print("REFUSÉ par les gardes : " + " ; ".join(r.get("reasons", [])))
+        print("REFUSÉ : " + " ; ".join(r.get("reasons", [])))
     elif r.get("dry"):
         print("Mode DRY — aucun ordre passé. " + r.get("note", ""))
-    print("Périmètre : futures borné, DRY-RUN. Le réel reste hors d'atteinte (étape 2).")
+    elif r.get("executed"):
+        print(f"✅ ORDRE RÉEL exécuté (clientOid {r.get('clientOid')}).")
+        print(f"Réponse : {str(r.get('response'))[:400]}")
+    else:
+        print(f"⚠️ Échec d'exécution : {r.get('reasons') or str(r.get('response'))[:400]}")
+    print("Périmètre : futures borné (murs 50/trade · 250 cumulé · stop journalier -> kill-switch).")
 
 
 if __name__ == "__main__":

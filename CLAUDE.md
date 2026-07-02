@@ -5,16 +5,24 @@ pondération adaptative EARCP). **AUCUN réseau de neurones** (contrainte du pro
 Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 `claude/beautiful-heisenberg-c5aoqu`.
 
-## ⚠️ RÈGLES D'ENGAGEMENT (à respecter absolument)
+## ⚠️ RÈGLES D'ENGAGEMENT (révisées le 02/07/2026 — décision propriétaire, §45)
 
-1. **Argent réel en jeu.** Une seule chose touche le réel : l'achat **spot BTC** d'accumulation
-   (`spot_executor.py`), plafonné **5 $/jour**, jamais de vente/levier/futures/retrait.
-   **Tout le reste est paper / DRY-RUN.**
+1. **Argent réel en jeu.** Deux modules — et SEULEMENT eux — passent des ordres réels :
+   - `spot_executor.py` : achat spot BTC d'accumulation, ≤5 $/j, jamais de vente/retrait ;
+   - `futures_executor.py` : futures BORNÉ (§45) — marge ISOLÉE, levier ≤×5, murs en dur
+     50 $/trade et 250 $ cumulé (env/config peuvent abaisser, JAMAIS dépasser), stop de
+     perte journalier (−5 % -> kill-switch), jamais de retrait/virement/annulation.
+   Le cerveau/scan/pré-ordres restent paper tant qu'ils ne passent pas par ces modules.
 2. **Ne JAMAIS lever un verrou sans instruction explicite du propriétaire** :
-   `MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`, les plafonds (`ACCUM_REAL_MAX_*`).
-   Le futures reste paper tant qu'aucun agent ne franchit la porte d'edge (cf. `edge_ladder`).
-3. **Ne jamais passer en mode full-auto** sur cette machine (elle détient les vraies clés).
-   Garder les confirmations sur les commandes sensibles.
+   `MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`, `FUTURES_AUTONOMOUS_LIVE`,
+   les plafonds (`ACCUM_REAL_MAX_*`, `FUTURES_REAL_MAX_*`), `FUTURES_EDGE_GATE_OVERRIDE`.
+   §45 (02/07/2026) : le propriétaire a ARMÉ le futures réel et OUTREPASSÉ la porte
+   d'edge en connaissance de cause (0 agent LIVE, espérance directionnelle mesurée
+   négative — trois questions d'engagement répondues). `FUTURES_EDGE_GATE_OVERRIDE=0`
+   referme la porte instantanément.
+3. **Full-auto autorisé DANS les murs (§45)** — mais la montée des caps effectifs reste
+   une décision propriétaire explicite, par paliers, si l'exécution est propre.
+   Kill-switch d'urgence : `touch KILL_SWITCH` (bloque spot ET futures).
 4. **Secrets** : ne jamais copier une clé API dans le dépôt, un commit, ou un message.
    Le `.env` est gitignored. Clé Bitget = **Trade only, jamais Withdraw**.
 5. **Avant TOUT push, les 3 portes doivent passer** :
@@ -33,9 +41,10 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 | Composant | État |
 |---|---|
 | Lecture compte (portefeuille complet) | RÉEL, lecture seule (`bitget_hub_bridge`, `bitget_balance_reader`) |
-| Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, ≤5 $/j, garde best-price, double verrou |
-| Cerveau (13 agents), scan, pré-ordres, futures | **PAPER / DRY_RUN_ONLY** (`execution_gateway`) |
-| Échelle d'edge | 0 agent LIVE (rien d'éligible au réel) |
+| Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, 2–5 $/j ∝ opportunité (§44), garde best-price, double verrou |
+| Futures borné (`futures_executor`) | **RÉEL depuis §45** : marge isolée, ≤×5, caps 15/60 (murs 50/250), stop journalier −5 % -> kill-switch |
+| Cerveau (13 agents), scan, pré-ordres | **PAPER** (`execution_gateway` DRY_RUN_ONLY — le câblage cerveau->futures réel est un chantier §45 séparé) |
+| Échelle d'edge | 0 agent LIVE — porte OUTREPASSÉE par décision §45 (`FUTURES_EDGE_GATE_OVERRIDE`) |
 
 ## Architecture (modules clés)
 

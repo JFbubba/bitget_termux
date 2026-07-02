@@ -131,6 +131,19 @@ BRAIN_WEIGHT_MAX = 3.0
 BRAIN_EDGE_PRIORS = 1                 # 0 = débrayer (poids EARCP purs)
 BRAIN_EDGE_PRIOR_ALPHA = 0.5          # adoucissement (1.0 = prior plein, 0.0 = neutre)
 
+# === FUTURES RÉEL (§45 — décision propriétaire du 02/07/2026) ===
+# Le propriétaire a changé les règles (3 questions d'engagement répondues) : futures
+# réel autorisé (carry + directionnel), directement en réel, plafond = solde futures.
+# La porte d'edge est OUTREPASSÉE en connaissance de cause (0 agent LIVE) — remettre
+# FUTURES_EDGE_GATE_OVERRIDE=0 la referme instantanément. Les caps effectifs démarrent
+# BAS (montée progressive si l'exécution est propre) ; murs absolus en dur dans
+# futures_executor : 50 $/trade, 250 $ cumulé, infranchissables par env/config.
+FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à la preuve)
+FUTURES_REAL_MAX_PER_TRADE_USDT = 15.0   # cap effectif par ordre (mur dur : 50)
+FUTURES_REAL_MAX_GROSS_USDT = 60.0       # cap effectif exposition cumulée (mur dur : 250)
+FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
+FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge
+
 # === Accumulation RÉELLE : sizing proportionnel à l'opportunité (§44) ===
 # montant réel = cap·(FLOOR + (1−FLOOR)·score) ∈ [2, 5] $ avec cap 5 : restaure
 # l'edge de sizing validé (§38) que le clamp plat à 5 $ neutralisait. Décision
