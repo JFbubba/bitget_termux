@@ -64,6 +64,51 @@ def build_output(symbol, ranked, live, timing=None, now=None, mode="mono"):
     }
 
 
+def _etat_echelle(rep):
+    """(tiers, pending) d'un rapport de validation. PUR (via edge_ladder)."""
+    import edge_ladder as el
+    rep = rep or {}
+    pending = [r.get("agent") for r in rep.get("ranking", [])
+               if el.live_pending(r, el._live_row(rep, r.get("agent")))]
+    return el.all_tiers(rep), pending
+
+
+def promotions_live(tiers_avant, tiers_apres, pending_avant=(), pending_apres=()):
+    """PUR. Front MONTANT de l'échelle d'edge entre deux rapports :
+      • nouveaux_live    : agents qui ATTEIGNENT le palier LIVE (éligibles réel —
+        l'événement que le propriétaire attend ; il ne lève aucun verrou tout seul) ;
+      • nouveaux_pending : agents qui passent « à une confirmation live près »
+        (replay battu, manque l'échantillon/IC sur les votes réels).
+    Rétrogradations et états stables = silence (pas de spam)."""
+    avant = tiers_avant or {}
+    nouveaux_live = [a for a, t in (tiers_apres or {}).items()
+                     if t == "LIVE" and avant.get(a) != "LIVE"]
+    deja = set(pending_avant or ())
+    nouveaux_pending = [a for a in (pending_apres or ()) if a not in deja]
+    return sorted(nouveaux_live), sorted(nouveaux_pending)
+
+
+def _alerte_promotions(nouveaux_live, nouveaux_pending):
+    """Alerte Telegram best-effort quand l'échelle d'edge promeut un agent. La porte
+    du réel ne bouge PAS ici : c'est une NOTIFICATION pour décision humaine."""
+    if not nouveaux_live and not nouveaux_pending:
+        return
+    try:
+        import telegram_notifier as tn
+        lignes = ["🪜 ÉCHELLE D'EDGE — promotion mesurée :"]
+        if nouveaux_live:
+            lignes.append(f"  🚨 palier LIVE atteint : {', '.join(nouveaux_live)} "
+                          "(replay DSR/n/OOS + confirmation live) -> éligible RÉEL.")
+            lignes.append("  Aucun verrou levé automatiquement : décision propriétaire "
+                          "(MANDATE_LIVE + caps futures).")
+        if nouveaux_pending:
+            lignes.append(f"  ⏳ à une confirmation live près : {', '.join(nouveaux_pending)}")
+        lignes.append("Mesure advisory (validation T5). Aucun ordre.")
+        tn.send_telegram("\n".join(lignes))
+    except Exception:
+        pass
+
+
 def main():
     if not _stale():
         print(f"brain_validation : rapport récent (< {MIN_INTERVAL_H}h), saute. VERDICT: SAFE")
@@ -96,7 +141,18 @@ def main():
         except Exception:
             pass
         out = build_output(symbol, ranked, live, timing, mode=mode)
+        # front montant de l'échelle : lire l'ANCIEN rapport avant de l'écraser
+        try:
+            ancien = json.loads(REPORT_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            ancien = {}
         REPORT_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            t0, p0 = _etat_echelle(ancien)
+            t1, p1 = _etat_echelle(out)
+            _alerte_promotions(*promotions_live(t0, t1, p0, p1))
+        except Exception:
+            pass
         passed = [a["agent"] for a in ranked.get("agents", []) if a.get("dsr", 0) >= 0.9]
         live_n = out["live"]["n_entries"]
         mt_n = out["market_timing"]["n_echantillons"]

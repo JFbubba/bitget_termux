@@ -2969,6 +2969,28 @@ def test_brain_validation_build_output_includes_live():
     assert out2["market_timing"]["n_echantillons"] == 0
 
 
+def test_brain_validation_promotions_live_front_montant():
+    # alerte de promotion : UNIQUEMENT les fronts montants (LIVE atteint, nouveau
+    # pending) — stables et rétrogradations silencieux. La porte du réel ne bouge pas.
+    import brain_validation as bv
+    live, pend = bv.promotions_live(
+        {"a": "PROBATION", "b": "LIVE", "c": "PAPER"},
+        {"a": "LIVE", "b": "LIVE", "c": "NEGATIVE"},
+        pending_avant=["x"], pending_apres=["x", "y"])
+    assert live == ["a"]                      # b déjà LIVE -> silence ; c rétrogradé -> silence
+    assert pend == ["y"]                      # x déjà pending -> silence
+    # agent inconnu avant (nouveau dans le rapport) qui arrive LIVE -> alerte
+    live2, _ = bv.promotions_live({}, {"z": "LIVE"})
+    assert live2 == ["z"]
+    # entrées dégénérées -> silence, jamais d'exception
+    assert bv.promotions_live(None, None, None, None) == ([], [])
+    # _etat_echelle sur le rapport factice : tiers + pending cohérents avec edge_ladder
+    rep = _edge_report()
+    tiers, pending = bv._etat_echelle(rep)
+    assert tiers["alpha"] == "LIVE" and pending == ["beta"]
+    assert bv._etat_echelle({}) == ({}, [])
+
+
 def test_brain_validation_build_output_records_ranking_mode():
     # §40 : le rapport dit d'ou vient le ranking — coupe transversale (n EFFECTIF,
     # palier LIVE atteignable) ou repli mono-symbole. PUR (pas de run/reseau).
