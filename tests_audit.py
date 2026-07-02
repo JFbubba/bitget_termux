@@ -4466,7 +4466,8 @@ def test_futures_executor_dry_and_real_path():
         calls.append(cmd)
         return '{"data": {"orderId": "123"}}'
     r3 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
-                    runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0, **full)
+                    runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
     assert r3["executed"] is True
     assert calls[0][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
     bo = r3["bitget_order"]
@@ -4475,14 +4476,16 @@ def test_futures_executor_dry_and_real_path():
     # échec exchange -> executed False, jamais d'exception
     r4 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
                     runner=lambda c: '{"ok": false, "error": "x"}',
-                    daily_loss=False, spec=_FUT_SPEC, price=60000.0, **full)
+                    daily_loss=False, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
     assert r4["executed"] is False
     # stop de perte journalier franchi -> OUVERTURE refusée, RÉDUCTION permise
     r5 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
                     daily_loss=True, spec=_FUT_SPEC, price=60000.0, **full)
     assert r5["ok"] is False and any("stop de perte" in x for x in r5["reasons"])
     r6 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, reduce=True,
-                    runner=_runner_ok, daily_loss=True, spec=_FUT_SPEC, price=60000.0, **full)
+                    runner=_runner_ok, daily_loss=True, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
     assert r6["executed"] is True                     # fermer n'aggrave jamais le risque
 
 
@@ -4510,6 +4513,30 @@ def test_futures_executor_size_et_mapping_bitget():
     assert bt["presetStopLossPrice"] == "59000.0" and bt["presetStopSurplusPrice"] == "62000.0"
     # infaisable -> None (jamais un ordre que l'exchange gonflerait)
     assert fe.to_bitget_order(fe.build_futures_order("x", "long", 3.0, 1.0), _FUT_SPEC, 60000.0) is None
+
+
+def test_futures_executor_marge_mode_adaptatif():
+    import futures_executor as fe
+    # compte multi-devises (union) : Bitget interdit l'isolé -> crossed FORCÉ
+    assert fe.resolve_marge_mode("isolated", "union") == "crossed"
+    assert fe.resolve_marge_mode("crossed", "union") == "crossed"
+    # compte mono-devise (ou mode illisible) -> le mode configuré est respecté
+    assert fe.resolve_marge_mode("isolated", "single") == "isolated"
+    assert fe.resolve_marge_mode("isolated", None) == "isolated"
+    assert fe.resolve_marge_mode(None, None) == "isolated"
+    # le mode résolu se propage jusqu'à l'ordre API
+    o = fe.build_futures_order("validation", "long", 8.0, 2.0, client_oid="cm1")
+    bo = fe.to_bitget_order(o, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo["marginMode"] == "crossed"
+    # et _ensure_leverage en crossed fait UN appel sans holdSide
+    calls = []
+    fe._ensure_leverage(2, runner=lambda c: (calls.append(c), '{"data": {}}')[1],
+                        marge_mode="crossed")
+    assert len(calls) == 1 and "--holdSide" not in calls[0]
+    calls.clear()
+    fe._ensure_leverage(2, runner=lambda c: (calls.append(c), '{"data": {}}')[1],
+                        marge_mode="isolated")
+    assert len(calls) == 2 and all("--holdSide" in c for c in calls)
 
 
 def test_futures_executor_daily_loss_state():

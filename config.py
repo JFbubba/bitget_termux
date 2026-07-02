@@ -142,7 +142,10 @@ FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à
 FUTURES_REAL_MAX_PER_TRADE_USDT = 15.0   # cap effectif par ordre (mur dur : 50)
 FUTURES_REAL_MAX_GROSS_USDT = 60.0       # cap effectif exposition cumulée (mur dur : 250)
 FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
-FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge
+FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
+                                         # compte en mode multi-devises (assetMode union,
+                                         # constaté le 02/07) -> crossed FORCÉ (Bitget
+                                         # interdit l'isolé en union) — resolve_marge_mode
 
 # === Accumulation RÉELLE : sizing proportionnel à l'opportunité (§44) ===
 # montant réel = cap·(FLOOR + (1−FLOOR)·score) ∈ [2, 5] $ avec cap 5 : restaure

@@ -315,6 +315,38 @@ def daily_loss_breach(now=None):
     return breach
 
 
+# ---------- mode de marge ADAPTATIF (union -> crossed forcé) ----------
+
+def resolve_marge_mode(mode_cfg, asset_mode):
+    """PUR. Mode de marge EFFECTIF : en mode multi-devises (assetMode 'union'),
+    Bitget INTERDIT l'isolé (« currencies mixed » -> HTTP 400) — on force 'crossed'.
+    Compte en mode mono-devise (ou illisible) -> le mode configuré (défaut isolé :
+    perte max d'une position = sa marge)."""
+    if str(asset_mode or "").lower() == "union":
+        return "crossed"
+    return str(mode_cfg or "isolated")
+
+
+def _asset_mode():
+    """assetMode du compte futures ('union'/'single'), caché 1h. None si illisible."""
+    def _fetch():
+        import bitget_balance_reader as br
+        for r in (br.get_futures_accounts() or {}).get("data") or []:
+            if str(r.get("marginCoin", "")).upper() == MARGIN_COIN:
+                return r.get("assetMode")
+        return None
+    try:
+        import runtime_cache as rc
+        return rc.get("fut_asset_mode", 3600, _fetch, fallback=None)
+    except Exception:
+        return None
+
+
+def _marge_mode():
+    """Mode de marge effectif du moment (adaptatif au réglage du compte)."""
+    return resolve_marge_mode(_cfg("FUTURES_MARGIN_MODE", "isolated"), _asset_mode())
+
+
 # ---------- mapping vers l'API Bitget v2 (purs) ----------
 
 def size_for(notional_usdt, price, spec):
@@ -337,12 +369,14 @@ def size_for(notional_usdt, price, spec):
     return size
 
 
-def to_bitget_order(order, spec, price):
+def to_bitget_order(order, spec, price, marge_mode=None):
     """PUR. Demande bornée -> ordre API Bitget v2 (mode ONE-WAY) :
       long/short -> side buy/sell ; reduce -> side OPPOSÉ + reduceOnly YES ;
       ordre MARKET (taille petite, slippage négligeable, remplit toujours) ;
-      marge ISOLÉE (perte max = marge de la position) ; TP/SL préréglés arrondis
-    au tick. None si la taille est infaisable (sous les minima)."""
+      marge selon `marge_mode` (isolé si le compte le permet — perte max d'une
+      position = sa marge —, crossed FORCÉ en compte multi-devises,
+      cf. resolve_marge_mode) ; TP/SL préréglés arrondis au tick.
+    None si la taille est infaisable (sous les minima)."""
     size = size_for(order.get("notional_usdt"), price, spec)
     if size is None:
         return None
@@ -352,7 +386,7 @@ def to_bitget_order(order, spec, price):
     vol_place = int((spec or {}).get("vol_place") or 4)
     price_place = int((spec or {}).get("price_place") or 1)
     o = {"symbol": SYMBOL, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
-         "marginMode": str(_cfg("FUTURES_MARGIN_MODE", "isolated")),
+         "marginMode": str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated")),
          "orderType": "market", "side": side,
          "size": f"{size:.{vol_place}f}",
          "reduceOnly": "YES" if reduce else "NO"}
@@ -423,12 +457,13 @@ def _run(cmd, runner=None):
         return None
 
 
-def _ensure_leverage(leverage, runner=None):
+def _ensure_leverage(leverage, runner=None, marge_mode=None):
     """Fixe le levier (déjà borné au mur par build_futures_order) AVANT l'ordre.
-    Marge isolée : les deux holdSide. Fail-closed : échec -> False (pas d'ordre)."""
+    Marge isolée : les deux holdSide ; crossed : un appel sans holdSide.
+    Fail-closed : échec -> False (pas d'ordre)."""
     lev = str(int(max(1, round(float(leverage)))))
-    sides = (["long", "short"] if str(_cfg("FUTURES_MARGIN_MODE", "isolated")) == "isolated"
-             else [None])
+    mode = str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated"))
+    sides = ["long", "short"] if mode == "isolated" else [None]
     for hs in sides:
         cmd = ["futures", "futures_set_leverage", "--symbol", SYMBOL,
                "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN,
@@ -442,7 +477,7 @@ def _ensure_leverage(leverage, runner=None):
     return True
 
 
-def _place_real(order, runner=None, spec=None, price=None):
+def _place_real(order, runner=None, spec=None, price=None, marge_mode=None):
     """Chemin RÉEL (étape 2, §45 — décision propriétaire du 02/07/2026). Mappe la
     demande bornée vers l'API v2 (one-way, marge isolée, market), fixe le levier borné,
     exécute via l'Agent Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
@@ -454,12 +489,13 @@ def _place_real(order, runner=None, spec=None, price=None):
     if not price:
         return {"ok": False, "executed": False,
                 "reasons": ["prix du perp illisible (fail-closed)"]}
-    bo = to_bitget_order(order, spec, price)
+    marge_mode = _marge_mode() if marge_mode is None else marge_mode   # adaptatif : union -> crossed
+    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode)
     if bo is None:
         return {"ok": False, "executed": False,
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
-    if not _ensure_leverage(order.get("leverage") or 1, runner=runner):
+    if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
@@ -474,7 +510,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
-            **gate_overrides):
+            marge_mode=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
@@ -517,7 +553,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                       "reasons": ["stop de perte journalier franchi"], "real_order_sent": False})
         return {"ok": False, "executed": False, "preview": preview, "clientOid": oid,
                 "reasons": ["stop de perte journalier franchi (kill-switch armé)"]}
-    res = _place_real(order, runner=runner, spec=spec, price=price)
+    res = _place_real(order, runner=runner, spec=spec, price=price, marge_mode=marge_mode)
     if journal:
         _journal({"action": "FUTURES_REAL" if res.get("executed") else "FUTURES_REAL_FAILED",
                   "ts": now, "order": order, "bitget_order": res.get("bitget_order"),
