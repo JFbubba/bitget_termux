@@ -8,11 +8,12 @@ INDÉPENDANT (CoinGecko — hôte différent, donc vraie redondance). Tout passe
 `runtime_cache` (TTL + stale-while-error), si bien qu'aucune source n'est
 appelée plus souvent que nécessaire et qu'une panne ne bloque jamais la décision.
 
-Note réseau (constaté au runtime) : Binance (451) et OKX (403) sont géo-bloqués
-ici, donc la valeur « multi-exchange » de CCXT ne s'applique pas dans cet
-environnement ; la redondance utile = Bitget + CoinGecko (tous deux joignables).
-Sur un déploiement à réseau complet, CCXT pourrait s'ajouter comme repli
-supplémentaire (voir RESEARCH_NOTES §7).
+Note réseau (re-sondé 2026-07-02) : Binance et OKX répondent de nouveau 200
+depuis ce VPS (l'ancien géo-blocage 451/403 constaté plus tôt a disparu — la
+sortie réseau passe désormais par un POP différent). La redondance primaire
+reste Bitget + CoinGecko ; les venues Binance/OKX/Bybit sont exploitées comme
+sources ADDITIVES best-effort (derivs_positioning, aggregated_derivs), jamais
+comme dépendance critique : chaque venue dégrade en None indépendamment.
 
 Les helpers de mapping/normalisation sont PURS et testables ; les fetch réseau
 sont enveloppés (try/except) et ne lèvent jamais vers l'appelant.

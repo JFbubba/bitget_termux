@@ -2260,7 +2260,44 @@ def test_geometric_brain_registration():
         except Exception:
             pass
         sb.WEIGHTS_FILE = _old
-    assert len(sb.AGENTS) == 11                             # 11e agent
+    assert len(sb.AGENTS) == 13                             # 11 historiques + flows + carry
+
+
+def test_flows_carry_brain_registration():
+    import swarm_brain as sb
+    # les 12e/13e agents (flux de capitaux, positionnement dérivés) sont enregistrés
+    assert "flows" in sb.AGENTS and "flows" in sb.AGENT_FUNCS
+    assert "carry" in sb.AGENTS and "carry" in sb.AGENT_FUNCS
+    # auto-réparation : un fichier de poids ancien (sans eux) les re-seed à 1.0
+    import json as _json, tempfile as _tf
+    from pathlib import Path as _Path
+    _old = sb.WEIGHTS_FILE
+    try:
+        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _f:
+            _json.dump({"orderflow": 1.2}, _f)
+            sb.WEIGHTS_FILE = _Path(_f.name)
+        w = sb.load_weights()
+        assert w.get("flows") == 1.0 and w.get("carry") == 1.0
+    finally:
+        try:
+            _Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = _old
+    # fail-safe des adaptateurs : fournisseur cassé -> vote neutre, jamais d'exception
+    import flows_agent as fa, carry_agent as ca
+    old_fa, old_ca = fa.analyze, ca.analyze
+
+    def _boom(*a, **k):
+        raise RuntimeError("source coupée")
+
+    try:
+        fa.analyze, ca.analyze = _boom, _boom
+        for fn in (sb.agent_flows, sb.agent_carry):
+            v = fn("BTCUSDT")
+            assert v["vote"] == 0 and v["confidence"] == 0
+    finally:
+        fa.analyze, ca.analyze = old_fa, old_ca
 
 
 def test_geometric_degrades_on_short_input():
@@ -2899,6 +2936,592 @@ def test_brain_validation_build_output_includes_live():
     # live vide -> structure sure, pas de crash
     out2 = bv.build_output("BTCUSDT", ranked, {}, now=1)
     assert out2["live"]["agents"] == [] and out2["live"]["n_entries"] == 0
+    # section market_timing (chemin 3, §39) : presente, advisory, retro-compatible
+    timing = {"agents": [{"agent": "macro", "ic": 0.2, "n": 8}],
+              "n_cycles": 98, "n_echantillons": 8, "horizon_cycles": 12}
+    out3 = bv.build_output("BTCUSDT", ranked, live, timing, now=2)
+    assert out3["market_timing"]["n_cycles"] == 98
+    assert out3["market_timing"]["agents"][0]["agent"] == "macro"
+    assert out3["ranking"] == ranked["agents"]                # palier toujours via replay
+    # timing omis (retro-compat) -> zeros surs
+    assert out2["market_timing"]["agents"] == []
+    assert out2["market_timing"]["n_echantillons"] == 0
+
+
+# ---------- chemin 3 : edge temporel market-timing (agent_validation, §39) ----------
+
+def _log_timing_synthetique(votes_bons, pas_s=300, n_cycles=None):
+    """Journal synthétique 2 symboles : l'agent 'bon' vote la direction du prochain
+    mouvement du marché (les DEUX symboles bougent ensemble = common-mode pur, le cas
+    que la coupe transversale ne peut pas mesurer). PUR, aide de test."""
+    n_cycles = n_cycles if n_cycles is not None else len(votes_bons) + 1
+    log, ts0 = [], 1_000_000
+    pa, pb = 100.0, 200.0
+    for k in range(n_cycles):
+        v = votes_bons[k] if k < len(votes_bons) else 0.0
+        for sym, p in (("AAA", pa), ("BBB", pb)):
+            log.append({"ts": ts0 + k * pas_s + (0 if sym == "AAA" else 5),
+                        "symbol": sym, "price": p,
+                        "votes": {"bon": v, "nul": 0.0},
+                        "consensus": v * 0.5, "evaluated": False})
+        if k < len(votes_bons):
+            ampl = 0.01 * (1 + (k % 3))           # amplitudes variees (anti-ties)
+            move = 1.0 + ampl if v > 0 else 1.0 - ampl
+            pa *= move; pb *= move
+    return log
+
+
+def test_validation_market_timing_cycles_et_edge():
+    import agent_validation as av
+    votes = [1, -1, 1, 1, -1, 1, -1, -1, 1, -1, 1, 1]
+    log = _log_timing_synthetique(votes)          # 13 cycles, 2 symboles
+    # groupage par cycle : 2 entrees a <240s -> meme cycle ; pas de 300s -> nouveau
+    cycles = av._cycles_from_log(log, bucket_s=240)
+    assert len(cycles) == 13
+    assert set(cycles[0]["prices"]) == {"AAA", "BBB"}
+    # horizon 1 cycle : l'agent 'bon' prevoit chaque mouvement -> IC eleve (les ties
+    # des votes +/-1 plafonnent le Spearman sous 1.0), hit parfait, t significatif
+    r = av.evaluate_market_timing(log, bucket_s=240, horizon_cycles=1)
+    assert r["n_cycles"] == 13 and r["n_echantillons"] == 12
+    par_agent = {a["agent"]: a for a in r["agents"]}
+    assert par_agent["bon"]["ic"] > 0.8 and par_agent["bon"]["hit"] == 1.0
+    assert par_agent["bon"]["ic_t"] > 2.0
+    # agent muet (vote 0 constant) : IC nul, hit None (aucun vote directionnel)
+    assert abs(par_agent["nul"]["ic"]) < 1e-9 and par_agent["nul"]["hit"] is None
+    # le consensus est evalue comme pseudo-agent
+    assert "consensus" in par_agent and par_agent["consensus"]["ic"] > 0.8
+
+
+def test_validation_market_timing_purge_et_failsafe():
+    import agent_validation as av
+    votes = [1, -1, 1, 1, -1, 1, -1, -1, 1, -1, 1, 1]
+    log = _log_timing_synthetique(votes)          # 13 cycles
+    # non-chevauchant : horizon 4 -> echantillons a i=0,4,8 seulement (purge)
+    r = av.evaluate_market_timing(log, bucket_s=240, horizon_cycles=4)
+    assert r["n_echantillons"] == 3
+    for a in r["agents"]:
+        assert a["n"] == 3
+    # fail-safe : journal vide / entrees invalides -> structure neutre, pas de crash
+    assert av.evaluate_market_timing([]) == {"agents": [], "n_cycles": 0,
+                                             "n_echantillons": 0, "horizon_cycles": 12}
+    sale = [{"ts": None, "symbol": "X", "price": 1.0, "votes": {}},
+            {"ts": 10, "symbol": "X", "price": None, "votes": {"a": 1}}]
+    r2 = av.evaluate_market_timing(sale)
+    assert r2["agents"] == [] and r2["n_cycles"] == 0
+
+
+
+
+# ---------- derivs_positioning : positionnement dérivés multi-venues ----------
+
+# ---------- derivs_positioning : coeurs purs + fetchs fail-safe, SANS réseau ----------
+
+def test_derivs_positioning_basis_bornes():
+    import derivs_positioning as dp
+    assert dp.basis_en_pct(101.0, 100.0) == 1.0
+    assert abs(dp.basis_en_pct(99.0, 100.0) + 1.0) < 1e-9
+    assert dp.basis_en_pct("101.5", "100") is not None      # strings API tolérées
+    assert dp.basis_en_pct(None, 100.0) is None
+    assert dp.basis_en_pct(101.0, None) is None
+    assert dp.basis_en_pct(101.0, 0.0) is None              # spot <= 0 -> None
+    assert dp.basis_en_pct(101.0, -5.0) is None
+    assert dp.basis_en_pct("x", "y") is None
+
+
+def test_derivs_positioning_foule_clamps():
+    import derivs_positioning as dp
+    assert dp.foule(None) == 0.0                            # absent -> neutre
+    assert dp.foule("n/a") == 0.0                           # illisible -> neutre
+    assert dp.foule(0) == 0.0 and dp.foule(-1.0) == 0.0     # ratio <= 0 -> neutre
+    assert dp.foule(1.0) == 0.0                             # équilibre
+    assert dp.foule(2.5) == 1.0 and dp.foule(10.0) == 1.0   # clamp haut (foule long)
+    assert dp.foule(0.4) == -1.0 and dp.foule(0.1) == -1.0  # clamp bas (foule short)
+    assert abs(dp.foule(1.75) - 0.5) < 1e-9                 # graduel : (1.75-1)/1.5
+    assert 0.0 < dp.foule(1.5) < 1.0
+    assert -1.0 < dp.foule(0.8) < 0.0
+    assert dp.foule(1.5) == dp.foule(1.5)                   # déterminisme
+
+
+def test_derivs_positioning_funding_zscore():
+    import derivs_positioning as dp
+    assert dp.funding_zscore(None, 0.01) is None            # historique absent
+    assert dp.funding_zscore([0.01] * 9, 0.02) is None      # < 10 points
+    assert dp.funding_zscore([0.01] * 20, 0.02) is None     # écart-type ~0
+    assert dp.funding_zscore([0.01] * 20, None) is None     # courant absent
+    assert dp.funding_zscore([0.01] * 8 + [None, "x"], 0.02) is None  # invalides filtrés
+    hist = [0.0, 0.01] * 10                                 # moyenne 0.005
+    z = dp.funding_zscore(hist, 0.02)
+    assert z is not None and z > 2.0                        # courant bien au-dessus
+    assert dp.funding_zscore(hist, 0.02) == z               # déterminisme
+    assert dp.funding_zscore(hist, -0.01) < 0
+
+
+def test_derivs_positioning_parseurs_tolerants():
+    import derivs_positioning as dp
+    vide = {"funding": None, "oi": None, "mark": None, "index": None, "perp_last": None}
+    assert dp.parse_ticker_mix(None) == vide
+    assert dp.parse_ticker_mix({}) == vide
+    assert dp.parse_ticker_mix({"data": []}) == vide
+    assert dp.parse_ticker_mix({"data": ["pas-un-dict"]}) == vide
+    assert dp.parse_spot_last(None) is None and dp.parse_spot_last({"data": []}) is None
+    assert dp.parse_ls_serie(None) == [] and dp.parse_ls_serie({}) == []
+    assert dp.parse_funding_history({"data": None}) == []
+    # strings API + désordre -> floats triés par temps ASC (récent en dernier)
+    assert dp.parse_funding_history({"data": [
+        {"fundingRate": "0.0002", "fundingTime": "2000"},
+        {"fundingRate": "0.0001", "fundingTime": "1000"},
+        {"fundingRate": "zzz", "fundingTime": "3000"},      # illisible -> ignoré
+    ]}) == [0.0001, 0.0002]
+    assert dp.parse_ls_serie({"data": [
+        {"longShortAccountRatio": "1.4", "ts": "2000"},
+        {"longShortAccountRatio": "1.2", "ts": "1000"},
+    ]}) == [1.2, 1.4]
+    assert dp.moyenne_venues({"a": 0.01, "b": None, "c": 0.03}) == (0.02, 2)
+    assert dp.moyenne_venues({}) == (None, 0)
+    assert dp.moyenne_venues(None) == (None, 0)
+
+
+def _dp_rc_direct(key, ttl, fetch, fallback=None, now=None):
+    """Passe-plat runtime_cache pour les tests : fetch direct, fallback sur exception
+    (évite toute dépendance à l'état du cache disque)."""
+    try:
+        return fetch()
+    except Exception:
+        return fallback
+
+
+class _DPFakeResp:
+    """Réponse HTTP factice : .raise_for_status() inerte, .json() rend le payload."""
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def test_derivs_positioning_fetch_snapshot_ok():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _FakeRequests:
+        @staticmethod
+        def get(url, params=None, **k):
+            if "spot/market/tickers" in url:
+                return _DPFakeResp({"data": [{"lastPr": "100.0"}]})
+            if "account-long-short" in url:
+                return _DPFakeResp({"data": [
+                    {"longShortAccountRatio": "2.5", "ts": "2000"},
+                    {"longShortAccountRatio": "1.0", "ts": "1000"}]})
+            if "mix/market/ticker" in url:
+                return _DPFakeResp({"data": [{
+                    "lastPr": "101.0", "markPrice": "100.5", "indexPrice": "100.2",
+                    "fundingRate": "0.0001", "holdingAmount": "1234.5"}]})
+            raise RuntimeError("URL inattendue (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _FakeRequests, _dp_rc_direct
+    try:
+        snap = dp.fetch_snapshot("btcusdt")                 # normalisation majuscules
+        assert snap["symbol"] == "BTCUSDT"
+        assert snap["funding"] == 0.0001 and snap["funding_interval_h"] == 8
+        assert snap["oi"] == 1234.5 and snap["mark"] == 100.5 and snap["index"] == 100.2
+        assert snap["perp_last"] == 101.0 and snap["spot_last"] == 100.0
+        assert abs(snap["basis_pct"] - 1.0) < 1e-9
+        assert snap["ls_serie"] == [1.0, 2.5] and snap["ls_ratio"] == 2.5   # tri ASC, dernier
+        assert isinstance(snap["ts"], int)
+        snap2 = dp.fetch_snapshot("BTCUSDT")                # déterminisme (hors horloge)
+        assert {k: v for k, v in snap.items() if k != "ts"} == \
+               {k: v for k, v in snap2.items() if k != "ts"}
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+def test_derivs_positioning_funding_multi_une_seule_venue():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _FakeRequests:
+        """Seul Bitget répond (cas XAUTUSDT) : les autres venues lèvent."""
+        @staticmethod
+        def get(url, params=None, **k):
+            if "api.bitget.com" in url and "mix/market/ticker" in url:
+                return _DPFakeResp({"data": [{"fundingRate": "0.0002"}]})
+            raise RuntimeError("venue KO (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _FakeRequests, _dp_rc_direct
+    try:
+        multi = dp.fetch_funding_multi("XAUTUSDT")
+        assert multi["bitget"] == 0.0002
+        assert multi["binance"] is None and multi["okx"] is None and multi["bybit"] is None
+        assert multi["venues"] == 1 and multi["moyenne"] == 0.0002
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+def test_derivs_positioning_fetchs_fail_safe():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _BoomRequests:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _BoomRequests, _dp_rc_direct
+    try:
+        assert dp.fetch_snapshot("BTCUSDT") == {}           # forme neutre, pas d'exception
+        assert dp.fetch_funding_multi("BTCUSDT") == {}      # 0 venue -> fallback {}
+        assert dp.fetch_funding_history("BTCUSDT") == []
+        rapport = dp.build_report("BTCUSDT")                # rapport dégradé mais complet
+        assert rapport.endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+        assert "n/a" in rapport
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+# ---------- onchain_btc : Hash Ribbons + congestion (source on-chain) ----------
+
+def test_onchain_btc_sma_bornes():
+    import onchain_btc as oc
+    assert oc.sma([], 3) is None                    # série vide
+    assert oc.sma([1, 2], 3) is None                # insuffisant
+    assert oc.sma(None, 3) is None                  # None toléré
+    assert oc.sma([1, 2, 3], 0) is None             # fenêtre invalide
+    assert oc.sma([1, 2, 3], 3) == 2.0
+    assert oc.sma([1, 2, 3, 4], 2) == 3.5           # n DERNIERS seulement
+    assert oc.sma([1, None, 3], 3) is None          # entrée illisible -> None
+    assert oc.sma(["1", "3"], 2) == 2.0             # chaînes numériques tolérées
+
+
+def test_onchain_btc_hash_ribbons_bornes_et_capitulation():
+    import onchain_btc as oc
+    neutre = {"sma_courte": None, "sma_longue": None,
+              "capitulation": False, "reprise": False, "signal": 0.0}
+    assert oc.hash_ribbons([]) == neutre                      # vide
+    assert oc.hash_ribbons(None) == neutre                    # None toléré
+    assert oc.hash_ribbons([100.0] * 64) == neutre            # < longue + 5
+    assert oc.hash_ribbons([100.0] * 100, courte="x") == neutre  # param illisible
+    # plateau puis chute -> capitulation en cours, signal -0.3
+    r = oc.hash_ribbons([100.0] * 80 + [60.0] * 20)
+    assert r["capitulation"] is True and r["reprise"] is False
+    assert r["signal"] == -0.3
+    assert r["sma_courte"] < r["sma_longue"]
+    # plateau stable -> néant, signal 0.0
+    r = oc.hash_ribbons([100.0] * 100)
+    assert r["capitulation"] is False and r["reprise"] is False and r["signal"] == 0.0
+
+
+def test_onchain_btc_hash_ribbons_reprise():
+    import onchain_btc as oc
+    # plateau -> capitulation profonde -> fort rebond : le croisement haussier
+    # SMA30/SMA60 tombe dans les 14 derniers points -> reprise, signal +1.0
+    serie = [100.0] * 60 + [50.0] * 25 + [120.0] * 15
+    r = oc.hash_ribbons(serie)
+    assert r["reprise"] is True
+    assert r["signal"] == 1.0
+    assert -1.0 <= r["signal"] <= 1.0               # borné
+    # déterminisme : deux appels identiques -> même résultat
+    assert oc.hash_ribbons(serie) == oc.hash_ribbons(serie)
+
+
+def test_onchain_btc_congestion_bornes():
+    import onchain_btc as oc
+    assert oc.congestion(None) == 0.0               # neutre
+    assert oc.congestion("abc") == 0.0              # illisible
+    assert oc.congestion(0) == 0.0
+    assert oc.congestion(2) == 0.0                  # plancher
+    assert abs(oc.congestion(50) - 0.5) < 0.02      # ancrage médian
+    assert oc.congestion(200) == 1.0                # plafond
+    assert oc.congestion(5000) == 1.0               # clip haut
+    assert oc.congestion(10) < oc.congestion(30) < oc.congestion(100)  # monotone
+    assert oc.congestion(37) == oc.congestion(37)   # déterminisme
+
+
+def test_onchain_btc_parseurs_tolerants():
+    import onchain_btc as oc
+    assert oc.parse_hashrate(None) == []
+    assert oc.parse_hashrate({}) == []
+    pts = oc.parse_hashrate({"values": [{"x": 2, "y": "5.5"}, {"x": 1, "y": 4},
+                                        {"x": 3, "y": None}, "junk"]})
+    assert pts == [{"t": 1, "v": 4.0}, {"t": 2, "v": 5.5}]   # tri asc + illisibles ignorés
+    vide = {"rapide": None, "demi_heure": None, "heure": None, "eco": None}
+    assert oc.parse_frais(None) == vide
+    assert oc.parse_frais({}) == vide
+    assert oc.parse_frais({"fastestFee": 12, "halfHourFee": "8",
+                           "hourFee": 5, "economyFee": 2}) == \
+        {"rapide": 12, "demi_heure": 8, "heure": 5, "eco": 2}
+    assert oc.parse_difficulte({}) == {"variation_pct": None,
+                                       "progression_pct": None, "blocs_restants": None}
+    d = oc.parse_difficulte({"difficultyChange": -3.2, "progressPercent": "41.5",
+                             "remainingBlocks": 1180})
+    assert d == {"variation_pct": -3.2, "progression_pct": 41.5, "blocs_restants": 1180}
+
+
+def test_onchain_btc_fetch_failsafe_et_succes():
+    import onchain_btc as oc
+    import runtime_cache as rc
+
+    class _FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeRequests:
+        def __init__(self, payload=None, panne=False):
+            self.payload, self.panne = payload, panne
+
+        def get(self, *args, **kwargs):
+            if self.panne:
+                raise RuntimeError("source injoignable")
+            return _FakeResp(self.payload)
+
+    vrai_requests = oc.requests
+    orig_load, orig_save = rc._load_disk, rc._save_disk
+    rc._MEM.clear()
+    store = {}
+    rc._load_disk = lambda: dict(store)
+    rc._save_disk = lambda d: store.update(d)
+    try:
+        # panne totale + cache vide -> formes neutres, jamais d'exception
+        oc.requests = _FakeRequests(panne=True)
+        assert oc.fetch_hashrate() == []
+        assert oc.fetch_frais() == {}
+        assert oc.fetch_difficulte() == {}
+        # succès : payloads factices -> formes parsées
+        oc.requests = _FakeRequests(payload={"values": [{"x": 1, "y": 10.0},
+                                                        {"x": 2, "y": 12.0}]})
+        rc._MEM.clear(); store.clear()
+        assert oc.fetch_hashrate() == [{"t": 1, "v": 10.0}, {"t": 2, "v": 12.0}]
+        oc.requests = _FakeRequests(payload={"fastestFee": 7, "halfHourFee": 5,
+                                             "hourFee": 3, "economyFee": 1})
+        rc._MEM.clear(); store.clear()
+        assert oc.fetch_frais() == {"rapide": 7, "demi_heure": 5, "heure": 3, "eco": 1}
+        # nouvelle panne : la valeur cachée (stale-while-error) est servie
+        oc.requests = _FakeRequests(panne=True)
+        assert oc.fetch_frais()["rapide"] == 7
+    finally:
+        oc.requests = vrai_requests
+        rc._load_disk, rc._save_disk = orig_load, orig_save
+        rc._MEM.clear()
+
+
+# ---------- stablecoin_flow : flux de capitaux stablecoins (DefiLlama) ----------
+
+def test_stablecoin_flow_parse_serie():
+    import stablecoin_flow as sf
+    assert sf.parse_serie(None) == [] and sf.parse_serie([]) == []
+    brut = [
+        {"date": "200", "totalCirculating": {"peggedUSD": 2.0}},
+        {"date": "100", "totalCirculating": 1.0},                # nombre nu toléré
+        "junk", {"date": "x", "totalCirculating": {"peggedUSD": 9}},
+        {"date": "300", "totalCirculating": {"peggedUSD": 3.0}}, # jour en cours -> exclu
+    ]
+    assert sf.parse_serie(brut) == [(100, 1.0), (200, 2.0)]      # tri asc + dernier exclu
+
+
+def test_stablecoin_flow_variation_et_signal():
+    import stablecoin_flow as sf
+    jour = 86400
+    serie = [(i * jour, 100.0 + i) for i in range(31)]           # +1/jour depuis 100
+    v7 = sf.variation_pct(serie, 7)                              # (130-123)/123
+    assert v7 is not None and abs(v7 - (130.0 - 123.0) / 123.0 * 100.0) < 1e-9
+    assert sf.variation_pct(serie, 60) is None                   # fenêtre non couverte
+    assert sf.variation_pct([(0, 100.0)], 7) is None             # trop court
+    assert sf.variation_pct(None, 7) is None
+    # signal borné, signe correct, renormalisation à une composante
+    assert sf.signal_flux(None, None) == 0.0
+    assert -1.0 <= sf.signal_flux(-5.0, -10.0) <= -0.9
+    assert sf.signal_flux(0.5, None) > 0.7                       # tanh(1) seul
+    assert sf.signal_flux(None, -2.0) < 0
+    assert sf.signal_flux(1.0, 2.0) == sf.signal_flux(1.0, 2.0)  # déterminisme
+    assert sf.pct_mensuel({"actuel": 110.0, "prev_mois": 100.0}) == 10.0
+    assert sf.pct_mensuel({"actuel": 110.0, "prev_mois": 0}) is None
+    assert sf.pct_mensuel(None) is None
+
+
+def test_stablecoin_flow_fetch_failsafe():
+    import stablecoin_flow as sf
+    import runtime_cache as rc
+
+    class _Boom:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    old_req, old_get = sf.requests, rc.get
+    sf.requests, rc.get = _Boom, _dp_rc_direct
+    try:
+        assert sf.fetch_serie_totale() == []
+        snap = sf.snapshot()
+        assert snap["signal"] == 0.0 and snap["pct_7j"] is None
+        assert sf.build_report(snap).endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+    finally:
+        sf.requests, rc.get = old_req, old_get
+
+
+# ---------- deribit_vol : DVOL / VRP / régime de vol implicite ----------
+
+def test_deribit_vol_parseurs_et_coeurs():
+    import deribit_vol as dv
+    assert dv.parse_dvol(None) == [] and dv.parse_dvol({}) == []
+    data = {"result": {"data": [[2000, 0, 0, 0, "41.5"], [1000, 0, 0, 0, 40.0],
+                                [3000, 0, 0], [4000, 0, 0, 0, None]]}}
+    assert dv.parse_dvol(data) == [40.0, 41.5]                   # tri asc + illisibles ignorés
+    assert dv.parse_rv(None) is None
+    assert dv.parse_rv({"result": [[1000, 50.0], [2000, "53.2"], [500, 48.0]]}) == 53.2
+    assert dv.pente_pct([40.0] * 23, 24) is None                 # trop court
+    assert dv.pente_pct([40.0] * 23 + [44.0], 24) == 10.0
+    assert dv.pente_pct(None, 24) is None
+    assert dv.vrp(40.5, 53.2) == -12.7 and dv.vrp(None, 50) is None
+    assert dv.regime_vol(35, 0)["regime"] == "calme"
+    assert dv.regime_vol(55, 0)["regime"] == "normal"
+    assert dv.regime_vol(75, 0)["regime"] == "stress"
+    assert dv.regime_vol(None, 0)["regime"] == "inconnu"
+    assert dv.regime_vol(50, 11.0)["expansion"] is True
+    assert dv.regime_vol(50, 9.0)["expansion"] is False
+
+
+def test_deribit_vol_fetch_failsafe():
+    import deribit_vol as dv
+    import runtime_cache as rc
+
+    class _Boom:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    old_req, old_get = dv.requests, rc.get
+    dv.requests, rc.get = _Boom, _dp_rc_direct
+    try:
+        assert dv.fetch_dvol("BTC") == []
+        assert dv.fetch_vol_realisee("BTC") is None
+        snap = dv.snapshot("BTC")
+        assert snap["niveau"] is None and snap["regime"] == "inconnu"
+        assert dv.build_report().endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+    finally:
+        dv.requests, rc.get = old_req, old_get
+
+
+# ---------- flows_agent : agent flux de capitaux (12e agent) ----------
+
+def test_flows_agent_signal_pur():
+    import flows_agent as fa
+    n = fa.signal(None, None)
+    assert n == {"vote": 0.0, "confidence": 0.0, "note": "données insuffisantes"}
+    s = fa.signal(-1.06, -2.66)                                  # contraction actuelle
+    assert -1.0 <= s["vote"] <= -0.9 and s["confidence"] == 0.5  # cap humilité 0.5
+    assert fa.signal(0.5, None)["vote"] > 0.7                    # renormalisation 1 composante
+    assert fa.signal(None, 2.0)["vote"] > 0.7
+    h = fa.signal(0.1, 0.4)
+    assert 0 < h["vote"] < 0.3 and abs(h["confidence"] - abs(h["vote"])) < 1e-9
+    assert fa.signal(-1.06, -2.66) == s                          # déterminisme
+
+
+def test_flows_agent_failsafe():
+    import flows_agent as fa
+    import runtime_cache as rc
+    old_get = rc.get
+    rc.get = _dp_rc_direct
+    try:
+        import stablecoin_flow as sf
+        old_snap = sf.snapshot
+        sf.snapshot = lambda: (_ for _ in ()).throw(RuntimeError("source coupée"))
+        try:
+            a = fa.analyze()
+            assert a["vote"] == 0.0 and a["confidence"] == 0.0   # fallback neutre
+        finally:
+            sf.snapshot = old_snap
+    finally:
+        rc.get = old_get
+
+
+# ---------- carry_agent : agent positionnement dérivés (13e agent) ----------
+
+def test_carry_agent_signal_contrarian():
+    import carry_agent as ca
+    # tout absent / insuffisant -> muet (exclu du consensus)
+    assert ca.signal(None, None, None, None)["confidence"] == 0.0
+    assert ca.signal([0.0001] * 5, 0.0001, None, None)["confidence"] == 0.0
+    # funding extrême positif + foule très long + perp premium -> vote NÉGATIF fort
+    hist = [0.0, 0.0001] * 10
+    s = ca.signal(hist, 0.0005, 2.5, 0.5)
+    assert s["vote"] <= -0.8 and s["confidence"] == 0.6          # cap humilité 0.6
+    # symétrique : funding très négatif + foule très short + discount -> POSITIF
+    s2 = ca.signal(hist, -0.0005, 0.4, -0.5)
+    assert s2["vote"] >= 0.6
+    # sigma ~0 -> z incalculable -> renormalisation sur la foule seule
+    s3 = ca.signal([0.0001] * 20, 0.0001, 2.5, None)
+    assert abs(s3["vote"] + 0.8) < 1e-9
+    # bornes + déterminisme
+    assert -1.0 <= s["vote"] <= 1.0
+    assert ca.signal(hist, 0.0005, 2.5, 0.5) == s
+
+
+def test_carry_agent_failsafe():
+    import carry_agent as ca
+    import runtime_cache as rc
+    old_get = rc.get
+    rc.get = _dp_rc_direct
+    try:
+        import derivs_positioning as dp
+        old_snap = dp.fetch_snapshot
+        dp.fetch_snapshot = lambda s: (_ for _ in ()).throw(RuntimeError("source coupée"))
+        try:
+            a = ca.analyze("BTCUSDT")
+            assert a["vote"] == 0.0 and a["confidence"] == 0.0   # fallback neutre
+        finally:
+            dp.fetch_snapshot = old_snap
+    finally:
+        rc.get = old_get
+
+
+# ---------- carry_monitor : APR du cash-and-carry (PAPER) ----------
+
+def test_carry_monitor_coeurs_purs():
+    import carry_monitor as cm
+    assert cm.apr_brut_pct([]) is None and cm.apr_brut_pct(None) is None
+    apr = cm.apr_brut_pct([0.0001] * 30, intervalle_h=8, fenetre=30)
+    assert abs(apr - 0.0001 * 3 * 365 * 100) < 1e-9              # 10.95 %
+    assert cm.apr_brut_pct([0.0001] * 60, fenetre=30) == apr     # fenêtre = 30 DERNIERS
+    net = cm.apr_net_pct(apr, frais_aller_retour_pct=0.2, horizon_jours=30)
+    assert abs(net - (apr - 0.2 * 365 / 30)) < 1e-9              # frais amortis
+    assert cm.apr_net_pct(None) is None
+    assert cm.apr_net_pct(10.0, 0.2, 0) is None                  # horizon invalide
+    assert cm.attrait(8.0) == "ATTRACTIF" and cm.attrait(2.0) == "NEUTRE"
+    assert cm.attrait(-1.0) == "NEGATIF" and cm.attrait(None) == "INCONNU"
+    assert cm.borner_journal(list(range(600))) == list(range(100, 600))
+    assert cm.borner_journal("pas-une-liste") == []
+
+
+def test_carry_monitor_journal_throttle_et_atomique():
+    import carry_monitor as cm
+    import json as _j
+    import tempfile as _tf
+    from pathlib import Path as _P
+    old = cm.JOURNAL_FILE
+    try:
+        with _tf.TemporaryDirectory() as d:
+            cm.JOURNAL_FILE = _P(d) / ".carry_journal.json"
+            assert cm.journaliser([{"symbol": "BTCUSDT"}]) is True
+            # ré-appel immédiat -> throttle (dernière entrée trop récente)
+            assert cm.journaliser([{"symbol": "BTCUSDT"}]) is False
+            data = _j.loads(cm.JOURNAL_FILE.read_text())
+            assert len(data) == 1 and data[0]["resultats"][0]["symbol"] == "BTCUSDT"
+            # throttle désactivé -> append, cap conservé
+            assert cm.journaliser([{"symbol": "ETHUSDT"}], min_intervalle_s=0) is True
+            assert len(_j.loads(cm.JOURNAL_FILE.read_text())) == 2
+    finally:
+        cm.JOURNAL_FILE = old
 
 
 def test_equity_curve_realized_and_drawdown():

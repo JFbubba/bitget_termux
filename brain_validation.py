@@ -28,11 +28,15 @@ def _stale(now=None):
         return True                                  # pas de rapport -> lancer
 
 
-def build_output(symbol, ranked, live, now=None):
+def build_output(symbol, ranked, live, timing=None, now=None):
     """Assemble le rapport de validation (PUR, testable). 'live' = edge mesure sur les
     VOTES REELS journalises (brain_log, chemin 2) — ADDITIF / informatif : ne change PAS
     la decision de palier (qui lit 'ranking', le replay). Sert a comparer edge backtest
-    vs edge live et a preparer une porte plus honnete (replay ET live)."""
+    vs edge live et a preparer une porte plus honnete (replay ET live).
+    'timing' = edge TEMPOREL market-timing (chemin 3, RESEARCH_NOTES §39) : la coupe
+    transversale zero-note PAR CONSTRUCTION les agents marche-large (macro, sentiment,
+    flows) ; cette section mesure si leur vote moyen predit le rendement du MARCHE dans
+    le temps. Time-gated (s'accumule avec les semaines de votes), ADVISORY."""
     import agent_validation as av
     return {
         "generated_at": int(time.time() if now is None else now),
@@ -42,6 +46,10 @@ def build_output(symbol, ranked, live, now=None):
         "weight_priors_advisory": av.suggest_weight_priors(ranked),
         "live": {"agents": (live or {}).get("agents", []),
                  "n_entries": (live or {}).get("n_entries", 0)},
+        "market_timing": {"agents": (timing or {}).get("agents", []),
+                          "n_cycles": (timing or {}).get("n_cycles", 0),
+                          "n_echantillons": (timing or {}).get("n_echantillons", 0),
+                          "horizon_cycles": (timing or {}).get("horizon_cycles", 0)},
     }
 
 
@@ -60,17 +68,21 @@ def main():
         if ranked.get("error"):
             print(f"brain_validation indisponible : {ranked['error']}")
             return
-        live = {}
+        live, timing = {}, {}
         try:
             import swarm_brain
-            live = av.evaluate_from_log(swarm_brain._read_log())   # chemin 2 : votes reels
+            log = swarm_brain._read_log()
+            live = av.evaluate_from_log(log)                       # chemin 2 : votes reels
+            timing = av.evaluate_market_timing(log)                # chemin 3 : market-timing (§39)
         except Exception:
-            live = {}
-        out = build_output(symbol, ranked, live)
+            pass
+        out = build_output(symbol, ranked, live, timing)
         REPORT_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
         passed = [a["agent"] for a in ranked.get("agents", []) if a.get("dsr", 0) >= 0.9]
         live_n = out["live"]["n_entries"]
-        print(f"brain_validation : rapport écrit (replay + live, {live_n} votes journalisés). "
+        mt_n = out["market_timing"]["n_echantillons"]
+        print(f"brain_validation : rapport écrit (replay + live {live_n} votes + "
+              f"timing {mt_n} échantillons). "
               f"Agents battant le seuil déflaté (replay) : "
               f"{passed or 'aucun (données trop minces)'}. ADVISORY. VERDICT: SAFE")
     except Exception as exc:

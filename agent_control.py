@@ -59,6 +59,10 @@ COMMANDS = [
         "command": ["python", "brain_validation.py"],
     },
     {
+        "name": "Moniteur carry non-directionnel (PAPER, journal auto-throttlé ~1h)",
+        "command": ["python", "carry_monitor.py"],
+    },
+    {
         "name": "Mandat de gestion : règles dures + agents autorisés en réel",
         "command": ["python", "mandate.py"],
     },

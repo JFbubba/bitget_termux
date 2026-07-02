@@ -31,7 +31,7 @@ python mandate.py         # politique + etat des verrous
 python edge_ladder.py     # paliers par agent
 python system_health.py   # sante (execution reelle = DISABLED attendu)
 python stats_report.py    # stats paper TP/SL
-python swarm_brain.py BTCUSDT   # consensus des 11 agents (plus lent, reseau)
+python swarm_brain.py BTCUSDT   # consensus des 13 agents (plus lent, reseau)
 ```
 
 ## C. Accumulation en LECTURE SEULE (jamais d'achat)

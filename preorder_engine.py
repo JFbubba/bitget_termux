@@ -153,7 +153,7 @@ def build_preorder(row, equity, equity_source, opened):
         notional = None
         sl_distance_percent = None
 
-    # CERVEAU (essaim, 11 agents) en GATE + MULTIPLICATEUR de taille. Fail-safe NEUTRE :
+    # CERVEAU (essaim, 13 agents) en GATE + MULTIPLICATEUR de taille. Fail-safe NEUTRE :
     # si le cerveau s'oppose au signal -> rejet ; sinon il REDUIT la taille selon la
     # conviction (jamais ne l'augmente). Indisponible -> facteur 1.0 (aucun changement).
     brain_bias, brain_conv, brain_note, brain_factor = None, None, None, 1.0

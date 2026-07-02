@@ -405,6 +405,80 @@ def evaluate_from_log(log, horizon_entries=1):
     return {"agents": out, "n_entries": len(log)}
 
 
+# ---------- chemin 3 : edge TEMPOREL (market-timing) des agents marché-large ----------
+# Frontière identifiée en §39 (RESEARCH_NOTES) : la coupe transversale zéro-note PAR
+# CONSTRUCTION les agents marché-large (macro, sentiment, flows... votent pareil sur
+# tous les symboles). Leur edge éventuel est TEMPOREL : le vote moyen au cycle t
+# prédit-il le rendement MOYEN du marché h cycles plus tard ? Mesure time-gated
+# (l'échantillon s'accumule avec les semaines de votes journalisés), ADVISORY.
+
+def _cycles_from_log(log, bucket_s=240):
+    """PUR. Regroupe les entrées de brain_log par CYCLE de scan : les entrées dont le
+    ts est à moins de bucket_s du début du groupe appartiennent au même cycle (le scan
+    journalise tous les symboles en quelques secondes, cadence 5 min). Retourne les
+    cycles ordonnés : [{"ts", "prices": {sym: prix}, "votes": {agent: [votes]},
+    "consensus": [floats]}]."""
+    entries = sorted((e for e in log or [] if e.get("price") and e.get("ts")),
+                     key=lambda e: e["ts"])
+    cycles, cur, debut = [], None, None
+    for e in entries:
+        if cur is None or e["ts"] - debut > bucket_s:
+            cur = {"ts": e["ts"], "prices": {}, "votes": {}, "consensus": []}
+            debut = e["ts"]
+            cycles.append(cur)
+        sym = e.get("symbol")
+        if sym:
+            try:
+                cur["prices"][sym] = float(e["price"])
+            except (TypeError, ValueError):
+                pass
+        for ag, v in (e.get("votes") or {}).items():
+            try:
+                cur["votes"].setdefault(ag, []).append(float(v))
+            except (TypeError, ValueError):
+                pass
+        if e.get("consensus") is not None:
+            try:
+                cur["consensus"].append(float(e["consensus"]))
+            except (TypeError, ValueError):
+                pass
+    return cycles
+
+
+def evaluate_market_timing(log, bucket_s=240, horizon_cycles=12, min_symbols=1):
+    """Évalue l'edge TEMPOREL de chaque agent (+ le consensus, pseudo-agent
+    'consensus') : IC/t/hit/Sharpe/PSR entre le vote MOYEN marché-large au cycle t et
+    le rendement MOYEN du marché au cycle t+h. Échantillonnage NON CHEVAUCHANT
+    (pas = horizon) : pas d'inflation de n par des rendements qui se recouvrent.
+    horizon_cycles=12 ≈ 1 h à cadence 5 min (cohérent avec HORIZON_S du cerveau).
+    PUR. Best-effort (peu de cycles au début -> métriques neutres)."""
+    cycles = _cycles_from_log(log, bucket_s)
+    h = max(1, int(horizon_cycles))
+    pairs, n_echantillons, i = {}, 0, 0
+    while i + h < len(cycles):
+        c0, c1 = cycles[i], cycles[i + h]
+        commun = [s for s in c0["prices"] if s in c1["prices"] and c0["prices"][s] > 0]
+        if len(commun) >= min_symbols:
+            fwd = sum(c1["prices"][s] / c0["prices"][s] - 1.0 for s in commun) / len(commun)
+            for ag, vs in c0["votes"].items():
+                if vs:
+                    pairs.setdefault(ag, []).append((sum(vs) / len(vs), fwd))
+            if c0["consensus"]:
+                pairs.setdefault("consensus", []).append(
+                    (sum(c0["consensus"]) / len(c0["consensus"]), fwd))
+            n_echantillons += 1
+        i += h                                   # non chevauchant : échantillons purgés
+    out = []
+    for ag, pv in pairs.items():
+        m = evaluate([x[0] for x in pv], [x[1] for x in pv])
+        m = {k: v for k, v in m.items() if not k.startswith("_")}
+        m["agent"] = ag
+        out.append(m)
+    out.sort(key=lambda d: (d.get("ic", 0)), reverse=True)
+    return {"agents": out, "n_cycles": len(cycles),
+            "n_echantillons": n_echantillons, "horizon_cycles": h}
+
+
 def suggest_weight_priors(ranked, floor=0.4, cap=1.8):
     """ADVISORY : propose des poids a priori bornés à partir du DSR (ou IC). NE MODIFIE
     RIEN. Un agent à DSR/IC élevé -> poids > 1 ; non significatif -> vers le plancher.

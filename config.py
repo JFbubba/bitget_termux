@@ -111,6 +111,13 @@ REGIME_GATE_USE_SENTIMENT = True    # l'extrême Fear&Greed PRIME sur le macro (
 REGIME_GATE_FNG_FEAR = 20           # F&G <= seuil -> RISK_OFF effectif (coupe les LONG, même si macro RISK_ON)
 REGIME_GATE_FNG_GREED = 80          # F&G >= seuil -> RISK_ON effectif (coupe les SHORT, même si macro RISK_OFF)
 
+# === Carry non-directionnel (carry_monitor.py, PAPER — mesure, n'exécute rien) ===
+# Le cash-and-carry (long spot + short perp, delta-neutre) encaisse le funding sans
+# parier sur la direction — la seule famille de rendement qui ne suppose aucun edge
+# directionnel (RESEARCH_NOTES §35-38 : pas d'edge directionnel robuste).
+CARRY_FRAIS_ALLER_RETOUR_PCT = 0.20   # frais estimés entrée+sortie (2 jambes spot+perp, %)
+CARRY_SEUIL_APR_PCT = 5.0             # APR net annualisé au-dessus duquel le carry est jugé ATTRACTIF
+
 # === Cerveau : bornes DURES des poids d'agents (swarm_brain._clamp_weights) ===
 # Empêche un agent de dominer artificiellement le consensus (bug : la normalisation
 # post-EARCP court-circuitait le clamp historique 0.2..3.0).

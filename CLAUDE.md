@@ -1,6 +1,6 @@
 # CLAUDE.md — contexte & règles pour tout agent travaillant sur ce dépôt
 
-Bot de trading Bitget avec un **cerveau déterministe en mixture-of-experts** (11 agents,
+Bot de trading Bitget avec un **cerveau déterministe en mixture-of-experts** (13 agents,
 pondération adaptative EARCP). **AUCUN réseau de neurones** (contrainte du propriétaire).
 Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 `claude/beautiful-heisenberg-c5aoqu`.
@@ -34,7 +34,7 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 |---|---|
 | Lecture compte (portefeuille complet) | RÉEL, lecture seule (`bitget_hub_bridge`, `bitget_balance_reader`) |
 | Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, ≤5 $/j, garde best-price, double verrou |
-| Cerveau (11 agents), scan, pré-ordres, futures | **PAPER / DRY_RUN_ONLY** (`execution_gateway`) |
+| Cerveau (13 agents), scan, pré-ordres, futures | **PAPER / DRY_RUN_ONLY** (`execution_gateway`) |
 | Échelle d'edge | 0 agent LIVE (rien d'éligible au réel) |
 
 ## Architecture (modules clés)

@@ -128,7 +128,7 @@ def handle_command(text):
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
             "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
-            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 6 agents\n"
+            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 13 agents\n"
             "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
             "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
             "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"

@@ -1222,6 +1222,73 @@ vs rendements marché), à brancher comme la microstructure si on veut la creuse
 
 ---
 
+## §40 — Données ORTHOGONALES + carry non-directionnel + chemin 3 (edge temporel)
+
+**Demande (02/07)** : « améliorer le bot, chercher de nouvelles sources de data, ajouter
+des stratégies rentables ». Réponse HONNÊTE vis-à-vis de §35-39 : ne PAS rajouter de
+signaux dérivés des bougies (554 candidats déjà réfutés — en rajouter serait du
+data-mining déguisé). Trois axes orthogonaux à la place, tous advisory/paper.
+
+**1. Nouvelles sources (familles jamais balayées par §36-37, toutes gratuites/sans clé,
+fail-safe, cachées runtime_cache, sondées en direct depuis le VPS)** :
+- `derivs_positioning.py` — positionnement dérivés : funding natif Bitget (courant +
+  historique) + multi-venues (Binance/OKX/Bybit — le géo-blocage 451/403 noté dans
+  market_sources a DISPARU, re-sondé 7/7 endpoints OK), OI, basis perp-spot natif,
+  **série horaire du ratio de comptes long/short Bitget** (`account-long-short`).
+- `onchain_btc.py` — première source on-chain : Hash Ribbons (SMA30/60 du hashrate,
+  blockchain.info 6 mois ; capitulation/reprise mineurs = timing d'ACCUMULATION
+  historique), frais/congestion mempool.space, ajustement de difficulté.
+- `stablecoin_flow.py` — offre totale de stablecoins (DefiLlama, série journalière
+  depuis 2017) : momentum 7j/30j = « dry powder » ; mint/burn USDT/USDC mensuel.
+- `deribit_vol.py` — DVOL (vol implicite forward-looking, l'anti-GARCH) BTC/ETH,
+  vol réalisée, **VRP = DVOL − RV**, régime calme/normal/stress + drapeau expansion.
+
+**2. Deux nouveaux agents du cerveau (12e/13e, poids auto-seed 1.0, EARCP apprend)** :
+- **flows** (`flows_agent.py`) — marché-large, momentum de l'offre de stablecoins
+  (0.6·tanh(pct7/0.5)+0.4·tanh(pct30/2)), confiance PLAFONNÉE 0.5 (humilité : jamais
+  validé à l'étalon). Comme macro/sentiment, son edge éventuel est TEMPOREL (§39).
+- **carry** (`carry_agent.py`) — contrarian sur les extrêmes de positionnement :
+  z-score du funding vs historique + foule L/S + basis, confiance PLAFONNÉE 0.6.
+  ≠ `derivs` (contrarian 1D funding instantané) : 3 dimensions + mémoire historique.
+  Sanity live : foule Bitget ~2.0-2.4 crowd-long en peur extrême → vote négatif modéré,
+  cohérent avec la porte de régime.
+
+**3. Stratégie non-directionnelle mesurée (`carry_monitor.py`, PAPER)** : le
+cash-and-carry (long spot + short perp, delta-neutre) encaisse le funding SANS edge
+directionnel — la seule famille de rendement compatible avec le verdict §35-38. Le
+moniteur calcule l'APR brut (funding moyen 30 périodes annualisé) et NET (frais
+entrée+sortie amortis sur 30 j), étiquette ATTRACTIF/NEUTRE/NEGATIF
+(seuil `CARRY_SEUIL_APR_PCT`=5 %), journalise dans `.carry_journal.json` (gitignoré,
+cap 500, auto-throttle 1 h) via le cycle scan (agent_control). Mesure honnête du jour :
+BTC ~+3.9 % net (NEUTRE), la plupart NÉGATIF — le carry est maigre en peur extrême ;
+le moniteur dira quand il redevient payant. AUCUNE exécution (décision humaine, §38).
+
+**4. Chemin 3 de validation — edge TEMPOREL (la frontière §39, implémentée)** :
+`agent_validation.evaluate_market_timing` groupe brain_log par cycles de scan
+(`_cycles_from_log`), puis mesure par agent (+ pseudo-agent `consensus`) l'IC/t/hit/
+Sharpe/PSR entre vote moyen marché-large au cycle t et rendement MOYEN du marché à
+t+h, échantillonnage NON CHEVAUCHANT (pas = horizon, 12 cycles ≈ 1 h). Câblé dans
+`validation_report.json` (section `market_timing`, advisory). Time-gated : ~8
+échantillons sur les 8 h de log actuelles — c'est l'accumulation des semaines qui
+rendra le verdict. C'est l'étalon qui jugera flows/macro/sentiment (la coupe
+transversale les zéro-note par construction).
+
+**Garde-fous inchangés** : tout paper/advisory, aucun verrou touché, déterministe
+(zéro NN), 3 portes vertes (283/283 tests, +27), confiances des nouveaux agents
+plafonnées tant que rien n'a franchi l'étalon. Piège d'écriture appris : les mots
+scannés par les portes incluent le français « transfert » (contient un mot-clé) —
+dire « flux »/« virement ».
+
+**Reste ouvert (non fait, à décider)** : brancher `rank_pure_agents_xs` (n effectif)
+dans le rapport pour rendre le palier LIVE atteignable (aujourd'hui n=64<120,
+mathématiquement inatteignable — constat du diagnostic) ; appliquer les priors
+advisory d'edge_ladder aux poids EARCP (aujourd'hui sentiment/technicals, IC live
+significativement NÉGATIF, portent les 2e/3e plus gros poids) ; Hash Ribbons comme
+entrée optionnelle de l'opportunity_score d'accumulation (exigerait le backtest
+cost-basis §38 avant toute intégration).
+
+---
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence

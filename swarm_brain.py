@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric", "flows", "carry"]
 
 # Bornes DURES des poids finaux d'agents (convention historique, cf. update_weights).
 # La normalisation post-EARCP dans learn() les court-circuitait -> un agent pouvait
@@ -349,11 +349,37 @@ def agent_geometric(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
 
 
+def agent_flows(symbol):
+    """Agent FLOWS — flux de capitaux marché-large : momentum de l'offre totale de
+    stablecoins (DefiLlama). Expansion = liquidités entrantes (haussier), contraction
+    = repli. Ignore le symbole (comme macro/sentiment) : son edge éventuel est
+    TEMPOREL (market-timing, §39), mesuré par le chemin 3 de la validation.
+    Déterministe, aucun NN. Voir flows_agent.py."""
+    try:
+        import flows_agent
+        return flows_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
+def agent_carry(symbol):
+    """Agent CARRY — positionnement dérivés contrarian : funding extrême + foule
+    long/short (ratio de comptes Bitget) + basis perp-spot. Fade le côté surpeuplé.
+    Famille de données ORTHOGONALE à la recherche négative §36-37 (qui n'a balayé
+    que des dérivés de bougies). Déterministe, aucun NN. Voir carry_agent.py."""
+    try:
+        import carry_agent
+        return carry_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
     "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
     "savant": agent_savant, "geometric": agent_geometric,
+    "flows": agent_flows, "carry": agent_carry,
 }
 
 

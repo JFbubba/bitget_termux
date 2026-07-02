@@ -400,7 +400,7 @@ def build_state(symbol=None, tf="5m"):
     market = _cached("market", 600, lambda: _safe(_market, {}))
     candles = _cached(f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, []))
     book = _cached(f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []}))
-    # le cerveau réinterroge 6 agents (réseau) : cache plus long pour le polling.
+    # le cerveau réinterroge 13 agents (réseau) : cache plus long pour le polling.
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     liq = _cached(f"lq:{symbol}", 45, lambda: _safe(_liq, {}))
     health = _safe(_health, {})
