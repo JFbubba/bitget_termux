@@ -254,8 +254,10 @@ def rank_pure_agents(candles, horizon=8, warmup=80):
 # TRANSVERSALE sur l'univers liquide multiplie le nombre de paris directionnels — MAIS le
 # crypto est très corrélé (beta commun), donc empiler 20 symboles ne donne PAS 20× d'info
 # indépendante. On corrige par un n EFFECTIF (variance inflation) : sans ça, on promouvrait
-# un agent en LIVE sur un edge factice -> trade réel sur du vent. ADVISORY : ce chemin ne
-# touche NI la porte d'edge (mandate/edge_ladder) NI les poids du cerveau.
+# un agent en LIVE sur un edge factice -> trade réel sur du vent. Depuis §40, ce chemin
+# EST le ranking préféré du rapport de validation (brain_validation, repli mono-symbole) :
+# c'est ce qui rend le palier LIVE atteignable SANS baisser aucun seuil — la porte d'edge
+# (mandate/edge_ladder) et ses seuils DSR/n/OOS/live restent inchangés.
 
 def average_cross_correlation(panel):
     """Corrélation transversale MOYENNE (hors-diagonale) des séries de rendements-
@@ -304,8 +306,9 @@ def _strat_and_series(signal_fn, candles, horizon, warmup, step=None):
 def rank_pure_agents_xs(candles_by_symbol, horizon=8, warmup=80):
     """Validation TRANSVERSALE (breadth) des agents PURS sur plusieurs symboles. Met en
     commun les paris directionnels et calcule DSR/PSR/IC sur un n EFFECTIF corrigé de la
-    corrélation transversale (anti-inflation). ADVISORY — ne touche NI la porte d'edge NI
-    les poids. Retourne {agents:[...trié par DSR...], deflation, horizon, n_symbols}."""
+    corrélation transversale (anti-inflation). Ranking préféré du rapport de validation
+    (§40) — les seuils de la porte d'edge restent inchangés, seul le n devient honnête.
+    Retourne {agents:[...trié par DSR...], deflation, horizon, n_symbols}."""
     syms = [s for s, c in candles_by_symbol.items() if c and len(c) > warmup + horizon]
     raw = {}
     for name, fn in PURE_AGENTS.items():
@@ -355,7 +358,7 @@ def rank_pure_agents_xs(candles_by_symbol, horizon=8, warmup=80):
 
 def run_xs(symbols=None, timeframe="1h", limit=600, horizon=8, top_n=12, warmup=80):
     """Replay TRANSVERSAL des agents purs sur l'univers liquide + breadth. Best-effort
-    (réseau). Retourne le ranking transversal ou {error}. ADVISORY (lecture seule)."""
+    (réseau). Retourne le ranking transversal ou {error}. Lecture seule, aucun ordre."""
     if symbols is None:
         try:
             import universe

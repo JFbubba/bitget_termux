@@ -2948,6 +2948,18 @@ def test_brain_validation_build_output_includes_live():
     assert out2["market_timing"]["n_echantillons"] == 0
 
 
+def test_brain_validation_build_output_records_ranking_mode():
+    # §40 : le rapport dit d'ou vient le ranking — coupe transversale (n EFFECTIF,
+    # palier LIVE atteignable) ou repli mono-symbole. PUR (pas de run/reseau).
+    import brain_validation as bv
+    ranked_xs = {"agents": [], "deflation": {}, "n_symbols": 7}
+    out = bv.build_output("BTCUSDT", ranked_xs, {}, mode="xs", now=1)
+    assert out["ranking_mode"] == "xs" and out["n_symbols"] == 7
+    # defaut retro-compatible : mono-symbole
+    out2 = bv.build_output("BTCUSDT", {"agents": [], "deflation": {}}, {}, now=1)
+    assert out2["ranking_mode"] == "mono" and out2["n_symbols"] == 1
+
+
 # ---------- chemin 3 : edge temporel market-timing (agent_validation, §39) ----------
 
 def _log_timing_synthetique(votes_bons, pas_s=300, n_cycles=None):
@@ -4790,6 +4802,68 @@ def test_edge_ladder_weight_prior_by_tier():
     # prior borné : ordonné par palier, jamais négatif
     priors = [el.weight_prior(a, rep) for a in ("alpha", "beta", "gamma", "delta")]
     assert priors == sorted(priors, reverse=True) and min(priors) > 0
+
+
+def test_edge_ladder_weight_priors_map_and_live_derate():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.weight_priors(rep) == {"alpha": 1.5, "beta": 1.0, "gamma": 0.6, "delta": 0.3}
+    # agent absent du rapport -> AUCUNE entrée (le cerveau le traite neutre ×1.0)
+    assert "inconnu" not in el.weight_priors(rep)
+    # dérate live : IC significativement NÉGATIF (n>=min, ic_t<=-seuil) plafonne à NEGATIVE
+    rep2 = _edge_report()
+    rep2["live"]["agents"] += [{"agent": "beta", "n": 100000, "ic_t": -10.0},
+                               {"agent": "omega", "n": 100000, "ic_t": -10.0}]
+    pri2 = el.weight_priors(rep2)
+    assert pri2["beta"] == 0.3                            # replay OK mais live CONTRE -> bridé
+    assert pri2["omega"] == 0.3                           # évidence live seule suffit à brider
+    # évidence live NON significative (n trop petit) -> ne dérate pas
+    rep3 = _edge_report()
+    rep3["live"]["agents"].append({"agent": "gamma", "n": 5, "ic_t": -10.0})
+    assert el.weight_priors(rep3)["gamma"] == 0.6
+
+
+def test_swarm_brain_applies_edge_priors_softened_and_failsafe():
+    import edge_ladder as el
+    import swarm_brain as sb
+    orig = el.weight_priors
+    try:
+        el.weight_priors = lambda report=None: {"a": 1.5, "b": 0.3}
+        w = sb._apply_edge_priors({"a": 1.0, "b": 1.0, "c": 1.0})
+        # oriente sans écraser : LIVE > absent (neutre) > NEGATIVE, adouci (alpha=0.5)
+        assert w["a"] > w["c"] > w["b"]
+        assert abs(sum(w.values()) / len(w) - 1.0) < 0.05  # renormalisé moyenne ~1
+        assert all(0.2 <= v <= 3.0 for v in w.values())    # re-borné [MIN,MAX]
+        # fail-safe NEUTRE : pas de priors -> poids inchangés
+        el.weight_priors = lambda report=None: {}
+        assert sb._apply_edge_priors({"a": 1.2, "b": 0.8}) == {"a": 1.2, "b": 0.8}
+        # module en panne -> poids inchangés (jamais de crash du learn)
+        def _boom(report=None):
+            raise RuntimeError("panne")
+        el.weight_priors = _boom
+        assert sb._apply_edge_priors({"a": 1.1}) == {"a": 1.1}
+    finally:
+        el.weight_priors = orig
+
+
+def test_swarm_brain_edge_priors_can_be_disabled():
+    import config
+    import edge_ladder as el
+    import swarm_brain as sb
+    orig_priors, had = el.weight_priors, hasattr(config, "BRAIN_EDGE_PRIORS")
+    orig_flag = getattr(config, "BRAIN_EDGE_PRIORS", None)
+    try:
+        el.weight_priors = lambda report=None: {"a": 0.3}
+        config.BRAIN_EDGE_PRIORS = 0
+        assert sb._apply_edge_priors({"a": 2.0, "b": 1.0}) == {"a": 2.0, "b": 1.0}
+        config.BRAIN_EDGE_PRIORS = 1
+        assert sb._apply_edge_priors({"a": 2.0, "b": 1.0}) != {"a": 2.0, "b": 1.0}
+    finally:
+        el.weight_priors = orig_priors
+        if had:
+            config.BRAIN_EDGE_PRIORS = orig_flag
+        else:
+            del config.BRAIN_EDGE_PRIORS
 
 
 # ---------- mandate : sizing du capital réel (déploiement / risque par trade) ----------

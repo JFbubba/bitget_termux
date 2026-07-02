@@ -124,6 +124,13 @@ CARRY_SEUIL_APR_PCT = 5.0             # APR net annualisé au-dessus duquel le c
 BRAIN_WEIGHT_MIN = 0.2
 BRAIN_WEIGHT_MAX = 3.0
 
+# === Cerveau : priors d'edge ADVISORY (edge_ladder -> poids EARCP, §40) ===
+# L'edge MESURÉ borne l'edge APPRIS : les poids EARCP sont multipliés par
+# prior**ALPHA (adouci), renormalisés (moy ~1) puis re-bornés. Un agent à l'IC live
+# significativement NÉGATIF est bridé même si sa cohérence de consensus le flatte.
+BRAIN_EDGE_PRIORS = 1                 # 0 = débrayer (poids EARCP purs)
+BRAIN_EDGE_PRIOR_ALPHA = 0.5          # adoucissement (1.0 = prior plein, 0.0 = neutre)
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21

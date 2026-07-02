@@ -481,6 +481,31 @@ def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
     return {n: round(w_min + free * sm[n], 4) for n in names}
 
 
+def _apply_edge_priors(weights):
+    """Applique les priors ADVISORY de l'échelle d'edge (edge_ladder.weight_priors)
+    aux poids EARCP — ils bornent/orientent l'apprentissage, ne l'écrasent pas :
+    multiplicateur ADOUCI prior**alpha (alpha≤1), renormalisation à moyenne ~1,
+    re-borne [MIN,MAX]. Un agent ABSENT du rapport de validation reste neutre
+    (×1.0). Fail-safe NEUTRE : pas de rapport / module en panne -> poids inchangés.
+    Débrayable : BRAIN_EDGE_PRIORS=0."""
+    from config_utils import cfg as _cfg
+    try:
+        if not int(_cfg("BRAIN_EDGE_PRIORS", 1)):
+            return weights
+        import edge_ladder
+        priors = edge_ladder.weight_priors()
+        alpha = max(0.0, min(1.0, float(_cfg("BRAIN_EDGE_PRIOR_ALPHA", 0.5))))
+    except Exception:
+        return weights
+    if not priors:
+        return weights
+    w = {k: v * (max(float(priors.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
+    avg = (sum(w.values()) / len(w)) if w else 1.0
+    if avg > 0:
+        w = {k: round(v / avg, 3) for k, v in w.items()}
+    return _clamp_weights(w)
+
+
 def _coherence_scores(entries):
     """Cohérence EARCP : fréquence d'accord de chaque agent avec le consensus. Pur."""
     agree, total = {}, {}
@@ -608,6 +633,7 @@ def learn(symbol, price_now, weights):
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
         weights = {k: round(v / avg, 3) for k, v in ew.items()}  # remise à moyenne ~1.0 (convention)
         weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
+        weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
         save_weights(weights)
     if changed:
         _write_log(log)

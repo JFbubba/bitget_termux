@@ -1279,15 +1279,54 @@ plafonnées tant que rien n'a franchi l'étalon. Piège d'écriture appris : les
 scannés par les portes incluent le français « transfert » (contient un mot-clé) —
 dire « flux »/« virement ».
 
-**Reste ouvert (non fait, à décider)** : brancher `rank_pure_agents_xs` (n effectif)
-dans le rapport pour rendre le palier LIVE atteignable (aujourd'hui n=64<120,
-mathématiquement inatteignable — constat du diagnostic) ; appliquer les priors
-advisory d'edge_ladder aux poids EARCP (aujourd'hui sentiment/technicals, IC live
-significativement NÉGATIF, portent les 2e/3e plus gros poids) ; Hash Ribbons comme
-entrée optionnelle de l'opportunity_score d'accumulation (exigerait le backtest
-cost-basis §38 avant toute intégration).
+**Reste ouvert (non fait, à décider)** : ~~brancher `rank_pure_agents_xs`~~ et
+~~appliquer les priors advisory d'edge_ladder~~ — les deux FAITS en §41 ; Hash
+Ribbons comme entrée optionnelle de l'opportunity_score d'accumulation (exigerait
+le backtest cost-basis §38 avant toute intégration).
 
 ---
+
+## §41 — La boucle mesure→poids fermée : ranking transversal + priors d'edge branchés
+
+**Contexte.** Les deux chantiers laissés « à décider » en §40, choisis parce qu'ils
+ferment enfin la boucle entre l'edge MESURÉ (validation T5) et l'edge APPRIS (poids
+EARCP) — sans toucher AUCUN verrou ni seuil : le futures reste paper, la porte
+d'edge garde DSR≥0.90, n≥120, OOS>0 ET confirmation live.
+
+**1. Le rapport de validation lit la coupe TRANSVERSALE (`brain_validation`).**
+`main()` tente `run_xs()` (univers liquide, n EFFECTIF corrigé de la corrélation
+transversale, §40) et ne retombe sur le mono-symbole `run(symbol)` qu'en cas d'échec
+(réseau/univers). Le rapport porte `ranking_mode` (`xs`/`mono`) et `n_symbols`
+(transparence). Effet mesuré en direct (11 symboles) : n_eff 212–298 ≫ 120 — le
+palier LIVE devient MATHÉMATIQUEMENT atteignable sans baisser aucun seuil. Verdict
+honnête du jour : la breadth DÉGRADE tout le monde (divergent DSR 0.56→0.29,
+simons 0.53→0.26 : leur « edge » mono-BTC ne se réplique pas en coupe) — les 4
+agents purs sortent PAPER, personne n'approche le réel. La porte dit enfin quelque
+chose de crédible au lieu d'être structurellement fermée.
+
+**2. Les priors d'edge bornent ENFIN l'appris (`edge_ladder.weight_priors` +
+`swarm_brain._apply_edge_priors`).** Nouvelle carte {agent: prior} : palier replay
+-> prior (×1.5/×1.0/×0.6/×0.3), PLUS un dérate symétrique de `_live_confirms` — IC
+live significativement NÉGATIF (n≥60, ic_t≤−2.0) plafonne à ×0.3 : l'évidence
+CONTRE un agent compte autant que l'évidence pour. Un agent ABSENT du rapport
+reste neutre ×1.0 (on bride sur preuve, pas faute de mesure — ≠ `agent_tier` qui
+répond NEGATIVE : lui est une porte de promotion, fail-closed). Application dans
+`learn()` : multiplicateur ADOUCI `prior**alpha` (`BRAIN_EDGE_PRIOR_ALPHA`=0.5),
+renormalisation moy~1, re-borne [MIN,MAX] ; fail-safe NEUTRE (pas de rapport /
+module en panne -> poids inchangés) ; débrayable `BRAIN_EDGE_PRIORS=0`. Effet
+mesuré : technicals (ic_t live −2.87 sur 484 votes, 2e-3e poids — l'anomalie
+pointée en §40) 0.413→0.242 ; divergent (poids 3.0 appris sur la cohérence, prior
+PAPER) sera tiré vers le bas au prochain learn(). C'est exactement « l'edge mesuré
+borne l'edge appris ».
+
+**Pourquoi l'adoucissement α=0.5 ?** Prior plein (×0.3 brut) écraserait
+l'apprentissage EARCP (contraire au contrat « advisory » d'edge_ladder) ; √prior
+(×0.55) ORIENTE : un agent bridé peut encore remonter s'il accumule de la
+performance réelle — le plancher d'exploration EARCP reste vivant.
+
+**Garde-fous** : tout paper/advisory, aucun verrou touché, déterministe, portes
+vertes (287/287 tests, +4 : carte des priors + dérate live, adoucissement/fail-safe/
+débrayage, ranking_mode). Le rapport reste gitignoré (état local).
 
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
