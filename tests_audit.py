@@ -1937,6 +1937,99 @@ def test_load_weights_self_heals_partial_file(tmpfile=None):
         sb.WEIGHTS_FILE = old
 
 
+# ---------- Porte directionnelle régime-aware (regime_gate) ----------
+
+def test_regime_gate_pure():
+    import regime_gate as rg
+    # RISK_OFF coupe les LONG, laisse passer les SHORT
+    assert rg.gate_decision("LONG POSSIBLE", "RISK_OFF") == "NEUTRE"
+    assert rg.gate_decision("BIAIS LONG", "RISK_OFF") == "NEUTRE"
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_OFF") == "SHORT POSSIBLE"
+    # RISK_ON coupe les SHORT, laisse passer les LONG
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_ON") == "NEUTRE"
+    assert rg.gate_decision("BIAIS SHORT", "RISK_ON") == "NEUTRE"
+    assert rg.gate_decision("LONG POSSIBLE", "RISK_ON") == "LONG POSSIBLE"
+    # NEUTRE / None / inconnu -> porte transparente
+    assert rg.gate_decision("LONG POSSIBLE", "NEUTRE") == "LONG POSSIBLE"
+    assert rg.gate_decision("LONG POSSIBLE", None) == "LONG POSSIBLE"
+    assert rg.gate_decision("SHORT POSSIBLE", "n'importe quoi") == "SHORT POSSIBLE"
+    # label neutre personnalisable (decision_engine utilise "NEUTRE / ATTENDRE")
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_ON",
+                            neutral_label="NEUTRE / ATTENDRE") == "NEUTRE / ATTENDRE"
+
+
+def test_regime_gate_effective_regime():
+    import regime_gate as rg
+    # l'extrême du Fear&Greed prime sur le macro (override à contre-régime)
+    assert rg.effective_regime("RISK_ON", fng_value=5) == "RISK_OFF"
+    assert rg.effective_regime("RISK_OFF", fng_value=95) == "RISK_ON"
+    # hors extrême (F&G absent ou neutre), le macro fait foi
+    assert rg.effective_regime("RISK_ON", fng_value=None) == "RISK_ON"
+    assert rg.effective_regime("RISK_ON", fng_value=50) == "RISK_ON"
+    # F&G extrême quand le macro est NEUTRE/inconnu
+    assert rg.effective_regime("NEUTRE", fng_value=11) == "RISK_OFF"
+    assert rg.effective_regime("NEUTRE", fng_value=85) == "RISK_ON"
+    assert rg.effective_regime("NEUTRE", fng_value=50) == "NEUTRE"
+    assert rg.effective_regime(None, fng_value=None) == "NEUTRE"
+    # F&G illisible -> pas de crash, le macro fait foi
+    assert rg.effective_regime("NEUTRE", fng_value="n/a") == "NEUTRE"
+
+
+def test_regime_gate_fetch_failsafe():
+    import regime_gate as rg
+    import macro_context
+    import sentiment_index
+    om, of = macro_context.macro_snapshot, sentiment_index.fetch_fear_greed
+
+    def _boom(*a, **k):
+        raise RuntimeError("réseau coupé")
+
+    try:
+        macro_context.macro_snapshot = _boom
+        sentiment_index.fetch_fear_greed = _boom
+        snap = rg.fetch_regime_snapshot()                 # ne DOIT PAS lever
+        assert snap == {"regime": "NEUTRE", "fng": None}
+        # régime effectif NEUTRE -> porte no-op (comportement historique préservé)
+        eff = rg.effective_regime(snap["regime"], snap["fng"])
+        assert rg.gate_decision("LONG POSSIBLE", eff) == "LONG POSSIBLE"
+    finally:
+        macro_context.macro_snapshot = om
+        sentiment_index.fetch_fear_greed = of
+
+
+# ---------- Cerveau : clamp des poids post-normalisation (swarm_brain) ----------
+
+def test_brain_weight_clamp_after_normalization():
+    import swarm_brain as sb
+    clamped = sb._clamp_weights({"divergent": 4.715, "macro": 0.6, "x": 0.05})
+    assert clamped["divergent"] <= 3.0 + 1e-9             # plafond respecté (le bug atteignait ~4.7)
+    assert clamped["x"] >= 0.2 - 1e-9                     # plancher respecté
+    assert clamped["macro"] == 0.6                        # valeur dans les bornes -> intacte
+
+
+def test_load_weights_clamps_stale_file():
+    import json
+    import tempfile
+    from pathlib import Path
+    import swarm_brain as sb
+    old = sb.WEIGHTS_FILE
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"divergent": 4.715, "macro": 0.8}, f)   # fichier obsolète hors bornes (bug)
+            sb.WEIGHTS_FILE = Path(f.name)
+        w = sb.load_weights()
+        assert w["divergent"] <= 3.0 + 1e-9              # auto-réparation dès la lecture
+        assert w["macro"] == 0.8                          # valeur dans les bornes -> préservée
+        for a in sb.AGENTS:
+            assert a in w                                 # auto-réparation des agents manquants conservée
+    finally:
+        try:
+            Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = old
+
+
 # ---------- Agent SAVANT (« autiste digitale ») : rupture de symétrie tensorielle ----------
 
 def _savant_market(n=70, seed=1, last=None):

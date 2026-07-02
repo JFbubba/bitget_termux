@@ -95,6 +95,7 @@ FILES_TO_SCAN = [
     "macro_context.py",
     "macro_data.py",
     "confluence_score.py",
+    "regime_gate.py",
     "dashboard/server.py",
     "sentiment_index.py",
     "defi_data.py",

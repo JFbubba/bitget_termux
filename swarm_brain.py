@@ -24,9 +24,25 @@ HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger u
 
 AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric"]
 
+# Bornes DURES des poids finaux d'agents (convention historique, cf. update_weights).
+# La normalisation post-EARCP dans learn() les court-circuitait -> un agent pouvait
+# dériver au-delà (bug observé : divergent ~4.7). On re-borne à la sortie ET à la
+# lecture (auto-réparation du fichier obsolète). Surchargeable via config.
+BRAIN_WEIGHT_MIN = 0.2
+BRAIN_WEIGHT_MAX = 3.0
+
 
 def _clamp(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, x))
+
+
+def _clamp_weights(weights):
+    """Re-borne des poids finaux dans [MIN, MAX]. PUR. Évite qu'un agent domine
+    artificiellement le consensus après la normalisation post-EARCP."""
+    from config_utils import cfg as _cfg
+    lo = _cfg("BRAIN_WEIGHT_MIN", BRAIN_WEIGHT_MIN)
+    hi = _cfg("BRAIN_WEIGHT_MAX", BRAIN_WEIGHT_MAX)
+    return {k: round(max(lo, min(hi, v)), 3) for k, v in weights.items()}
 
 
 def _slope(y):
@@ -501,7 +517,7 @@ def load_weights():
         w = {}
     for a in AGENTS:
         w.setdefault(a, 1.0)
-    return w
+    return _clamp_weights(w)          # auto-répare un fichier obsolète hors bornes dès la lecture
 
 
 def save_weights(w):
@@ -565,6 +581,7 @@ def learn(symbol, price_now, weights):
         ew = earcp_weights(perf_w, coh)                         # EARCP : performance + cohérence
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
         weights = {k: round(v / avg, 3) for k, v in ew.items()}  # remise à moyenne ~1.0 (convention)
+        weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
         save_weights(weights)
     if changed:
         _write_log(log)

@@ -101,6 +101,22 @@ ACCUM_AUTONOMOUS_LIVE = False
 # cross-exchange de plus de ce % (premium). Évite d'acheter sur un pic propre à Bitget.
 ACCUM_MAX_PREMIUM_PCT = 0.30
 
+# === Porte directionnelle régime-aware (regime_gate.py, lue par journal_scanner) ===
+# Supprime les signaux qui combattent la marée macro : en RISK_OFF, aucun LONG n'est
+# généré/suivi ; en RISK_ON, aucun SHORT (symétrique). Motivé par les résultats
+# mesurés (LONG ~18 % WR en peur extrême). Analyse seule — AUCUN ordre. Fail-safe :
+# régime indisponible -> NEUTRE -> porte transparente (comportement historique).
+REGIME_GATE_ENABLED = True          # False = restaure l'ancien comportement sans toucher au code
+REGIME_GATE_USE_SENTIMENT = True    # l'extrême Fear&Greed PRIME sur le macro (peur -> RISK_OFF)
+REGIME_GATE_FNG_FEAR = 20           # F&G <= seuil -> RISK_OFF effectif (coupe les LONG, même si macro RISK_ON)
+REGIME_GATE_FNG_GREED = 80          # F&G >= seuil -> RISK_ON effectif (coupe les SHORT, même si macro RISK_OFF)
+
+# === Cerveau : bornes DURES des poids d'agents (swarm_brain._clamp_weights) ===
+# Empêche un agent de dominer artificiellement le consensus (bug : la normalisation
+# post-EARCP court-circuitait le clamp historique 0.2..3.0).
+BRAIN_WEIGHT_MIN = 0.2
+BRAIN_WEIGHT_MAX = 3.0
+
 # Stratégie
 EMA_FAST = 9
 EMA_SLOW = 21
