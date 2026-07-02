@@ -457,6 +457,29 @@ def _run(cmd, runner=None):
         return None
 
 
+_POS_MODE_MEMO = {"ts": 0.0}
+
+
+def _ensure_position_mode(runner=None):
+    """Règle le compte futures en mode position UNILATÉRAL (one-way) — les ordres du
+    module sont au format one-way (side buy/sell + reduceOnly ; un compte en mode
+    couverture les rejette : erreur 400 « unilateral position », constatée au 1er
+    ordre de validation §45). Idempotent, sans effet si déjà one-way, mémoïsé 1 h.
+    FAIL-CLOSED : refus de l'exchange (ex. positions ouvertes) -> False, pas d'ordre
+    dans un mode ambigu."""
+    if runner is None and time.time() - _POS_MODE_MEMO["ts"] < 3600:
+        return True
+    out = _run(["futures", "futures_update_config", "--setting", "positionMode",
+                "--value", "one_way_mode", "--symbol", SYMBOL,
+                "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN],
+               runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    ok = bool(out) and "error" not in compact and '"ok":false' not in compact
+    if ok and runner is None:
+        _POS_MODE_MEMO["ts"] = time.time()
+    return ok
+
+
 def _ensure_leverage(leverage, runner=None, marge_mode=None):
     """Fixe le levier (déjà borné au mur par build_futures_order) AVANT l'ordre.
     Marge isolée : les deux holdSide ; crossed : un appel sans holdSide.
@@ -495,6 +518,9 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None):
         return {"ok": False, "executed": False,
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
+    if not _ensure_position_mode(runner=runner):
+        return {"ok": False, "executed": False,
+                "reasons": ["mode position one-way refusé par l'exchange (fail-closed)"]}
     if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}

@@ -4469,7 +4469,9 @@ def test_futures_executor_dry_and_real_path():
                     runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0,
                     marge_mode="isolated", **full)
     assert r3["executed"] is True
-    assert calls[0][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
+    # séquence : mode one-way d'abord, puis levier, puis l'ordre
+    assert calls[0][1] == "futures_update_config" and "one_way_mode" in calls[0]
+    assert calls[1][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
     bo = r3["bitget_order"]
     assert bo["side"] == "buy" and bo["reduceOnly"] == "NO" and bo["orderType"] == "market"
     assert bo["marginMode"] == "isolated" and bo["size"] == "0.0001"   # 8$/60000 -> plancher au pas
