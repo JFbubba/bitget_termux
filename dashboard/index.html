@@ -408,6 +408,15 @@
           <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
         </div>
       </div>
+      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+        <h2 style="border:0;padding:0;margin:0 0 6px">Labo xs paper <span class="dim" style="letter-spacing:0">— long-short fictif §60</span></h2>
+        <div class="row"><span class="k">panier</span><span id="xs-panier" class="dim">—</span></div>
+        <div class="row"><span class="k">PnL cumulé (fictif)</span><span id="xs-pnl">—</span></div>
+      </div>
+      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+        <h2 style="border:0;padding:0;margin:0 0 6px">Audit IC live <span class="dim" style="letter-spacing:0">— votes émis, horizon 1 h §60</span></h2>
+        <div id="audit-live" class="dim" style="font-size:10px;line-height:1.7">—</div>
+      </div>
     </div>
     <div class="panel">
       <h2>Vol implicite · Carry <span class="dim" style="letter-spacing:0">— DVOL/VRP · cash-and-carry PAPER</span></h2>
@@ -932,6 +941,7 @@ async function tick(){
     const fcr=fu2.carry||{};
     $("fu2-carry").textContent=(fcr.apr!=null)?("APR "+(fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% ("+(fcr.attrait||"—")+") · couv $"+(fcr.couverture!=null?fcr.couverture:"—")+" -> "+(fcr.action||"rien")):"—";
     $("fu2-carry").className=fcr.attrait==="ATTRACTIF"?"green":"dim";
+    if((st.viz||{}).funding_pctl!=null){$("fu2-carry").textContent+=" · pctl "+Math.round(100*st.viz.funding_pctl);}
     // --- visualisations (viz : PnL/funding, consensus univers, palette §50) ---
     try{ dessineViz(st.viz||{}); }catch(e){}
     try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
@@ -1046,6 +1056,23 @@ function dessineViz(viz){
         `<span class="val ${c==null?"dim":(cc>=0?"green":"red")}">${c==null?"·":((c>=0?"+":"")+c.toFixed(2))}</span></div>`;
     });
     cu.innerHTML=html||"—";
+  }
+  // 2b) labo xs paper + audit IC live (§60)
+  const xs=viz.xs_paper||{};
+  const pan=xs.panier||{};
+  if($("xs-panier")){
+    const L=Object.keys(pan.longs||{}).map(s=>s.replace(/USDT$/,"")).join("·");
+    const S=Object.keys(pan.shorts||{}).map(s=>s.replace(/USDT$/,"")).join("·");
+    $("xs-panier").textContent=(L||S)?("L "+L+" / S "+S):"—";
+    const pnl=xs.pnl_cumule_usdt;
+    $("xs-pnl").textContent=(pnl!=null)?((pnl>=0?"+":"")+pnl.toFixed(4)+" $ ("+(xs.rebalances||0)+" rebal.)"):"—";
+    $("xs-pnl").className=(pnl>0)?"green":(pnl<0)?"red":"dim";
+  }
+  const al=viz.audit_live||[];
+  if($("audit-live")&&al.length){
+    const fmt=r=>`${r.agent} <span class="${r.ic>0.02?"green":r.ic<-0.02?"red":"dim"}">${(r.ic>=0?"+":"")+r.ic.toFixed(3)}</span>`;
+    $("audit-live").innerHTML="meilleurs : "+al.slice(0,3).map(fmt).join(" · ")+
+      "<br>pires : "+al.slice(-3).map(fmt).join(" · ");
   }
   // 3) palette synesthésique du symbole affiché (6 formes ordinales, §50)
   const sf=$("syn-formes"), si=$("syn-info"), syn=viz.synesthesie;

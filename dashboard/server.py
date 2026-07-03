@@ -445,6 +445,23 @@ def build_state(symbol=None, tf="5m"):
         except Exception:
             pass
         try:
+            # labo xs paper + percentile de funding + audit IC live (§60/§63)
+            import xs_paper
+            out["xs_paper"] = xs_paper.status()
+        except Exception:
+            pass
+        try:
+            import funding_history as fhy
+            out["funding_pctl"] = fhy.percentile_courant("BTCUSDT")
+        except Exception:
+            pass
+        try:
+            import live_ic_audit as lia
+            audit = _cached("audit_live", 900, lambda: lia.snapshot())
+            out["audit_live"] = (audit or {}).get("agents", [])[:14]
+        except Exception:
+            pass
+        try:
             import market_sources as ms
             import savant_agent as sa
             closes = ms.closes(symbol, 80)
