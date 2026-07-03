@@ -183,6 +183,8 @@ FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ;
 # montant réel = cap·(FLOOR + (1−FLOOR)·score) ∈ [2, 5] $ avec cap 5 : restaure
 # l'edge de sizing validé (§38) que le clamp plat à 5 $ neutralisait. Décision
 # propriétaire du 02/07. FLOOR=1.0 -> retour au 5 $ plat.
+ACCUM_FENETRE_DEBUT_H = 16.0          # fenêtre d'achat DCA (UTC) : 16-19h mesurées ~10 bps
+ACCUM_FENETRE_FIN_H = 20.0            # moins chères que 12h sur 1 an de bougies 1h (§53)
 ACCUM_REAL_FLOOR_FRAC = 0.4
 ACCUM_RUNWAY_ALERT_USDT = 15.0        # alerte réapprovisionnement quand l'USDT spot libre passe dessous
 

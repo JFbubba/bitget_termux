@@ -2132,6 +2132,34 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_accum_fenetre_achat_horaire():
+    # §53 : le DCA vise la fenêtre 16-20h UTC (mesurée ~10 bps moins chère sur 1 an)
+    import accumulation_engine as ae
+    H = 3600
+    hier_17h = 0 * 86400 + 17 * H
+    # dans la fenêtre -> ok ; hors fenêtre -> refus (l'achat attend)
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 17 * H, last_buy_ts=hier_17h) is True
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 12 * H, last_buy_ts=hier_17h) is False
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 20 * H, last_buy_ts=hier_17h) is False  # fin exclue
+    # FAIL-OPEN : > 30 h de retard (panne/fenêtre manquée) -> achète au 1er cycle
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 12 * H, last_buy_ts=hier_17h - 20 * H) is True
+    # registre vierge -> achète sans attendre la fenêtre
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 3 * H, last_buy_ts=None) is True
+    # bornes paramétrables
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 9 * H, last_buy_ts=hier_17h, debut=8, fin=10) is True
+
+
+def test_candles_history_purs():
+    import candles_history as ch
+    # normalisation mix : heures/jours en MAJUSCULE, minutes inchangées
+    assert ch._norm_gran("1h") == "1H" and ch._norm_gran("4h") == "4H"
+    assert ch._norm_gran("1d") == "1D" and ch._norm_gran("15m") == "15m"
+    assert ch._norm_gran("1H") == "1H"
+    # nommage disque + chargement vide fail-safe
+    assert ch._fichier("btcusdt", "1h").name == "BTCUSDT_1H.json"
+    assert ch.load("INEXISTANTUSDT", "1h") == []
+
+
 def test_leadlag_agent_contrarian_btc():
     # 14e agent (§52) : fade du mouvement BTC sur les alts — mesuré avant adoption
     # (IC +0.178 en 1h / +0.201 en 15m, bougies figées, 2 fenêtres indépendantes).

@@ -58,3 +58,4 @@ agent_hub/
 validation_report.json
 .futures_pos_state.json
 brain_hitrates.json
+data_history/

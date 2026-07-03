@@ -1816,3 +1816,36 @@ alts, sous-échantillonnage anti-autocorrélation, 2 fenêtres indépendantes) :
 **Écartés d'office (contraintes)** : grid trading (exige annulations —
 interdites), arbitrage triangulaire spot (exige ventes spot — interdites),
 options/VRP (pas d'API options), news momentum (pas de token CryptoPanic).
+
+---
+
+## §53 — Historique profond : trois verdicts d'un an de données
+
+`candles_history.py` (nouveau, SAFE lecture seule) : pagination endpoint public
+`history-candles` (granularité MIX en majuscule : 1H), cache disque incrémental
+gitignored (data_history/). Un an de bougies 1h téléchargé pour BTC/ETH/SOL/XRP
+(8800 bougies chacun). Trois questions de la feuille de route §52 tranchées :
+
+1. **Lead-lag (14e agent) sur 1 an : IC +0.014 (t 0.9, n=4356, pas 6 h)** —
+   positif sur chacun des 3 alts mais FAIBLE : le +0.18/+0.20 des fenêtres
+   récentes était en partie un régime (juin-juillet 2026 très réversif).
+   L'agent RESTE (signe jamais négatif, 3 fenêtres × 3 symboles) avec sa fiche
+   tempérée — le hit-rate EWMA (§51) le pèsera à sa juste valeur.
+
+2. **Paires co-intégrées : NO-GO.** Demi-vies de spread mesurées (OLS roulant
+   168 h, AR(1)) : ETH/BTC 1015 h, SOL/BTC 1386 h, SOL/ETH 1174 h, XRP/BTC
+   953 h — soit 40-58 JOURS pour rendre la moitié d'un écart. À notre échelle
+   (capital, funding sur DEUX jambes pendant des semaines), impraticable en 1h.
+   Résultat négatif précieux : la voie paper paires est fermée AVANT d'exister.
+   (Réexaminable un jour en 5m intrajournalier — autre bête.)
+
+3. **Saisonnalité horaire : RÉELLE et gratuite.** Prix relatif à la moyenne 24h
+   glissante, par heure UTC, sur 1 an : 16-19h UTC ressortent 10-15 bps sous la
+   moyenne (19h : −15.1 bps), 12h (l'heure de fait du DCA, ancrée par hasard)
+   à −4.5 bps. ADOPTÉ : `fenetre_achat_ok` — l'achat réel quotidien VISE
+   16-20h UTC, fail-open à 30 h de retard (jamais un jour sauté), registre
+   vierge exempté. ~+10 bps/achat, zéro coût, zéro risque ajouté.
+
+NB : le backtest du CONSENSUS complet sur l'an reste impossible offline — la
+plupart des agents consomment des flux live-only (carnet, liquidations,
+funding). L'instrument de mesure du consensus est l'audit d'IC live (§51).

@@ -17,6 +17,13 @@ C'est la 4e confirmation du fait stylisé de réversion court terme (§35-38),
 exprimée CROSS-ASSET : un mouvement marqué de BTC se dégonfle marché-large, et
 les alts (bêta élevé) le rendent avec lui.
 
+HONNÊTETÉ (validation 1 AN, §53) : sur 12 mois de bougies 1h (n=4356, pas 6 h),
+l'IC poolé tombe à +0.014 (t 0.9) — positif sur CHACUN des 3 alts mais faible :
+le +0.18/+0.20 des fenêtres récentes est en partie un RÉGIME (marché très
+réversif en juin-juillet 2026). L'agent reste (signe jamais négatif sur 3
+fenêtres × 3 symboles) mais son espérance de croisière est modeste — le
+hit-rate EWMA (§51) le pèsera à sa juste valeur.
+
 L'agent vote 0 sur BTCUSDT lui-même (pas de self lead-lag — la réversion propre
 au symbole est le domaine de geometric §48). Poids appris par l'EARCP corrigé
 (§51) ; l'audit d'IC live le jugera comme les autres.

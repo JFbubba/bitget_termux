@@ -145,6 +145,23 @@ def real_dca_amount(score, cap=None, floor_frac=None):
     return round(cap * (f + (1.0 - f) * _clamp01(float(score or 0.0))), 2)
 
 
+def fenetre_achat_ok(now, last_buy_ts, debut=None, fin=None, retard_h=30.0):
+    """PUR (§53). L'achat quotidien VISE la fenêtre horaire la moins chère, mesurée
+    sur UN AN de bougies 1h : 16-19h UTC ≈ 10 bps sous l'heure historique (12h).
+    Gratuit et cumulatif. FAIL-OPEN : si l'achat a > retard_h de retard (panne,
+    fenêtre manquée), on achète au premier cycle — jamais un jour de DCA sauté à
+    cause de l'horloge ; et un registre VIERGE achète sans attendre la fenêtre."""
+    from config_utils import cfg as _c
+    if last_buy_ts is None:
+        return True
+    if (float(now) - float(last_buy_ts)) > float(retard_h) * 3600.0:
+        return True
+    h = (int(now) % 86400) / 3600.0
+    debut = float(_c("ACCUM_FENETRE_DEBUT_H", 16.0) if debut is None else debut)
+    fin = float(_c("ACCUM_FENETRE_FIN_H", 20.0) if fin is None else fin)
+    return debut <= h < fin
+
+
 def should_buy(last_buy_ts, now, interval_h=None):
     """Throttle DCA : a-t-on attendu l'intervalle depuis le dernier achat ? PUR."""
     interval_h = _cfg("DCA_INTERVAL_H", DCA_INTERVAL_H) if interval_h is None else interval_h
@@ -321,7 +338,8 @@ def _run_real(a, now):
         fair_ok = fp.is_fair_to_buy(a.get("premium_pct"), _cfg("ACCUM_MAX_PREMIUM_PCT", 0.30))
     except Exception:
         fair_ok = False
-    if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
+    if (a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now)
+            and fenetre_achat_ok(now, last_real)):
         # contexte de décision journalisé AVEC l'achat (audit P2) : la revue J+14
         # relie chaque achat réel au score/prix/premium que le moteur voyait.
         contexte = {"score": a.get("score"), "price": a.get("price"),
