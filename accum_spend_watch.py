@@ -32,7 +32,12 @@ def _last_alert_day():
 
 def _mark_alert_day(day):
     try:
-        STATE_FILE.write_text(json.dumps({"day": int(day)}), encoding="utf-8")
+        try:
+            st = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            st = {}
+        st["day"] = int(day)                       # fusion : ne pas écraser runway_day
+        STATE_FILE.write_text(json.dumps(st), encoding="utf-8")
     except Exception:
         pass
 
@@ -64,6 +69,49 @@ def _watch_spot():
     print("accum_spend_watch: ALERTE ->", msg)
 
 
+def _watch_runway():
+    """Autonomie du DCA (audit P2) : si l'USDT spot LIBRE passe sous le seuil
+    (~1 semaine d'achats), alerte de réapprovisionnement — sinon l'accumulation
+    s'arrêterait en silence (refus de garde), découvert des jours plus tard.
+    Dédup : 1 alerte/jour UTC (même état que l'alerte de dépense, clé dédiée)."""
+    try:
+        import spot_executor as se
+        from config_utils import cfg as _cfg
+        libre = se._spot_free_usdt()
+        seuil = float(_cfg("ACCUM_RUNWAY_ALERT_USDT", 15.0))
+        if libre is None:
+            print("accum_spend_watch: USDT spot libre illisible (runway non évalué).")
+            return
+        if libre >= seuil:
+            print(f"accum_spend_watch: runway spot OK ({libre:.2f}$ libres >= seuil {seuil}$).")
+            return
+        import json as _json
+        day = int(time.time() // 86400)
+        try:
+            st = _json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            st = {}
+        if int(st.get("runway_day", -1)) == day:
+            print(f"accum_spend_watch: runway bas ({libre:.2f}$) déjà alerté aujourd'hui.")
+            return
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram_message(
+                f"⛽ RÉAPPROVISIONNEMENT : il ne reste que {libre:.2f} USDT libres sur le "
+                f"spot (seuil {seuil}$). L'accumulation quotidienne (2–5 $/j) s'arrêtera "
+                f"proprement quand le solde sera insuffisant — re-provisionner pour continuer.")
+        except Exception:
+            pass
+        st["runway_day"] = day
+        try:
+            STATE_FILE.write_text(_json.dumps(st), encoding="utf-8")
+        except Exception:
+            pass
+        print(f"accum_spend_watch: ALERTE runway spot bas ({libre:.2f}$ < {seuil}$).")
+    except Exception as exc:
+        print(f"accum_spend_watch: runway indisponible ({type(exc).__name__}).")
+
+
 def _watch_futures():
     """Stop de perte journalier futures évalué PROACTIVEMENT (pas seulement à l'ordre) :
     equity qui plonge avec position ouverte + aucune tentative d'ordre -> le kill-switch
@@ -79,6 +127,7 @@ def _watch_futures():
 
 def main():
     _watch_spot()
+    _watch_runway()
     _watch_futures()
     print("Tripwire lecture/alerte (seule écriture : kill-switch protecteur). VERDICT: SAFE")
 

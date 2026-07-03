@@ -3463,6 +3463,54 @@ def test_accum_backtest_run_backtest_structure_et_selection_is():
     assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
 
 
+# ---------- journal_append : JSONL append-only avec rotation (audit P2) ----------
+
+def test_journal_append_jsonl_et_rotation():
+    import tempfile
+    import pathlib
+    import journal_append as ja
+    with tempfile.TemporaryDirectory() as td:
+        p = pathlib.Path(td) / "j.jsonl"
+        assert ja.append_jsonl(p, {"a": 1}) is True
+        assert ja.append_jsonl(p, {"a": 2}) is True
+        assert [e["a"] for e in ja.read_jsonl(p)] == [1, 2]
+        assert ja.read_jsonl(p, limit=1) == [{"a": 2}]
+        # ligne illisible ignorée à la lecture (jamais d'exception)
+        with p.open("a") as f:
+            f.write("pas du json\n")
+        assert [e["a"] for e in ja.read_jsonl(p)] == [1, 2]
+        # rotation : au-delà du budget, bascule en .old et repart à neuf
+        assert ja.append_jsonl(p, {"a": 3}, max_bytes=1) is True   # taille > 1 -> rotation
+        assert [e["a"] for e in ja.read_jsonl(p)] == [3]
+        old = p.with_suffix(p.suffix + ".old")
+        assert old.exists() and [e["a"] for e in ja.read_jsonl(old)][:2] == [1, 2]
+        # fichier absent -> [] proprement
+        assert ja.read_jsonl(pathlib.Path(td) / "absent.jsonl") == []
+
+
+def test_spot_executor_record_extra_contexte():
+    # audit P2 : le contexte de décision (score/prix/premium) est journalisé AVEC
+    # l'achat réel — champs numériques/str seulement, jamais d'écrasement des champs
+    # canoniques. Hermétique : ledger temporaire.
+    import tempfile
+    import pathlib
+    import spot_executor as se
+    orig = se.REAL_LEDGER
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            se._record_real_buy(5.0, "oid1", now=1000,
+                                extra={"score": 0.123456789, "price": 61000.0,
+                                       "ts": 999999,            # champ canonique : ignoré
+                                       "objet": {"pas": "sérialisable simple"}})  # ignoré
+            b = se._load_real()["buys"][0]
+            assert b["amount_usdt"] == 5.0 and b["clientOid"] == "oid1"
+            assert b["score"] == 0.123457 and b["price"] == 61000.0
+            assert b["ts"] == 1000 and "objet" not in b
+        finally:
+            se.REAL_LEDGER = orig
+
+
 # ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
 
 def test_carry_transitions_attractif_front_montant():

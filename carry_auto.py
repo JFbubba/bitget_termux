@@ -158,7 +158,18 @@ def status(now=None):
 
 
 def run(now=None):
-    """Un cycle carry. N'exécute que si armé, décision non-rien, throttle écoulé."""
+    """Un cycle carry (journalisé dans le même JSONL que la boucle directionnelle)."""
+    out = _run_cycle(now)
+    try:
+        import futures_auto as fa
+        fa._journal_decision({**out, "boucle": "carry"})
+    except Exception:
+        pass
+    return out
+
+
+def _run_cycle(now=None):
+    """Le cycle lui-même. N'exécute que si armé, décision non-rien, throttle écoulé."""
     import futures_auto as fa
     now = time.time() if now is None else now
     out, d = _etat(now)

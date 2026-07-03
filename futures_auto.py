@@ -196,9 +196,37 @@ def _atr(limit=60):
 
 # ---------- cycle ----------
 
+def _journal_decision(out):
+    """Journal APPEND-ONLY des décisions de cycle (audit P2) : une ligne JSONL par
+    cycle — la revue J+14 mesure la distribution réelle du consensus et la
+    fréquence de franchissement des seuils sur l'HISTORIQUE, pas sur 6 h."""
+    try:
+        import journal_append as ja
+        d = out.get("decision") or {}
+        res = out.get("resultat") or {}
+        ja.append_jsonl(Path(__file__).resolve().parent / "futures_auto_journal.jsonl",
+                        {"ts": out.get("ts"), "boucle": out.get("boucle", "auto_dir"),
+                         "consensus": out.get("consensus"),
+                         "apr_net_pct": out.get("apr_net_pct"),
+                         "position": (out.get("position") or {}).get("side"),
+                         "action": d.get("action"), "side": d.get("side"),
+                         "raison": d.get("raison"),
+                         "executed": res.get("executed")},
+                        max_bytes=20_000_000)
+    except Exception:
+        pass
+
+
 def run(now=None):
-    """Un cycle de décision directionnelle. Retourne un dict rapport. N'exécute que si
-    FUTURES_AUTO_DIRECTIONAL=1 ET les gardes de futures_executor passent."""
+    """Un cycle de décision directionnelle (journalisé, voir _journal_decision)."""
+    out = _run_cycle(now)
+    _journal_decision(out)
+    return out
+
+
+def _run_cycle(now=None):
+    """Le cycle lui-même. N'exécute que si FUTURES_AUTO_DIRECTIONAL=1 ET les gardes
+    de futures_executor passent."""
     now = time.time() if now is None else now
     out = {"ts": int(now), "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
     if not out["armed"]:

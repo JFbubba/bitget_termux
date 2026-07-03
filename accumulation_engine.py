@@ -322,7 +322,13 @@ def _run_real(a, now):
     except Exception:
         fair_ok = False
     if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
-        res = se.execute(amount, confirm=True, now=now)
+        # contexte de décision journalisé AVEC l'achat (audit P2) : la revue J+14
+        # relie chaque achat réel au score/prix/premium que le moteur voyait.
+        contexte = {"score": a.get("score"), "price": a.get("price"),
+                    "premium_pct": a.get("premium_pct"), "rsi": a.get("rsi"),
+                    "fear_greed": a.get("fear_greed")}
+        res = se.execute(amount, confirm=True, now=now,
+                         extra={k: v for k, v in contexte.items() if v is not None})
         a["bought"] = bool(res.get("executed"))
         a["real_exec"] = {"executed": res.get("executed"), "reasons": res.get("reasons")}
         buys = se._load_real().get("buys", [])
@@ -372,6 +378,13 @@ def status(symbol="BTCUSDT"):
     a = analyze(symbol)
     a["live_armed"] = _live_armed()
     a["spot_balance"] = real_spot_balance()
+    # USDT spot LIBRE (celui qui finance les achats — audit P2 : real_spot_balance
+    # rapporte la VALEUR TOTALE du compte spot, trompeuse comme « solde libre »).
+    try:
+        import spot_executor as se
+        a["spot_libre_usdt"] = se._spot_free_usdt()
+    except Exception:
+        a["spot_libre_usdt"] = None
     a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
     a["bought"] = False
     if _autonomous_live():
@@ -410,8 +423,13 @@ def build_report(a):
             advis = "bloqué par le mandat : " + " ; ".join(g.get("blocks", []))
     else:
         advis = "avis mandat indisponible"
-    bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
-                else "Solde spot libre : non lu\n")
+    libre = a.get("spot_libre_usdt")
+    if libre is not None:
+        bal_line = (f"USDT spot LIBRE : {round(libre, 2)} $ (finance les achats)"
+                    + (f" · valeur totale du compte spot ~{round(bal, 2)} $\n" if bal is not None else "\n"))
+    else:
+        bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
+                    else "Solde spot libre : non lu\n")
     p = a.get("premium_pct")
     prem_line = (f"Prix vs marché : Bitget {p:+.2f}% vs médiane cross-exchange\n"
                  if p is not None else "")

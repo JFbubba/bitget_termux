@@ -598,13 +598,22 @@ def _price(symbol):
 
 
 def _record(symbol, votes, result, price):
-    log = _read_log()
-    log.append({
+    entry = {
         "ts": int(time.time()), "symbol": symbol, "price": price,
         "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items()},
         "consensus": result["consensus"], "evaluated": False,
-    })
+    }
+    log = _read_log()
+    log.append(entry)
     _write_log(log)
+    # HISTORIQUE append-only (audit P2) : la fenêtre de 500 entrées ci-dessus ne
+    # couvre que ~6 h — l'historique long (revue des seuils, edge temporel) vit
+    # dans un JSONL gitignoré, à rotation bornée, une ligne par vote journalisé.
+    try:
+        import journal_append as ja
+        ja.append_jsonl(ROOT / "brain_log_history.jsonl", entry)
+    except Exception:
+        pass
 
 
 def learn(symbol, price_now, weights):

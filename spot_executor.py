@@ -89,11 +89,17 @@ def daily_spend_breach(promise=None, now=None, ledger=None):
     return (spent > promise, spent, promise)
 
 
-def _record_real_buy(amount_usdt, oid, now=None):
+def _record_real_buy(amount_usdt, oid, now=None, extra=None):
+    """`extra` (audit P2) : contexte de décision journalisé AVEC l'achat (score
+    d'opportunité, prix, premium) — la revue J+14 doit pouvoir relier chaque achat
+    réel à ce que le moteur voyait. Champs numériques/str uniquement, best-effort."""
     now = time.time() if now is None else now
     led = _load_real()
-    led.setdefault("buys", []).append({"ts": now, "amount_usdt": float(amount_usdt),
-                                       "clientOid": oid, "symbol": SYMBOL})
+    row = {"ts": now, "amount_usdt": float(amount_usdt), "clientOid": oid, "symbol": SYMBOL}
+    for k, v in (extra or {}).items():
+        if isinstance(v, (int, float, str)) and k not in row:
+            row[k] = round(v, 6) if isinstance(v, float) else v
+    led.setdefault("buys", []).append(row)
     led["buys"] = led["buys"][-1000:]
     try:
         REAL_LEDGER.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -240,7 +246,8 @@ def _best_quote(symbol=SYMBOL):
         return None
 
 
-def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None, style=None):
+def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None, style=None,
+            extra=None):
     """Achat spot BTC réel SI confirm=True ET toutes les gardes passent. Sinon DRY
     (imprime la commande, n'exécute rien). Retourne un dict de résultat. balance/spent
     injectables (tests hermétiques) ; sinon lus en réel."""
@@ -263,7 +270,7 @@ def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spe
     success = (bool(out) and '"ok":false' not in compact and "error" not in compact
                and ("orderid" in compact or '"data"' in compact or '"ok":true' in compact))
     if success:
-        _record_real_buy(amount_usdt, oid, now)
+        _record_real_buy(amount_usdt, oid, now, extra=extra)
     return {"ok": True, "executed": success, "preview": preview, "response": out,
             "clientOid": oid}
 

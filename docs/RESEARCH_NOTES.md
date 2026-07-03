@@ -1544,3 +1544,40 @@ _Références : 2506.05764, 2603.14651, 2412.03167, 2408.03594, 2505.17388,
 2112.02947, 2601.06084, 2602.12104, 2501.09404, 2209.05559, 2006.05826,
 2604.21297, 2604.20949, 2509.04683 ; Scheffer Nature 2009 ; Guttal/Diks PLOS
 One 2015 ; Empirical Economics 57(4) 2019._
+
+---
+
+## §46 — Audit multi-agents complet + premier aller-retour 100 % autonome
+
+**Audit orchestré (03/07, 16 agents : 9 sondes lecture seule + 4 analystes +
+contre-expertise)** : 39 anomalies brutes, 40 optimisations proposées, livrées en
+3 lots. Verdict global : architecture saine, exécution §45 validée, mais plusieurs
+défauts invisibles de longue date :
+
+- **P0** : bug de signature `_atr` (le SL réel n'a JAMAIS été basé ATR — repli 1.5 %
+  silencieux) ; doublon config FUTURES_REAL_MAX_* (éditer la 1re occurrence ne
+  faisait rien) ; halte drawdown du mandat INERTE sur le chemin réel (equity_curve
+  jamais passée) ; Telegram crashable par timeout réseau + /run_once pouvant
+  déclencher un cycle réel depuis le chat (désactivé).
+- **P1** : `gather_votes` parallélisé (brain_cycle était TUÉ à 90 s à 98 % des
+  cycles sur 7 j — l'apprentissage ne couvrait que ~7 symboles ; après : 13/13 en
+  58 s, confirmé sous systemd) ; halte globale évaluée AVANT le cerveau dans
+  preorder_engine (0.46 s vs ~60 s en risk-off) ; runtime_cache atomique + éviction
+  par clé (l'ancien slicing corrompait tout le cache au seuil 2 Mo) ;
+  macro_sentinel réparé (FRED bloque urllib, requests passe — nowcast vivant pour
+  la 1re fois : expansion 0.69) ; .env : le « token » CryptoPanic était un
+  commentaire (news_feed attend un vrai token).
+- **P2 (instrumentation revue J+14)** : `journal_append.py` (JSONL append-only,
+  rotation bornée) ; historique long des votes (`brain_log_history.jsonl` — la
+  fenêtre de 500 ≈ 6 h ne suffisait à aucune analyse) ; contexte de décision
+  (score/prix/premium/RSI/F&G) journalisé AVEC chaque achat réel ; journal des
+  décisions de cycle des 2 boucles (`futures_auto_journal.jsonl`) ; alerte
+  réapprovisionnement spot (seuil 15 $) ; affichage du VRAI USDT libre (45.98 $)
+  vs valeur totale du compte (253 $) qui était trompeuse.
+
+**Premier round-trip 100 % autonome (nuit du 02 au 03/07)** : consensus −0.54 →
+short 10 $ ×2 ouvert à 23:31:41 UTC (SL/TP préréglés côté exchange), conviction
+morte → fermé à 03:36:06. PnL réalisé −0.0007 $, frais 0.0148 $, net −0.015 $.
+Toute la chaîne décision → gardes → ordre → position → sortie → journal →
+réconciliation a fonctionné sans intervention. (Le SL de ce trade datait d'avant
+le correctif ATR ; les suivants utilisent 1.5·ATR.)
