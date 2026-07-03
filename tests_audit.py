@@ -4453,8 +4453,10 @@ def test_futures_executor_guards_8():
     # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps
     base = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=0)
     assert fe.guards("geometric", 8, 2, **base)[0] is True
-    # 1. kill-switch
+    # 1. kill-switch : bloque les OUVERTURES ; une RÉDUCTION passe (fermer
+    # n'aggrave jamais le risque — audit P3)
     assert fe.guards("geometric", 8, 2, **{**base, "kill": True})[0] is False
+    assert fe.guards("geometric", 8, 2, reduce=True, **{**base, "kill": True})[0] is True
     # 2. double verrou (l'un OU l'autre coupé suffit à refuser)
     assert fe.guards("geometric", 8, 2, **{**base, "live": False})[0] is False
     assert fe.guards("geometric", 8, 2, **{**base, "autonomous": False})[0] is False
@@ -4636,6 +4638,12 @@ def test_futures_daily_loss_breach_kill_switch_et_dedup():
             # passage horaire suivant : toujours breach, PAS de nouvelle alerte (dédup)
             assert fe.daily_loss_breach(now=86400 * 50 + 7200) is True
             assert len(alertes) == 1
+            # equity ILLISIBLE (blip API) : True (pas d'ouverture à l'aveugle) mais
+            # SANS armer le kill-switch — un raté de lecture ne gèle pas la machine
+            ks.unlink()
+            fe._futures_equity = lambda: None
+            assert fe.daily_loss_breach(now=86400 * 50 + 10800) is True
+            assert not ks.exists() and len(alertes) == 1
         finally:
             fe._futures_equity = orig_eq
             tn.send_telegram = orig_send

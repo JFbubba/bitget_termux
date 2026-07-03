@@ -93,29 +93,30 @@ def _journal(event):
         led = {"events": []}
     led.setdefault("events", []).append(event)
     led["events"] = led["events"][-1000:]
-    try:
-        path.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    _write_ledger(led)                # atomique (journal d'argent réel, audit P3)
 
 
 # ---------- gardes DURS (les 8 de §34 ; purs si on injecte l'état) ----------
 
 def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt=0.0,
            client_oid=None, seen_oids=None, hour_utc=None, macro_events=None, now=None,
-           live=None, autonomous=None, futures_live=None, kill=None, edge_override=None):
+           live=None, autonomous=None, futures_live=None, kill=None, edge_override=None,
+           reduce=False):
     """Vérifie TOUTES les gardes avant un ordre futures. Retourne (ok, raisons).
     PUR si l'état est injecté (live/autonomous/futures_live/kill/equity_curve/...)."""
     reasons = []
 
-    # 1. kill_switch absent
+    # 1. kill_switch : bloque les OUVERTURES. Une RÉDUCTION reste permise (audit P3) :
+    # fermer n'aggrave jamais le risque — après un stop journalier, la boucle doit
+    # pouvoir sortir d'une position même kill-switch armé (même principe que le
+    # pré-vol daily_loss d'execute()).
     if kill is None:
         try:
             import risk_manager
             kill = risk_manager.kill_switch_active()
         except Exception:
             kill = False
-    if kill:
+    if kill and not reduce:
         reasons.append("kill_switch actif")
 
     # 2. DOUBLE verrou : MANDATE_LIVE_ENABLED ET FUTURES_AUTONOMOUS_LIVE
@@ -294,17 +295,36 @@ def _futures_equity():
     return None
 
 
+def _write_ledger(led):
+    """Écriture ATOMIQUE du ledger (tmp + os.replace — audit P3 : un write direct
+    concurrent scan/CLI pouvait laisser un JSON à moitié écrit sur le journal
+    d'ARGENT RÉEL). Best-effort."""
+    import os
+    path = _ledger_path()
+    try:
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
 def daily_loss_breach(now=None):
     """Stop de perte JOURNALIER réel : lit l'equity futures, compare à l'ouverture du
-    jour (état persisté dans le ledger), et si le stop est franchi ARME LE KILL-SWITCH
-    (toute la machine s'arrête d'acheter/ouvrir). Fail-closed sur equity illisible."""
+    jour (état persisté dans le ledger). Deux régimes distincts (audit P3) :
+      • equity LISIBLE et stop franchi -> BREACH CONFIRMÉ : KILL-SWITCH armé + alerte
+        (dédup 1/jour) ;
+      • equity ILLISIBLE (blip API/réseau) -> True (on n'OUVRE pas à l'aveugle,
+        fail-closed) mais SANS armer le kill-switch global — un raté de lecture
+        horaire gelait toute la machine, accumulation spot comprise."""
     path = _ledger_path()
     try:
         led = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         led = {}
     ancien = led.get("daily_loss_state") or {}
-    breach, state = daily_loss_state_check(_futures_equity(), led.get("daily_loss_state"), now=now)
+    equity = _futures_equity()
+    breach, state = daily_loss_state_check(equity, led.get("daily_loss_state"), now=now)
     led["daily_loss_state"] = state
     if state.get("day") is not None and state.get("day") != ancien.get("day"):
         # journal d'EQUITY quotidien (une ligne par jour UTC, cap 400) : la courbe
@@ -312,15 +332,13 @@ def daily_loss_breach(now=None):
         led.setdefault("equity_journal", []).append(
             {"day": state["day"], "open_equity": state.get("open_equity")})
         led["equity_journal"] = led["equity_journal"][-400:]
+    confirme = breach and equity is not None and equity > 0 and state.get("open_equity")
     jour = int((time.time() if now is None else now) // 86400)
     deja_alerte = int(led.get("daily_loss_alert_day", -1) or -1) == jour
-    if breach and state.get("open_equity") and not deja_alerte:
+    if confirme and not deja_alerte:
         led["daily_loss_alert_day"] = jour            # dédup : une alerte par jour UTC
-    try:
-        path.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-    if breach and state.get("open_equity"):
+    _write_ledger(led)
+    if confirme:
         try:
             (Path(__file__).resolve().parent / "KILL_SWITCH").touch()   # idempotent
         except Exception:
@@ -593,7 +611,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
     oid = f"fut{str(agent)[:3]}{int(now * 1000)}"
     ok, reasons = guards(agent, notional_usdt, leverage, equity_curve=equity_curve,
                          gross_open_usdt=gross_open_usdt, client_oid=oid, seen_oids=seen_oids,
-                         hour_utc=hour_utc, macro_events=macro_events, now=now, **gate_overrides)
+                         hour_utc=hour_utc, macro_events=macro_events, now=now,
+                         reduce=reduce, **gate_overrides)
     order = build_futures_order(agent, side, notional_usdt, leverage, entry, stop_loss,
                                 take_profit, oid, reduce=reduce, size_btc=size_btc)
     mode = order.get("execution_mode")
