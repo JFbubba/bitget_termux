@@ -168,13 +168,17 @@ actifs traditionnels tendent déjà. Crypto n'est PAS dans leur univers : march�
 24/7, levier retail, cascades — la transposition directe est interdite ; c'est
 NOTRE replay 6 ans qui fait foi pour nos actifs.
 
-**Implications pour le bot** :
-- CHANTIER MESURABLE : caper/fader le momentum quand |φ| dépasse ~1.5 (règle de
-  sur-extension) — testable à l'étalon sur nos 6 ans ;
-- le pic 6-12 mois suggère un agent momentum LONG horizon (lookback 180-360 j,
-  bougies 1D dispo via candles_history) — chantier « momentum lent », à mesurer ;
-- l'agrégation MULTI-HORIZONS (10 échelles équipondérées) est leur source de
-  robustesse — écho du forecast combination puzzle (§1 de ce document).
+**Implications pour le bot — chantiers MESURÉS le jour même (§57)** :
+- momentum LENT (φ Zurich, T=90/180/270 j, bougies 1D, 6 ans, 4 symboles,
+  horizons 7/30 j) : **NO-GO en crypto** — T=180j au mieux +0.026 (t 1.3,
+  bruit), T=270j SIGNIFICATIVEMENT contrarian (−0.042, t −2.0). La carte des
+  horizons ne se transpose pas : la crypto 2020-2026 casse ses tendances
+  longues (flips de régime violents). Cohérent avec leur caveat (crypto absent,
+  b -> 0) ;
+- cap de sur-extension |φ|>1.5 : ne sauve pas le signal quotidien (mesuré) ;
+  geometric (32 barres 1h) laissé INTACT — pas de retouche sans gain mesuré ;
+- l'agrégation MULTI-HORIZONS reste l'acquis le plus solide (écho du
+  combination puzzle §1) — c'est déjà l'architecture du cerveau (14 agents).
 
 ---
 

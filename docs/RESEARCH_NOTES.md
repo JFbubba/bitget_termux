@@ -1957,3 +1957,27 @@ sections, chacune avec « implication pour le bot » :
 7. Sizing : ¼-½ Kelly max sous queues lourdes, vol-target lissé (le levier
    FABRIQUE les queues — Farmer 0908.1555).
 Chantiers mesurables notés dans SAVOIR.md ; mémoire de session mise à jour.
+
+---
+
+## §57 — Les trois chantiers de SAVOIR.md, instruits le jour même
+
+1. **Momentum lent (pic 6-12 mois de Zurich) : NO-GO en crypto.** φ de tendance
+   (poids n·e^(−2n/T), t-stat bornée ±2.5) mesuré sur 6 ans de bougies 1D,
+   4 symboles, horizons 7/30 j : T=90j négatif, T=180j au mieux +0.026 (t 1.3 —
+   bruit), T=270j −0.042 (t −2.0, plutôt CONTRARIAN). La carte des horizons des
+   actifs traditionnels ne se transpose pas — la crypto 2020-2026 casse ses
+   tendances longues. On n'ajoute PAS d'agent momentum lent. (Le signe
+   contrarian à 270 j est noté comme observation, pas exploité : le retenir
+   maintenant serait du sign-flipping post hoc.)
+2. **Cap de sur-extension |φ|>1.5 : sans gain mesuré** sur le quotidien ; le
+   terme tendance de geometric (32 barres 1h, autre échelle) reste INTACT —
+   pas de retouche sans gain démontré.
+3. **Flux ETF BTC pour l'agent flows : bloqué sur clé.** farside.co.uk = 403
+   (Cloudflare), CoinGlass = « API key missing » (free tier existe). Décision
+   propriétaire, comme le token CryptoPanic — la valeur attendue est réelle
+   (les ETF sont l'acheteur marginal dominant, cf. SAVOIR.md §6).
+
+Bilan de la formation : 2 résultats négatifs propres (des semaines économisées),
+1 dépendance externe identifiée, et les acquis structurels (combination puzzle,
+sur-extension, funding-euphorie) gravés dans SAVOIR.md avec leurs implications.
