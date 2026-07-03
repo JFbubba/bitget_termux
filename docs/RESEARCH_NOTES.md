@@ -2106,3 +2106,33 @@ soit la cause (exception avalée, étape sautée, service mort), FIGE son
 artefact et déclenche l'alerte Telegram sous 15 min. Surveiller les SORTIES
 couvre toutes les formes de silence d'un coup — c'est la clôture systémique
 des trois incidents de silence du jour.
+
+---
+
+## §62 — Audit des trois agents négatifs : formulations disculpées, le régime accusé
+
+**Exécution des recommandations post-§61** : banc GELÉ à 14 agents (le
+combination puzzle et l'audit live montrent que la largeur n'est pas le goulot ;
+onchain_btc reste dormant, réévaluation seulement si un manque de canal est
+démontré). Puis audit de formulation des trois négatifs de l'audit live
+(carry −0.14, derivs −0.18, liquidations −0.18 à 1 h, AGGRAVÉS à 4 h : jusqu'à
+−0.40, t −10.8 — négatifs à TOUS les horizons sur les 2.6 jours de live).
+
+**Lecture des formulations** : les trois sont de la même famille CONTRARIAN
+(derivs : fade linéaire du funding ; carry : fade pondéré funding/foule/basis ;
+liquidations : aimant des pools). Dans le marché baissier actuel (F&G 21,
+funding négatif), toutes votent LONG en continu -> l'hémorragie récente.
+
+**Étalon sur la fenêtre PROFONDE (90 j de funding réel × bougies, n=181)** :
+- fade LINÉAIRE (formulation actuelle de derivs) : +0.02 (8 h), **+0.14
+  (24 h, t 1.9)** — POSITIF sur 3 mois à son horizon naturel ;
+- fade aux EXTRÊMES (percentile 85/15, hypothèse SAVOIR §5) : +0.08/+0.09,
+  27 % de votants — PAS clairement meilleur : le gate n'est pas adopté.
+
+**Verdict** : formulations INTACTES. La sous-performance live est un RÉGIME
+(2.6 jours, fenêtre unique) — le même piège que §54, évité cette fois. C'est
+exactement le travail de la couche adaptative : les hit-rates dépondèrent en
+régime défavorable, la formulation garde son espérance de long terme.
+liquidations (non rejouable hors-ligne) bénéficie de la présomption de la même
+famille. À suivre en revue : si la négativité PERSISTE sur des semaines
+multi-régimes, la question se rouvrira — sur données, pas sur 2.6 jours.
