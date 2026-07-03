@@ -1,0 +1,6 @@
+[Unit]
+Description=Bitget sauvegarde chiffree des registres vers Telegram (lecture seule)
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 backup_registres.py

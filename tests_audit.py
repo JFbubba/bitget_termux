@@ -2157,6 +2157,46 @@ def test_blackout_macro_fenetre_et_fail_open():
     assert fa.blackout_macro(now=10_000, evenements=[]) is None
 
 
+def test_backup_registres_archive_et_chiffrement():
+    # §60 : sauvegarde hors-VPS — sélection pure + aller-retour chiffré local.
+    import tempfile
+    from pathlib import Path as _P
+    import backup_registres as br
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        (tmp / "a.json").write_text('{"x":1}')
+        (tmp / "sub").mkdir()
+        (tmp / "sub" / "b.jsonl").write_text('{"y":2}\n')
+        # sélection : présents seulement, ordre préservé
+        sel = br.fichiers_presents(racine=tmp, noms=["a.json", "absent.json", "sub/b.jsonl"])
+        assert [p.name for p in sel] == ["a.json", "b.jsonl"]
+        # archive + chiffrement + déchiffrement = contenu intact
+        old = br.RACINE
+        br.RACINE = tmp
+        try:
+            tgz, enc, dec = tmp / "t.tgz", tmp / "t.enc", tmp / "t.dec.tgz"
+            assert br.archiver(sel, tgz) > 0
+            assert br.chiffrer(tgz, enc, "phrase-test") > 0
+            assert enc.read_bytes()[:8] == b"Salted__"          # vraiment chiffré
+            br.dechiffrer(enc, dec, "phrase-test")
+            import tarfile
+            with tarfile.open(dec) as tar:
+                assert sorted(m.name for m in tar) == ["a.json", "sub/b.jsonl"]
+        finally:
+            br.RACINE = old
+    # sans passphrase -> refus propre, jamais d'exception
+    import os
+    old_env = os.environ.pop("BACKUP_PASSPHRASE", None)
+    orig = br._secrets
+    br._secrets = lambda: (None, None, None)
+    try:
+        assert "IMPOSSIBLE" in br.run(dry=True)
+    finally:
+        br._secrets = orig
+        if old_env:
+            os.environ["BACKUP_PASSPHRASE"] = old_env
+
+
 def test_kalshi_probe_parseurs():
     # §58 : marchés de prédiction (clé .env fonctionnelle) — parsing PUR.
     import kalshi_probe as kp

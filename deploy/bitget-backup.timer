@@ -1,0 +1,7 @@
+[Unit]
+Description=Sauvegarde quotidienne des registres (03:40 UTC)
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+[Install]
+WantedBy=timers.target
