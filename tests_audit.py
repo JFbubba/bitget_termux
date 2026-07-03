@@ -4982,16 +4982,17 @@ def test_futures_report_resume_fills_et_borne():
          "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.0132"}]},
         {"symbol": "BTCUSDT", "cTime": 4_000_000, "quoteVolume": "10.00", "profit": "0.05",
          "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.006"}]},
-        {"symbol": "ETHUSDT", "cTime": 4_000_000, "quoteVolume": "99", "profit": "9"},  # autre symbole ignoré
+        {"symbol": "ETHUSDT", "cTime": 4_000_000, "quoteVolume": "99", "profit": "9"},  # multi-symboles §47 : COMPTE
         {"symbol": "BTCUSDT", "cTime": None},                                            # illisible ignoré
     ]
     tout = fr.resume_fills(rows)
-    assert tout["n_fills"] == 2 and abs(tout["pnl_realise_usdt"] - 0.047) < 1e-9
+    # multi-symboles (§47) : le bot trade tout l'univers, TOUS les fills comptent
+    assert tout["n_fills"] == 3 and abs(tout["pnl_realise_usdt"] - 9.047) < 1e-9
     assert abs(tout["frais_usdt"] - 0.0192) < 1e-9
-    assert abs(tout["net_usdt"] - (0.047 - 0.0192)) < 1e-9
+    assert abs(tout["net_usdt"] - (9.047 - 0.0192)) < 1e-9
     # BORNE : les fills antérieurs au 1er ordre du bot (trading manuel) sont exclus
     borne = fr.resume_fills(rows, depuis_ts=3_000)                # cTime ms vs depuis_ts s
-    assert borne["n_fills"] == 1 and borne["pnl_realise_usdt"] == 0.05
+    assert borne["n_fills"] == 2 and abs(borne["pnl_realise_usdt"] - 9.05) < 1e-9
     assert fr.resume_fills(None) == {"n_fills": 0, "volume_usdt": 0.0,
                                      "pnl_realise_usdt": 0.0, "frais_usdt": 0.0, "net_usdt": 0.0}
     # 1er ordre réel du journal exécuteur = borne ; dry-run/refus ne comptent pas
