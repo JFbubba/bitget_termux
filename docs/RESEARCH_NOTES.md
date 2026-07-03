@@ -1933,3 +1933,27 @@ désormais la fenêtre la plus PROFONDE disponible (6 ans), et la promotion LIVE
 exige toujours les trois preuves : xs récent + profond positif + live confirmé.
 Avec ces données : savant/geometric passeraient la porte profonde ;
 divergent/simons/leadlag y échoueraient (plats) — exactement le tri attendu.
+
+---
+
+## §56 — Formation : bibliothèque de savoir constituée (docs/SAVOIR.md)
+
+Demande propriétaire : « cherche sur internet, forme toi, accumule du savoir ».
+Méthode : recherches ciblées sur les questions OUVERTES du système (pas de
+collecte sans usage), lecture intégrale du papier pivot par agent dédié,
+croisement systématique avec nos mesures. Résultat : **docs/SAVOIR.md**, 8
+sections, chacune avec « implication pour le bot » :
+1. Forecast combination puzzle -> valide la refonte EARCP §51 (poids ~égaux) ;
+2-3. Carte tendance/réversion par horizon (Zurich 2501.16772, lu en entier) +
+   slow-momentum/fast-reversion (Oxford) -> valident la structure bi-échelle de
+   geometric v2 et éclairent §54 ; règle de SUR-EXTENSION (ne pas chasser une
+   tendance de t-stat > ~1.5) = chantier mesurable ;
+4. Anti-cherry-picking (plateau de paramètre obligatoire) ;
+5. Funding : le carry est une moisson d'euphorie (calme 11 % APR, euphorie
+   30 %+) — notre seuil 5 % bien calé, passage en percentile quand l'historique
+   interne suffira ;
+6. Structure 2026 : les flux d'ETF = acheteur marginal dominant (chantier :
+   input flows), cascades record (10/10/25 : 2.3 G$) encore violentes ;
+7. Sizing : ¼-½ Kelly max sous queues lourdes, vol-target lissé (le levier
+   FABRIQUE les queues — Farmer 0908.1555).
+Chantiers mesurables notés dans SAVOIR.md ; mémoire de session mise à jour.
