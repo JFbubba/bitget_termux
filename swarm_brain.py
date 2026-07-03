@@ -462,16 +462,21 @@ def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
         return {}
     import math
 
-    def _norm(d):
-        vals = [float(d.get(n, 0.0)) for n in names]
-        lo, hi = min(vals), max(vals)
+    def _norm(d, lo, hi):
+        """Normalisation par bornes ABSOLUES (audit §51) : l'ancien min-max PAR LOT
+        étirait le meilleur du lot à 1 et le pire à 0 même pour un écart d'UN hit,
+        puis exp(η=5·s) donnait un ratio ×148 -> le gagnant du lot claquait au
+        clamp 3.0 à chaque learn (winner-take-all, poids d'orderflow saturé des
+        jours durant, re-saturé 2 cycles après un reset). Les entrées sont déjà
+        naturellement bornées (poids Hedge ∈ [0.2,3], cohérence ∈ [0,1]) : des
+        écarts RÉELS produisent des écarts de poids, des écarts d'un hit non."""
         rng = (hi - lo) or 1.0
-        return {n: (float(d.get(n, 0.0)) - lo) / rng for n in names}
+        return {n: min(1.0, max(0.0, (float(d.get(n, lo)) - lo) / rng)) for n in names}
 
     M = len(names)
     if w_min * M >= 1.0:                         # garde-fou : plancher réalisable
         w_min = 0.5 / M
-    P, C = _norm(perf), _norm(coherence)
+    P, C = _norm(perf, 0.2, 3.0), _norm(coherence, 0.0, 1.0)
     s = {n: beta * P[n] + (1.0 - beta) * C[n] for n in names}
     mx = max(s.values())                         # softmax stable numériquement
     ex = {n: math.exp(eta * (s[n] - mx)) for n in names}
