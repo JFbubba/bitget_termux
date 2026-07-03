@@ -84,12 +84,13 @@ def sl_tp(side, prix, atr=None, sl_pct=None, rr=None):
     return p + dist, p - dist * rr
 
 
-def consensus_frais(entries, now=None, max_age_s=900):
-    """PUR. Dernier consensus BTCUSDT de brain_log s'il est FRAIS (< max_age_s),
-    sinon None (on ne trade jamais sur une lecture périmée)."""
+def consensus_frais(entries, now=None, max_age_s=900, symbol=None):
+    """PUR. Dernier consensus d'UN symbole dans brain_log s'il est FRAIS
+    (< max_age_s), sinon None (on ne trade jamais sur une lecture périmée)."""
     now = time.time() if now is None else now
+    symbol = str(symbol or SYMBOL).upper()
     for e in reversed(entries or []):
-        if not isinstance(e, dict) or e.get("symbol") != SYMBOL:
+        if not isinstance(e, dict) or e.get("symbol") != symbol:
             continue
         ts = safe_float(e.get("ts"))
         if ts is None or now - ts > max_age_s:
@@ -114,11 +115,11 @@ def parser_positions(rows):
     return out
 
 
-def positions_cotes():
-    """Positions par CÔTÉ (lecture seule). {"erreur": ...} si illisible."""
+def positions_cotes(symbol=None):
+    """Positions par CÔTÉ d'UN symbole (lecture seule). {"erreur": ...} si illisible."""
     try:
         import futures_executor as fe
-        rows = fe.positions_ouvertes()
+        rows = fe.positions_ouvertes(symbol=str(symbol or SYMBOL).upper())
         if rows is None:
             return {"erreur": "positions illisibles"}
         return parser_positions(rows)
@@ -126,16 +127,37 @@ def positions_cotes():
         return {"erreur": "positions illisibles"}
 
 
-def proprietaire_cote(events, cote):
-    """PUR. Agent PROPRIÉTAIRE d'un CÔTÉ (long/short) : l'agent du dernier ordre
-    RÉEL d'OUVERTURE sur ce côté. En mode hedge chaque côté a son propriétaire —
-    carry gère son short pendant qu'auto_dir gère son long. Un côté ouvert par un
-    autre agent (ex. 'validation' manuelle) n'est JAMAIS touché."""
+def positions_par_symbole():
+    """{symbol: {"long": pos|None, "short": pos|None}} sur TOUS les symboles.
+    {"erreur": ...} si illisible."""
+    try:
+        import futures_executor as fe
+        rows = fe.positions_ouvertes()
+        if rows is None:
+            return {"erreur": "positions illisibles"}
+        out = {}
+        for r in rows or []:
+            sym = str((r or {}).get("symbol", "")).upper()
+            if sym:
+                out.setdefault(sym, []).append(r)
+        return {sym: parser_positions(rs) for sym, rs in out.items()}
+    except Exception:
+        return {"erreur": "positions illisibles"}
+
+
+def proprietaire_cote(events, cote, symbol=None):
+    """PUR. Agent PROPRIÉTAIRE d'un (SYMBOLE, CÔTÉ) : l'agent du dernier ordre RÉEL
+    d'OUVERTURE sur ce côté de ce symbole. En mode hedge chaque côté a son
+    propriétaire — carry gère son short BTC pendant qu'auto_dir gère ses positions.
+    Un côté ouvert par un autre agent (ex. 'validation' manuelle) n'est JAMAIS
+    touché. Les événements historiques sans champ symbol valent BTCUSDT."""
+    symbol = str(symbol or SYMBOL).upper()
     for e in reversed(events or []):
         if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
             continue
         order = e.get("order") or {}
-        if not order.get("reduce") and str(order.get("side")) == str(cote):
+        sym_e = str(order.get("symbol") or SYMBOL).upper()
+        if not order.get("reduce") and str(order.get("side")) == str(cote) and sym_e == symbol:
             return order.get("agent")
     return None
 
@@ -223,14 +245,14 @@ def _executor_events():
         return []
 
 
-def _atr(limit=60):
+def _atr(limit=60, symbol=None):
     """ATR 15m courant. calculate_atr prend des BOUGIES {high,low,close} — l'ancien
     appel (highs, lows, closes) levait TypeError avalé en silence : le SL retombait
     TOUJOURS sur le % fixe au lieu de l'ATR (bug trouvé à l'audit, corrigé)."""
     try:
         import technicals as tk
         import indicators
-        candles = tk.fetch_candles(SYMBOL, "15m", limit)
+        candles = tk.fetch_candles(str(symbol or SYMBOL).upper(), "15m", limit)
         return float(indicators.calculate_atr(candles)[-1])
     except Exception:
         return None
@@ -248,6 +270,7 @@ def _journal_decision(out):
         res = out.get("resultat") or {}
         ja.append_jsonl(Path(__file__).resolve().parent / "futures_auto_journal.jsonl",
                         {"ts": out.get("ts"), "boucle": out.get("boucle", "auto_dir"),
+                         "symbol": out.get("symbol"),
                          "consensus": out.get("consensus"),
                          "apr_net_pct": out.get("apr_net_pct"),
                          "position": (out.get("position") or {}).get("side"),
@@ -266,128 +289,191 @@ def run(now=None):
     return out
 
 
-def _run_cycle(now=None):
-    """Le cycle lui-même. N'exécute que si FUTURES_AUTO_DIRECTIONAL=1 ET les gardes
-    de futures_executor passent."""
-    now = time.time() if now is None else now
-    out = {"ts": int(now), "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
-    if not out["armed"]:
-        out["decision"] = {"action": "rien", "raison": "FUTURES_AUTO_DIRECTIONAL=0 (débrayé)"}
-        return out
-    c = consensus_frais(_brain_entries(), now=now)
-    out["consensus"] = c
-    # gestion PAR CÔTÉ (mode hedge, décision propriétaire 03/07) : long ET short
-    # peuvent coexister — la boucle ne gère que le côté qu'ELLE a ouvert.
-    cotes = positions_cotes()
-    if cotes.get("erreur"):
-        out["decision"] = {"action": "rien", "raison": cotes["erreur"] + " (fail-closed)"}
-        return out
-    events = _executor_events()
-    pos = None
-    for cote in ("long", "short"):
-        p = cotes.get(cote)
-        if p and proprietaire_cote(events, cote) == "auto_dir":
-            pos = p
-            break
-    out["position"] = pos
-    out["cotes"] = {k: (v or {}).get("notional_usdt") for k, v in cotes.items()
-                    if k in ("long", "short")}
-    d = decider(c, (pos or {}).get("side") if pos else None)
-    out["decision"] = d
-    if d["action"] == "rien":
-        return out
-    if d["action"] == "ouvrir":
-        occupe = cotes.get(d["side"])
-        if occupe:                                  # côté déjà tenu par un autre agent
-            autre = proprietaire_cote(events, d["side"])
-            out["decision"] = {**d, "action": "rien",
-                               "raison": f"côté {d['side']} occupé par '{autre}' — pas à nous"}
-            return out
-        # transition one-way : tant qu'une position d'un autre agent existe et que le
-        # compte n'est pas encore en hedge, ouvrir l'autre côté la NETTERAIT — refus.
-        import futures_executor as fe
-        mode = fe.resolve_pos_mode(fe.positions_ouvertes(),
-                                   _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
-        if mode == "one_way_mode" and any(cotes.get(k) for k in ("long", "short")):
-            out["decision"] = {**d, "action": "rien",
-                               "raison": "compte encore en one-way avec position d'un autre "
-                                         "agent — netting interdit, attendre le hedge"}
-            return out
-    if not throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now):
-        out["decision"] = {**d, "action": "rien",
-                           "raison": d["raison"] + " — throttle ordre (intervalle non écoulé)"}
-        return out
-    import futures_executor as fe
-    gross = sum((v or {}).get("notional_usdt") or 0.0 for v in
-                (cotes.get("long"), cotes.get("short")))
-    if d["action"] == "fermer":
-        notional = min(float(pos["notional_usdt"]),
-                       fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
-                                  fe.FUT_ABS_MAX_PER_TRADE_USDT))
-        # taille EXACTE de la position (reduceOnly borne à la position) : un notional
-        # arrondi vers le bas laisserait une poussière sous le minimum, infermable.
-        res = fe.execute("auto_dir", pos["side"], notional,
-                         float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
-                         reduce=True, confirm=True, now=now,
-                         size_btc=pos.get("size_btc"))
-    else:                                          # ouvrir
-        prix = fe._mark_price()
-        sl, tp = sl_tp(d["side"], prix, atr=_atr())
-        res = fe.execute("auto_dir", d["side"],
-                         float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0)),
-                         float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
-                         entry=prix, stop_loss=sl, take_profit=tp,
-                         confirm=True, now=now,
-                         gross_open_usdt=gross,            # exposition des DEUX côtés
-                         equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
+def _universe():
+    """Symboles surveillés par la boucle (univers dynamique, repli BTCUSDT)."""
+    try:
+        import universe
+        syms = [str(s).upper() for s in universe.symbols()]
+        return syms or [SYMBOL]
+    except Exception:
+        return [SYMBOL]
+
+
+def _mes_positions(par_symbole, events):
+    """[(symbol, pos)] possédés par auto_dir, sur tous les symboles."""
+    miennes = []
+    for sym, cotes in (par_symbole or {}).items():
+        if not isinstance(cotes, dict):
+            continue
+        for cote in ("long", "short"):
+            pos = cotes.get(cote)
+            if pos and proprietaire_cote(events, cote, symbol=sym) == "auto_dir":
+                miennes.append((sym, pos))
+    return miennes
+
+
+def _finaliser(out, d, res):
+    """Résultat + alertes push (succès ⚡ / échec ⚠️), commun fermer/ouvrir."""
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
+    sym = d.get("symbol") or SYMBOL
     try:
         import telegram_notifier as tn
         if out["resultat"]["executed"]:
             tn.send_telegram(f"⚡ FUTURES RÉEL (boucle auto §45) : {d['action'].upper()} "
-                             f"{d.get('side') or ''} — {d['raison']}. "
+                             f"{d.get('side') or ''} {sym} — {d['raison']}. "
                              f"oid {res.get('clientOid')} · voir /futures")
         else:
-            # échec d'exécution = à savoir TOUT DE SUITE (le throttle espace les retentes)
             tn.send_telegram(f"⚠️ FUTURES boucle auto : ÉCHEC {d['action']} "
-                             f"{d.get('side') or ''} — {res.get('reasons') or 'réponse exchange'}. "
+                             f"{d.get('side') or ''} {sym} — "
+                             f"{res.get('reasons') or 'réponse exchange'}. "
                              f"Retente après throttle · voir /futures")
     except Exception:
         pass
     return out
 
 
+def _run_cycle(now=None):
+    """Cycle MULTI-SYMBOLES (§47 — « passer les agents en réel » : le cerveau vote
+    sur TOUT l'univers depuis la réparation de l'audit, la boucle trade désormais le
+    canal consensus de chaque symbole). Politique frugale inchangée, étendue :
+      1) FERMETURES d'abord (une par cycle max, NON throttlées : réduire le risque
+         n'attend pas) sur les positions possédées par la boucle ;
+      2) sinon OUVERTURE : au plus FUTURES_AUTO_MAX_POSITIONS positions, une par
+         symbole, un ordre par throttle — le candidat au |consensus| MAX ≥ seuil,
+         côté libre, jamais de netting en one-way transitoire."""
+    now = time.time() if now is None else now
+    out = {"ts": int(now), "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
+    if not out["armed"]:
+        out["decision"] = {"action": "rien", "raison": "FUTURES_AUTO_DIRECTIONAL=0 (débrayé)"}
+        return out
+    par_sym = positions_par_symbole()
+    if isinstance(par_sym, dict) and par_sym.get("erreur"):
+        out["decision"] = {"action": "rien", "raison": par_sym["erreur"] + " (fail-closed)"}
+        return out
+    events = _executor_events()
+    entries = _brain_entries()
+    miennes = _mes_positions(par_sym, events)
+    out["positions"] = [{"symbol": s, **pos} for s, pos in miennes]
+    out["position"] = ({"symbol": miennes[0][0], **miennes[0][1]} if miennes else None)
+    gross = sum((cotes.get(k) or {}).get("notional_usdt") or 0.0
+                for cotes in par_sym.values() if isinstance(cotes, dict)
+                for k in ("long", "short"))
+    out["gross_usdt"] = round(gross, 2)
+    import futures_executor as fe
+
+    # 1) FERMETURES d'abord — non throttlées : réduire le risque n'attend pas
+    for sym, pos in miennes:
+        c = consensus_frais(entries, now=now, symbol=sym)
+        d = decider(c, pos.get("side"))
+        if d["action"] == "fermer":
+            out["symbol"], out["consensus"] = sym, c
+            out["decision"] = {**d, "symbol": sym}
+            res = fe.execute("auto_dir", pos["side"],
+                             float(pos.get("notional_usdt") or 0) or 1.0,
+                             float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
+                             reduce=True, confirm=True, now=now,
+                             size_btc=pos.get("size_btc"), symbol=sym)
+            return _finaliser(out, out["decision"], res)
+
+    # 2) OUVERTURE : plafond de positions, puis meilleur candidat, puis throttle
+    max_pos = int(_cfg("FUTURES_AUTO_MAX_POSITIONS", 3))
+    if len(miennes) >= max_pos:
+        out["consensus"] = consensus_frais(entries, now=now, symbol=SYMBOL)
+        out["decision"] = {"action": "rien",
+                           "raison": f"{len(miennes)} position(s) (plafond {max_pos}) — on gère l'existant"}
+        return out
+    mode = fe.resolve_pos_mode(fe.positions_ouvertes(),
+                               _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+    deja = {s for s, _ in miennes}
+    candidats = []
+    for sym in _universe():
+        if sym in deja:
+            continue                                  # une position max par symbole
+        c = consensus_frais(entries, now=now, symbol=sym)
+        d = decider(c, None)
+        if d["action"] != "ouvrir":
+            continue
+        cotes = par_sym.get(sym) or {}
+        if cotes.get(d["side"]):
+            continue                                  # côté occupé par un autre agent
+        if mode == "one_way_mode" and (cotes.get("long") or cotes.get("short")):
+            continue                                  # netting interdit en one-way
+        candidats.append((abs(c), sym, c, d))
+    out["n_candidats"] = len(candidats)
+    out["consensus"] = consensus_frais(entries, now=now, symbol=SYMBOL)
+    if not candidats:
+        out["decision"] = {"action": "rien",
+                           "raison": "aucun consensus ≥ seuil sur l'univers (côtés libres)"}
+        return out
+    candidats.sort(key=lambda x: (-x[0], x[1]))
+    _, sym, c, d = candidats[0]
+    out["symbol"], out["consensus"] = sym, c
+    if not throttle_ok(dernier_ordre_auto_ts(events), now=now):
+        out["decision"] = {**d, "action": "rien", "symbol": sym,
+                           "raison": d["raison"] + f" [{sym}] — throttle ordre (intervalle non écoulé)"}
+        return out
+    out["decision"] = {**d, "symbol": sym}
+    prix = fe._mark_price(sym)
+    sl, tp = sl_tp(d["side"], prix, atr=_atr(symbol=sym))
+    res = fe.execute("auto_dir", d["side"],
+                     float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0)),
+                     float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
+                     entry=prix, stop_loss=sl, take_profit=tp,
+                     confirm=True, now=now, symbol=sym,
+                     gross_open_usdt=gross,            # exposition TOUS symboles/côtés
+                     equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
+    return _finaliser(out, out["decision"], res)
+
+
 def status(now=None):
-    """Décision PRÉVISUALISÉE, STRICTEMENT LECTURE SEULE : même lecture que run()
-    mais n'appelle JAMAIS l'exécuteur (pour Telegram /futures, dashboard, CLI
-    --status). C'est « ce que la boucle ferait », pas ce qu'elle fait."""
+    """Décision PRÉVISUALISÉE, STRICTEMENT LECTURE SEULE, multi-symboles : même
+    lecture que le cycle mais n'appelle JAMAIS l'exécuteur (Telegram /futures,
+    dashboard, CLI --status)."""
     now = time.time() if now is None else now
     out = {"ts": int(now), "consultation": True,
            "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
-    c = consensus_frais(_brain_entries(), now=now)
-    out["consensus"] = c
-    cotes = positions_cotes()
-    if cotes.get("erreur"):
+    par_sym = positions_par_symbole()
+    if isinstance(par_sym, dict) and par_sym.get("erreur"):
         out["position"] = None
-        out["decision"] = {"action": "rien", "raison": cotes["erreur"] + " (fail-closed)"}
+        out["decision"] = {"action": "rien", "raison": par_sym["erreur"] + " (fail-closed)"}
         return out
     events = _executor_events()
-    pos = None
-    for cote in ("long", "short"):
-        p = cotes.get(cote)
-        if p and proprietaire_cote(events, cote) == "auto_dir":
-            pos = p
-            break
-    out["position"] = pos
-    out["cotes"] = {k: (v or {}).get("notional_usdt") for k, v in cotes.items()
-                    if k in ("long", "short")}
-    d = decider(c, (pos or {}).get("side") if pos else None)
-    if d["action"] == "ouvrir" and cotes.get(d["side"]):
-        autre = proprietaire_cote(events, d["side"])
-        d = {**d, "action": "rien",
-             "raison": f"côté {d['side']} occupé par '{autre}' — pas à nous"}
-    out["decision"] = d
+    entries = _brain_entries()
+    miennes = _mes_positions(par_sym, events)
+    out["positions"] = [{"symbol": s, **pos} for s, pos in miennes]
+    out["position"] = ({"symbol": miennes[0][0], **miennes[0][1]} if miennes else None)
+    # fermeture en attente ?
+    for sym, pos in miennes:
+        c = consensus_frais(entries, now=now, symbol=sym)
+        d = decider(c, pos.get("side"))
+        if d["action"] == "fermer":
+            out["symbol"], out["consensus"] = sym, c
+            out["decision"] = {**d, "symbol": sym}
+            out["throttle_pret"] = True               # les fermetures ne sont pas throttlées
+            return out
+    # meilleur candidat d'ouverture
+    deja = {s for s, _ in miennes}
+    best = None
+    for sym in _universe():
+        if sym in deja:
+            continue
+        c = consensus_frais(entries, now=now, symbol=sym)
+        d = decider(c, None)
+        if d["action"] != "ouvrir":
+            continue
+        if (par_sym.get(sym) or {}).get(d["side"]):
+            continue
+        if best is None or abs(c) > best[0]:
+            best = (abs(c), sym, c, d)
+    if best:
+        _, sym, c, d = best
+        out["symbol"], out["consensus"] = sym, c
+        out["decision"] = {**d, "symbol": sym}
+    else:
+        out["consensus"] = consensus_frais(entries, now=now, symbol=SYMBOL)
+        out["decision"] = {"action": "rien",
+                           "raison": "aucun consensus ≥ seuil sur l'univers (côtés libres)"}
     out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(events), now=now)
     return out
 
@@ -399,7 +485,7 @@ def build_report(r=None):
     lignes.append(f"Armée : {r.get('armed')} · consensus {r.get('consensus')} · "
                   f"position {r.get('position') or 'flat'}")
     lignes.append(f"Décision : {d.get('action', 'rien').upper()} "
-                  f"{d.get('side') or ''} — {d.get('raison', '')}")
+                  f"{d.get('side') or ''} {d.get('symbol') or ''} — {d.get('raison', '')}")
     res = r.get("resultat")
     if res:
         etat = "EXÉCUTÉ" if res.get("executed") else f"refusé/échec ({res.get('reasons')})"

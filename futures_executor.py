@@ -224,7 +224,7 @@ def _qty(x, decimals=6):
 
 def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
                         stop_loss=None, take_profit=None, client_oid=None, *, reduce=False,
-                        size_btc=None):
+                        size_btc=None, symbol=None):
     """Construit la demande d'ordre futures BORNÉE. PUR, sans effet de bord.
 
       • side ∈ {'long','short'} (vocabulaire neutre — l'open/close venue vient à l'étape 2) ;
@@ -239,7 +239,7 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
     lev = max(1.0, min(float(max_lev), float(leverage)))   # borné par le mur, jamais au-delà
     notion = float(notional_usdt)
     order = {
-        "symbol": SYMBOL,
+        "symbol": str(symbol or SYMBOL).upper(),
         "side": s,
         "reduce": bool(reduce),
         "agent": str(agent),
@@ -493,7 +493,8 @@ def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None):
     long_ = str(order.get("side")) == "long"
     vol_place = int((spec or {}).get("vol_place") or 4)
     price_place = int((spec or {}).get("price_place") or 1)
-    o = {"symbol": SYMBOL, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
+    o = {"symbol": str(order.get("symbol") or SYMBOL).upper(),
+         "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
          "marginMode": str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated")),
          "size": f"{size:.{vol_place}f}"}
     pm = str(pos_mode or _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
@@ -531,13 +532,14 @@ def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None):
 
 # ---------- lectures marché (best-effort, cachées) ----------
 
-def _contract_spec():
-    """Spécifications du contrat BTCUSDT (pas, minima, décimales). None si illisible."""
+def _contract_spec(symbol=None):
+    """Spécifications du contrat (pas, minima, décimales), PAR SYMBOLE. None si illisible."""
+    symbol = str(symbol or SYMBOL).upper()
     def _fetch():
         import bitget_hub_bridge as hub
         from numeric_utils import safe_float
         d = hub._read(["futures", "futures_get_contracts", "--productType", PRODUCT_TYPE,
-                       "--symbol", SYMBOL])
+                       "--symbol", symbol])
         rows = (d or {}).get("data") or []
         r = rows[0] if rows else {}
         if not r:
@@ -549,18 +551,18 @@ def _contract_spec():
                 "min_usdt": safe_float(r.get("minTradeUSDT"))}
     try:
         import runtime_cache as rc
-        return rc.get("fut_contract_spec", 86400, _fetch, fallback=None)
+        return rc.get(f"fut_contract_spec:{symbol}", 86400, _fetch, fallback=None)
     except Exception:
         return None
 
 
-def _mark_price():
-    """Dernier prix du perp BTCUSDT (lecture seule). None si illisible."""
+def _mark_price(symbol=None):
+    """Dernier prix d'un perp (lecture seule). None si illisible."""
     try:
         import bitget_hub_bridge as hub
         from numeric_utils import safe_float
         d = hub._read(["futures", "futures_get_ticker", "--productType", PRODUCT_TYPE,
-                       "--symbol", SYMBOL])
+                       "--symbol", str(symbol or SYMBOL).upper()])
         rows = (d or {}).get("data") or []
         r = rows[0] if rows else {}
         return safe_float(r.get("lastPr") or r.get("markPrice") or r.get("last"))
@@ -589,15 +591,18 @@ def _run(cmd, runner=None):
 _POS_MODE_MEMO = {"ts": 0.0, "mode": None}
 
 
-def positions_ouvertes(runner=None):
-    """Lignes de positions ouvertes BTCUSDT (lecture seule). None si illisible."""
+def positions_ouvertes(runner=None, symbol=None):
+    """Lignes de positions ouvertes (lecture seule) — TOUS les symboles par défaut
+    (multi-symbole §47), filtre optionnel. None si illisible."""
     try:
         import bitget_hub_bridge as hub
         d = hub._read(["futures", "futures_get_positions", "--productType", PRODUCT_TYPE])
         rows = (d or {}).get("data")
         if rows is None:
             return None
-        return [r for r in rows if str(r.get("symbol", "")).upper() == SYMBOL]
+        if symbol:
+            return [r for r in rows if str(r.get("symbol", "")).upper() == str(symbol).upper()]
+        return rows
     except Exception:
         return None
 
@@ -645,7 +650,7 @@ def _ensure_position_mode(runner=None, rows=None):
     return effectif
 
 
-def _ensure_leverage(leverage, runner=None, marge_mode=None):
+def _ensure_leverage(leverage, runner=None, marge_mode=None, symbol=None):
     """Fixe le levier (déjà borné au mur par build_futures_order) AVANT l'ordre.
     Marge isolée : les deux holdSide ; crossed : un appel sans holdSide.
     Fail-closed : échec -> False (pas d'ordre)."""
@@ -653,7 +658,7 @@ def _ensure_leverage(leverage, runner=None, marge_mode=None):
     mode = str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated"))
     sides = ["long", "short"] if mode == "isolated" else [None]
     for hs in sides:
-        cmd = ["futures", "futures_set_leverage", "--symbol", SYMBOL,
+        cmd = ["futures", "futures_set_leverage", "--symbol", str(symbol or SYMBOL).upper(),
                "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN,
                "--leverage", lev]
         if hs:
@@ -670,11 +675,12 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
     ouverte = autorité ; à plat = bascule vers la cible hedge_mode, décision 03/07),
     mappe la demande au format de CE mode, fixe le levier borné, exécute via l'Agent
     Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
-    spec = _contract_spec() if spec is None else spec
+    symbole = str(order.get("symbol") or SYMBOL).upper()
+    spec = _contract_spec(symbole) if spec is None else spec
     if not spec:
         return {"ok": False, "executed": False,
                 "reasons": ["spécifications contrat illisibles (fail-closed)"]}
-    price = (order.get("entry") or _mark_price()) if price is None else price
+    price = (order.get("entry") or _mark_price(symbole)) if price is None else price
     if not price:
         return {"ok": False, "executed": False,
                 "reasons": ["prix du perp illisible (fail-closed)"]}
@@ -689,7 +695,8 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
         return {"ok": False, "executed": False,
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
-    if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode):
+    if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode,
+                            symbol=symbole):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
@@ -704,7 +711,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
-            marge_mode=None, size_btc=None, pos_mode=None, **gate_overrides):
+            marge_mode=None, size_btc=None, pos_mode=None, symbol=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
@@ -716,7 +723,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                          hour_utc=hour_utc, macro_events=macro_events, now=now,
                          reduce=reduce, **gate_overrides)
     order = build_futures_order(agent, side, notional_usdt, leverage, entry, stop_loss,
-                                take_profit, oid, reduce=reduce, size_btc=size_btc)
+                                take_profit, oid, reduce=reduce, size_btc=size_btc,
+                                symbol=symbol)
     mode = order.get("execution_mode")
     preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "

@@ -150,6 +150,8 @@ FUTURES_AUTO_LEVERAGE = 2.0           # levier demandé (mur ×5)
 FUTURES_AUTO_SEUIL_ENTREE = 0.35      # |consensus| minimal pour OUVRIR (conviction rare)
 FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (conviction morte)
 FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
+FUTURES_AUTO_MAX_POSITIONS = 3        # positions directionnelles simultanées max (multi-symboles §47,
+                                      # une par symbole ; aligné sur MAX_OPEN_POSITIONS)
 FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
 FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
 

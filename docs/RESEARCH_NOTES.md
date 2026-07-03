@@ -1621,3 +1621,28 @@ convention Bitget) + tradeSide open/close, sans reduceOnly ; one-way (transitoir
 qu'ELLE a ouvert ; un côté occupé par un autre agent -> rien ; en one-way
 transitoire, ouvrir le côté opposé d'une position étrangère NETTERAIT -> refus
 explicite en attendant le hedge. Exposition brute des caps = somme des DEUX côtés.
+
+---
+
+## §47 — Multi-symboles : les agents passent en réel sur tout l'univers
+
+**Demande propriétaire (03/07)** : « continuer de passer les outils et les agents
+en réel ». Constat honnête : depuis la réparation de l'audit, le cerveau (13
+agents) vote et apprend sur TOUT l'univers (~10-13 symboles) à chaque cycle, mais
+seul le consensus BTCUSDT était câblé au réel. Le pipeline paper multi-symboles
+(journal_scanner -> pré-ordres) reste PAPER — sa mesure est PERDANTE (WR 32.5 %,
+TP/SL 0.48) : on ne câble pas un perdant mesuré, on étend le canal CONSENSUS.
+
+**Livré** :
+- `futures_executor` paramétré PAR SYMBOLE (spec contrat/prix/levier/positions —
+  cache par clé), rétro-compatible (défaut BTCUSDT). Murs/caps INCHANGÉS et
+  GLOBAUX : l'exposition brute compte tous les symboles et tous les côtés.
+- `futures_auto` MULTI-SYMBOLES, politique frugale étendue : une position max par
+  symbole, FUTURES_AUTO_MAX_POSITIONS=3 simultanées, 1) FERMETURES d'abord (une
+  par cycle, NON throttlées — réduire le risque n'attend pas), 2) OUVERTURE du
+  candidat au |consensus| MAX ≥ 0.35 sur l'univers, côté libre, un ordre par
+  throttle 4 h. Propriété par (symbole, côté) ; netting interdit en one-way
+  transitoire ; SL/TP ATR du symbole ; journal de décision avec symbole.
+- Le carry reste BTCUSDT (seule couverture spot détenue — §46).
+
+Le pipeline pré-ordres/paper reste le LABORATOIRE (mesure, jamais d'exécution).
