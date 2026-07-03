@@ -26,6 +26,10 @@ TICKERS = {
 }
 # nom lisible -> proxy ETF AlphaVantage (direction fidèle ; niveaux = proxys)
 AV_PROXIES = {"SPX": "SPY", "DXY": "UUP", "GOLD": "GLD"}
+# nom lisible -> symbole TwelveData (§59 : clé re-générée OK — forex/métaux réels,
+# 800 req/j). L'or SPOT (XAU/USD) bat le proxy GLD ; le dollar se lit dans
+# EUR/USD INVERSÉ (le franchissement de sens est géré dans _quote_td).
+TD_SYMBOLS = {"GOLD": "XAU/USD", "DXY": "EUR/USD"}
 # nom lisible -> série FRED (NIVEAUX officiels, sans clé)
 FRED_SERIES = {"VIX": "VIXCLS", "US10Y": "DGS10"}
 TTL_S = 4 * 3600                      # budget AlphaVantage gratuit : 25 req/jour
@@ -85,6 +89,55 @@ def _av_key():
         return None
 
 
+def parse_td_quote(payload, inverse=False):
+    """Quote TwelveData -> {last, change_pct}. PUR. inverse=True retourne la
+    VARIATION opposée (EUR/USD inversé = direction du dollar). None si illisible."""
+    try:
+        last = float((payload or {})["close"])
+        chg = float((payload or {}).get("percent_change", 0.0))
+        if inverse:
+            chg = -chg
+        return {"last": round(last, 4), "change_pct": round(chg, 3)}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _td_key():
+    key = os.getenv("TWELVEDATA_API_KEY")
+    if key:
+        return key
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        return os.getenv("TWELVEDATA_API_KEY")
+    except Exception:
+        return None
+
+
+def _quote_td(name):
+    """Cotation TwelveData (forex/métaux réels), cachée TTL_S. Pour DXY la
+    variation est celle d'EUR/USD INVERSÉE (le niveau affiché reste EUR/USD)."""
+    sym = TD_SYMBOLS.get(name)
+    key = _td_key()
+    if not sym or not key:
+        return None
+
+    def fetch():
+        import requests
+        r = requests.get("https://api.twelvedata.com/quote",
+                         params={"symbol": sym, "apikey": key}, timeout=12)
+        r.raise_for_status()
+        q = parse_td_quote(r.json(), inverse=(name == "DXY"))
+        if q is None:
+            raise ValueError("réponse TD illisible")
+        return q
+    try:
+        import runtime_cache as rc
+        return rc.get(f"macro_td:{sym}", TTL_S, fetch, fallback=None)
+    except Exception:
+        return None
+
+
 def _quote_av(name):
     """Cotation via proxy ETF AlphaVantage, cachée TTL_S (stale-while-error)."""
     sym = AV_PROXIES.get(name)
@@ -129,7 +182,7 @@ def _quote_fred(name):
         return None
 
 
-def summarize(quotes, source="alphavantage+fred"):
+def summarize(quotes, source="td+av+fred"):
     """Régime risk-on/off à partir des cotations TradFi. Fonction pure."""
     vix = (quotes.get("VIX") or {}).get("last")
     dxy_chg = (quotes.get("DXY") or {}).get("change_pct")
@@ -154,8 +207,10 @@ def fetch_macro():
     quotes = {}
     for name in ("VIX", "US10Y"):
         quotes[name] = _quote_fred(name)
-    for name in AV_PROXIES:
-        quotes[name] = _quote_av(name)
+    # TwelveData d'abord (or spot, dollar via EUR/USD inversé), AV en repli/SPX
+    for name in ("GOLD", "DXY"):
+        quotes[name] = _quote_td(name) or _quote_av(name)
+    quotes["SPX"] = _quote_av("SPX")
     if not any(quotes.values()):
         return {"error": "TradFi indisponible (AlphaVantage/FRED muets)",
                 "quotes": {}, "regime": "NEUTRE", "score": 0, "notes": []}
@@ -175,7 +230,7 @@ def fetch_regime():
         if not (q.get("VIX") or q.get("DXY")):
             return None
         return summarize(q, source="yfinance")["regime"]
-    q = {"VIX": _quote_fred("VIX"), "DXY": _quote_av("DXY")}
+    q = {"VIX": _quote_fred("VIX"), "DXY": _quote_td("DXY") or _quote_av("DXY")}
     if not (q.get("VIX") or q.get("DXY")):
         return None
     return summarize(q)["regime"]

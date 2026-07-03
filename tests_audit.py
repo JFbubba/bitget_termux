@@ -1317,16 +1317,17 @@ def test_macro_data_degrades_without_lib(monkeypatch=None):
     import macro_data as md
     # §58 : sans yfinance, macro_data bascule sur AlphaVantage+FRED ; si CES
     # sources sont muettes aussi, erreur claire + régime NEUTRE + regime None.
-    orig = (md._available, md._quote_av, md._quote_fred)
+    orig = (md._available, md._quote_av, md._quote_fred, md._quote_td)
     md._available = lambda: False
     md._quote_av = lambda name: None
     md._quote_fred = lambda name: None
+    md._quote_td = lambda name: None
     try:
         d = md.fetch_macro()
         assert d.get("error") and d["regime"] == "NEUTRE"
         assert md.fetch_regime() is None
     finally:
-        md._available, md._quote_av, md._quote_fred = orig
+        md._available, md._quote_av, md._quote_fred, md._quote_td = orig
 
 
 # ---------- ccxt multi-exchange (purs + dégradation) ----------
@@ -2158,6 +2159,26 @@ def test_kalshi_probe_parseurs():
     assert kp._iso_vers_ts("n/a") is None
 
 
+def test_funding_history_percentile_et_td():
+    # §59 : historique de funding Bitget (public) + percentile PUR ; TwelveData.
+    import funding_history as fh
+    import macro_data as md
+    rates = [[i, 0.0001] for i in range(80)] + [[100 + i, 0.0003] for i in range(20)]
+    # percentile : 0.0001 <= 80 % de l'historique... (80 bas + 20 hauts)
+    assert fh.percentile_taux(rates, 0.0001) == 0.8
+    assert fh.percentile_taux(rates, 0.0005) == 1.0
+    assert fh.percentile_taux(rates, -0.001) == 0.0
+    assert fh.percentile_taux(rates[:50], 0.0001) is None      # < 90 taux -> None
+    assert fh.percentile_taux(None, 0.0001) is None
+    # parse TwelveData : nominal, inversé (dollar via EUR/USD), illisible
+    q = md.parse_td_quote({"close": "1.14409", "percent_change": "-0.05"})
+    assert q == {"last": 1.1441, "change_pct": -0.05}
+    qi = md.parse_td_quote({"close": "1.14409", "percent_change": "-0.05"}, inverse=True)
+    assert qi["change_pct"] == 0.05                            # EUR/USD baisse = dollar monte
+    assert md.parse_td_quote({"code": 404}) is None
+    assert md.parse_td_quote(None) is None
+
+
 def test_macro_data_parseurs_av_fred():
     # §58 : TradFi ressuscité sur AlphaVantage (proxys ETF) + FRED (niveaux).
     import macro_data as md
@@ -2176,7 +2197,7 @@ def test_macro_data_parseurs_av_fred():
     # summarize reste PURE et tolère les trous
     s = md.summarize({"VIX": {"last": 16.6, "change_pct": 0.9}, "DXY": None})
     assert s["regime"] in ("RISK_ON", "RISK_OFF", "NEUTRE")
-    assert s["source"] == "alphavantage+fred"
+    assert s["source"] == "td+av+fred"
 
 
 def test_validation_annuelle_et_porte_edge():

@@ -2001,3 +2001,29 @@ kalshi_probe.py : lecture seule, séries KXFEDDECISION + KXCPI, parsing pur test
 (échéances passées exclues, repli close_time, tri), cache 1 h, snapshot macro
 enrichi (« Fed decision in Jul 2026 dans 26 j ») — première brique VIVANTE pour
 le black-out macro du mandat (jusqu'ici statique).
+
+---
+
+## §59 — Nouvelles clés propriétaire : CoinGecko OK, CoinGlass gratuit inutile,
+## le funding NATIF Bitget à la place, TwelveData pour l'or spot
+
+- **CoinGecko (nouvelle clé)** : fonctionne en en-tête demo — le client du dépôt
+  était déjà correct (demo + repli keyless), c'est l'ancienne clé qui était
+  morte. Filtre qualité de l'univers de retour sans repli.
+- **CoinGlass (nouvelle clé)** : authentifie, mais le tier GRATUIT ne couvre
+  AUCUN endpoint utile (ETF flow-history, funding history, liquidations :
+  « Upgrade plan », ~29 $/mois). Verdict honnête : pas rentable à notre échelle.
+  Le chantier flux ETF reste bloqué (alternatives payantes ou scraping fragile).
+- **PIVOT funding : l'historique est PUBLIC chez Bitget même**
+  (/api/v2/mix/market/history-fund-rate, 100 taux/page, plafond ~3 mois
+  glissants). `funding_history.py` : consolidation disque incrémentale (le
+  plafond 3 mois devient sans objet à mesure que NOTRE historique s'accumule),
+  percentile PUR (≥90 taux). Branché ADVISORY dans carry_monitor
+  (`funding_pctl`) — la porte réelle reste le seuil absolu 5 % (basculer au
+  percentile = décision mesurée séparée, cf. SAVOIR.md §5). État : 270 taux,
+  dernier +0.0001 (APR 11 %) = percentile 100 % de ses 3 mois (funding bas
+  partout — cohérent avec le carry NEUTRE).
+- **TwelveData (nouvelle clé)** : forex/métaux OK (800 req/j), indices payants.
+  macro_data optimisé TRI-SOURCES : or SPOT XAU/USD (bat le proxy GLD) et
+  dollar via EUR/USD INVERSÉ (TwelveData), SPX via AlphaVantage (SPY), VIX et
+  10 ans via FRED. 5 lectures sur 5 en live, régime RISK_ON.

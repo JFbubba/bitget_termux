@@ -116,9 +116,19 @@ def evaluer(symbols=None):
             net = apr_net_pct(brut, frais)
         except Exception:
             pass
+        # PERCENTILE de funding dans l'historique du LIEU (§59, advisory — la
+        # porte réelle reste le seuil absolu ; SAVOIR.md §5 : basculer vers le
+        # percentile est une décision mesurée séparée)
+        pctl = None
+        try:
+            import funding_history as fhy
+            pctl = fhy.percentile_courant(str(sym).upper(), funding)
+        except Exception:
+            pctl = None
         out.append({"symbol": str(sym).upper(), "funding": funding,
                     "apr_brut_pct": round(brut, 2) if brut is not None else None,
                     "apr_net_pct": round(net, 2) if net is not None else None,
+                    "funding_pctl": pctl,
                     "attrait": attrait(net, seuil)})
     return out
 
