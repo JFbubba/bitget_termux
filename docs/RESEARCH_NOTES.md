@@ -2136,3 +2136,23 @@ régime défavorable, la formulation garde son espérance de long terme.
 liquidations (non rejouable hors-ligne) bénéficie de la présomption de la même
 famille. À suivre en revue : si la négativité PERSISTE sur des semaines
 multi-régimes, la question se rouvrira — sur données, pas sur 2.6 jours.
+
+---
+
+## §63 — Cadences resserrées (décision propriétaire) : scan 1 min, watchdog 5 min
+
+Demande : « scan 14 agents toutes les minutes, watchdog toutes les 5 minutes,
+récap Telegram toutes les 15 » (notify était déjà à 15 ; watchdog était à 3 —
+passé à 5). Le scan passe de 5 min à 1 min (cycle ~60 s : systemd ne superpose
+jamais deux instances -> cadence effective = durée du cycle). Marges API :
+larges (endpoints publics 20 req/s, caches runtime inchangés).
+
+COMPENSATIONS de constantes de temps (sans elles, la cadence ×5 aurait
+dénaturé l'apprentissage) :
+- BRAIN_LOG_CAP 500 -> 2400 : à 480 entrées/h (8 symboles × 60 cycles), la
+  fenêtre de 500 aurait ÉVINCÉ les entrées AVANT leur maturation (1 h) —
+  l'apprentissage serait mort de faim ; 2400 ≈ 5 h de fenêtre ;
+- BRAIN_HITRATE_ALPHA 0.05 -> 0.01 : l'EWMA est une constante de TEMPS, pas de
+  lots — même demi-vie (~14 h) qu'avant malgré des lots ×5 plus fréquents ;
+- BRAIN_EARCP_LISSAGE 0.1 -> 0.02 : même vitesse horaire de convergence vers
+  la cible qu'avant.

@@ -1,11 +1,11 @@
 [Unit]
-Description=Bitget paper scan cadence (5 min ; large marge sous les limites API Bitget)
+Description=Bitget paper scan cadence (1 min ; cycle ~60s, le timer systemd ne superpose jamais deux instances)
 
 [Timer]
 # 5 min : ~30-100x sous l'API (20/s par endpoint, 100/s agrege) meme sur l'univers
 # dynamique (15 symboles). Notifications Telegram deportees -> bitget-notify.timer.
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1min
 AccuracySec=30s
 Persistent=true
 

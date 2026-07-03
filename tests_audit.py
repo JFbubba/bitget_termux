@@ -734,10 +734,14 @@ def test_brain_hitrates_exogenes_et_stabilite():
     # §51 (5e mécanisme) : l'entrée performance de l'EARCP est le HIT-RATE EWMA
     # mesuré, PAS le poids — fin de la boucle auto-excitée poids->P->cible->poids.
     import swarm_brain as sb
-    hr = sb.maj_hitrates({}, {"a": [True, True, False], "b": [False], "vide": []})
+    # alpha EXPLICITE : le défaut vient de la config (constante de TEMPS, §63 —
+    # 0.01 à cadence 1 min) ; le test vérifie le MÉCANISME, pas la config.
+    hr = sb.maj_hitrates({}, {"a": [True, True, False], "b": [False], "vide": []},
+                         alpha=0.05)
     assert abs(hr["a"] - (0.95 * 0.5 + 0.05 * (2 / 3))) < 1e-9   # part de 0.5 (neutre)
     assert abs(hr["b"] - (0.95 * 0.5 + 0.05 * 0.0)) < 1e-9
     assert "vide" not in hr                                       # lot vide ignoré
+    assert sb._hitrate_alpha() <= 0.05                            # cadence compensée (§63)
     # STABILITÉ : agent SANS edge (hit-rate neutre) mais cohérence haute, 100
     # apprentissages chaînés (l'ancienne composition claquait au clamp 3.0) ->
     # le poids reste ~1, il ne s'auto-excite plus.

@@ -130,7 +130,11 @@ BRAIN_WEIGHT_MAX = 3.0
 # significativement NÉGATIF est bridé même si sa cohérence de consensus le flatte.
 BRAIN_EDGE_PRIORS = 1                 # 0 = débrayer (poids EARCP purs)
 BRAIN_EDGE_PRIOR_ALPHA = 0.5          # adoucissement (1.0 = prior plein, 0.0 = neutre)
-BRAIN_VOTES_WORKERS = 8               # threads de gather_votes (agents = I/O réseau ; 1 = séquentiel)
+BRAIN_VOTES_WORKERS = 8
+# §63 — cadence scan 1 min (demande propriétaire) : constantes de TEMPS compensées.
+BRAIN_LOG_CAP = 2400                  # fenêtre roulante ~5 h à 480 entrées/h (maturation 1 h garantie)
+BRAIN_HITRATE_ALPHA = 0.01            # EWMA hit-rates : même demi-vie (~14 h) qu'à 5 min
+BRAIN_EARCP_LISSAGE = 0.02            # lissage vers la cible : même vitesse horaire qu'avant               # threads de gather_votes (agents = I/O réseau ; 1 = séquentiel)
 
 # === FUTURES RÉEL (§45 — décision propriétaire du 02/07/2026) ===
 # Le propriétaire a changé les règles (3 questions d'engagement répondues) : futures

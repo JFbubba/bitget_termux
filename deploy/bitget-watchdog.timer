@@ -1,9 +1,9 @@
 [Unit]
-Description=Bitget watchdog cadence (3 min ; alerte immediate sur DOWN/STALE)
+Description=Bitget watchdog cadence (5 min ; alerte immediate sur DOWN/STALE)
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=3min
+OnUnitActiveSec=5min
 AccuracySec=20s
 Persistent=true
 

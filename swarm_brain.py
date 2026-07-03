@@ -618,7 +618,7 @@ def _read_log():
 
 def _write_log(log):
     try:
-        LOG_FILE.write_text(json.dumps(log[-500:]), encoding="utf-8")
+        LOG_FILE.write_text(json.dumps(log[-int(_cfg("BRAIN_LOG_CAP", 2400)):]), encoding="utf-8")
     except Exception:
         pass
 
@@ -648,7 +648,14 @@ def _record(symbol, votes, result, price):
 
 
 HITRATE_FILE = Path(__file__).resolve().parent / "brain_hitrates.json"
-HITRATE_ALPHA = 0.05                        # EWMA lente : ~20 lots pour converger
+HITRATE_ALPHA = 0.05                        # défaut historique (cadence 5 min)
+
+
+def _hitrate_alpha():
+    """§63 : α est une constante de TEMPS, pas de lots — à cadence 1 min les lots
+    arrivent ×5 plus vite, α passe à 0.01 (config) pour garder la même demi-vie
+    (~14 h) qu'avant. Sinon les hit-rates deviendraient regime-twitchy."""
+    return float(_cfg("BRAIN_HITRATE_ALPHA", HITRATE_ALPHA))
 
 
 def _load_hitrates():
@@ -670,12 +677,13 @@ def _save_hitrates(hr):
         pass
 
 
-def maj_hitrates(hitrates, correctness, alpha=HITRATE_ALPHA):
+def maj_hitrates(hitrates, correctness, alpha=None):
     """PUR. EWMA du taux de réussite par agent : hr ← (1−α)·hr + α·taux_du_lot.
     C'est l'entrée PERFORMANCE de l'EARCP (audit §51, 5e mécanisme) : l'ancienne
     entrée était le POIDS lui-même (mémoire Hedge) — poids↑ -> P̃↑ -> cible↑ ->
     poids↑, boucle auto-excitée jusqu'au clamp sur n'importe quelle inclinaison
     persistante. Le hit-rate mesuré est EXOGÈNE : aucun chemin du poids vers lui."""
+    alpha = _hitrate_alpha() if alpha is None else alpha
     hr = dict(hitrates)
     for n, hits in (correctness or {}).items():
         if not hits:
