@@ -1739,3 +1739,20 @@ H0.72 montante »). Les consommateurs (rapports, dashboard, travaux futurs) la
 lisent ; le vote reste le fade Mahalanobis prouvé (§49). Si la validation
 transversale de longue durée montre un jour un edge stable du signal ordinal,
 le câblage au vote sera un chantier mesuré séparé.
+
+**Addendum §51 — maker-first carry : bloqué par la charte (décision propriétaire).**
+La recommandation « poser les tranches carry en post-only (frais 0.02 %) avec repli
+IOC (0.06 %) » économiserait ~2/3 des frais du carry. MAIS un ordre post-only non
+rempli RESTE au carnet (GTC) et exige une gestion d'annulation — or la charte
+interdit toute annulation au bot (« JAMAIS de retrait/virement/annulation »,
+futures_cancel_orders est dans FUTURES_EXEC_FORBIDDEN). Câbler maker-first
+imposerait d'autoriser le bot à annuler SES PROPRES ordres non exécutés — une
+extension de périmètre que seul le propriétaire peut accorder. En attendant :
+limit IOC ±0.10 % (jamais d'ordre orphelin, par construction).
+
+**Addendum §51 — durcissement des portes.** Deux pushes du 03/07 sont partis avec
+un test rouge à cause de chaînes shell défaillantes (pipe qui avale le code de
+sortie ; heredoc + saut de ligne qui sort `git commit` de la chaîne &&). Créé
+`gates.sh` (codes de sortie stricts, commit conditionnel) — forme obligatoire
+documentée dans CLAUDE.md. Le backtest directionnel long (recommandation n°5)
+reste au backlog.

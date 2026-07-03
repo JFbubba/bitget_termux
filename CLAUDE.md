@@ -33,9 +33,10 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
    ```
    Si l'une échoue, ne pas pousser. `safe_push_check` interdit le code d'ordre hors du
    module d'exécution autorisé (`spot_executor.py`, audité à part par `security_agent`).
-   ⚠️ Piège vécu (03/07) : `python tests_audit.py | tail -1` dans une chaîne `&&` avale
-   le code de sortie (celui de `tail`) — un push est parti avec un test rouge. Toujours
-   `set -o pipefail` avant la chaîne des portes.
+   ⚠️ DEUX pushes sont partis avec un test rouge le 03/07 (pipe qui avale le code de
+   sortie, puis heredoc + saut de ligne qui sort `git commit` de la chaîne `&&`).
+   La forme OBLIGATOIRE est désormais : `bash gates.sh && git add … && git commit …`
+   (`gates.sh` vérifie chaque porte par code de sortie strict).
 6. **Classer chaque module SAFE** (lecture seule / paper) — un fichier qui passe un ordre
    réel doit être `spot_executor.py` (achat spot BTC seul, avec ses gardes).
 
