@@ -62,6 +62,21 @@ def parser_evenements(payload, now=None):
     return out
 
 
+def evenement_imminent(evenements, now=None, pre_min=30.0, post_min=15.0):
+    """L'événement macro dont la fenêtre de BLACK-OUT est active (mandat :
+    dégager le risque pre_min avant -> post_min après l'annonce), ou None. PUR.
+    Fail-open : liste vide/illisible -> None (l'absence de calendrier ne bloque
+    jamais le trading — on bride sur donnée, pas sur panne)."""
+    now = time.time() if now is None else now
+    for e in evenements or []:
+        ts = (e or {}).get("echeance_ts")
+        if ts is None:
+            continue
+        if ts - pre_min * 60.0 <= now <= ts + post_min * 60.0:
+            return e
+    return None
+
+
 def prochaine_echeance(evenements):
     """Le prochain événement macro (ou None). PUR."""
     return evenements[0] if evenements else None

@@ -190,6 +190,28 @@ def dernier_ordre_auto_ts(events, agent="auto_dir",
     return None
 
 
+def blackout_macro(now=None, evenements=None):
+    """Raison de black-out macro si une annonce (Fed/CPI, calendrier VIVANT
+    Kalshi §59) est imminente — le mandat le prévoyait (MANDATE_MACRO_BLACKOUT_*)
+    sans calendrier réel jusqu'ici. Ne bloque que les OUVERTURES (fermer reste
+    permis : réduire le risque n'attend pas). None si rien d'imminent ou si le
+    calendrier est muet (fail-open)."""
+    try:
+        if evenements is None:
+            import kalshi_probe as kp
+            evenements = kp.fetch_evenements()
+        import kalshi_probe as kp
+        e = kp.evenement_imminent(
+            evenements, now=now,
+            pre_min=float(_cfg("MANDATE_MACRO_BLACKOUT_PRE_MIN", 30)),
+            post_min=float(_cfg("MANDATE_MACRO_BLACKOUT_POST_MIN", 15)))
+        if e:
+            return f"black-out macro : {e.get('titre')} imminent (±fenêtre mandat)"
+    except Exception:
+        return None
+    return None
+
+
 def throttle_ok(last_ts, now=None, min_h=None):
     """PUR. Au plus un ordre auto toutes min_h heures."""
     min_h = float(_cfg("FUTURES_AUTO_MIN_INTERVAL_H", 4.0) if min_h is None else min_h)
@@ -487,6 +509,11 @@ def _run_cycle(now=None):
     candidats.sort(key=lambda x: (-x[0], x[1]))
     _, sym, c, d = candidats[0]
     out["symbol"], out["consensus"] = sym, c
+    raison_bo = blackout_macro(now=now)            # annonces Fed/CPI : pas d'OUVERTURE
+    if raison_bo:
+        out["decision"] = {**d, "action": "rien", "symbol": sym,
+                           "raison": d["raison"] + f" [{sym}] — {raison_bo}"}
+        return out
     if not throttle_ok(dernier_ordre_auto_ts(events), now=now):
         out["decision"] = {**d, "action": "rien", "symbol": sym,
                            "raison": d["raison"] + f" [{sym}] — throttle ordre (intervalle non écoulé)"}

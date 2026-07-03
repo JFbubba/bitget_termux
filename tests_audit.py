@@ -2136,6 +2136,27 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_blackout_macro_fenetre_et_fail_open():
+    # §59 suite : black-out macro VIVANT (Kalshi) — n'agit que sur les OUVERTURES.
+    import kalshi_probe as kp
+    import futures_auto as fa
+    ev = [{"serie": "KXCPI", "titre": "CPI in July", "echeance_ts": 10_000}]
+    # fenêtre : [échéance - 30 min, échéance + 15 min]
+    assert kp.evenement_imminent(ev, now=10_000 - 29 * 60) is not None
+    assert kp.evenement_imminent(ev, now=10_000 + 14 * 60) is not None
+    assert kp.evenement_imminent(ev, now=10_000 - 31 * 60) is None
+    assert kp.evenement_imminent(ev, now=10_000 + 16 * 60) is None
+    # fail-open : liste vide / entrées illisibles -> None, jamais d'exception
+    assert kp.evenement_imminent([], now=0) is None
+    assert kp.evenement_imminent([{"titre": "sans ts"}], now=0) is None
+    assert kp.evenement_imminent(None, now=0) is None
+    # côté boucle : raison lisible dans la fenêtre, None hors fenêtre / calendrier muet
+    r = fa.blackout_macro(now=10_000, evenements=ev)
+    assert r and "CPI in July" in r
+    assert fa.blackout_macro(now=10_000 + 3600, evenements=ev) is None
+    assert fa.blackout_macro(now=10_000, evenements=[]) is None
+
+
 def test_kalshi_probe_parseurs():
     # §58 : marchés de prédiction (clé .env fonctionnelle) — parsing PUR.
     import kalshi_probe as kp

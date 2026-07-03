@@ -2027,3 +2027,12 @@ le black-out macro du mandat (jusqu'ici statique).
   macro_data optimisé TRI-SOURCES : or SPOT XAU/USD (bat le proxy GLD) et
   dollar via EUR/USD INVERSÉ (TwelveData), SPX via AlphaVantage (SPY), VIX et
   10 ans via FRED. 5 lectures sur 5 en live, régime RISK_ON.
+
+**Addendum §59 — black-out macro VIVANT.** Le mandat prévoyait ±30/15 min autour
+des annonces (MANDATE_MACRO_BLACKOUT_*) sans calendrier réel : la règle ne
+s'appliquait jamais. Câblé sur Kalshi (§58) : `evenement_imminent` (pur, testé)
++ `futures_auto.blackout_macro` — les OUVERTURES directionnelles sont refusées
+dans la fenêtre d'une décision Fed ou d'un print CPI (les FERMETURES restent
+permises : réduire le risque n'attend pas). Fail-open : calendrier muet ->
+porte transparente. Première application concrète du savoir §56 (les annonces
+macro sont les moments de dislocation) à la protection du capital réel.
