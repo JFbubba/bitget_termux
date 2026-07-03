@@ -108,20 +108,33 @@ def _releve():
         return None
 
 
+# Tokens du portefeuille comptant comme COUVERTURE BTC de la jambe carry, avec
+# leur décote : BTC natif plein, BGBTC (wrapper Bitget, suit le BTC 1:1) décoté
+# 10 % par prudence (risque wrapper/dé-peg + friction de conversion). Audit
+# portefeuille 03/07 : l'exposition BTC réelle du propriétaire est ~206 $
+# (BTC 31 $ + BGBTC 175 $) — la couverture n'en comptait que 31.
+COUVERTURE_TOKENS = {"BTC": 1.0, "BGBTC": 0.9}
+
+
 def couverture_spot_usdt():
-    """Valeur USDT du BTC SPOT détenu (la jambe longue déjà en portefeuille).
-    None si illisible (fail-closed à l'entrée)."""
+    """Valeur USDT de l'exposition BTC SPOT détenue (BTC + wrappers décotés) — la
+    jambe longue déjà en portefeuille. None si illisible (fail-closed à l'entrée)."""
     try:
         import bitget_balance_reader as br
         import futures_executor as fe
-        btc = None
-        for r in (br.get_spot_assets("BTC") or {}).get("data") or []:
-            if str(r.get("coin", "")).upper() == "BTC":
-                btc = (safe_float(r.get("available")) or 0.0) + (safe_float(r.get("frozen")) or 0.0)
-        if btc is None:
+        tokens = dict(_cfg("CARRY_COUVERTURE_TOKENS", COUVERTURE_TOKENS))
+        quantite = 0.0
+        vu = False
+        for r in (br.get_spot_assets() or {}).get("data") or []:
+            coin = str(r.get("coin", "")).upper()
+            if coin in tokens:
+                vu = True
+                total = (safe_float(r.get("available")) or 0.0) + (safe_float(r.get("frozen")) or 0.0)
+                quantite += total * float(tokens[coin])   # décote du wrapper appliquée
+        if not vu:
             return None
         prix = fe._mark_price()
-        return btc * prix if prix else None
+        return quantite * prix if prix else None
     except Exception:
         return None
 

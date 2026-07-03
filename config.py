@@ -160,6 +160,9 @@ FUTURES_AUTO_CARRY = 1                # 0 = débrayer les jambes carry
 FUTURES_CARRY_NOTIONAL_USDT = 15.0    # short max (toujours ≤ 95 % de la couverture spot)
 FUTURES_CARRY_SEUIL_SORTIE_PCT = 2.0  # APR net sous lequel on FERME (hystérésis vs 5 %)
 FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de funding
+# Couverture de la jambe carry : tokens du portefeuille comptant comme exposition
+# BTC, avec décote (wrapper BGBTC décoté 10 % — prudence dé-peg/conversion).
+CARRY_COUVERTURE_TOKENS = {"BTC": 1.0, "BGBTC": 0.9}
 
 FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut
 FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)

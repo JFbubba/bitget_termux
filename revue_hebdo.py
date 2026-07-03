@@ -197,6 +197,16 @@ def collecter(now=None):
                                                (out.get("accum") or {}).get("montants_recents"))}
     except Exception:
         out["runway"] = {}
+    # portefeuille : total + exposition BTC (couverture carry)
+    try:
+        import portefeuille as pf
+        inv = pf.inventaire()
+        out["portefeuille"] = {"total": inv.get("total_usdt"),
+                               "expo_btc": inv.get("expo_btc_usdt"),
+                               "n_actifs": len(inv.get("actifs", [])),
+                               "poussiere": inv.get("poussiere_usdt")}
+    except Exception:
+        out["portefeuille"] = {}
     return out
 
 
@@ -244,6 +254,9 @@ def build_report(d=None):
         f"Validation : {_n(br.get('validation_age_h'), '{:.1f}')} h "
         f"(mode {br.get('ranking_mode')})",
         f"Runway spot : {_n(rw.get('libre'))} $ libres ≈ {_n(rw.get('jours'), '{:.0f}')} jours de DCA",
+        (lambda p: f"Portefeuille : {_n(p.get('total'))} $ ({p.get('n_actifs', 0)} actifs + "
+                   f"{_n(p.get('poussiere'))} $ de poussière) · exposition BTC "
+                   f"{_n(p.get('expo_btc'))} $ = couverture carry")(d.get("portefeuille") or {}),
         "",
         "Lecture seule. Décisions (caps, débrayages) = propriétaire. VERDICT: SAFE",
     ]

@@ -134,6 +134,7 @@ def handle_command(text):
             "/accum_reel - prix de revient RÉEL + réconciliation fills/compte (lecture seule)\n"
             "/futures - boucle auto §45 : décision préview, position, PnL réalisé (lecture seule)\n"
             "/revue - revue hebdo à la demande : cost-basis, PnL net, consensus, carry, runway\n"
+            "/portefeuille - inventaire spot valorisé + exposition BTC totale (lecture seule)\n"
             "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
             "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
             "/tradfi - macro TradFi temps quasi-réel (VIX/DXY/SPX/10Y/or/pétrole)\n"
@@ -396,6 +397,10 @@ def handle_command(text):
         sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
         result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
         return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/portefeuille") or text.startswith("/wallet"):
+        result = subprocess.run(["python", "portefeuille.py"], capture_output=True, text=True, timeout=120)
+        return result.stdout if result.returncode == 0 else f"❌ portefeuille.py\n{result.stderr[-1500:]}"
 
     if text.startswith("/revue"):
         # revue hebdomadaire à la demande (lecture seule, sans --send : la réponse

@@ -4951,6 +4951,34 @@ def test_carry_auto_decider_couverture_et_hysteresis():
     assert ca.decider_carry(1.0, "NEGATIF", {"side": "long"}, "carry", None, **k)["action"] == "rien"
 
 
+def test_carry_auto_couverture_etendue_bgbtc():
+    # audit portefeuille 03/07 : l'exposition BTC réelle inclut le wrapper BGBTC
+    # (décoté 10 %) — la couverture carry n'en comptait que le BTC natif.
+    import bitget_balance_reader as br
+    import futures_executor as fe
+    import carry_auto as ca
+    orig_assets, orig_prix = br.get_spot_assets, fe._mark_price
+    try:
+        br.get_spot_assets = lambda coin=None: {"data": [
+            {"coin": "BTC", "available": "0.0005", "frozen": "0"},
+            {"coin": "BGBTC", "available": "0.002", "frozen": "0.001"},
+            {"coin": "ETH", "available": "1.0", "frozen": "0"},      # hors couverture
+        ]}
+        fe._mark_price = lambda: 60000.0
+        c = ca.couverture_spot_usdt()
+        # 0.0005 + (0.003 × 0.9) = 0.0032 BTC × 60000 = 192 $
+        assert abs(c - 192.0) < 1e-6
+        # aucun token de couverture -> None (fail-closed à l'entrée)
+        br.get_spot_assets = lambda coin=None: {"data": [{"coin": "ETH", "available": "1"}]}
+        assert ca.couverture_spot_usdt() is None
+        # prix illisible -> None
+        br.get_spot_assets = lambda coin=None: {"data": [{"coin": "BTC", "available": "1"}]}
+        fe._mark_price = lambda: None
+        assert ca.couverture_spot_usdt() is None
+    finally:
+        br.get_spot_assets, fe._mark_price = orig_assets, orig_prix
+
+
 def test_carry_auto_releve_frais():
     import carry_auto as ca
     e = {"ts": 1000, "resultats": [{"symbol": "BTCUSDT", "apr_net_pct": 5.4,
