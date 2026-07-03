@@ -167,12 +167,27 @@ def _etat(now=None):
         return out, {"action": "rien", "raison": "FUTURES_AUTO_CARRY=0 (débrayé)"}
     apr, attrait = releve_carry(_releve(), now=now)
     out["apr_net_pct"], out["attrait"] = apr, attrait
-    pos = fa.position_nette()
-    if isinstance(pos, dict) and pos.get("erreur"):
-        return out, {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
+    # mode hedge (03/07) : le carry ne regarde que le côté SHORT — il peut coexister
+    # avec un long directionnel. En one-way transitoire, l'ouverture est refusée si
+    # un long d'un autre agent existe (netting interdit).
+    cotes = fa.positions_cotes()
+    if cotes.get("erreur"):
+        return out, {"action": "rien", "raison": cotes["erreur"] + " (fail-closed)"}
+    events = fa._executor_events()
+    pos = cotes.get("short")
     out["position"] = pos
-    owner = fa.proprietaire_position(fa._executor_events()) if pos else None
+    out["cotes"] = {k: (v or {}).get("notional_usdt") for k, v in cotes.items()
+                    if k in ("long", "short")}
+    owner = fa.proprietaire_cote(events, "short") if pos else None
     out["owner"] = owner
+    if not pos and cotes.get("long"):
+        import futures_executor as fe
+        mode = fe.resolve_pos_mode(fe.positions_ouvertes(),
+                                   _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+        if mode == "one_way_mode":
+            return out, {"action": "rien", "side": None, "notional": None,
+                         "raison": "compte encore en one-way avec un long ouvert — "
+                                   "netting interdit, le carry attend le hedge"}
     couverture = couverture_spot_usdt()           # aussi EN position (cible des tranches)
     out["couverture_usdt"] = round(couverture, 2) if couverture is not None else None
     import futures_executor as fe

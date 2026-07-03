@@ -468,14 +468,16 @@ def size_for(notional_usdt, price, spec):
     return size
 
 
-def to_bitget_order(order, spec, price, marge_mode=None):
-    """PUR. Demande bornée -> ordre API Bitget v2 (mode ONE-WAY) :
-      long/short -> side buy/sell ; reduce -> side OPPOSÉ + reduceOnly YES ;
-      ordre MARKET (taille petite, slippage négligeable, remplit toujours) ;
-      marge selon `marge_mode` (isolé si le compte le permet — perte max d'une
-      position = sa marge —, crossed FORCÉ en compte multi-devises,
-      cf. resolve_marge_mode) ; TP/SL préréglés arrondis au tick.
-    None si la taille est infaisable (sous les minima)."""
+def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None):
+    """PUR. Demande bornée -> ordre API Bitget v2, au FORMAT DU MODE DE POSITION :
+      • hedge_mode (cible depuis le 03/07 — long ET short simultanés) : side = côté
+        de la POSITION (buy=long, sell=short, convention Bitget), tradeSide
+        open/close, pas de reduceOnly ;
+      • one_way_mode (transitoire tant qu'une position historique est ouverte) :
+        side = direction d'exécution + reduceOnly YES/NO.
+    Ouvertures en limit IOC plafonné (anti-slippage), RÉDUCTIONS en market ;
+    marge selon `marge_mode` (crossed forcé en compte multi-devises) ; TP/SL
+    préréglés au tick. None si la taille est infaisable (sous les minima)."""
     from numeric_utils import safe_float
     reduce = bool(order.get("reduce"))
     explicite = safe_float(order.get("size_btc")) if reduce else None
@@ -489,14 +491,20 @@ def to_bitget_order(order, spec, price, marge_mode=None):
     if size is None:
         return None
     long_ = str(order.get("side")) == "long"
-    side = ("sell" if long_ else "buy") if reduce else ("buy" if long_ else "sell")
     vol_place = int((spec or {}).get("vol_place") or 4)
     price_place = int((spec or {}).get("price_place") or 1)
     o = {"symbol": SYMBOL, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
          "marginMode": str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated")),
-         "side": side,
-         "size": f"{size:.{vol_place}f}",
-         "reduceOnly": "YES" if reduce else "NO"}
+         "size": f"{size:.{vol_place}f}"}
+    pm = str(pos_mode or _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+    if pm == "hedge_mode":
+        o["side"] = "buy" if long_ else "sell"        # côté de la POSITION (convention Bitget)
+        o["tradeSide"] = "close" if reduce else "open"
+        side_exec = o["side"]                          # ouverture : buy exécute achat, sell exécute vente
+    else:
+        side_exec = ("sell" if long_ else "buy") if reduce else ("buy" if long_ else "sell")
+        o["side"] = side_exec
+        o["reduceOnly"] = "YES" if reduce else "NO"
     # style d'exécution (parité avec spot_executor, audit « plein potentiel ») :
     #   • OUVERTURE en limit IOC plafonné à ±tol% du prix : remplit immédiatement
     #     comme un market mais JAMAIS au-delà du plafond (anti-slippage borné ;
@@ -505,7 +513,7 @@ def to_bitget_order(order, spec, price, marge_mode=None):
     style = str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
     if not reduce and style == "limit_ioc" and safe_float(price):
         tol = float(_cfg("FUTURES_SLIPPAGE_TOL_PCT", 0.10)) / 100.0
-        cap = float(price) * (1.0 + tol) if side == "buy" else float(price) * (1.0 - tol)
+        cap = float(price) * (1.0 + tol) if side_exec == "buy" else float(price) * (1.0 - tol)
         o["orderType"] = "limit"
         o["force"] = "ioc"
         o["price"] = f"{round(cap, price_place):.{price_place}f}"
@@ -578,27 +586,63 @@ def _run(cmd, runner=None):
         return None
 
 
-_POS_MODE_MEMO = {"ts": 0.0}
+_POS_MODE_MEMO = {"ts": 0.0, "mode": None}
 
 
-def _ensure_position_mode(runner=None):
-    """Règle le compte futures en mode position UNILATÉRAL (one-way) — les ordres du
-    module sont au format one-way (side buy/sell + reduceOnly ; un compte en mode
-    couverture les rejette : erreur 400 « unilateral position », constatée au 1er
-    ordre de validation §45). Idempotent, sans effet si déjà one-way, mémoïsé 1 h.
-    FAIL-CLOSED : refus de l'exchange (ex. positions ouvertes) -> False, pas d'ordre
-    dans un mode ambigu."""
-    if runner is None and time.time() - _POS_MODE_MEMO["ts"] < 3600:
-        return True
+def positions_ouvertes(runner=None):
+    """Lignes de positions ouvertes BTCUSDT (lecture seule). None si illisible."""
+    try:
+        import bitget_hub_bridge as hub
+        d = hub._read(["futures", "futures_get_positions", "--productType", PRODUCT_TYPE])
+        rows = (d or {}).get("data")
+        if rows is None:
+            return None
+        return [r for r in rows if str(r.get("symbol", "")).upper() == SYMBOL]
+    except Exception:
+        return None
+
+
+def resolve_pos_mode(rows_positions, mode_cfg):
+    """PUR. Mode de position EFFECTIF : une position OUVERTE fait AUTORITÉ (Bitget
+    refuse de changer de mode en position — son posMode est la seule vérité) ;
+    à plat -> le mode CIBLE configuré (hedge_mode depuis la décision du 03/07)."""
+    for r in rows_positions or []:
+        pm = str((r or {}).get("posMode") or "")
+        if pm in ("one_way_mode", "hedge_mode"):
+            return pm
+    return str(mode_cfg or "hedge_mode")
+
+
+def _ensure_position_mode(runner=None, rows=None):
+    """Aligne le compte sur le mode de position EFFECTIF (resolve_pos_mode) :
+    à plat, bascule vers le mode cible (hedge_mode — déclaré par le propriétaire
+    03/07, permet carry ET directionnel simultanés) ; en position, AUCUN appel de
+    bascule (l'exchange refuserait : on formate les ordres au mode de la position).
+    Retourne le mode effectif, ou None si l'alignement échoue (fail-closed).
+    `rows` injectable (tests) ; avec runner injecté et rows omis -> à plat."""
+    cible = str(_cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+    if runner is None and time.time() - _POS_MODE_MEMO["ts"] < 3600 and _POS_MODE_MEMO["mode"]:
+        return _POS_MODE_MEMO["mode"]
+    if rows is None:
+        rows = positions_ouvertes() if runner is None else []
+    if rows is None:
+        return None                                  # positions illisibles -> pas d'ordre
+    effectif = resolve_pos_mode(rows, cible)
+    if rows:                                         # en position : pas de bascule possible
+        if runner is None:
+            _POS_MODE_MEMO.update(ts=0.0, mode=None)  # re-résoudre à chaque ordre
+        return effectif
     out = _run(["futures", "futures_update_config", "--setting", "positionMode",
-                "--value", "one_way_mode", "--symbol", SYMBOL,
+                "--value", effectif, "--symbol", SYMBOL,
                 "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN],
                runner=runner)
     compact = (out or "").replace(" ", "").lower()
     ok = bool(out) and "error" not in compact and '"ok":false' not in compact
-    if ok and runner is None:
-        _POS_MODE_MEMO["ts"] = time.time()
-    return ok
+    if not ok:
+        return None
+    if runner is None:
+        _POS_MODE_MEMO.update(ts=time.time(), mode=effectif)
+    return effectif
 
 
 def _ensure_leverage(leverage, runner=None, marge_mode=None):
@@ -621,10 +665,11 @@ def _ensure_leverage(leverage, runner=None, marge_mode=None):
     return True
 
 
-def _place_real(order, runner=None, spec=None, price=None, marge_mode=None):
-    """Chemin RÉEL (étape 2, §45 — décision propriétaire du 02/07/2026). Mappe la
-    demande bornée vers l'API v2 (one-way, marge isolée, market), fixe le levier borné,
-    exécute via l'Agent Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
+def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_mode=None):
+    """Chemin RÉEL (étape 2, §45). Résout le mode de position EFFECTIF (position
+    ouverte = autorité ; à plat = bascule vers la cible hedge_mode, décision 03/07),
+    mappe la demande au format de CE mode, fixe le levier borné, exécute via l'Agent
+    Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
     spec = _contract_spec() if spec is None else spec
     if not spec:
         return {"ok": False, "executed": False,
@@ -634,14 +679,16 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None):
         return {"ok": False, "executed": False,
                 "reasons": ["prix du perp illisible (fail-closed)"]}
     marge_mode = _marge_mode() if marge_mode is None else marge_mode   # adaptatif : union -> crossed
-    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode)
+    if pos_mode is None:
+        pos_mode = _ensure_position_mode(runner=runner)                # adaptatif + bascule à plat
+    if pos_mode is None:
+        return {"ok": False, "executed": False,
+                "reasons": ["mode de position irrésoluble/refusé (fail-closed)"]}
+    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode, pos_mode=pos_mode)
     if bo is None:
         return {"ok": False, "executed": False,
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
-    if not _ensure_position_mode(runner=runner):
-        return {"ok": False, "executed": False,
-                "reasons": ["mode position one-way refusé par l'exchange (fail-closed)"]}
     if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
@@ -657,7 +704,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
-            marge_mode=None, size_btc=None, **gate_overrides):
+            marge_mode=None, size_btc=None, pos_mode=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
@@ -701,7 +748,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                       "reasons": ["stop de perte journalier franchi"], "real_order_sent": False})
         return {"ok": False, "executed": False, "preview": preview, "clientOid": oid,
                 "reasons": ["stop de perte journalier franchi (kill-switch armé)"]}
-    res = _place_real(order, runner=runner, spec=spec, price=price, marge_mode=marge_mode)
+    res = _place_real(order, runner=runner, spec=spec, price=price, marge_mode=marge_mode,
+                      pos_mode=pos_mode)
     if journal:
         _journal({"action": "FUTURES_REAL" if res.get("executed") else "FUTURES_REAL_FAILED",
                   "ts": now, "order": order, "bitget_order": res.get("bitget_order"),

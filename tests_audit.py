@@ -4561,11 +4561,12 @@ def test_futures_executor_dry_and_real_path():
                     runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0,
                     marge_mode="isolated", **full)
     assert r3["executed"] is True
-    # séquence : mode one-way d'abord, puis levier, puis l'ordre
-    assert calls[0][1] == "futures_update_config" and "one_way_mode" in calls[0]
+    # séquence : bascule hedge à plat (mode cible 03/07), puis levier, puis l'ordre
+    assert calls[0][1] == "futures_update_config" and "hedge_mode" in calls[0]
     assert calls[1][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
     bo = r3["bitget_order"]
-    assert bo["side"] == "buy" and bo["reduceOnly"] == "NO"
+    # format HEDGE : side = côté de la POSITION (buy=long), tradeSide open, pas de reduceOnly
+    assert bo["side"] == "buy" and bo["tradeSide"] == "open" and "reduceOnly" not in bo
     # ouverture en limit IOC anti-slippage : plafond +0.10% du mark, force ioc
     assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "60060.0"
     assert bo["marginMode"] == "isolated" and bo["size"] == "0.0001"   # 8$/60000 -> plancher au pas
@@ -4594,17 +4595,20 @@ def test_futures_executor_size_et_mapping_bitget():
     assert fe.size_for(5.9, 60000.0, _FUT_SPEC) is None           # 0.000098 -> floor 0 -> refus
     assert fe.size_for(8.0, None, _FUT_SPEC) is None
     assert fe.size_for(8.0, 60000.0, None) is None
-    # mapping : short ouvre en sell (limit IOC plafonné -0.10% : jamais pire que ça) ;
-    # reduce d'un long ferme en sell + reduceOnly, en MARKET (la sortie doit réussir)
+    # mapping HEDGE (défaut depuis le 03/07) : short ouvre side=sell/tradeSide=open
+    # (limit IOC plafonné -0.10%) ; fermer un long = side=buy/tradeSide=close en MARKET
     o_short = fe.build_futures_order("carry", "short", 12.0, 1.0, client_oid="c1")
     bo = fe.to_bitget_order(o_short, _FUT_SPEC, 60000.0)
-    assert bo["side"] == "sell" and bo["reduceOnly"] == "NO" and bo["clientOid"] == "c1"
+    assert bo["side"] == "sell" and bo["tradeSide"] == "open" and bo["clientOid"] == "c1"
     assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "59940.0"
     o_red = fe.build_futures_order("carry", "long", 12.0, 1.0, client_oid="c2", reduce=True)
     br_ = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0)
-    assert br_["side"] == "sell" and br_["reduceOnly"] == "YES"
+    assert br_["side"] == "buy" and br_["tradeSide"] == "close"    # convention Bitget hedge
     assert br_["orderType"] == "market" and "price" not in br_     # sortie certaine
     assert "presetStopLossPrice" not in br_                        # pas de TP/SL sur une réduction
+    # format ONE-WAY explicite (transition : position historique) : reduceOnly conservé
+    ow = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0, pos_mode="one_way_mode")
+    assert ow["side"] == "sell" and ow["reduceOnly"] == "YES" and "tradeSide" not in ow
     # TP/SL préréglés arrondis au tick (price_place=1)
     o_tp = fe.build_futures_order("x", "long", 12.0, 2.0, stop_loss=58999.96,
                                   take_profit=62000.049, client_oid="c3")
@@ -4855,13 +4859,13 @@ def test_futures_executor_fermeture_taille_exacte():
     o = fe.build_futures_order("auto_dir", "long", 14.0, 2.0, client_oid="cx",
                                reduce=True, size_btc=0.00023)
     bo = fe.to_bitget_order(o, _FUT_SPEC, 60000.0, marge_mode="crossed")
-    assert bo["size"] == "0.0002" and bo["reduceOnly"] == "YES"   # 0.00023 arrondi au vol_place
+    assert bo["size"] == "0.0002" and bo["tradeSide"] == "close"  # 0.00023 arrondi au vol_place
     # poussière SOUS le minimum : relevée au min du contrat (reduceOnly borne à la
     # position côté exchange -> la poussière est fermée, jamais bloquée)
     o2 = fe.build_futures_order("carry", "short", 3.0, 1.0, client_oid="cy",
                                 reduce=True, size_btc=0.00004)
     bo2 = fe.to_bitget_order(o2, _FUT_SPEC, 60000.0, marge_mode="crossed")
-    assert bo2["size"] == "0.0001" and bo2["reduceOnly"] == "YES"
+    assert bo2["size"] == "0.0001" and bo2["tradeSide"] == "close"
     # size_btc IGNORÉ sur une OUVERTURE (le sizing d'ouverture reste notional/caps)
     o3 = fe.build_futures_order("auto_dir", "long", 8.0, 2.0, client_oid="cz",
                                 size_btc=0.005)
@@ -4953,6 +4957,31 @@ def test_carry_auto_decider_couverture_et_hysteresis():
     # position d'un autre agent / d'un autre sens -> on ne touche pas
     assert ca.decider_carry(1.0, "NEGATIF", pos, "auto_dir", None, **k)["action"] == "rien"
     assert ca.decider_carry(1.0, "NEGATIF", {"side": "long"}, "carry", None, **k)["action"] == "rien"
+
+
+def test_futures_hedge_mode_resolution_et_cotes():
+    import futures_executor as fe
+    import futures_auto as fa
+    # resolve_pos_mode : une position OUVERTE fait autorité ; à plat -> mode cible
+    assert fe.resolve_pos_mode([{"posMode": "one_way_mode"}], "hedge_mode") == "one_way_mode"
+    assert fe.resolve_pos_mode([{"posMode": "hedge_mode"}], "one_way_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode([], "hedge_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode(None, "hedge_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode([{"posMode": "?"}], "hedge_mode") == "hedge_mode"
+    # parser_positions : les deux côtés coexistent en hedge ; tailles nulles ignorées
+    rows = [{"holdSide": "long", "total": "0.0001", "markPrice": "60000"},
+            {"holdSide": "short", "total": "0.003", "markPrice": "60000"},
+            {"holdSide": "long", "total": "0"}]
+    cotes = fa.parser_positions(rows)
+    assert cotes["long"]["notional_usdt"] == 6.0 and cotes["short"]["notional_usdt"] == 180.0
+    assert fa.parser_positions([]) == {"long": None, "short": None}
+    # propriété PAR CÔTÉ : carry possède son short pendant qu'auto_dir a son long
+    ev = [{"action": "FUTURES_REAL", "order": {"agent": "auto_dir", "side": "long", "reduce": False}},
+          {"action": "FUTURES_REAL", "order": {"agent": "carry", "side": "short", "reduce": False}},
+          {"action": "FUTURES_REAL", "order": {"agent": "carry", "side": "short", "reduce": True}}]
+    assert fa.proprietaire_cote(ev, "long") == "auto_dir"
+    assert fa.proprietaire_cote(ev, "short") == "carry"    # la réduction ne change pas le proprio
+    assert fa.proprietaire_cote([], "long") is None
 
 
 def test_carry_auto_tranches_cap_200():

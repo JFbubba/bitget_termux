@@ -164,6 +164,10 @@ FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de fun
 # BTC, avec décote (wrapper BGBTC décoté 10 % — prudence dé-peg/conversion).
 CARRY_COUVERTURE_TOKENS = {"BTC": 1.0, "BGBTC": 0.9}
 
+FUTURES_POSITION_MODE = "hedge_mode"  # mode CIBLE (déclaré par le propriétaire 03/07) : long ET short
+                                      # simultanés (carry + directionnel). ADAPTATIF : une position
+                                      # OUVERTE fait autorité (Bitget refuse de basculer en position) ;
+                                      # la bascule s'applique au premier ordre à plat.
 FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut
 FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :

@@ -1608,3 +1608,16 @@ futures + exposition BTC spot) — l'equity futures seule aurait produit un faux
 breach kill-switch sur tout BTC +6 % alors que le hedge gagne côté spot ; une
 composante illisible -> pas d'ouverture, pas de kill-switch (bases jamais
 mélangées entre deux mesures).
+
+**Addendum §46 — mode HEDGE (déclaré par le propriétaire, 03/07)** : le compte
+passe en mode couverture -> carry (short couvert) et directionnel (long/short)
+peuvent COEXISTER. Implémentation ADAPTATIVE : une position OUVERTE fait autorité
+(Bitget refuse la bascule en position — le posMode de la position est la seule
+vérité) ; à plat, l'exécuteur bascule vers la cible hedge_mode au premier ordre.
+Format d'ordre par mode : hedge = side du CÔTÉ de position (buy=long/sell=short,
+convention Bitget) + tradeSide open/close, sans reduceOnly ; one-way (transitoire)
+= side d'exécution + reduceOnly. Gestion PAR CÔTÉ dans les boucles
+(parser_positions, proprietaire_cote) : chaque boucle ne touche que le côté
+qu'ELLE a ouvert ; un côté occupé par un autre agent -> rien ; en one-way
+transitoire, ouvrir le côté opposé d'une position étrangère NETTERAIT -> refus
+explicite en attendant le hedge. Exposition brute des caps = somme des DEUX côtés.

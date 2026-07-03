@@ -98,6 +98,48 @@ def consensus_frais(entries, now=None, max_age_s=900):
     return None
 
 
+def parser_positions(rows):
+    """PUR. Lignes API -> {"long": pos|None, "short": pos|None} (mode hedge : les
+    deux côtés peuvent coexister ; en one-way un seul est non-nul). pos = {side,
+    size_btc, notional_usdt}."""
+    out = {"long": None, "short": None}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        cote = str(r.get("holdSide", "")).lower()
+        taille = safe_float(r.get("total") or r.get("size")) or 0.0
+        if cote in out and taille > 1e-12:
+            out[cote] = {"side": cote, "size_btc": round(taille, 6),
+                         "notional_usdt": round(taille * (safe_float(r.get("markPrice")) or 0.0), 2)}
+    return out
+
+
+def positions_cotes():
+    """Positions par CÔTÉ (lecture seule). {"erreur": ...} si illisible."""
+    try:
+        import futures_executor as fe
+        rows = fe.positions_ouvertes()
+        if rows is None:
+            return {"erreur": "positions illisibles"}
+        return parser_positions(rows)
+    except Exception:
+        return {"erreur": "positions illisibles"}
+
+
+def proprietaire_cote(events, cote):
+    """PUR. Agent PROPRIÉTAIRE d'un CÔTÉ (long/short) : l'agent du dernier ordre
+    RÉEL d'OUVERTURE sur ce côté. En mode hedge chaque côté a son propriétaire —
+    carry gère son short pendant qu'auto_dir gère son long. Un côté ouvert par un
+    autre agent (ex. 'validation' manuelle) n'est JAMAIS touché."""
+    for e in reversed(events or []):
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        order = e.get("order") or {}
+        if not order.get("reduce") and str(order.get("side")) == str(cote):
+            return order.get("agent")
+    return None
+
+
 def proprietaire_position(events):
     """PUR. Agent PROPRIÉTAIRE de la position ouverte : l'agent du dernier ordre RÉEL
     d'OUVERTURE (reduce=False) journalisé. En mode one-way il n'y a qu'UNE position
@@ -234,29 +276,50 @@ def _run_cycle(now=None):
         return out
     c = consensus_frais(_brain_entries(), now=now)
     out["consensus"] = c
-    pos = position_nette()
-    if isinstance(pos, dict) and pos.get("erreur"):
-        out["decision"] = {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
+    # gestion PAR CÔTÉ (mode hedge, décision propriétaire 03/07) : long ET short
+    # peuvent coexister — la boucle ne gère que le côté qu'ELLE a ouvert.
+    cotes = positions_cotes()
+    if cotes.get("erreur"):
+        out["decision"] = {"action": "rien", "raison": cotes["erreur"] + " (fail-closed)"}
         return out
+    events = _executor_events()
+    pos = None
+    for cote in ("long", "short"):
+        p = cotes.get(cote)
+        if p and proprietaire_cote(events, cote) == "auto_dir":
+            pos = p
+            break
     out["position"] = pos
-    # propriété : une position ouverte par un AUTRE agent (carry, validation...)
-    # n'est jamais touchée par la boucle directionnelle.
-    if pos:
-        owner = proprietaire_position(_executor_events())
-        out["owner"] = owner
-        if owner != "auto_dir":
-            out["decision"] = {"action": "rien", "side": None,
-                               "raison": f"position détenue par '{owner}' — pas à nous"}
-            return out
+    out["cotes"] = {k: (v or {}).get("notional_usdt") for k, v in cotes.items()
+                    if k in ("long", "short")}
     d = decider(c, (pos or {}).get("side") if pos else None)
     out["decision"] = d
     if d["action"] == "rien":
         return out
+    if d["action"] == "ouvrir":
+        occupe = cotes.get(d["side"])
+        if occupe:                                  # côté déjà tenu par un autre agent
+            autre = proprietaire_cote(events, d["side"])
+            out["decision"] = {**d, "action": "rien",
+                               "raison": f"côté {d['side']} occupé par '{autre}' — pas à nous"}
+            return out
+        # transition one-way : tant qu'une position d'un autre agent existe et que le
+        # compte n'est pas encore en hedge, ouvrir l'autre côté la NETTERAIT — refus.
+        import futures_executor as fe
+        mode = fe.resolve_pos_mode(fe.positions_ouvertes(),
+                                   _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+        if mode == "one_way_mode" and any(cotes.get(k) for k in ("long", "short")):
+            out["decision"] = {**d, "action": "rien",
+                               "raison": "compte encore en one-way avec position d'un autre "
+                                         "agent — netting interdit, attendre le hedge"}
+            return out
     if not throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now):
         out["decision"] = {**d, "action": "rien",
                            "raison": d["raison"] + " — throttle ordre (intervalle non écoulé)"}
         return out
     import futures_executor as fe
+    gross = sum((v or {}).get("notional_usdt") or 0.0 for v in
+                (cotes.get("long"), cotes.get("short")))
     if d["action"] == "fermer":
         notional = min(float(pos["notional_usdt"]),
                        fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
@@ -275,7 +338,7 @@ def _run_cycle(now=None):
                          float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
                          entry=prix, stop_loss=sl, take_profit=tp,
                          confirm=True, now=now,
-                         gross_open_usdt=(pos or {}).get("notional_usdt") or 0.0,
+                         gross_open_usdt=gross,            # exposition des DEUX côtés
                          equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
@@ -304,22 +367,28 @@ def status(now=None):
            "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
     c = consensus_frais(_brain_entries(), now=now)
     out["consensus"] = c
-    pos = position_nette()
-    if isinstance(pos, dict) and pos.get("erreur"):
+    cotes = positions_cotes()
+    if cotes.get("erreur"):
         out["position"] = None
-        out["decision"] = {"action": "rien", "raison": pos["erreur"] + " (fail-closed)"}
+        out["decision"] = {"action": "rien", "raison": cotes["erreur"] + " (fail-closed)"}
         return out
+    events = _executor_events()
+    pos = None
+    for cote in ("long", "short"):
+        p = cotes.get(cote)
+        if p and proprietaire_cote(events, cote) == "auto_dir":
+            pos = p
+            break
     out["position"] = pos
-    if pos:
-        owner = proprietaire_position(_executor_events())
-        out["owner"] = owner
-        if owner != "auto_dir":
-            out["decision"] = {"action": "rien", "side": None,
-                               "raison": f"position détenue par '{owner}' — pas à nous"}
-            out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now)
-            return out
-    out["decision"] = decider(c, (pos or {}).get("side") if pos else None)
-    out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(_executor_events()), now=now)
+    out["cotes"] = {k: (v or {}).get("notional_usdt") for k, v in cotes.items()
+                    if k in ("long", "short")}
+    d = decider(c, (pos or {}).get("side") if pos else None)
+    if d["action"] == "ouvrir" and cotes.get(d["side"]):
+        autre = proprietaire_cote(events, d["side"])
+        d = {**d, "action": "rien",
+             "raison": f"côté {d['side']} occupé par '{autre}' — pas à nous"}
+    out["decision"] = d
+    out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(events), now=now)
     return out
 
 
