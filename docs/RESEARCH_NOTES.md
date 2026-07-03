@@ -2067,3 +2067,29 @@ macro sont les moments de dislocation) à la protection du capital réel.
    RECOMMANDATIONS CHIFFRÉES automatiques (verdict directionnel bloqué avant
    30 fills, ratio TP/SL, agents à promouvoir/auditer selon l'IC live) — le
    matériau de décision, l'humain tranche.
+
+---
+
+## §61 — Post-mortem : 4,7 h de cerveau gelé en silence (et les trois verrous posés)
+
+**Incident** (détecté par la question du propriétaire « les loops sont-ils
+actifs ? ») : le commit β de §51 (11:52) appelait `_cfg` dans learn() alors que
+l'import n'existait qu'en LOCAL dans une autre fonction -> NameError à CHAQUE
+apprentissage, AVALÉ par le try/except unique de read() qui couvrait aussi
+_record. Conséquences, de 12:01 à 16:44 : plus AUCUN vote journalisé (brain_log
+gelé), poids figés à 1.0 (pris à tort pour la « douceur » du nouveau mécanisme),
+boucle directionnelle AVEUGLE — fail-closed (consensus périmé -> aucun trade),
+donc zéro perte, mais zéro perception aussi. Les hit-rates, écrits AVANT la
+ligne fautive, donnaient l'illusion d'un système vivant.
+
+**Trois verrous posés** :
+1. import `_cfg` au niveau module + learn/record SÉPARÉS avec exceptions
+   IMPRIMÉES dans les logs du scan (fini le silence) ;
+2. smoke test learn() BOUT EN BOUT sur fichiers temporaires (aucun test
+   n'exerçait la fonction entière — le NameError passait les 340 tests) ;
+3. le watchdog surveille désormais la FRAÎCHEUR du cerveau (brain_log > 20 min
+   -> alerte Telegram 🚨) — la microstructure était surveillée, pas le cerveau.
+
+Leçon (la 3e du jour sur le même thème) : un try/except best-effort sans trace
+est une dette de visibilité ; tout chemin critique mérite son test de bout en
+bout ET son tripwire de fraîcheur.

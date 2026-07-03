@@ -15,6 +15,8 @@ CLI : python swarm_brain.py [SYMBOL]
 import json
 import os
 import time
+
+from config_utils import cfg as _cfg
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -803,14 +805,26 @@ def read(symbol="BTCUSDT", do_learn=True):
     result = aggregate(votes, weights)
     result["symbol"] = symbol
     result["weights"] = weights
+    # §61 : learn et record SÉPARÉS, exceptions IMPRIMÉES. L'ancien try unique
+    # muet a caché 4.7 h de NameError dans learn() (import _cfg manquant) : le
+    # cerveau n'enregistrait plus AUCUN vote et personne ne le voyait — la
+    # boucle directionnelle tournait aveugle (fail-closed, mais aveugle).
     try:
         price = _price(symbol)
-        if do_learn:
+    except Exception as exc:
+        print(f"brain read({symbol}) prix: {type(exc).__name__}")
+        price = None
+    if do_learn and price:
+        try:
             learn(symbol, price, weights)
-        _record(symbol, votes, result, price)
-        result["price"] = price
-    except Exception:
-        pass
+        except Exception as exc:
+            print(f"brain learn({symbol}): {type(exc).__name__}: {exc}")
+    if price:
+        try:
+            _record(symbol, votes, result, price)
+            result["price"] = price
+        except Exception as exc:
+            print(f"brain record({symbol}): {type(exc).__name__}: {exc}")
     return _attach_cognition(result, votes, weights, _series(symbol))
 
 

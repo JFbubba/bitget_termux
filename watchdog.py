@@ -279,6 +279,19 @@ def build_report(status):
     return "\n".join(lines)
 
 
+def brain_age(chemin=None):
+    """Âge (s) de la dernière entrée de brain_log.json — None si illisible. PUR
+    si chemin injecté."""
+    import json
+    import time
+    try:
+        log = json.loads((Path(chemin) if chemin else Path("brain_log.json")).read_text(encoding="utf-8"))
+        ts = max(e.get("ts", 0) for e in log if isinstance(e, dict))
+        return max(0.0, time.time() - ts)
+    except Exception:
+        return None
+
+
 def main(argv=None):
     import sys
 
@@ -298,6 +311,23 @@ def main(argv=None):
     print("\n".join(svc_lines))
     print(f"  microstructure: {'frais' if micro_fresh else 'figé/absent'}"
           + (f" (âge {age:.0f}s)" if age is not None else ""))
+    # fraîcheur du CERVEAU (§61) : 4.7 h de gel silencieux (NameError avalé dans
+    # learn) ont rendu la boucle directionnelle aveugle sans la moindre alerte.
+    # brain_log doit bouger à chaque cycle de scan (5 min) — au-delà de 20 min,
+    # alerte Telegram (dédupliquée par la cadence 15 min du watchdog lui-même).
+    b_age = brain_age()
+    b_fresh = (b_age is not None and b_age <= 1200)
+    print(f"  cerveau (brain_log): {'frais' if b_fresh else 'FIGÉ'}"
+          + (f" (âge {b_age / 60:.0f} min)" if b_age is not None else " (absent)"))
+    if not b_fresh:
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram("🚨 WATCHDOG : le CERVEAU n'enregistre plus de votes "
+                             + (f"depuis {b_age / 60:.0f} min" if b_age is not None else "(journal absent)")
+                             + " — la boucle directionnelle tourne en aveugle (fail-closed). "
+                             "Voir journalctl -u bitget-scan (lignes 'brain learn/record').")
+        except Exception:
+            pass
 
     # --arm-killswitch : pose KILL_SWITCH automatiquement sur anomalie SÉVÈRE (défensif)
     if "--arm-killswitch" in argv:

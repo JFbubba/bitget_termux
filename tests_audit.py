@@ -787,6 +787,52 @@ def test_brain_volatility_regime():
     assert 0.6 <= vt["scale"] < 1.0                              # escompte, mais jamais < 0.6
     assert sb.volatility_regime([100, 101, 102])["scale"] == 1.0  # court -> non bloquant
 
+def test_brain_learn_smoke_bout_en_bout():
+    # §61 : learn() a été cassé 4.7 h par un NameError AVALÉ (import _cfg local
+    # manquant) — aucun test ne l'exerçait de bout en bout. Ce smoke test le fait,
+    # sur fichiers temporaires : il DOIT dérouler sans exception et produire des
+    # poids bornés, un log évalué et des hit-rates.
+    import json as _json
+    import tempfile
+    import time as _time
+    from pathlib import Path as _P
+    import swarm_brain as sb
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        old = (sb.WEIGHTS_FILE, sb.HITRATE_FILE, sb._read_log, sb._write_log)
+        ecrits = {}
+        try:
+            sb.WEIGHTS_FILE = tmp / "w.json"
+            sb.HITRATE_FILE = tmp / "h.json"
+            vieux = int(_time.time()) - 2 * sb.HORIZON_S
+            log = [{"ts": vieux, "symbol": "BTCUSDT", "price": 100.0,
+                    "votes": {"a": 0.5, "b": -0.4}, "consensus": 0.2,
+                    "evaluated": False}]
+            sb._read_log = lambda: log
+            sb._write_log = lambda l: ecrits.update(log=l)
+            w = sb.learn("BTCUSDT", 110.0, {"a": 1.0, "b": 1.0})
+            assert all(0.2 <= v <= 3.0 for v in w.values()), w
+            assert ecrits["log"][0]["evaluated"] is True         # la décision est jugée
+            hr = _json.loads(sb.HITRATE_FILE.read_text())
+            assert 0.0 <= hr["a"] <= 1.0 and hr["a"] > 0.5       # a avait raison (hausse)
+            assert hr["b"] < 0.5                                 # b avait tort
+        finally:
+            sb.WEIGHTS_FILE, sb.HITRATE_FILE, sb._read_log, sb._write_log = old
+
+
+def test_watchdog_brain_age():
+    import json as _json
+    import tempfile
+    import time as _time
+    import watchdog as wd
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        _json.dump([{"ts": int(_time.time()) - 300}], f)
+        chemin = f.name
+    a = wd.brain_age(chemin)
+    assert a is not None and 290 <= a <= 320
+    assert wd.brain_age("/inexistant.json") is None
+
+
 def test_brain_coherence_scores():
     # LEAVE-ONE-OUT (§51) : l'accord se mesure contre le consensus DES AUTRES —
     # un agent dominant ne peut plus « s'accorder avec lui-même ».
