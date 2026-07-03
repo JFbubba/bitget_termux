@@ -225,7 +225,11 @@ def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
     for nom, fn in agents.items():
         votes, fwd = [], []
         for s, c in donnees.items():
-            for t_ in range(warmup, len(c) - horizon, pas):
+            # pas AUTO-PLAFONNÉ : ~400 échantillons max par symbole, sinon 6 ans
+            # d'historique × HMM par échantillon dépassent le budget du timer de
+            # validation (mesuré : > 10 min). Déterministe (fonction de len(c)).
+            pas_eff = max(int(pas), (len(c) - warmup) // 400)
+            for t_ in range(warmup, len(c) - horizon, pas_eff):
                 try:
                     votes.append(float(fn(c[max(0, t_ - 200):t_ + 1]) or 0.0))
                     fwd.append(math.log(float(c[t_ + horizon][4]) / float(c[t_][4])))

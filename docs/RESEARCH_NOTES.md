@@ -1914,3 +1914,22 @@ sur ses sources HTTP déterministes). Les MCP déjà connectés côté session
   ouvertures long/short (flèches vertes/rouges « OUVRE L/S »), réductions
   (carré ×) — source : registres spot + futures, fusionnés avec le marqueur de
   conscience du cerveau (les setMarkers s'écrasaient mutuellement avant).
+
+**Addendum §55 — le verdict SIX ANS (194k bougies, tous les régimes 2020-2026).**
+Replay plafonné (~400 échantillons/symbole, déterministe — le fit HMM de simons
+rendait les 6 ans infaisables en un timer : >10 min -> 198 s après plafond) :
+
+| agent | 1 AN (§54) | 6 ANS | lecture |
+|---|---|---|---|
+| savant | −0.062 | **+0.062 (t +2.5)** | RÉHABILITÉ : 2025-26 était SON mauvais régime |
+| geometric v2 | −0.068 | **+0.032 (t +1.3)** | réhabilité aussi — §48 tient sur 6 ans |
+| divergent | −0.005 | −0.005 | plat, partout |
+| simons | −0.004 | −0.019 | plat (son DSR xs 0.70 = fenêtre courte) |
+| leadlag | +0.014 | −0.010 | plat sur 6 ans — instrument de régime, fiche déjà tempérée |
+
+Leçon au carré : MÊME le juge « annuel » était régime-sensible (l'an 2025-26
+condamnait savant/geometric que 6 ans réhabilitent). La porte d'edge lit
+désormais la fenêtre la plus PROFONDE disponible (6 ans), et la promotion LIVE
+exige toujours les trois preuves : xs récent + profond positif + live confirmé.
+Avec ces données : savant/geometric passeraient la porte profonde ;
+divergent/simons/leadlag y échoueraient (plats) — exactement le tri attendu.
