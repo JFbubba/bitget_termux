@@ -152,6 +152,8 @@ FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (convic
 FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
 FUTURES_AUTO_MAX_POSITIONS = 3        # positions directionnelles simultanées max (multi-symboles §47,
                                       # une par symbole ; aligné sur MAX_OPEN_POSITIONS)
+FUTURES_MARGE_ALERTE_DIST_PCT = 15.0  # tripwire : alerte si une position est à < N % de son prix
+                                      # de liquidation (marge croisée, positions §47 empilées)
 FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
 FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
 

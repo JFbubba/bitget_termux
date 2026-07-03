@@ -125,10 +125,63 @@ def _watch_futures():
         print(f"accum_spend_watch: futures indisponible ({type(exc).__name__}).")
 
 
+def positions_pres_liquidation(rows, seuil_pct=15.0):
+    """PUR. Positions dont le prix de LIQUIDATION est à moins de seuil_pct du mark.
+    En marge croisée (compte union), le stop de −5 % protège du drawdown mais rien
+    ne surveillait la distance de liquidation quand plusieurs positions §47
+    s'empilent. Lignes sans liquidationPrice/markPrice ignorées (fail-safe)."""
+    from numeric_utils import safe_float
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        mark = safe_float(r.get("markPrice"))
+        liq = safe_float(r.get("liquidationPrice"))
+        if not mark or not liq or mark <= 0 or liq <= 0:
+            continue
+        dist = abs(mark - liq) / mark * 100.0
+        if dist < float(seuil_pct):
+            out.append({"symbol": str(r.get("symbol", "")).upper(),
+                        "side": str(r.get("holdSide", "")).lower(),
+                        "dist_pct": round(dist, 2)})
+    return out
+
+
+def _watch_marge():
+    """Tripwire de MARGE : alerte si une position est à < N % de sa liquidation
+    (répétée à chaque passage horaire tant que le danger persiste — un vrai danger
+    de liquidation mérite le bruit). Lecture seule."""
+    try:
+        import futures_executor as fe
+        from config_utils import cfg as _cfg
+        rows = fe.positions_ouvertes()
+        if rows is None:
+            print("accum_spend_watch: marge — positions illisibles (watchdog couvre).")
+            return
+        seuil = float(_cfg("FUTURES_MARGE_ALERTE_DIST_PCT", 15.0))
+        danger = positions_pres_liquidation(rows, seuil)
+        if danger:
+            detail = " · ".join(f"{d['side']} {d['symbol']} à {d['dist_pct']}% de liq."
+                                for d in danger)
+            print(f"accum_spend_watch: ALERTE MARGE — {detail}")
+            try:
+                import telegram_notifier as tn
+                tn.send_telegram(f"🚨 MARGE : {detail} (seuil {seuil}%). Réduire ou "
+                                 f"couper : touch KILL_SWITCH · voir /futures")
+            except Exception:
+                pass
+        else:
+            print(f"accum_spend_watch: marge ok ({len(rows)} position(s), "
+                  f"toutes à > {seuil}% de la liquidation).")
+    except Exception as exc:
+        print(f"accum_spend_watch: marge indisponible ({type(exc).__name__}).")
+
+
 def main():
     _watch_spot()
     _watch_runway()
     _watch_futures()
+    _watch_marge()
     print("Tripwire lecture/alerte (seule écriture : kill-switch protecteur). VERDICT: SAFE")
 
 

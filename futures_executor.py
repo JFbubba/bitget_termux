@@ -394,20 +394,46 @@ def daily_loss_breach(now=None):
     return breach
 
 
+def journal_equity_point(now=None, min_interval_s=600, cap=2016):
+    """Point d'équité INTRAJOURNALIÈRE du LIVRE dans le ledger (best-effort,
+    throttlé ≥10 min, plafonné 2016 points ≈ 7 jours à 5 min). Appelé par la boucle
+    auto à chaque cycle : avec 1 point/jour, la halte MDD (garde 6) raisonnait sur
+    2 points — elle raisonne désormais sur une vraie courbe. True si écrit."""
+    now = time.time() if now is None else now
+    try:
+        led = json.loads(_ledger_path().read_text(encoding="utf-8"))
+    except Exception:
+        led = {}
+    pts = [p for p in led.get("equity_intraday", []) if isinstance(p, list) and len(p) == 2]
+    if pts and (now - float(pts[-1][0])) < float(min_interval_s):
+        return False
+    eq = _book_equity()
+    if not eq or eq <= 0:
+        return False                              # illisible -> pas de faux point
+    pts.append([int(now), round(float(eq), 6)])
+    led["equity_intraday"] = pts[-int(cap):]
+    _write_ledger(led)
+    return True
+
+
 def equity_curve():
-    """Courbe d'equity futures : ouvertures JOURNALIÈRES journalisées (equity_journal
-    du ledger, écrites par le tripwire) + point courant. Alimente la HALTE DRAWDOWN du
-    mandat (garde 6) sur le chemin réel — l'audit du 03/07 a montré qu'elle était
-    inerte faute d'equity_curve passée par les boucles. [] si rien (pas de halte sans
-    historique : la protection grandit avec les jours)."""
+    """Courbe d'equity du LIVRE : points INTRAJOURNALIERS (equity_intraday, écrits
+    par la boucle via journal_equity_point) sinon repli sur les ouvertures
+    JOURNALIÈRES (equity_journal, écrites par le tripwire) ; + point courant.
+    Alimente la HALTE DRAWDOWN du mandat (garde 6) sur le chemin réel. [] si rien
+    (pas de halte sans historique : la protection grandit avec les points)."""
     try:
         led = json.loads(_ledger_path().read_text(encoding="utf-8"))
     except Exception:
         led = {}
     from numeric_utils import safe_float
-    pts = [safe_float(r.get("open_equity")) for r in led.get("equity_journal", [])
-           if isinstance(r, dict)]
+    pts = [safe_float(p[1]) for p in led.get("equity_intraday", [])
+           if isinstance(p, list) and len(p) == 2]
     pts = [p for p in pts if p and p > 0]
+    if not pts:                                   # repli : journal quotidien (1 pt/jour)
+        pts = [safe_float(r.get("open_equity")) for r in led.get("equity_journal", [])
+               if isinstance(r, dict)]
+        pts = [p for p in pts if p and p > 0]
     eq = _book_equity()                           # même base que le journal (livre couvert)
     if eq:
         pts.append(eq)

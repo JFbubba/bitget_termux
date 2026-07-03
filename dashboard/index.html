@@ -387,6 +387,11 @@
       <div class="row"><span class="k">caps (eff · murs)</span><span id="fu2-caps">—</span></div>
       <div class="row"><span class="k">carry (couvert spot)</span><span id="fu2-carry">—</span></div>
       <div style="margin-top:8px">
+        <div class="lgd"><span><i style="background:var(--accent)"></i>équité du livre (7 j)</span>
+          <span class="dim" id="eq-last" style="margin-left:auto">—</span></div>
+        <canvas id="eq-curve" height="40" title="équité du livre couvert (futures + expo BTC spot), points intrajournaliers"></canvas>
+      </div>
+      <div style="margin-top:6px">
         <div class="lgd"><span><i style="background:var(--blue)"></i>PnL net cumulé</span>
           <span><i style="background:var(--purple)"></i>funding cumulé</span>
           <span class="dim" id="pf-last" style="margin-left:auto">—</span></div>
@@ -970,6 +975,28 @@ function dessineViz(viz){
     }else{
       ctx.fillStyle="#8E8574";ctx.font="10px monospace";
       ctx.fillText("en attente de fills du bot…",8,H/2);
+    }
+  }
+  // 1b) équité du livre : sparkline intrajournalière (unité $, axe propre)
+  const ec=$("eq-curve");
+  if(ec){
+    const ctx=ec.getContext("2d");const W=ec.width=ec.clientWidth||300,H=ec.height;
+    ctx.clearRect(0,0,W,H);
+    const d=viz.equity_serie||[];
+    if(d.length>=2){
+      const t0=d[0][0],t1=d[d.length-1][0]||t0+1;
+      const vs=d.map(p=>p[1]);let v0=Math.min(...vs),v1=Math.max(...vs);
+      if(v1-v0<1e-9){v0-=0.5;v1+=0.5;}
+      const X=t=>2+(W-4)*(t-t0)/Math.max(1,t1-t0), Y=v=>H-3-(H-6)*(v-v0)/(v1-v0);
+      ctx.strokeStyle="#EFE9DA";ctx.lineWidth=1.5;ctx.beginPath();
+      d.forEach((p,i)=>{const x=X(p[0]),y=Y(p[1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+      ctx.stroke();
+      const last=d[d.length-1];
+      ctx.fillStyle="#EFE9DA";ctx.beginPath();ctx.arc(X(last[0]),Y(last[1]),2,0,7);ctx.fill();
+      $("eq-last").textContent="$"+last[1].toFixed(2)+" · min $"+v0.toFixed(2)+" · max $"+v1.toFixed(2);
+    }else{
+      ctx.fillStyle="#8E8574";ctx.font="10px monospace";
+      ctx.fillText("courbe en construction (1 pt / 10 min)…",8,H/2+3);
     }
   }
   // 2) consensus de l'univers : barres divergentes, seuils ±, meilleur en tête

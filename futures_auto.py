@@ -286,6 +286,11 @@ def run(now=None):
     """Un cycle de décision directionnelle (journalisé, voir _journal_decision)."""
     out = _run_cycle(now)
     _journal_decision(out)
+    try:                                          # courbe d'équité intrajournalière
+        import futures_executor as fe             # (best-effort, throttlé ≥10 min)
+        fe.journal_equity_point(now)
+    except Exception:
+        pass
     return out
 
 

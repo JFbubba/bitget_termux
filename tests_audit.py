@@ -5087,6 +5087,61 @@ def test_futures_hedge_mode_resolution_et_cotes():
     assert fa.proprietaire_cote([], "long") is None
 
 
+def test_spend_watch_positions_pres_liquidation():
+    import accum_spend_watch as sw
+    rows = [
+        {"symbol": "BTCUSDT", "holdSide": "long", "markPrice": "100000",
+         "liquidationPrice": "90000"},                                   # 10 % -> danger
+        {"symbol": "ETHUSDT", "holdSide": "short", "markPrice": "3000",
+         "liquidationPrice": "3800"},                                    # 26.7 % -> ok
+        {"symbol": "HYPEUSDT", "holdSide": "long", "markPrice": "40",
+         "liquidationPrice": None},                                      # illisible -> ignoré
+    ]
+    d = sw.positions_pres_liquidation(rows, seuil_pct=15.0)
+    assert len(d) == 1 and d[0]["symbol"] == "BTCUSDT" and d[0]["dist_pct"] == 10.0
+    assert sw.positions_pres_liquidation(rows, seuil_pct=30.0) and \
+        len(sw.positions_pres_liquidation(rows, seuil_pct=30.0)) == 2
+    assert sw.positions_pres_liquidation(None) == []
+    assert sw.positions_pres_liquidation([{"markPrice": "0", "liquidationPrice": "5"}]) == []
+
+
+def test_futures_equity_intraday_journal_et_courbe():
+    # équité INTRAJOURNALIÈRE : point throttlé (≥10 min), plafonné, et equity_curve
+    # préfère la série intrajournalière au journal quotidien.
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+    import futures_executor as fe
+    tmp = _Path(tempfile.mkstemp(suffix=".json")[1])
+    old_path, old_eq = fe._ledger_path, fe._book_equity
+    try:
+        fe._ledger_path = lambda: tmp
+        fe._book_equity = lambda runner=None: 400.0
+        tmp.write_text(_json.dumps({"equity_intraday": [[1000, 395.0]],
+                                    "equity_journal": [{"day": 1, "open_equity": 390.0}]}),
+                       encoding="utf-8")
+        assert fe.journal_equity_point(now=1300) is False               # < 10 min -> throttlé
+        assert fe.journal_equity_point(now=1700) is True                # ≥ 10 min -> écrit
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert led["equity_intraday"][-1] == [1700, 400.0]
+        # la courbe = série intrajournalière + point courant (pas le journal quotidien)
+        curve = fe.equity_curve()
+        assert curve == [395.0, 400.0, 400.0]
+        # équité illisible -> pas de faux point
+        fe._book_equity = lambda runner=None: None
+        assert fe.journal_equity_point(now=9999) is False
+        # plafond : cap respecté
+        fe._book_equity = lambda runner=None: 400.0
+        tmp.write_text(_json.dumps({"equity_intraday": [[i, 1.0] for i in range(3000)]}),
+                       encoding="utf-8")
+        assert fe.journal_equity_point(now=10**9, cap=100) is True
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert len(led["equity_intraday"]) == 100
+    finally:
+        fe._ledger_path, fe._book_equity = old_path, old_eq
+        tmp.unlink(missing_ok=True)
+
+
 def test_futures_report_somme_funding():
     import futures_report as fr
     rows = [{"businessType": "contract_settle_fee", "cTime": 2_000_000, "amount": "0.0005"},

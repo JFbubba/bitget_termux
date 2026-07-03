@@ -406,6 +406,11 @@ def build_state(symbol=None, tf="5m"):
             if debut:
                 out["pnl_serie"] = fr.serie_pnl(fr.fetch_fills(), depuis_ts=debut)[-200:]
                 out["funding_serie"] = fr.serie_funding(fr.fetch_bills(), depuis_ts=debut)[-200:]
+            import futures_executor as fe
+            import json as _json
+            led = _json.loads(fe._ledger_path().read_text(encoding="utf-8"))
+            out["equity_serie"] = [p for p in led.get("equity_intraday", [])
+                                   if isinstance(p, list) and len(p) == 2][-200:]
             ents = fa._brain_entries()
             from config_utils import cfg as _cfg
             seuil = float(_cfg("FUTURES_AUTO_SEUIL_ENTREE", 0.35))
