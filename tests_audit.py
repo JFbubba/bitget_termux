@@ -2132,6 +2132,35 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_leadlag_agent_contrarian_btc():
+    # 14e agent (§52) : fade du mouvement BTC sur les alts — mesuré avant adoption
+    # (IC +0.178 en 1h / +0.201 en 15m, bougies figées, 2 fenêtres indépendantes).
+    import numpy as np
+    import leadlag_agent as ll
+    rng = np.random.default_rng(6)
+    calme = list(100 * np.cumprod(1 + rng.normal(0, 0.004, 120)))
+    # BTC vient de MONTER fort -> vote NÉGATIF (fade) sur l'alt, borné
+    btc_up = calme[:-8] + [calme[-9] * (1.005 ** i) for i in range(1, 9)]
+    v_up = ll.signal(calme, btc_up)
+    assert -1.0 < v_up < -0.3
+    # BTC vient de CHUTER -> vote POSITIF
+    btc_dn = calme[:-8] + [calme[-9] * (0.995 ** i) for i in range(1, 9)]
+    assert 0.3 < ll.signal(calme, btc_dn) < 1.0
+    # BTC calme -> vote ~0 ; données courtes -> 0 (fail-closed) ; déterministe
+    assert abs(ll.signal(calme, calme)) < 0.5
+    assert ll.signal(calme, calme[:20]) == 0.0
+    assert ll.signal([], btc_up) == 0.0
+    assert ll.signal(calme, btc_up) == v_up
+    # BTC lui-même : jamais de self lead-lag (au niveau analyze)
+    a = ll.analyze("BTCUSDT")
+    assert a["vote"] == 0.0 and a["confidence"] == 0.0
+    # enregistré dans le cerveau (14 agents), adaptateur ne lève jamais
+    import swarm_brain as sb
+    assert "leadlag" in sb.AGENTS and "leadlag" in sb.AGENT_FUNCS
+    out = sb.AGENT_FUNCS["leadlag"]("ETHUSDT")
+    assert -1.0 <= out["vote"] <= 1.0 and 0.0 <= out["confidence"] <= 1.0
+
+
 def test_savant_synesthesie_motifs_ordinaux():
     # SYNESTHÉSIE (audit 03/07) : l'alphabet de formes de Bandt-Pompe. Perception
     # exposée, NON votante (échec de la barre des deux fenêtres, cf. §50).
@@ -2425,7 +2454,7 @@ def test_geometric_brain_registration():
         except Exception:
             pass
         sb.WEIGHTS_FILE = _old
-    assert len(sb.AGENTS) == 13                             # 11 historiques + flows + carry
+    assert len(sb.AGENTS) == 14                             # 11 historiques + flows + carry + leadlag (§52)
 
 
 def test_flows_carry_brain_registration():

@@ -1777,3 +1777,42 @@ mauvais 42 % : 0.83 ; bon 58 % : 1.16 ; excellent 65 % : 1.82. Monotone, borné,
 plus d'auto-excitation. Poids remis à neutre sous le mécanisme final ; les
 priors d'edge (§41) continuent de s'appliquer par-dessus. À surveiller dimanche :
 la répartition des poids doit maintenant refléter les IC live (§51, tableau).
+
+---
+
+## §52 — Recherche de stratégies supplémentaires : un agent adopté, deux rejetés, trois en feuille de route
+
+**Demande propriétaire (03/07)** : « cherche des stratégies supplémentaires à
+ajouter ». Contraintes dures du tri : Bitget seul, déterministe, AUCUNE
+annulation d'ordre (charte), capital ~450 $, barre des deux fenêtres.
+
+**ADOPTÉ — agent LEAD-LAG contrarian BTC->alts (14e agent).**
+Littérature : lead-lag haute fréquence (arXiv:1111.7103), facteur BTC dans les
+alts (1903.06033). Trois formulations MESURÉES à l'étalon (bougies figées, 3
+alts, sous-échantillonnage anti-autocorrélation, 2 fenêtres indépendantes) :
+- réversion vers le facteur bêta×BTC (1903.06033 littéral) : +0.03 (1h) /
+  −0.09 (15m) — fenêtres CONTRADICTOIRES, rejetée ;
+- suivi du mouvement BTC : −0.178 / −0.201 — rejeté (signe inverse) ;
+- **FADE du z BTC 8 barres sur les alts : +0.178 (1h, t 3.5) / +0.201 (15m,
+  t 4.0) — adopté**. 4e confirmation du fait de réversion (§35-38), cross-asset.
+`leadlag_agent.py`, vote 0 sur BTC lui-même, poids appris par l'EARCP corrigé
+(§51), jugé par l'audit d'IC live comme les autres.
+
+**REJETÉ à la mesure** : réversion facteur bêta (ci-dessus) ; suivi lead-lag.
+
+**FEUILLE DE ROUTE (paper d'abord, dans l'ordre de valeur attendue) :**
+1. *Paires co-intégrées* (stat-arb BTC/ETH, legs SPONGE de geometric §46) —
+   marché-neutre, hedge mode prêt, capital OK (jambes 10-20 $). Infra existante
+   (partition signée) ; exige un moteur de spread + validation xs paper.
+2. *Momentum/réversion CROSS-SECTIONNELLE long-short* (2302.10175 : spatio-
+   temporel) — l'infra de validation xs mesure déjà par symbole ; la voie
+   paper peut ranker l'univers et simuler long-top/short-bottom delta-neutre.
+3. *Funding-extrêmes contrarian* — `futures_get_funding_rate` n'expose PAS
+   l'historique : pas de backtest possible ; à juger EN LIVE seulement (agent
+   candidat : short le funding extrême positif encaissé par le carry).
+4. *Saisonnalité horaire du DCA* — micro-optimisation du timing d'achat réel,
+   mesurable sur nos propres bougies 1h (petite, sans risque).
+
+**Écartés d'office (contraintes)** : grid trading (exige annulations —
+interdites), arbitrage triangulaire spot (exige ventes spot — interdites),
+options/VRP (pas d'API options), news momentum (pas de token CryptoPanic).

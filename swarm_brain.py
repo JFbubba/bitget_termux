@@ -22,7 +22,7 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric", "flows", "carry"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric", "flows", "carry", "leadlag"]
 
 # Bornes DURES des poids finaux d'agents (convention historique, cf. update_weights).
 # La normalisation post-EARCP dans learn() les court-circuitait -> un agent pouvait
@@ -349,6 +349,18 @@ def agent_geometric(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
 
 
+def agent_leadlag(symbol):
+    """Agent LEAD-LAG — contrarian BTC->alts (§52) : fade du z du mouvement BTC
+    récent, appliqué aux ALTS (BTC lui-même : vote 0). Mesuré AVANT adoption :
+    IC +0.178 (1h) / +0.201 (15m) sur bougies figées, 2 fenêtres indépendantes.
+    Déterministe, aucun NN. Voir leadlag_agent.py."""
+    try:
+        import leadlag_agent
+        return leadlag_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0.0, "confidence": 0.0, "note": "leadlag indisponible"}
+
+
 def agent_flows(symbol):
     """Agent FLOWS — flux de capitaux marché-large : momentum de l'offre totale de
     stablecoins (DefiLlama). Expansion = liquidités entrantes (haussier), contraction
@@ -379,7 +391,7 @@ AGENT_FUNCS = {
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
     "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
     "savant": agent_savant, "geometric": agent_geometric,
-    "flows": agent_flows, "carry": agent_carry,
+    "flows": agent_flows, "carry": agent_carry, "leadlag": agent_leadlag,
 }
 
 
