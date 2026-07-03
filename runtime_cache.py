@@ -19,11 +19,15 @@ POURQUOI (réponse à « optimiser la dépendance externe au runtime ») :
 """
 
 import json
+import os
+import threading
 import time
 from pathlib import Path
 
 CACHE_FILE = Path(__file__).resolve().parent / ".runtime_cache.json"
 _MEM = {}
+_LOCK = threading.Lock()          # sérialise le read-modify-write disque INTRA-process
+MAX_DISK_BYTES = 2_000_000        # budget disque du cache (éviction PAR CLÉ au-delà)
 
 
 def _now():
@@ -38,8 +42,24 @@ def _load_disk():
 
 
 def _save_disk(d):
+    """Écriture ATOMIQUE (tmp + os.replace) avec ÉVICTION PAR CLÉ au-delà du budget.
+    L'ancienne troncature par slicing json.dumps(d)[:2Mo] produisait, au seuil, un
+    JSON INVALIDE -> perte TOTALE et silencieuse du cache au rechargement (audit
+    03/07). Ici : on retire les plus GROSSES valeurs jusqu'à rentrer dans le budget
+    (dégradation par clé, jamais de fichier corrompu), et le remplacement atomique
+    protège les lecteurs concurrents d'un fichier à moitié écrit."""
     try:
-        CACHE_FILE.write_text(json.dumps(d)[:2_000_000], encoding="utf-8")
+        data = json.dumps(d)
+        if len(data) > MAX_DISK_BYTES:
+            par_taille = sorted(d, key=lambda k: len(json.dumps(d.get(k))), reverse=True)
+            for k in par_taille:
+                d.pop(k, None)
+                data = json.dumps(d)
+                if len(data) <= MAX_DISK_BYTES:
+                    break
+        tmp = CACHE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(data, encoding="utf-8")
+        os.replace(tmp, CACHE_FILE)
     except Exception:
         pass
 
@@ -75,10 +95,11 @@ def get(key, ttl, fetch, fallback=None, now=None):
     except Exception:
         return val if state == "stale" else fallback   # stale-while-error
     rec = {"ts": now, "val": fresh}
-    _MEM[key] = rec
-    disk = _load_disk()
-    disk[key] = rec
-    _save_disk(disk)
+    with _LOCK:                    # gather_votes parallélisé : écrivains concurrents
+        _MEM[key] = rec
+        disk = _load_disk()
+        disk[key] = rec
+        _save_disk(disk)
     return fresh
 
 

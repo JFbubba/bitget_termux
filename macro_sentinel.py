@@ -28,7 +28,6 @@ sont enveloppés (try/except) et ne lèvent jamais vers l'appelant.
 import math
 import re
 import time
-import urllib.request
 from datetime import date, timedelta
 
 import runtime_cache as rc
@@ -203,9 +202,14 @@ def _http_get(url, timeout=6, retries=1, deadline=None):
         if deadline is not None and time.monotonic() >= deadline:
             break
         try:
-            req = urllib.request.Request(url, headers=_UA)
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "ignore")
+            # requests et non urllib (audit 03/07) : FRED time-out systématiquement les
+            # requêtes urllib (empreinte TLS/headers) alors que requests passe en ~0.4 s
+            # depuis le même hôte — le sentinel était AVEUGLE (nowcast n/a, 18 s brûlées
+            # à chaque cache froid), seul module du dépôt encore sur urllib.
+            import requests
+            r = requests.get(url, headers=_UA, timeout=timeout)
+            r.raise_for_status()
+            return r.text
         except Exception as e:  # 503 throttling FRED, lenteur RSS, etc. -> on retente
             last = e
     raise last if last else TimeoutError("http_get: budget réseau dépassé")

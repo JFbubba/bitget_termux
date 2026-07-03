@@ -641,13 +641,25 @@ def learn(symbol, price_now, weights):
 
 
 def gather_votes(symbol):
-    votes = {}
-    for name in AGENTS:
+    """Vote des 13 agents EN PARALLÈLE (threads — les agents sont I/O réseau).
+
+    Audit 03/07 : la version séquentielle mettait > 90 s pour l'univers complet dans
+    brain_cycle, TUÉE par le STEP_TIMEOUT du scan à 98 % des cycles sur 7 jours —
+    l'apprentissage n'aboutissait jamais au-delà des ~7 premiers symboles (biais
+    tête-de-liste dans brain_log). Les caches runtime_cache sont thread-sûrs
+    (verrou + écriture atomique). Ordre du dict = ordre AGENTS (déterministe)."""
+    from concurrent.futures import ThreadPoolExecutor
+    from config_utils import cfg as _cfg
+
+    def _vote(name):
         try:
-            votes[name] = AGENT_FUNCS[name](symbol)
+            return name, AGENT_FUNCS[name](symbol)
         except Exception as exc:
-            votes[name] = {"vote": 0, "confidence": 0, "note": f"err {type(exc).__name__}"}
-    return votes
+            return name, {"vote": 0, "confidence": 0, "note": f"err {type(exc).__name__}"}
+
+    workers = max(1, int(_cfg("BRAIN_VOTES_WORKERS", 8)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return dict(ex.map(_vote, AGENTS))
 
 
 def _attach_cognition(result, votes, weights, closes=None):
