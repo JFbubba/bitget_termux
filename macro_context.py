@@ -125,6 +125,13 @@ def macro_snapshot():
     oil = latest_value(_safe_series("DCOILWTICO"))  # WTI, contexte inflation/énergie
 
     regime = compute_risk_regime(vix, yield_2s10s, dxy_change)
+    # échéances macro vivantes (Kalshi, §58) — advisory, best-effort, jamais bloquant
+    kalshi = None
+    try:
+        import kalshi_probe
+        kalshi = kalshi_probe.snapshot()
+    except Exception:
+        kalshi = None
     return {
         "vix": vix,
         "yield_2s10s": yield_2s10s,
@@ -133,6 +140,7 @@ def macro_snapshot():
         "regime": regime["regime"],
         "score": regime["score"],
         "notes": regime["notes"],
+        "kalshi": kalshi,
     }
 
 
@@ -147,6 +155,10 @@ def build_report(snap):
         f"Pétrole WTI  : {fmt(snap.get('oil_wti'))}",
         f"RÉGIME       : {snap['regime']} (score {snap['score']:+d})",
     ]
+    k = snap.get("kalshi") or {}
+    if k.get("prochain"):
+        pe = k["prochain"]
+        lines.append(f"Échéance     : {pe['titre']} dans {pe['jours']} j (Kalshi, advisory)")
     for note in snap["notes"]:
         lines.append(f"  - {note}")
     lines.append("")

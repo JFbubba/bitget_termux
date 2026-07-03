@@ -1981,3 +1981,23 @@ Chantiers mesurables notés dans SAVOIR.md ; mémoire de session mise à jour.
 Bilan de la formation : 2 résultats négatifs propres (des semaines économisées),
 1 dépendance externe identifiée, et les acquis structurels (combination puzzle,
 sur-extension, funding-euphorie) gravés dans SAVOIR.md avec leurs implications.
+
+---
+
+## §58 (suite) — Inventaire des clés du .env : deux réveillées, quatre mortes
+
+Sondes du 03/07 (demande propriétaire « utilise les clés disponibles ») :
+| clé | état | action |
+|---|---|---|
+| ALPHAVANTAGE_API_KEY | ✅ fonctionne | TradFi ressuscité (macro_data, §58) |
+| KALSHI_API_KEY | ✅ fonctionne | kalshi_probe : échéances Fed/CPI vivantes dans le snapshot macro (advisory) |
+| FRED_API_KEY | présente | inutile pour l'instant (le CSV sans clé suffit au nowcast) |
+| TWELVEDATA / COINGECKO / FINNHUB / FMP | ❌ 401 (mortes) | le propriétaire régénère |
+| bearerToken X | ❌ 402 credits depleted | payant — abandonné pour l'instant |
+| BIRDEYE / HELIUS / SOLANA_RPC | présentes | hors périmètre actuel (on-chain Solana) — notées |
+| COINGLASS_API_KEY | ABSENTE | la clé demandée (ETF + funding history) — propriétaire s'inscrit |
+
+kalshi_probe.py : lecture seule, séries KXFEDDECISION + KXCPI, parsing pur testé
+(échéances passées exclues, repli close_time, tri), cache 1 h, snapshot macro
+enrichi (« Fed decision in Jul 2026 dans 26 j ») — première brique VIVANTE pour
+le black-out macro du mandat (jusqu'ici statique).

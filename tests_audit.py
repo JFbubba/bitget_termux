@@ -2135,6 +2135,29 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_kalshi_probe_parseurs():
+    # §58 : marchés de prédiction (clé .env fonctionnelle) — parsing PUR.
+    import kalshi_probe as kp
+    payload = {"events": [
+        {"series_ticker": "KXFEDDECISION", "title": "Fed decision in Jul 2026?",
+         "strike_date": "2026-07-29T18:00:00Z"},
+        {"series_ticker": "KXCPI", "title": "CPI in June",
+         "strike_date": "2026-06-10T12:30:00Z"},                  # PASSÉE -> exclue
+        {"series_ticker": "KXCPI", "title": "CPI in July",
+         "strike_date": None,                                      # repli close_time marché
+         "markets": [{"close_time": "2026-07-15T12:30:00Z"}]},
+        {"series_ticker": "KXCPI", "title": "illisible"},          # sans date -> exclue
+    ]}
+    now = kp._iso_vers_ts("2026-07-03T12:00:00Z")
+    evs = kp.parser_evenements(payload, now=now)
+    assert [e["titre"] for e in evs] == ["CPI in July", "Fed decision in Jul 2026?"]
+    assert evs[0]["jours"] == 12.0 and evs[1]["serie"] == "KXFEDDECISION"
+    assert kp.prochaine_echeance(evs)["titre"] == "CPI in July"
+    assert kp.prochaine_echeance([]) is None
+    assert kp.parser_evenements(None) == []
+    assert kp._iso_vers_ts("n/a") is None
+
+
 def test_macro_data_parseurs_av_fred():
     # §58 : TradFi ressuscité sur AlphaVantage (proxys ETF) + FRED (niveaux).
     import macro_data as md
