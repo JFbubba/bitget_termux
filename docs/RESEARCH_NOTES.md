@@ -1849,3 +1849,38 @@ gitignored (data_history/). Un an de bougies 1h téléchargé pour BTC/ETH/SOL/X
 NB : le backtest du CONSENSUS complet sur l'an reste impossible offline — la
 plupart des agents consomment des flux live-only (carnet, liquidations,
 funding). L'instrument de mesure du consensus est l'audit d'IC live (§51).
+
+---
+
+## §54 — L'année contre les fenêtres : audit de régime des agents purs, porte annuelle
+
+**Audit des 4 agents purs sur TROIS fenêtres** (1h 25 j figée, 15m 6 j, 1h 1 AN) :
+
+| agent | 1h 25j | 15m 6j | 1 AN |
+|---|---|---|---|
+| simons | +0.043 | +0.106 | −0.004 |
+| divergent | +0.105 | +0.175 | −0.005 |
+| geometric v2 (§48) | +0.113 | +0.168 | **−0.068 (t −2.6)** |
+| geometric v1 (ancien) | −0.050 | −0.088 | **+0.045 (t +1.7)** |
+| savant (§49) | +0.089 | +0.172 | −0.062 (t −2.4) |
+| leadlag (§52) | +0.178 | +0.201 | +0.014 |
+
+**Leçon centrale : mes « deux fenêtres indépendantes » (§48-52) partageaient le
+MÊME régime** (juin-juillet 2026 très réversif). L'année inverse plusieurs
+verdicts. Tentative de v3 conditionnel au régime (mesure sur l'an : queue
+lourde -> réversion +0.02/+0.06 ; transitoire/gaussien -> momentum +0.06/+0.18,
+soit l'INVERSE de la thèse d'origine des papiers) : an +0.03, 1h +0.07, mais
+15m −0.10 -> AUCUNE formulation ne passe les trois fenêtres. Le signal est
+régime-dépendant par nature.
+
+**Décision structurelle (pas de winner-picking sur backtests contradictoires)** :
+1. v2/§49 restent en production (collent au régime COURANT — le live le
+   confirme : geometric DSR xs 0.48, priors relevés) ; fiches mises à jour.
+2. **Porte ANNUELLE dans l'échelle d'edge** : `agent_validation.replay_annuel`
+   (pur, données injectables) tourne à chaque validation (top-up incrémental de
+   l'historique), greffe `annuel: {ic, t, n}` sur chaque ligne du ranking, et
+   `edge_ladder.tier_of` REFUSE le palier LIVE si l'IC annuel est négatif
+   (fail-open sans mesure : on bride sur preuve). Un artefact de régime ne peut
+   plus être promu au réel.
+3. L'arbitrage fin des poids reste à la couche adaptative : hit-rate EWMA (§51)
+   + priors d'edge — c'est leur travail, sur données vivantes.

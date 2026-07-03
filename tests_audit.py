@@ -2132,6 +2132,38 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_validation_annuelle_et_porte_edge():
+    # §54 : le rejeu ANNUEL est le 3e juge — pas de promotion LIVE d'un artefact
+    # de régime (IC annuel négatif), fail-open sans mesure.
+    import math
+    import numpy as np
+    import agent_validation as av
+    import edge_ladder as el
+    # replay_annuel PUR avec données injectées : signal moyenne-réversion parfait
+    rng = np.random.default_rng(12)
+    prix = 100.0
+    candles = []
+    for i in range(700):
+        prix = prix * (1 + rng.normal(0, 0.004)) * (1 + 0.002 * math.sin(i / 3))
+        candles.append([i * 3600000, prix, prix * 1.001, prix * 0.999, prix, 100])
+    def sig_parfait(c):
+        # anticipe la sinusoïde (edge synthétique certain) — l'indice global se lit
+        # dans le TIMESTAMP (le rejeu passe des tranches de 200 bougies)
+        i = c[-1][0] // 3600000
+        return math.sin((i + 4) / 3)
+    res = av.replay_annuel(donnees={"X": candles}, pas=6,
+                           agents={"parfait": sig_parfait})
+    assert "parfait" in res and res["parfait"]["ic"] > 0.3 and res["parfait"]["n"] >= 50
+    assert av.replay_annuel(donnees={}) == {}                       # vide -> {} (fail-open)
+    # porte annuelle : négatif -> pas LIVE (PROBATION) ; positif/absent -> transparent
+    row_ok = {"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4}
+    live_ok = {"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}
+    assert el.tier_of(row_ok, live_ok) == "LIVE"                    # sans mesure annuelle
+    assert el.tier_of({**row_ok, "annuel": {"ic": 0.02}}, live_ok) == "LIVE"
+    assert el.tier_of({**row_ok, "annuel": {"ic": -0.03}}, live_ok) == "PROBATION"
+    assert el._annuel_ok({"annuel": {"ic": None}}) is True          # illisible -> transparent
+
+
 def test_accum_fenetre_achat_horaire():
     # §53 : le DCA vise la fenêtre 16-20h UTC (mesurée ~10 bps moins chère sur 1 an)
     import accumulation_engine as ae

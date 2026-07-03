@@ -550,6 +550,14 @@ def signal(closes, order_flow=None, micro=None):
     # Mesuré sur bougies FIGÉES (replay étalon, 4 symboles, 2 fenêtres
     # indépendantes) : IC poolé −0.05 -> +0.11 (1h, t +1.8) et −0.09 -> +0.17
     # (15m, t +1.9), positif sur chacun des 4 symboles.
+    # HONNÊTETÉ (§54, 1 AN d'historique) : sur 12 mois, ce cœur fait −0.07 (t −2.6)
+    # quand l'ancien faisait +0.045 — les « 2 fenêtres indépendantes » partageaient
+    # le MÊME régime réversif. Le split conditionnel mesuré sur l'an (queue lourde
+    # -> réversion ; transitoire/gaussien -> momentum) échoue lui aussi hors
+    # échantillon (15m −0.10). AUCUNE formulation ne passe les 3 fenêtres : le
+    # signal est RÉGIME-DÉPENDANT par nature. Décision : v2 reste (colle au régime
+    # courant), et c'est la couche adaptative qui arbitre — hit-rate EWMA (§51)
+    # côté poids, porte ANNUELLE (§54) côté promotion LIVE.
     mom8 = math.tanh(float(r[-8:].sum()) / (r.std() * math.sqrt(8) + 1e-9) / 2.0)
     mom32 = math.tanh(float(r[-32:].sum()) / (r.std() * math.sqrt(32) + 1e-9) / 2.0)
     h = tr.get("hurst")

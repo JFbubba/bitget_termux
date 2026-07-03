@@ -70,11 +70,24 @@ def _replay_passes(row, dsr_min=None, min_n=None):
     return dsr >= dsr_min and n >= min_n and oos > 0
 
 
+def _annuel_ok(row):
+    """Robustesse ANNUELLE (§54). PUR. Un agent dont l'IC sur UN AN d'historique est
+    NÉGATIF est un artefact de régime possible : pas de LIVE. FAIL-OPEN : sans
+    mesure annuelle (historique absent), la porte est transparente — on bride sur
+    preuve, pas sur absence de mesure."""
+    an = (row or {}).get("annuel")
+    if not isinstance(an, dict) or an.get("ic") is None:
+        return True
+    return float(an["ic"]) > 0.0
+
+
 def tier_of(row, live_row=None, dsr_min=None, min_n=None):
     """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
-    sur les VOTES REELS (live) ; replay seul -> PROBATION (prometteur, reste paper)."""
+    sur les VOTES REELS (live) ET la robustesse ANNUELLE (§54 : pas de promotion
+    d'un artefact de régime) ; replay seul -> PROBATION (prometteur, reste paper)."""
     if _replay_passes(row, dsr_min, min_n):
-        return "LIVE" if _live_confirms(live_row) else "PROBATION"  # live pas (encore) confirme
+        return ("LIVE" if (_live_confirms(live_row) and _annuel_ok(row))
+                else "PROBATION")                    # live/annuel pas (encore) confirmés
     dsr = float((row or {}).get("dsr", 0) or 0)
     n = int((row or {}).get("n", 0) or 0)
     if dsr >= 0.50 and n >= 30:
@@ -88,7 +101,8 @@ def live_pending(row, live_row=None, dsr_min=None, min_n=None):
     """L'agent bat-il le REPLAY mais PAS (encore) la confirmation live ? PUR.
     True = « à une confirmation live près du palier LIVE » : purement informatif (observabilité),
     ne donne AUCUN droit réel. Sert à voir qui approche du réel sans qu'aucun verrou ne bouge."""
-    return bool(_replay_passes(row, dsr_min, min_n) and not _live_confirms(live_row))
+    return bool(_replay_passes(row, dsr_min, min_n)
+                and not (_live_confirms(live_row) and _annuel_ok(row)))
 
 
 def agent_tier(agent, report=None):

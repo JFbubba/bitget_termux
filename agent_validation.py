@@ -200,6 +200,43 @@ PURE_AGENTS = {"simons": _sig_simons, "savant": _sig_savant,
                "geometric": _sig_geometric, "divergent": _sig_divergent}
 
 
+def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
+    """IC ANNUEL des agents PURS sur l'historique profond (candles_history, §54).
+    PUR si `donnees` est injecté ({symbol: bougies}). L'audit du 03/07 a montré que
+    des fenêtres récentes, même « indépendantes », peuvent partager le MÊME régime
+    (juin-juillet 2026 réversif : geometric §48 y faisait +0.11/+0.17 mais −0.07
+    sur l'année) — le rejeu annuel est le 3e juge, câblé dans la porte d'edge :
+    pas de promotion LIVE d'un artefact de régime. Retourne
+    {agent: {ic, ic_t, n}} ; {} si pas de données (fail-open : la porte annuelle
+    ne s'applique que si la mesure existe)."""
+    import math
+    if donnees is None:
+        try:
+            import candles_history as ch
+            donnees = {s: ch.load(s, "1h") for s in
+                       ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")}
+            donnees = {s: c for s, c in donnees.items() if len(c) > 500}
+        except Exception:
+            return {}
+    if not donnees:
+        return {}
+    agents = agents or PURE_AGENTS
+    out = {}
+    for nom, fn in agents.items():
+        votes, fwd = [], []
+        for s, c in donnees.items():
+            for t_ in range(warmup, len(c) - horizon, pas):
+                try:
+                    votes.append(float(fn(c[max(0, t_ - 200):t_ + 1]) or 0.0))
+                    fwd.append(math.log(float(c[t_ + horizon][4]) / float(c[t_][4])))
+                except Exception:
+                    continue
+        if len(votes) >= 50:
+            m = evaluate(votes, fwd)
+            out[nom] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"), "n": m.get("n")}
+    return out
+
+
 def replay(signal_fn, candles, horizon, warmup=80, step=None):
     """Rejoue un signal pur sur l'historique : vote_t = f(bougies[:t+1]), rendement
     futur close[t+h]/close[t]−1. Pas de look-ahead. Pas = horizon (purge). Pur-ish
