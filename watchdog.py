@@ -279,6 +279,37 @@ def build_report(status):
     return "\n".join(lines)
 
 
+# CARTE DE FRAÎCHEUR (§61 suite) : chaque boucle ÉCRIT quelque part — un writer
+# qui se tait (exception avalée, étape sautée, service mort) FIGE son artefact.
+# Surveiller les sorties couvre TOUTES les causes de silence d'un coup.
+# (validation : 420 min = 6 h de cadence + marge ; carry : journal throttlé 1 h.)
+CARTE_FRAICHEUR = [
+    ("brain_log.json", 20), ("brain_log_history.jsonl", 20),
+    ("futures_auto_journal.jsonl", 20), (".futures_pos_state.json", 20),
+    ("brain_hitrates.json", 90), ("brain_weights.json", 90),
+    (".runtime_cache.json", 20), (".carry_journal.json", 120),
+    ("microstructure_history.jsonl", 20), ("validation_report.json", 420),
+]
+
+
+def artefacts_figes(carte=None, now=None, racine=None):
+    """PUR (fs seulement). [(nom, age_min|None)] des artefacts FIGÉS (âge > seuil)
+    ou ABSENTS. [] = rien d'aveugle."""
+    import time as _t
+    now = _t.time() if now is None else now
+    racine = Path(racine) if racine else Path(".")
+    figes = []
+    for nom, seuil_min in (carte or CARTE_FRAICHEUR):
+        p = racine / nom
+        if not p.exists():
+            figes.append((nom, None))
+            continue
+        age = (now - p.stat().st_mtime) / 60.0
+        if age > seuil_min:
+            figes.append((nom, round(age, 1)))
+    return figes
+
+
 def brain_age(chemin=None):
     """Âge (s) de la dernière entrée de brain_log.json — None si illisible. PUR
     si chemin injecté."""
@@ -311,23 +342,23 @@ def main(argv=None):
     print("\n".join(svc_lines))
     print(f"  microstructure: {'frais' if micro_fresh else 'figé/absent'}"
           + (f" (âge {age:.0f}s)" if age is not None else ""))
-    # fraîcheur du CERVEAU (§61) : 4.7 h de gel silencieux (NameError avalé dans
-    # learn) ont rendu la boucle directionnelle aveugle sans la moindre alerte.
-    # brain_log doit bouger à chaque cycle de scan (5 min) — au-delà de 20 min,
-    # alerte Telegram (dédupliquée par la cadence 15 min du watchdog lui-même).
-    b_age = brain_age()
-    b_fresh = (b_age is not None and b_age <= 1200)
-    print(f"  cerveau (brain_log): {'frais' if b_fresh else 'FIGÉ'}"
-          + (f" (âge {b_age / 60:.0f} min)" if b_age is not None else " (absent)"))
-    if not b_fresh:
+    # CARTE DE FRAÎCHEUR complète (§61 suite) : le gel du cerveau (4.7 h de
+    # NameError avalé) n'était surveillé par RIEN — désormais chaque artefact
+    # de chaque boucle a son seuil ; le moindre silence devient une alerte.
+    figes = artefacts_figes()
+    if figes:
+        detail = " · ".join(f"{n} ({'absent' if a is None else str(a) + ' min'})"
+                            for n, a in figes)
+        print(f"  artefacts FIGÉS : {detail}")
         try:
             import telegram_notifier as tn
-            tn.send_telegram("🚨 WATCHDOG : le CERVEAU n'enregistre plus de votes "
-                             + (f"depuis {b_age / 60:.0f} min" if b_age is not None else "(journal absent)")
-                             + " — la boucle directionnelle tourne en aveugle (fail-closed). "
-                             "Voir journalctl -u bitget-scan (lignes 'brain learn/record').")
+            tn.send_telegram(f"🚨 WATCHDOG : {len(figes)} artefact(s) FIGÉ(S) — {detail}. "
+                             "Une boucle s'est tue (exception avalée ou service mort) : "
+                             "voir journalctl -u bitget-scan.")
         except Exception:
             pass
+    else:
+        print(f"  artefacts : {len(CARTE_FRAICHEUR)}/{len(CARTE_FRAICHEUR)} frais (rien d'aveugle)")
 
     # --arm-killswitch : pose KILL_SWITCH automatiquement sur anomalie SÉVÈRE (défensif)
     if "--arm-killswitch" in argv:

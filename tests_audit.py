@@ -820,6 +820,32 @@ def test_brain_learn_smoke_bout_en_bout():
             sb.WEIGHTS_FILE, sb.HITRATE_FILE, sb._read_log, sb._write_log = old
 
 
+def test_watchdog_artefacts_figes():
+    # §61 suite : la carte de fraîcheur — figé (> seuil), absent, frais.
+    import tempfile, time as _time
+    from pathlib import Path as _P
+    import watchdog as wd
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        (tmp / "frais.json").write_text("{}")
+        vieux = tmp / "vieux.json"
+        vieux.write_text("{}")
+        import os
+        il_y_a_1h = _time.time() - 3600
+        os.utime(vieux, (il_y_a_1h, il_y_a_1h))
+        carte = [("frais.json", 20), ("vieux.json", 20), ("absent.json", 20),
+                 ("vieux.json", 120)]                     # même fichier, seuil large -> ok
+        figes = wd.artefacts_figes(carte, racine=tmp)
+        noms = [n for n, _ in figes]
+        assert noms == ["vieux.json", "absent.json"]      # frais exclu, seuil large exclu
+        assert figes[0][1] is not None and 55 <= figes[0][1] <= 65
+        assert figes[1][1] is None                        # absent
+        assert wd.artefacts_figes([("frais.json", 20)], racine=tmp) == []
+    # la carte par défaut couvre le cerveau ET la boucle réelle
+    defaut = [n for n, _ in wd.CARTE_FRAICHEUR]
+    assert "brain_log.json" in defaut and "futures_auto_journal.jsonl" in defaut
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile

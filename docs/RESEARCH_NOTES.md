@@ -2093,3 +2093,16 @@ ligne fautive, donnaient l'illusion d'un système vivant.
 Leçon (la 3e du jour sur le même thème) : un try/except best-effort sans trace
 est une dette de visibilité ; tout chemin critique mérite son test de bout en
 bout ET son tripwire de fraîcheur.
+
+**Addendum §61 — « vérifie que rien n'est aveugle » : l'examen et la garantie.**
+Examen complet du 03/07 17h : les 14 agents voient (votes différenciés sur
+données réelles — F&G 21 Extreme Fear, imbalance +0.36, palette du savant
+active), 8/8 consensus frais, 12/12 sources amont vivantes (bougies, carnet,
+684 prix, TradFi 5/5, Kalshi, F&G, univers, funding + percentile, micro,
+équité, positions), 11/11 artefacts frais. GARANTIE PERMANENTE : le watchdog
+surveille désormais la CARTE DE FRAÎCHEUR complète (10 artefacts, un par
+boucle, seuils adaptés aux cadences) — un writer qui se tait, quelle qu'en
+soit la cause (exception avalée, étape sautée, service mort), FIGE son
+artefact et déclenche l'alerte Telegram sous 15 min. Surveiller les SORTIES
+couvre toutes les formes de silence d'un coup — c'est la clôture systémique
+des trois incidents de silence du jour.
