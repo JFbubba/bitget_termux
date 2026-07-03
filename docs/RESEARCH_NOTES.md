@@ -1756,3 +1756,24 @@ sortie ; heredoc + saut de ligne qui sort `git commit` de la chaîne &&). Créé
 `gates.sh` (codes de sortie stricts, commit conditionnel) — forme obligatoire
 documentée dans CLAUDE.md. Le backtest directionnel long (recommandation n°5)
 reste au backlog.
+
+**Addendum §51 (suite) — cinq mécanismes de saturation, démontés un à un.**
+La traque du poids d'orderflow épinglé à 3.0 a révélé une cascade :
+1. cohérence AVEC SOI (consensus incluant l'agent) -> LOO ;
+2. min-max PAR LOT dans earcp_weights (un écart d'UN hit étiré à [0,1], ×exp(5))
+   -> bornes ABSOLUES ;
+3. learn() PAR SYMBOLE (10×/cycle) recomposait la concentration à chaque appel
+   -> l'EARCP devient une CIBLE, lissage 10 %/apprentissage ;
+4. cohérence à 30 % du score alors qu'elle ANTI-corrèle avec la justesse mesurée
+   -> β 0.9 (départage, configurable BRAIN_EARCP_BETA) ;
+5. le plus profond : l'entrée « performance » de l'EARCP était LE POIDS LUI-MÊME
+   (mémoire Hedge) — poids↑ -> P̃↑ -> cible↑ -> poids↑, auto-excitation jusqu'au
+   clamp sur n'importe quelle inclinaison persistante. Remplacée par le HIT-RATE
+   EWMA mesuré (α=0.05, brain_hitrates.json, exogène, borné [0.3,0.7]).
+
+Validation par simulation multi-seeds (30 cycles × 10 symboles, 8 graines) :
+sans edge + cohérence 0.85 (la pathologie) : médiane 0.99 (avant : 3.00) ;
+mauvais 42 % : 0.83 ; bon 58 % : 1.16 ; excellent 65 % : 1.82. Monotone, borné,
+plus d'auto-excitation. Poids remis à neutre sous le mécanisme final ; les
+priors d'edge (§41) continuent de s'appliquer par-dessus. À surveiller dimanche :
+la répartition des poids doit maintenant refléter les IC live (§51, tableau).

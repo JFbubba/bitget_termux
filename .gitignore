@@ -57,3 +57,4 @@ agent_hub/
 # Artefact runtime (rapport de validation des agents, regenere)
 validation_report.json
 .futures_pos_state.json
+brain_hitrates.json

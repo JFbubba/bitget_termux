@@ -730,6 +730,32 @@ def test_brain_update_weights_clamped():
     assert w["good"] > w["bad"]
     assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
 
+def test_brain_hitrates_exogenes_et_stabilite():
+    # §51 (5e mécanisme) : l'entrée performance de l'EARCP est le HIT-RATE EWMA
+    # mesuré, PAS le poids — fin de la boucle auto-excitée poids->P->cible->poids.
+    import swarm_brain as sb
+    hr = sb.maj_hitrates({}, {"a": [True, True, False], "b": [False], "vide": []})
+    assert abs(hr["a"] - (0.95 * 0.5 + 0.05 * (2 / 3))) < 1e-9   # part de 0.5 (neutre)
+    assert abs(hr["b"] - (0.95 * 0.5 + 0.05 * 0.0)) < 1e-9
+    assert "vide" not in hr                                       # lot vide ignoré
+    # STABILITÉ : agent SANS edge (hit-rate neutre) mais cohérence haute, 100
+    # apprentissages chaînés (l'ancienne composition claquait au clamp 3.0) ->
+    # le poids reste ~1, il ne s'auto-excite plus.
+    w = {"of": 1.0, "x": 1.0, "y": 1.0, "z": 1.0}
+    hr = {n: 0.5 for n in w}                                      # personne n'a d'edge
+    coh = {"of": 0.9, "x": 0.5, "y": 0.5, "z": 0.5}
+    for _ in range(100):
+        ew = sb.earcp_weights(hr, coh, beta=0.9, perf_bounds=(0.3, 0.7))
+        avg = sum(ew.values()) / len(ew)
+        cible = {k: v / avg for k, v in ew.items()}
+        w = {k: max(0.2, min(3.0, 0.9 * w[k] + 0.1 * cible[k])) for k in cible}
+    assert w["of"] < 1.5, w                                       # plus de winner-take-all
+    # ...mais un edge RÉEL mesuré est toujours récompensé (monotonie préservée)
+    hr2 = dict(hr, of=0.65)
+    ew2 = sb.earcp_weights(hr2, coh, beta=0.9, perf_bounds=(0.3, 0.7))
+    assert ew2["of"] == max(ew2.values())
+
+
 def test_brain_earcp_weights():
     import swarm_brain as sb
     perf = {"a": 3.0, "b": 1.0, "c": 0.3, "d": 1.0}

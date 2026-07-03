@@ -449,7 +449,7 @@ def update_weights(weights, agent_correct):
     return w
 
 
-def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
+def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05, perf_bounds=(0.2, 3.0)):
     """Pondération EARCP complète (arXiv:2603.14651). Pur.
 
     Combine PERFORMANCE et COHÉRENCE : chacune normalisée en [0,1], puis
@@ -476,7 +476,7 @@ def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
     M = len(names)
     if w_min * M >= 1.0:                         # garde-fou : plancher réalisable
         w_min = 0.5 / M
-    P, C = _norm(perf, 0.2, 3.0), _norm(coherence, 0.0, 1.0)
+    P, C = _norm(perf, *perf_bounds), _norm(coherence, 0.0, 1.0)
     s = {n: beta * P[n] + (1.0 - beta) * C[n] for n in names}
     mx = max(s.values())                         # softmax stable numériquement
     ex = {n: math.exp(eta * (s[n] - mx)) for n in names}
@@ -633,6 +633,44 @@ def _record(symbol, votes, result, price):
         pass
 
 
+HITRATE_FILE = Path(__file__).resolve().parent / "brain_hitrates.json"
+HITRATE_ALPHA = 0.05                        # EWMA lente : ~20 lots pour converger
+
+
+def _load_hitrates():
+    """Taux de réussite EWMA par agent (0.5 = neutre). Fail-safe : {} si illisible."""
+    try:
+        d = json.loads(HITRATE_FILE.read_text(encoding="utf-8"))
+        return {k: float(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_hitrates(hr):
+    try:
+        tmp = HITRATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({k: round(v, 4) for k, v in hr.items()}), encoding="utf-8")
+        import os
+        os.replace(tmp, HITRATE_FILE)
+    except Exception:
+        pass
+
+
+def maj_hitrates(hitrates, correctness, alpha=HITRATE_ALPHA):
+    """PUR. EWMA du taux de réussite par agent : hr ← (1−α)·hr + α·taux_du_lot.
+    C'est l'entrée PERFORMANCE de l'EARCP (audit §51, 5e mécanisme) : l'ancienne
+    entrée était le POIDS lui-même (mémoire Hedge) — poids↑ -> P̃↑ -> cible↑ ->
+    poids↑, boucle auto-excitée jusqu'au clamp sur n'importe quelle inclinaison
+    persistante. Le hit-rate mesuré est EXOGÈNE : aucun chemin du poids vers lui."""
+    hr = dict(hitrates)
+    for n, hits in (correctness or {}).items():
+        if not hits:
+            continue
+        taux = sum(1 for h in hits if h) / len(hits)
+        hr[n] = (1.0 - alpha) * float(hr.get(n, 0.5)) + alpha * taux
+    return hr
+
+
 def learn(symbol, price_now, weights):
     """Juge les décisions passées matures de ce symbole et met à jour les poids."""
     if not price_now:
@@ -651,13 +689,33 @@ def learn(symbol, price_now, weights):
         e["evaluated"] = True
         changed = True
     if correctness:
-        agent_correct = {n: (sum(v) / len(v) >= 0.5) for n, v in correctness.items()}
-        perf_w = update_weights(weights, agent_correct)         # mémoire de performance (Hedge borné)
+        hitrates = maj_hitrates(_load_hitrates(), correctness)  # performance EXOGÈNE (EWMA)
+        _save_hitrates(hitrates)
+        perf_hr = {n: hitrates.get(n, 0.5) for n in weights}
         coherence = _coherence_scores(log)                      # accord avec le consensus
-        coh = {n: coherence.get(n, 0.5) for n in perf_w}        # neutre (0.5) si pas d'historique
-        ew = earcp_weights(perf_w, coh)                         # EARCP : performance + cohérence
+        coh = {n: coherence.get(n, 0.5) for n in perf_hr}       # neutre (0.5) si pas d'historique
+        # β relevé 0.7 -> 0.9 (audit §51) : la cohérence MESURÉE anti-corrèle avec
+        # la justesse live (liquidations : meilleure cohérence LOO 0.78, PIRE IC
+        # −0.16 ; technicals l'inverse) — elle ne peut pas peser 30 % du score.
+        # À 10 % elle départage ; la PERFORMANCE décide. Configurable pour la
+        # revue : BRAIN_EARCP_BETA=0.7 restaure l'ancien arbitrage.
+        beta = float(_cfg("BRAIN_EARCP_BETA", 0.9))
+        # P = hit-rate EWMA ∈ [0.3, 0.7] (50 % ± 20 % couvre les taux réalistes) —
+        # une statistique MESURÉE, pas le poids (fin de la boucle auto-excitée §51).
+        ew = earcp_weights(perf_hr, coh, beta=beta, perf_bounds=(0.3, 0.7))
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
-        weights = {k: round(v / avg, 3) for k, v in ew.items()}  # remise à moyenne ~1.0 (convention)
+        cible = {k: v / avg for k, v in ew.items()}             # cible EARCP (moyenne ~1.0)
+        # LISSAGE vers la cible (audit §51, 3e mécanisme de saturation) : learn()
+        # tourne une fois PAR SYMBOLE (10×/cycle) et la cohérence ne change pas
+        # entre ces appels — ÉCRASER les poids par la cible re-composait la
+        # concentration exponentielle à chaque appel (×1.5 puis ^10 ≈ ×57 ->
+        # clamp 3.0 en un cycle, quel que soit l'écart réel). En se déplaçant de
+        # 10 % par apprentissage, un cycle complet ≈ 65 % du chemin vers une
+        # cible BORNÉE : un agent ne tient un poids haut que si sa cible RESTE
+        # haute (edge soutenu), plus jamais sur un lot chanceux.
+        lissage = float(_cfg("BRAIN_EARCP_LISSAGE", 0.1))
+        weights = {k: round((1.0 - lissage) * float(weights.get(k, 1.0))
+                            + lissage * cible[k], 3) for k in cible}
         weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
         weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
         save_weights(weights)
