@@ -1679,3 +1679,33 @@ positif sur chacun des 4 symboles dans les deux fenêtres. 3 variantes testées
 sur 2 fenêtres indépendantes, direction pré-enregistrée par §35-38. L'agent reste
 ADVISORY (PAPER) : c'est la validation transversale (timer 6 h) et l'échelle
 d'edge qui jugeront sur la durée, avec déflation multiple-testing.
+
+---
+
+## §49 — Agent SAVANT « spécialiste trading » : la fenêtre bornée gagne, le reste rejeté
+
+**Demande propriétaire (03/07)** : améliorer l'agent « autiste digitale » (savant)
+en spécialiste trading. Baseline à l'étalon (replay, bougies figées, 4 symboles) :
+IC poolé +0.039 en 1h, vote 9 % du temps (hyper-focalisation par design), déjà le
+meilleur des 4 agents purs (DSR 0.339 en xs).
+
+**Littérature** : turbulence de Kritzman-Li (Mahalanobis comme indice de régime),
+Mahalanobis++ (arXiv:2505.18032 : la NORMALISATION des features est le levier n°1),
+proxies de liquidité OHLCV — spread Corwin-Schultz (2012), illiquidité d'Amihud
+(2002), microstructure crypto (2602.00776).
+
+**Mesure composant par composant (bougies figées 1h, validé 15m indépendant)** :
+- FENÊTRE BORNÉE (72) : +0.039 -> **+0.095** (1h, plateau stable fen 56-72) et
+  +0.145 -> **+0.185 (t 3.0)** en 15m. Argument de JUSTESSE, pas de fit : le
+  replay de validation passait TOUT l'historique quand le live calcule sur 80
+  bougies — l'étalon évaluait un autre agent que celui qui vote. ADOPTÉE.
+- Tenseur enrichi liquidité (D7, log-volume + CS + Amihud) : **−0.02 — REJETÉ**
+  (les dimensions de liquidité DILUENT la détection Mahalanobis du vote).
+- Seuil percentile adaptatif : −0.005 — REJETÉ. Direction z 3 barres : −0.009 —
+  REJETÉ. (La première réécriture complète faisait −0.009 poolé : c'est la mesure
+  composant par composant qui a sauvé l'amélioration.)
+
+Les utilitaires (corwin_schultz, turbulence_percentile, _standardize_robuste,
+tenseur enrichi=True) restent disponibles, TESTÉS, documentés « rejetés du vote à
+la mesure » — pour l'observabilité. Leçon reproduite deux fois (§48, §49) : chaque
+composant se mesure SÉPARÉMENT, la somme des bonnes idées n'est pas une bonne idée.

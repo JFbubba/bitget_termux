@@ -2090,6 +2090,49 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_savant_utilitaires_liquidite_turbulence():
+    # utilitaires ajoutés à l'audit du 03/07 (Corwin-Schultz 2012, Kritzman-Li 2010,
+    # normalisation robuste esprit Mahalanobis++ 2505.18032). MESURE HONNÊTE : testés
+    # dans le chemin du vote et REJETÉS (ils le dégradaient) — gardés pour
+    # l'observabilité, leurs contrats restent vérifiés.
+    import numpy as np
+    import savant_agent as sv
+    # spread Corwin-Schultz : positif sur amplitudes larges, 0 sur dégénéré
+    assert sv.corwin_schultz(101, 99, 101.5, 98.5) > 0.0
+    assert sv.corwin_schultz(100, 100, 100, 100) == 0.0
+    assert sv.corwin_schultz(0, -1, 2, 1) == 0.0
+    # standardisation robuste : un outlier ne déplace pas la baseline (médiane/MAD)
+    X = np.array([[1.0], [1.1], [0.9], [1.0], [50.0]])
+    Z = sv._standardize_robuste(X)
+    assert abs(Z[1, 0]) < 2.0 and Z[-1, 0] > 10.0     # le normal reste normal, l'outlier ressort
+    # turbulence en percentile : un choc final = percentile ~1
+    rng = np.random.default_rng(3)
+    base = rng.normal(0, 1, (60, 3))
+    base[-1] = [8.0, 8.0, 8.0]
+    d2, pct = sv.turbulence_percentile(base)
+    assert pct >= 0.95 and d2 > 0
+    assert sv.turbulence_percentile(base[:5]) == (0.0, 0.0)   # trop court -> neutre
+    # tenseur enrichi OPTIONNEL : D=7 avec enrichi=True, D=5 par défaut (chemin du vote)
+    candles = [[i, 100 + i, 101 + i, 99 + i, 100.5 + i, 1000] for i in range(20)]
+    assert sv.feature_matrix(candles).shape[1] == 5
+    assert sv.feature_matrix(candles, enrichi=True).shape[1] == 7
+
+
+def test_savant_fenetre_bornee():
+    # audit 03/07 : la fenêtre NON bornée faisait diverger replay (tout l'historique)
+    # et live (80 bougies). signal() borne à `window` : passer 600 bougies ou les 73
+    # dernières doit donner LE MÊME vote.
+    import numpy as np
+    import savant_agent as sv
+    rng = np.random.default_rng(9)
+    px = list(100 * np.cumprod(1 + rng.normal(0, 0.01, 600)))
+    candles = [[i, p, p * 1.002, p * 0.998, p, 1000] for i, p in enumerate(px)]
+    s_long = sv.signal(candles)
+    s_court = sv.signal(candles[-73:])
+    assert s_long["vote"] == s_court["vote"]
+    assert s_long["anomaly"] == s_court["anomaly"]
+
+
 def test_savant_signal_fades_dislocation():
     import savant_agent as sv
     # flush baissier brutal -> fade -> vote LONG ; spike haussier -> vote SHORT
