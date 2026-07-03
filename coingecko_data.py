@@ -33,6 +33,17 @@ def _headers():
     return {"x-cg-demo-api-key": key} if key else {}
 
 
+def _get(url, params=None, timeout=12):
+    """GET CoinGecko avec repli SANS CLÉ sur 401 (audit 03/07 : la clé configurée est
+    rejetée — error 10002 — et le fallback silencieux rendait des None alors que
+    l'endpoint PUBLIC répond très bien sans clé). Lève si les deux échouent."""
+    r = requests.get(url, params=params, headers=_headers(), timeout=timeout)
+    if r.status_code == 401 and _headers():
+        r = requests.get(url, params=params, timeout=timeout)   # repli keyless
+    r.raise_for_status()
+    return r
+
+
 def resolve_id(token):
     up = str(token).strip().upper()
     return SYMBOL_TO_ID.get(up, str(token).strip().lower())
@@ -70,10 +81,8 @@ def fetch_markets(tokens):
     # best-effort : liste vide si CoinGecko est injoignable (jamais d'exception)
     try:
         ids = ",".join(resolve_id(t) for t in tokens)
-        r = requests.get(f"{BASE}/coins/markets",
-                         params={"vs_currency": "usd", "ids": ids, "price_change_percentage": "24h"},
-                         headers=_headers(), timeout=12)
-        r.raise_for_status()
+        r = _get(f"{BASE}/coins/markets",
+                 params={"vs_currency": "usd", "ids": ids, "price_change_percentage": "24h"})
         return parse_markets(r.json())
     except Exception:
         return []
@@ -82,8 +91,7 @@ def fetch_markets(tokens):
 def fetch_global():
     # best-effort : dict aux valeurs None si CoinGecko est injoignable
     try:
-        r = requests.get(f"{BASE}/global", headers=_headers(), timeout=12)
-        r.raise_for_status()
+        r = _get(f"{BASE}/global")
         return parse_global(r.json())
     except Exception:
         return {"total_market_cap_usd": None, "btc_dominance": None, "mcap_change_24h": None}

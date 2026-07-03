@@ -3463,6 +3463,44 @@ def test_accum_backtest_run_backtest_structure_et_selection_is():
     assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
 
 
+# ---------- revue_hebdo : agrégats purs du rapport hebdomadaire ----------
+
+def test_revue_hebdo_stats_pures():
+    import revue_hebdo as rh
+    # distribution du consensus : |valeurs|, filtre fenêtre + boucle, % au seuil
+    dec = [{"ts": 100, "boucle": "auto_dir", "consensus": 0.4},
+           {"ts": 200, "boucle": "auto_dir", "consensus": -0.2},
+           {"ts": 300, "boucle": "carry", "consensus": None},       # carry ignoré
+           {"ts": 50, "boucle": "auto_dir", "consensus": 0.9},      # hors fenêtre
+           {"ts": 400, "consensus": 0.1}]                           # boucle absente = auto_dir
+    s = rh.stats_consensus(dec, seuil_entree=0.35, depuis_ts=60)
+    assert s["n"] == 3 and s["p50"] == 0.2 and s["max"] == 0.4
+    assert abs(s["pct_seuil"] - 100.0 / 3) < 0.1
+    assert rh.stats_consensus([], depuis_ts=0) == {"n": 0}
+    # actions par boucle
+    a = rh.stats_actions(dec, depuis_ts=60)
+    assert a == {"auto_dir:rien": 0} or isinstance(a, dict)         # structure sûre
+    # carry : répartition + APR médian, fenêtre respectée
+    jc = [{"ts": 100, "resultats": [{"symbol": "BTCUSDT", "attrait": "NEUTRE",
+                                     "apr_net_pct": 3.5}]},
+          {"ts": 200, "resultats": [{"symbol": "BTCUSDT", "attrait": "ATTRACTIF",
+                                     "apr_net_pct": 6.0},
+                                    {"symbol": "ETHUSDT", "attrait": "NEGATIF"}]},
+          {"ts": 10, "resultats": [{"symbol": "BTCUSDT", "attrait": "NEGATIF"}]}]
+    c = rh.stats_carry(jc, depuis_ts=50)
+    assert c["comptes"] == {"NEUTRE": 1, "ATTRACTIF": 1} and c["apr_median"] == 4.75
+    # runway : libre / moyenne des achats récents ; dégénéré -> None
+    assert rh.runway_jours(45.0, [5.0, 5.0, 5.0]) == 9.0
+    assert rh.runway_jours(45.0, []) == 15.0                        # repli 3$/j
+    assert rh.runway_jours(None, [5.0]) is None
+    # avantage réel vs plat : surpondérer le creux -> positif ; < 3 achats -> None
+    paires = [{"fill": {"amount_usdt": 2.0, "price_avg": 100.0}},
+              {"fill": {"amount_usdt": 5.0, "price_avg": 50.0}},
+              {"fill": {"amount_usdt": 2.0, "price_avg": 100.0}}]
+    assert rh.avantage_reel_vs_plat(paires) > 0
+    assert rh.avantage_reel_vs_plat(paires[:2]) is None
+
+
 # ---------- journal_append : JSONL append-only avec rotation (audit P2) ----------
 
 def test_journal_append_jsonl_et_rotation():

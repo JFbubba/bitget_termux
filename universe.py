@@ -27,7 +27,11 @@ def _anchors():
 
 # bases stablecoin : peg ~1.00, aucune tendance -> hors univers d'ANALYSE (inutiles)
 _STABLE_BASES = {"USDC", "DAI", "TUSD", "FDUSD", "USDD", "BUSD", "PYUSD", "USDP",
-                 "GUSD", "USDE", "FRAX", "LUSD", "EURT", "EUR", "USD1", "XUSD"}
+                 "GUSD", "USDE", "FRAX", "LUSD", "EURT", "EUR", "USD1", "XUSD",
+                 # USDGO (Global Dollar, peg ~1.001, amplitude 24h ~0.07 %) avait
+                 # échappé au filtre : univers pollué + bruit de journal à chaque
+                 # cycle (« Pas d'identifiant CoinGecko ») — audit 03/07
+                 "USDGO", "USDG"}
 
 # Filtre QUALITÉ de repli (si CoinGecko indispo) : cryptos majeures. Garantit un univers
 # CRYPTO même hors-ligne et exclut de facto les actions tokenisées (xStocks : RAAPL, RNVDA…)

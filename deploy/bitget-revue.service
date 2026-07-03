@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitget revue hebdomadaire (lecture seule, envoi Telegram)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 revue_hebdo.py --send
+TimeoutStartSec=300
+User=root
+Nice=15
