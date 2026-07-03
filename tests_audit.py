@@ -2247,6 +2247,34 @@ def test_geometric_bns_relative_jump():
     assert g.bipower_variation([0.01]) == 0.0               # < 2 points -> 0
 
 
+def test_geometric_noyaux_signatures_dfa_w1():
+    # noyaux ajoutés à l'audit du 03/07 (littérature : 2107.00066, 2310.19051, 1208.4158)
+    import numpy as np
+    import geometric_agent as g
+    # AIRE DE LÉVY (temps, prix) : convexité signée du chemin
+    t = np.linspace(0, 1, 64)
+    accel = list(100 * np.exp(0.1 * t ** 2))          # gain concentré en FIN -> A > 0
+    decel = list(100 * np.exp(0.1 * np.sqrt(t)))      # gain concentré au DÉBUT -> A < 0
+    droit = list(100 * np.exp(0.1 * t))               # ligne (log) -> A ≈ 0
+    assert g.levy_area_tp(accel) > 0.05
+    assert g.levy_area_tp(decel) < -0.05
+    assert abs(g.levy_area_tp(droit)) < 0.03
+    assert -1.0 < g.levy_area_tp(accel) < 1.0 and g.levy_area_tp([1, 2]) == 0.0
+    # HURST DFA : persistant (cumul lissé) > 0.5 > anti-persistant (alternance)
+    rng = np.random.default_rng(5)
+    brn = rng.normal(0, 1, 600)
+    persistant = np.convolve(brn, np.ones(12) / 12, mode="valid")   # mémoire longue
+    anti = np.diff(rng.normal(0, 1, 601))                            # anti-persistant (H~0.25)
+    h_p, h_a = g.dfa_hurst(persistant), g.dfa_hurst(anti)
+    assert h_p is not None and h_a is not None and h_p > 0.6 > 0.45 > h_a
+    assert g.dfa_hurst([0.1] * 10) is None                           # trop court
+    # WASSERSTEIN-1 vers la gaussienne : gaussien petit, queue lourde grand
+    w_g = g.w1_gauss(rng.standard_normal(160))
+    w_t = g.w1_gauss(rng.standard_t(2.5, 160))
+    assert w_g is not None and w_t is not None and w_g < 0.12 < w_t
+    assert g.w1_gauss([0.1] * 10) is None
+
+
 def test_geometric_signal_and_gates():
     import numpy as np
     import geometric_agent as g

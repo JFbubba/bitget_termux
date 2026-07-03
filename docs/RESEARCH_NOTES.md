@@ -1646,3 +1646,36 @@ TP/SL 0.48) : on ne câble pas un perdant mesuré, on étend le canal CONSENSUS.
 - Le carry reste BTCUSDT (seule couverture spot détenue — §46).
 
 Le pipeline pré-ordres/paper reste le LABORATOIRE (mesure, jamais d'exécution).
+
+---
+
+## §48 — Agent GEOMETRIC réécrit sur mesure : réversion courte + tendance longue signée
+
+**Demande propriétaire (03/07)** : « analyse, cherche d'autres infos et améliore le
+bot geometric ». Diagnostic à l'étalon (replay, bougies FIGÉES, 4 symboles) : le
+cœur directionnel « suivre le momentum 8 barres » avait un IC NÉGATIF (poolé −0.05
+en 1h, −0.09 en 15m) — il CONTREDISAIT le fait stylisé mesuré par la propre
+recherche du dépôt (§35-38 : la réversion court terme est réelle en crypto).
+
+**Littérature ajoutée** : signatures de chemins pour la classification de régimes
+(arXiv:2107.00066), aire de Lévy lead-lag (2110.12288), estimateurs de Hurst — R/S
+biaisé sur n court, DFA robuste (2310.19051, 1208.4158), Hurst dynamique Bitcoin
+(1709.08090). Trois NOYAUX calculables implémentés (purs, testés) :
+- `levy_area_tp` : aire de Lévy du chemin (temps, prix) = terme antisymétrique du
+  niveau 2 de la signature — CONVEXITÉ signée du mouvement (accélération vs
+  essoufflement), 0 sur la corde, +1/6 pour x~t², −1/6 pour x~√t ;
+- `dfa_hurst` : Hurst par DFA(1), remplace le R/S comme estimateur principal ;
+- `w1_gauss` : distance de Wasserstein-1 à la gaussienne (transport optimal 1D),
+  calibrée numériquement (gaussien ≈ 0.06, t2.5 ≈ 0.24, seuils 0.10/0.22) —
+  3e voix du régime de queue aux côtés de Hill α et du proxy Φ.
+
+**Nouveau cœur directionnel MIX** (hypothèse tirée de §35-38, PAS minée) :
+réversion du mouvement court (z 8 barres, toujours active) + tendance longue
+(32 barres) qualifiée par Hurst-DFA et l'aire de Lévy, coupée en régime euclidien.
+Gate de toxicité inchangé. **Mesure avant/après sur bougies figées** : IC poolé
+−0.05 -> +0.11 (1h, t +1.8) et −0.09 -> +0.17 (15m, fenêtre INDÉPENDANTE, t +1.9),
+positif sur chacun des 4 symboles dans les deux fenêtres. 3 variantes testées
+(momentum long seul : +0.05 ; réversion seule : +0.06 ; mix : +0.11) — sélection
+sur 2 fenêtres indépendantes, direction pré-enregistrée par §35-38. L'agent reste
+ADVISORY (PAPER) : c'est la validation transversale (timer 6 h) et l'échelle
+d'edge qui jugeront sur la durée, avec déflation multiple-testing.
