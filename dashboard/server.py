@@ -381,7 +381,9 @@ def build_state(symbol=None, tf="5m"):
         b = s.get("boucle") or {}
         c = s.get("carry") or {}
         return {"armed": b.get("armed"), "consensus": b.get("consensus"),
-                "position": b.get("position"), "decision": b.get("decision"),
+                "position": b.get("position"), "positions": b.get("positions"),
+                "symbol": b.get("symbol"), "funding": s.get("funding"),
+                "decision": b.get("decision"),
                 "throttle_pret": b.get("throttle_pret"),
                 "equity": s.get("equity_usdt"), "stop": s.get("stop_journalier"),
                 "stop_pct": s.get("stop_pct"), "fills_bot": s.get("fills_bot"),

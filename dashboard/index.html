@@ -804,10 +804,12 @@ async function tick(){
     $("fu2-armed").textContent=(fu2.armed==null)?"—":(fu2.armed?("ARMÉE"+(fu2.throttle_pret===false?" · throttle":"")):"débrayée");
     $("fu2-armed").className=fu2.armed?"green":"amber";
     const fd=fu2.decision||{};
-    $("fu2-dec").textContent=((fu2.consensus!=null)?((fu2.consensus>=0?"+":"")+(+fu2.consensus).toFixed(2)):"—")+" -> "+(fd.action||"—")+(fd.side?(" "+fd.side):"");
-    const fp=fu2.position;
-    $("fu2-pos").textContent=fp?(fp.side+" "+fp.size_btc+" BTC (~$"+fp.notional_usdt+")"):"flat";
-    $("fu2-pos").className=fp?(fp.side==="long"?"green":"red"):"dim";
+    $("fu2-dec").textContent=((fu2.consensus!=null)?((fu2.consensus>=0?"+":"")+(+fu2.consensus).toFixed(2)):"—")+((fu2.symbol&&fu2.symbol!=="BTCUSDT")?(" "+fu2.symbol.replace(/USDT$/,"")):"")+" -> "+(fd.action||"—")+(fd.side?(" "+fd.side):"");
+    const fps=fu2.positions||[];
+    if(fps.length){
+      $("fu2-pos").textContent=fps.map(p=>p.side+" "+(p.symbol||"").replace(/USDT$/,"")+" ~$"+p.notional_usdt).join(" · ");
+      $("fu2-pos").className=fps.length>1?"amber":(fps[0].side==="long"?"green":"red");
+    }else{$("fu2-pos").textContent="flat";$("fu2-pos").className="dim";}
     const fst=fu2.stop||{};
     $("fu2-eq").textContent=(fu2.equity!=null)?("$"+(+fu2.equity).toFixed(2)+(fst.open_equity!=null?(" · ouv $"+(+fst.open_equity).toFixed(2)+" · −"+(fu2.stop_pct!=null?fu2.stop_pct:5)+"%"):"")):"—";
     const fbt=fu2.fills_bot||{};

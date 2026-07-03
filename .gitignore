@@ -56,3 +56,4 @@ futures_real_ledger.json
 agent_hub/
 # Artefact runtime (rapport de validation des agents, regenere)
 validation_report.json
+.futures_pos_state.json

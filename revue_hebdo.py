@@ -152,6 +152,7 @@ def collecter(now=None):
         out["futures"] = {"equity": s.get("equity_usdt"),
                           "delta7_pct": s.get("equity_7j_delta_pct"),
                           "fills_bot": s.get("fills_bot"),
+                          "funding": s.get("funding"),
                           "events": s.get("events")}
     except Exception:
         out["futures"] = {}
@@ -239,6 +240,9 @@ def build_report(d=None):
         f"Equity : {_n(f.get('equity'))} $ · 7 j : {_n(f.get('delta7_pct'), '{:+.2f}')} %",
         f"PnL réalisé NET bot : {_n(fb.get('net_usdt'), '{:+.4f}')} $ "
         f"({fb.get('n_fills', 0)} fills, frais {_n(fb.get('frais_usdt'), '{:.4f}')} $)",
+        (lambda fu: f"Funding net : {_n(fu.get('total_usdt'), '{:+.6f}')} $ "
+                    f"({fu.get('n', 0)} règlements) — le revenu du carry"
+         )(f.get("funding") or {}),
         f"Consensus 7 j : n={c.get('n', 0)} · |médiane| {_n(c.get('p50'))} · "
         f"p90 {_n(c.get('p90'))} · max {_n(c.get('max'))} · "
         f"≥ seuil : {_n(c.get('pct_seuil'), '{:.1f}')} % des cycles",

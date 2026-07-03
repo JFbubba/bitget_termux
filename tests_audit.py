@@ -4984,6 +4984,41 @@ def test_futures_hedge_mode_resolution_et_cotes():
     assert fa.proprietaire_cote([], "long") is None
 
 
+def test_futures_report_somme_funding():
+    import futures_report as fr
+    rows = [{"businessType": "contract_settle_fee", "cTime": 2_000_000, "amount": "0.0005"},
+            {"businessType": "contract_settle_fee", "cTime": 4_000_000, "amount": "-0.0006"},
+            {"businessType": "buy", "cTime": 4_000_000, "amount": "9"},         # pas du funding
+            {"businessType": "contract_settle_fee", "cTime": None}]             # illisible
+    tout = fr.somme_funding(rows)
+    assert tout["n"] == 2 and abs(tout["total_usdt"] - (-0.0001)) < 1e-9
+    assert tout["recu_usdt"] == 0.0005 and tout["paye_usdt"] == 0.0006
+    # borne temporelle (cTime en ms vs depuis_ts en s)
+    borne = fr.somme_funding(rows, depuis_ts=3_000)
+    assert borne["n"] == 1 and borne["total_usdt"] == -0.0006
+    assert fr.somme_funding(None) == {"n": 0, "total_usdt": 0.0,
+                                      "recu_usdt": 0.0, "paye_usdt": 0.0}
+
+
+def test_futures_auto_fermetures_exchange():
+    import futures_auto as fa
+    # une position du bot disparaît SANS ordre de fermeture du bot -> détectée
+    avant = [{"symbol": "BTCUSDT", "side": "long", "agent": "auto_dir"},
+             {"symbol": "HYPEUSDT", "side": "short", "agent": "auto_dir"}]
+    apres = [{"symbol": "HYPEUSDT", "side": "short", "agent": "auto_dir"}]
+    d = fa.fermetures_exchange(avant, apres, events=[], depuis_ts=100)
+    assert len(d) == 1 and d[0]["symbol"] == "BTCUSDT"      # SL/TP côté exchange
+    # ...mais si le BOT a fermé (reduce journalisé depuis l'état) -> pas d'alerte
+    ev = [{"action": "FUTURES_REAL", "ts": 150,
+           "order": {"symbol": "BTCUSDT", "side": "long", "reduce": True}}]
+    assert fa.fermetures_exchange(avant, apres, events=ev, depuis_ts=100) == []
+    # un reduce ANTÉRIEUR à l'état ne compte pas (la position avait été rouverte)
+    ev_vieux = [{"action": "FUTURES_REAL", "ts": 50,
+                 "order": {"symbol": "BTCUSDT", "side": "long", "reduce": True}}]
+    assert len(fa.fermetures_exchange(avant, apres, events=ev_vieux, depuis_ts=100)) == 1
+    assert fa.fermetures_exchange(None, [], [], 0) == []
+
+
 def test_carry_auto_tranches_cap_200():
     import carry_auto as ca
     # TRANCHES (cap carry 200, décision propriétaire 03/07) : la 1re ouverture est

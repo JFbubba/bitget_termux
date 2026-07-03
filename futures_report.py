@@ -49,6 +49,48 @@ def resume_fills(rows, depuis_ts=None):
             "net_usdt": round(pnl - frais, 6)}
 
 
+def somme_funding(rows, depuis_ts=None):
+    """PUR. Somme des règlements de FUNDING (businessType contract_settle_fee) des
+    bills futures : c'est le REVENU réel du carry (et le coût de portage du
+    directionnel). {n, total_usdt, recu_usdt, paye_usdt}."""
+    n = 0
+    total = recu = paye = 0.0
+    for r in rows or []:
+        if not isinstance(r, dict) or str(r.get("businessType", "")) != "contract_settle_fee":
+            continue
+        ts = safe_float(r.get("cTime"))
+        if ts is None:
+            continue
+        if depuis_ts is not None and ts / 1000.0 < float(depuis_ts):
+            continue
+        v = safe_float(r.get("amount")) or 0.0
+        n += 1
+        total += v
+        if v >= 0:
+            recu += v
+        else:
+            paye += -v
+    return {"n": n, "total_usdt": round(total, 6),
+            "recu_usdt": round(recu, 6), "paye_usdt": round(paye, 6)}
+
+
+def fetch_bills(limit=100):
+    """Bills du compte futures (lecture seule, cachés 15 min). [] si indisponible."""
+    def _fetch():
+        import bitget_hub_bridge as hub
+        d = hub._read(["account", "get_account_bills", "--accountType", "futures",
+                       "--productType", "USDT-FUTURES", "--limit", str(int(limit))])
+        rows = (d or {}).get("data")
+        if isinstance(rows, dict):
+            rows = rows.get("bills") or rows.get("list") or []
+        return rows if isinstance(rows, list) else []
+    try:
+        import runtime_cache as rc
+        return rc.get("fut_bills", 900, _fetch, fallback=[])
+    except Exception:
+        return []
+
+
 def premier_ordre_reel_ts(events):
     """PUR. ts du PREMIER ordre réel journalisé par l'exécuteur (borne de la
     réconciliation : les fills antérieurs = trading manuel, hors périmètre)."""
@@ -139,6 +181,7 @@ def snapshot():
                             for e in (events or [])[-5:]],
         "fills_bot": resume_fills(fetch_fills(), depuis_ts=debut) if debut else
                      {"n_fills": 0, "note": "aucun ordre réel du bot encore"},
+        "funding": somme_funding(fetch_bills(), depuis_ts=debut) if debut else {"n": 0},
         "caps": {"per_trade": fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
                                          fe.FUT_ABS_MAX_PER_TRADE_USDT),
                  "gross": fe._capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0,
@@ -184,6 +227,11 @@ def build_report(s=None):
                       f"NET {_n(fb.get('net_usdt'), '{:+.4f}')} $")
     else:
         lignes.append(f"Fills du BOT : {fb.get('note', 'aucun')}")
+    fu = s.get("funding") or {}
+    if fu.get("n"):
+        lignes.append(f"Funding (règlements 8h) : {_n(fu.get('total_usdt'), '{:+.6f}')} $ net "
+                      f"({fu['n']} règlements : +{_n(fu.get('recu_usdt'), '{:.6f}')} reçus / "
+                      f"−{_n(fu.get('paye_usdt'), '{:.6f}')} payés) — le REVENU du carry")
     lignes.append("Lecture seule (préview de décision, jamais d'exécution ici). VERDICT: SAFE")
     return "\n".join(lignes)
 

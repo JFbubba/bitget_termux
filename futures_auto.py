@@ -312,6 +312,78 @@ def _mes_positions(par_symbole, events):
     return miennes
 
 
+ETAT_POS_FILE = Path(__file__).resolve().parent / ".futures_pos_state.json"
+AGENTS_BOT = ("auto_dir", "carry")
+
+
+def fermetures_exchange(precedentes, actuelles, events, depuis_ts):
+    """PUR. Positions du bot DISPARUES sans ordre de fermeture du bot depuis
+    depuis_ts = fermées CÔTÉ EXCHANGE (SL/TP préréglé, liquidation, ou manuel).
+    Le round-trip du 03/07 : le SL préréglé a fermé un long EN SILENCE — aucune
+    alerte. `precedentes`/`actuelles` = [{symbol, side, agent}]."""
+    act = {(p.get("symbol"), p.get("side")) for p in actuelles or []}
+    reduites_bot = set()
+    for e in events or []:
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        if (safe_float(e.get("ts")) or 0) < float(depuis_ts or 0):
+            continue
+        o = e.get("order") or {}
+        if o.get("reduce"):
+            reduites_bot.add((str(o.get("symbol") or SYMBOL).upper(), o.get("side")))
+    disparues = []
+    for p in precedentes or []:
+        cle = (p.get("symbol"), p.get("side"))
+        if cle not in act and cle not in reduites_bot:
+            disparues.append(p)
+    return disparues
+
+
+def _surveille_fermetures_exchange(par_sym, events, now):
+    """Compare l'état des positions du bot au cycle précédent : toute disparition
+    sans ordre du bot -> alerte push (sinon le SL/TP côté exchange travaille en
+    silence) + ligne au journal de décision. Best-effort, n'affecte jamais le cycle."""
+    try:
+        actuelles = []
+        for sym, cotes in (par_sym or {}).items():
+            if not isinstance(cotes, dict):
+                continue
+            for cote in ("long", "short"):
+                pos = cotes.get(cote)
+                if pos:
+                    agent = proprietaire_cote(events, cote, symbol=sym)
+                    if agent in AGENTS_BOT:
+                        actuelles.append({"symbol": sym, "side": cote, "agent": agent,
+                                          "notional_usdt": pos.get("notional_usdt")})
+        try:
+            etat = json.loads(ETAT_POS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            etat = {}
+        disparues = fermetures_exchange(etat.get("positions"), actuelles, events,
+                                        etat.get("ts", 0))
+        for p in disparues:
+            try:
+                import telegram_notifier as tn
+                tn.send_telegram(f"⚡ Position {p.get('side')} {p.get('symbol')} "
+                                 f"({p.get('agent')}) fermée CÔTÉ EXCHANGE (SL/TP préréglé "
+                                 f"probable) — voir /futures pour le PnL réalisé.")
+            except Exception:
+                pass
+            try:
+                import journal_append as ja
+                ja.append_jsonl(Path(__file__).resolve().parent / "futures_auto_journal.jsonl",
+                                {"ts": int(now), "boucle": p.get("agent"),
+                                 "symbol": p.get("symbol"), "action": "fermee_exchange",
+                                 "side": p.get("side"), "raison": "SL/TP côté exchange"},
+                                max_bytes=20_000_000)
+            except Exception:
+                pass
+        ETAT_POS_FILE.write_text(json.dumps({"ts": int(now), "positions": actuelles},
+                                            ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _finaliser(out, d, res):
     """Résultat + alertes push (succès ⚡ / échec ⚠️), commun fermer/ouvrir."""
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
@@ -353,6 +425,7 @@ def _run_cycle(now=None):
         return out
     events = _executor_events()
     entries = _brain_entries()
+    _surveille_fermetures_exchange(par_sym, events, now)   # SL/TP exchange ≠ silence
     miennes = _mes_positions(par_sym, events)
     out["positions"] = [{"symbol": s, **pos} for s, pos in miennes]
     out["position"] = ({"symbol": miennes[0][0], **miennes[0][1]} if miennes else None)
