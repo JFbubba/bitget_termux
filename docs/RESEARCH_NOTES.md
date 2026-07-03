@@ -1595,3 +1595,16 @@ avec l'usage réel. Deux verdicts :
   remplissage partiel RÉDUIT le risque, jamais ne l'aggrave. Les RÉDUCTIONS
   restent en market (la sortie doit toujours réussir). Margin trading et
   copytrading/p2p/broker restent interdits durs ; convert (poussière) sans objet.
+
+**Addendum §46 — cap carry 200 (décision propriétaire, 03/07)** : caps effectifs
+portés à 50/trade (= mur) et 200 cumulé (mur 250 intact) ; cible carry 200 $,
+TOUJOURS ≤ 95 % de la couverture spot (BTC + BGBTC décoté — ~189 $ effectifs
+aujourd'hui), construite PAR TRANCHES ≤ cap/trade toutes les 8 h (période de
+funding), renforcement seulement tant que l'attrait reste ATTRACTIF (hystérésis :
+pas de rajout tiède). Corollaires d'ingénierie : (1) les RÉDUCTIONS sont exemptées
+des caps notional (reduceOnly = borné à la position — fermer un carry de 180 $ en
+un ordre) ; (2) le stop journalier mesure désormais le LIVRE COUVERT (equity
+futures + exposition BTC spot) — l'equity futures seule aurait produit un faux
+breach kill-switch sur tout BTC +6 % alors que le hedge gagne côté spot ; une
+composante illisible -> pas d'ouverture, pas de kill-switch (bases jamais
+mélangées entre deux mesures).

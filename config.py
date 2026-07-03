@@ -140,8 +140,8 @@ BRAIN_VOTES_WORKERS = 8               # threads de gather_votes (agents = I/O r�
 # BAS (montée progressive si l'exécution est propre) ; murs absolus en dur dans
 # futures_executor : 50 $/trade, 250 $ cumulé, infranchissables par env/config.
 FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à la preuve)
-FUTURES_REAL_MAX_PER_TRADE_USDT = 15.0   # cap effectif par ordre (mur dur : 50)
-FUTURES_REAL_MAX_GROSS_USDT = 60.0       # cap effectif exposition cumulée (mur dur : 250)
+FUTURES_REAL_MAX_PER_TRADE_USDT = 50.0   # cap effectif par ordre = mur dur (décision propriétaire 03/07, cap carry 200)
+FUTURES_REAL_MAX_GROSS_USDT = 200.0      # cap effectif exposition cumulée (mur dur : 250 ; décision propriétaire 03/07)
 FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
 # Boucle directionnelle automatique (futures_auto, §45) — décide, délègue à l'exécuteur.
 FUTURES_AUTO_DIRECTIONAL = 1          # 0 = débrayer la boucle (aucune décision d'ordre)
@@ -157,7 +157,7 @@ FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
 # BTC spot détenu (delta-neutre, levier ×1, sans SL : hedgé). Entrée : ATTRACTIF
 # (carry_monitor, seuil 5 %) ; sortie par hystérésis sous le seuil ci-dessous.
 FUTURES_AUTO_CARRY = 1                # 0 = débrayer les jambes carry
-FUTURES_CARRY_NOTIONAL_USDT = 15.0    # short max (toujours ≤ 95 % de la couverture spot)
+FUTURES_CARRY_NOTIONAL_USDT = 200.0   # cible carry (décision propriétaire 03/07) — toujours ≤ 95 % de la couverture spot, montée par TRANCHES ≤ cap/trade toutes les 8 h
 FUTURES_CARRY_SEUIL_SORTIE_PCT = 2.0  # APR net sous lequel on FERME (hystérésis vs 5 %)
 FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de funding
 # Couverture de la jambe carry : tokens du portefeuille comptant comme exposition

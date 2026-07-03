@@ -38,18 +38,26 @@ MARGE_COUVERTURE = 0.95      # le short n'utilise que 95 % de la couverture spot
 # ---------- cœurs purs (testables) ----------
 
 def decider_carry(apr_net, attrait, position, owner, couverture_usdt,
-                  seuil_sortie_pct=None, notional_cfg=None, min_notional=6.0):
-    """PUR. Décision carry :
-      • FLAT : attrait ATTRACTIF ET couverture spot suffisante -> OUVRIR un short
-        de min(notional_cfg, 95 % de la couverture) ; sinon rien ;
-      • POSITION à nous (owner 'carry', side short) : APR net < seuil de sortie
-        -> FERMER (le carry ne paie plus) ; APR illisible -> TENIR (hedgé, on ne
-        ferme pas à l'aveugle) ; sinon TENIR (on encaisse) ;
+                  seuil_sortie_pct=None, notional_cfg=None, min_notional=6.0,
+                  tranche_max=None):
+    """PUR. Décision carry (cible construite PAR TRANCHES depuis le cap 200, décision
+    propriétaire 03/07 — un ordre reste ≤ tranche_max = cap/trade de l'exécuteur) :
+      • FLAT : attrait ATTRACTIF ET couverture suffisante -> OUVRIR une tranche de
+        min(cible, tranche_max) où cible = min(notional_cfg, 95 % couverture) ;
+      • POSITION à nous (short) : APR < seuil de sortie -> FERMER (en un ordre,
+        reduceOnly exempté des caps) ; attrait encore ATTRACTIF et position < cible
+        -> RENFORCER d'une tranche (throttle 8 h entre tranches) ; APR entre sortie
+        et entrée -> TENIR (on encaisse, pas de rajout) ; APR illisible -> TENIR ;
       • position d'un AUTRE agent ou d'un autre sens -> RIEN (pas à nous).
     Retourne {"action", "side", "notional", "raison"}."""
     sortie = float(_cfg("FUTURES_CARRY_SEUIL_SORTIE_PCT", 2.0)
                    if seuil_sortie_pct is None else seuil_sortie_pct)
     apr = safe_float(apr_net)
+    plafond = float(_cfg("FUTURES_CARRY_NOTIONAL_USDT", 15.0)
+                    if notional_cfg is None else notional_cfg)
+    couverture = safe_float(couverture_usdt)
+    cible = min(plafond, (couverture or 0.0) * MARGE_COUVERTURE)
+    tranche_cap = safe_float(tranche_max)
     if position:
         if owner != "carry":
             return {"action": "rien", "side": None, "notional": None,
@@ -64,22 +72,31 @@ def decider_carry(apr_net, attrait, position, owner, couverture_usdt,
             return {"action": "fermer", "side": "short",
                     "notional": position.get("notional_usdt"),
                     "raison": f"APR net {apr:+.2f} % < seuil de sortie {sortie} % — le carry ne paie plus"}
+        deja = safe_float(position.get("notional_usdt")) or 0.0
+        manque = cible - deja
+        if str(attrait) == "ATTRACTIF" and couverture is not None and manque >= float(min_notional):
+            tranche = min(manque, tranche_cap) if tranche_cap else manque
+            if tranche >= float(min_notional):
+                return {"action": "renforcer", "side": "short", "notional": round(tranche, 2),
+                        "raison": f"carry ATTRACTIF (APR {apr:+.2f} %) — tranche vers la cible "
+                                  f"{cible:.0f} $ ({deja:.0f} $ en place)"}
         return {"action": "rien", "side": "short", "notional": None,
-                "raison": f"carry en place, APR net {apr:+.2f} % — on encaisse"}
+                "raison": f"carry en place ({deja:.0f} $), APR net {apr:+.2f} % — on encaisse"}
     # flat
     if str(attrait) != "ATTRACTIF":
         return {"action": "rien", "side": None, "notional": None,
                 "raison": f"carry {attrait or 'illisible'} — pas d'entrée"}
-    couverture = safe_float(couverture_usdt) or 0.0
-    plafond = float(_cfg("FUTURES_CARRY_NOTIONAL_USDT", 15.0)
-                    if notional_cfg is None else notional_cfg)
-    notional = min(plafond, couverture * MARGE_COUVERTURE)
+    if couverture is None:
+        return {"action": "rien", "side": None, "notional": None,
+                "raison": "couverture spot illisible (fail-closed à l'entrée)"}
+    notional = min(cible, tranche_cap) if tranche_cap else cible
     if notional < float(min_notional):
         return {"action": "rien", "side": None, "notional": None,
                 "raison": f"couverture spot insuffisante ({couverture:.2f} $ détenus, "
                           f"short possible {notional:.2f} $ < min {min_notional} $)"}
     return {"action": "ouvrir", "side": "short", "notional": round(notional, 2),
-            "raison": f"carry ATTRACTIF (APR net {apr:+.2f} %) couvert par le spot"}
+            "raison": f"carry ATTRACTIF (APR net {apr:+.2f} %) couvert par le spot — "
+                      f"1re tranche vers la cible {cible:.0f} $"}
 
 
 def releve_carry(journal_entry, max_age_s=7200, now=None):
@@ -156,9 +173,12 @@ def _etat(now=None):
     out["position"] = pos
     owner = fa.proprietaire_position(fa._executor_events()) if pos else None
     out["owner"] = owner
-    couverture = couverture_spot_usdt() if not pos else None
+    couverture = couverture_spot_usdt()           # aussi EN position (cible des tranches)
     out["couverture_usdt"] = round(couverture, 2) if couverture is not None else None
-    d = decider_carry(apr, attrait, pos, owner, couverture)
+    import futures_executor as fe
+    tranche_max = fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                             fe.FUT_ABS_MAX_PER_TRADE_USDT)
+    d = decider_carry(apr, attrait, pos, owner, couverture, tranche_max=tranche_max)
     return out, d
 
 
@@ -203,9 +223,10 @@ def _run_cycle(now=None):
         # taille EXACTE (reduceOnly borne à la position — pas de poussière infermable)
         res = fe.execute("carry", "short", notional, 1.0, reduce=True, confirm=True,
                          now=now, size_btc=(out.get("position") or {}).get("size_btc"))
-    else:                                          # ouvrir un short couvert, levier 1, sans SL/TP
+    else:                                          # ouvrir/renforcer : short couvert, levier 1, sans SL/TP
         res = fe.execute("carry", "short", float(d["notional"]), 1.0,
                          confirm=True, now=now,
+                         gross_open_usdt=(out.get("position") or {}).get("notional_usdt") or 0.0,
                          equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}

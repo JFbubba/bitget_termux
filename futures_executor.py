@@ -167,13 +167,18 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
     if notion is not None:
         if notion <= 0:
             reasons.append("notional ≤ 0")
-        per_cap = _capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0, FUT_ABS_MAX_PER_TRADE_USDT)
-        if notion > per_cap:
-            reasons.append(f"notional {notion} > plafond/trade {per_cap}")
-        gross_cap = _capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0, FUT_ABS_MAX_GROSS_USDT)
-        gross = float(gross_open_usdt or 0)
-        if gross + notion > gross_cap:
-            reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
+        # Les caps notional s'appliquent aux OUVERTURES : une RÉDUCTION (reduceOnly,
+        # bornée à la position côté exchange) ne crée aucune exposition — l'exempter
+        # permet de fermer en UN ordre une position construite par tranches
+        # (cap carry 200, décision propriétaire 03/07).
+        if not reduce:
+            per_cap = _capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0, FUT_ABS_MAX_PER_TRADE_USDT)
+            if notion > per_cap:
+                reasons.append(f"notional {notion} > plafond/trade {per_cap}")
+            gross_cap = _capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0, FUT_ABS_MAX_GROSS_USDT)
+            gross = float(gross_open_usdt or 0)
+            if gross + notion > gross_cap:
+                reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
 
     # 6. halte drawdown (equity réelle)
     if equity_curve is not None:
@@ -295,6 +300,42 @@ def _futures_equity():
     return None
 
 
+def _expo_spot_btc_usdt():
+    """Valeur USDT de l'exposition BTC SPOT (BTC + wrappers décotés, mêmes tokens
+    que la couverture carry). None si illisible. Lecture seule."""
+    try:
+        import bitget_balance_reader as br
+        from numeric_utils import safe_float
+        tokens = dict(_cfg("CARRY_COUVERTURE_TOKENS", {"BTC": 1.0, "BGBTC": 0.9}))
+        quantite, vu = 0.0, False
+        for r in (br.get_spot_assets() or {}).get("data") or []:
+            coin = str(r.get("coin", "")).upper()
+            if coin in tokens:
+                vu = True
+                quantite += ((safe_float(r.get("available")) or 0.0)
+                             + (safe_float(r.get("frozen")) or 0.0)) * float(tokens[coin])
+        if not vu:
+            return None
+        prix = _mark_price()
+        return quantite * prix if prix else None
+    except Exception:
+        return None
+
+
+def _book_equity():
+    """Equity du LIVRE piloté = wallet futures + exposition BTC spot (la jambe longue
+    des carrys). C'est la base du stop journalier depuis le cap carry 200 (décision
+    propriétaire 03/07) : un short carry HEDGÉ par le spot ferait osciller l'equity
+    futures seule (faux breach kill-switch sur tout BTC +6 %) alors que le livre
+    couvert, lui, est stable. None si UNE composante est illisible (bases mélangées
+    entre deux mesures = faux breach garanti — on préfère l'aveu d'aveuglement)."""
+    fut = _futures_equity()
+    expo = _expo_spot_btc_usdt()
+    if fut is None or expo is None:
+        return None
+    return fut + expo
+
+
 def _write_ledger(led):
     """Écriture ATOMIQUE du ledger (tmp + os.replace — audit P3 : un write direct
     concurrent scan/CLI pouvait laisser un JSON à moitié écrit sur le journal
@@ -323,7 +364,7 @@ def daily_loss_breach(now=None):
     except Exception:
         led = {}
     ancien = led.get("daily_loss_state") or {}
-    equity = _futures_equity()
+    equity = _book_equity()                       # livre couvert (futures + expo BTC spot)
     breach, state = daily_loss_state_check(equity, led.get("daily_loss_state"), now=now)
     led["daily_loss_state"] = state
     if state.get("day") is not None and state.get("day") != ancien.get("day"):
@@ -367,7 +408,7 @@ def equity_curve():
     pts = [safe_float(r.get("open_equity")) for r in led.get("equity_journal", [])
            if isinstance(r, dict)]
     pts = [p for p in pts if p and p > 0]
-    eq = _futures_equity()
+    eq = _book_equity()                           # même base que le journal (livre couvert)
     if eq:
         pts.append(eq)
     return pts

@@ -4505,9 +4505,13 @@ def test_futures_executor_guards_8():
                      **{**base, "futures_live": False, "edge_override": 1})[0] is True
     # 4. levier > mur ×5
     assert fe.guards("geometric", 8, 10, **base)[0] is False
-    # 5. caps : notional/trade (config §45 : 15) puis exposition cumulée (60)
-    assert fe.guards("geometric", 50, 2, **base)[0] is False
-    assert fe.guards("geometric", 8, 2, gross_open_usdt=55, **base)[0] is False
+    # 5. caps : notional/trade (50 = mur, décision 03/07) puis exposition cumulée (200)
+    assert fe.guards("geometric", 51, 2, **base)[0] is False
+    assert fe.guards("geometric", 8, 2, gross_open_usdt=195, **base)[0] is False
+    # 5bis. une RÉDUCTION est exemptée des caps notional (reduceOnly = bornée à la
+    # position ; permet de fermer en UN ordre un carry construit par tranches)
+    assert fe.guards("carry", 179, 1, reduce=True, **base)[0] is True
+    assert fe.guards("carry", 179, 1, **base)[0] is False
     # 6. halte drawdown (equity réelle : -30% ≥ MDD 20%)
     assert fe.guards("geometric", 8, 2, equity_curve=[100, 70], **base)[0] is False
     # 8. idempotence clientOid (anti-doublon)
@@ -4659,7 +4663,7 @@ def test_futures_daily_loss_breach_kill_switch_et_dedup():
     import tempfile
     import config
     import futures_executor as fe
-    orig_eq = fe._futures_equity
+    orig_eq = fe._book_equity
     had = hasattr(config, "FUTURES_REAL_LEDGER")
     orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
     import telegram_notifier as tn
@@ -4671,11 +4675,11 @@ def test_futures_daily_loss_breach_kill_switch_et_dedup():
         try:
             config.FUTURES_REAL_LEDGER = os.path.join(td, "led_test.json")
             tn.send_telegram = lambda m: alertes.append(m)
-            # jour J : ouverture à 100 (pas de breach)
-            fe._futures_equity = lambda: 100.0
+            # jour J : ouverture à 100 (pas de breach) — base = LIVRE couvert
+            fe._book_equity = lambda: 100.0
             assert fe.daily_loss_breach(now=86400 * 50) is False
             # même jour : -6% -> breach, kill-switch armé, UNE alerte
-            fe._futures_equity = lambda: 94.0
+            fe._book_equity = lambda: 94.0
             assert fe.daily_loss_breach(now=86400 * 50 + 3600) is True
             assert ks.exists() and len(alertes) == 1
             # passage horaire suivant : toujours breach, PAS de nouvelle alerte (dédup)
@@ -4684,11 +4688,11 @@ def test_futures_daily_loss_breach_kill_switch_et_dedup():
             # equity ILLISIBLE (blip API) : True (pas d'ouverture à l'aveugle) mais
             # SANS armer le kill-switch — un raté de lecture ne gèle pas la machine
             ks.unlink()
-            fe._futures_equity = lambda: None
+            fe._book_equity = lambda: None
             assert fe.daily_loss_breach(now=86400 * 50 + 10800) is True
             assert not ks.exists() and len(alertes) == 1
         finally:
-            fe._futures_equity = orig_eq
+            fe._book_equity = orig_eq
             tn.send_telegram = orig_send
             if had:
                 config.FUTURES_REAL_LEDGER = orig_led
@@ -4772,7 +4776,7 @@ def test_futures_executor_equity_curve_et_halte_mdd():
     import tempfile
     import config
     import futures_executor as fe
-    orig_eq = fe._futures_equity
+    orig_eq = fe._book_equity
     had = hasattr(config, "FUTURES_REAL_LEDGER")
     orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
     with tempfile.TemporaryDirectory() as td:
@@ -4783,7 +4787,7 @@ def test_futures_executor_equity_curve_et_halte_mdd():
                 {"equity_journal": [{"day": 1, "open_equity": 200.0},
                                     {"day": 2, "open_equity": 210.0},
                                     {"day": 3, "open_equity": None}]}))  # None filtré
-            fe._futures_equity = lambda: 205.0
+            fe._book_equity = lambda: 205.0
             assert fe.equity_curve() == [200.0, 210.0, 205.0]
             # la garde 6 refuse un ordre quand la courbe est en drawdown >= MDD 20%
             ok, reasons = fe.guards("auto_dir", 8, 2, equity_curve=[210.0, 160.0],
@@ -4794,7 +4798,7 @@ def test_futures_executor_equity_curve_et_halte_mdd():
             config.FUTURES_REAL_LEDGER = os.path.join(td, "absent.json")
             assert fe.equity_curve() == [205.0]
         finally:
-            fe._futures_equity = orig_eq
+            fe._book_equity = orig_eq
             if had:
                 config.FUTURES_REAL_LEDGER = orig_led
             else:
@@ -4949,6 +4953,30 @@ def test_carry_auto_decider_couverture_et_hysteresis():
     # position d'un autre agent / d'un autre sens -> on ne touche pas
     assert ca.decider_carry(1.0, "NEGATIF", pos, "auto_dir", None, **k)["action"] == "rien"
     assert ca.decider_carry(1.0, "NEGATIF", {"side": "long"}, "carry", None, **k)["action"] == "rien"
+
+
+def test_carry_auto_tranches_cap_200():
+    import carry_auto as ca
+    # TRANCHES (cap carry 200, décision propriétaire 03/07) : la 1re ouverture est
+    # bornée à la tranche (= cap/trade) ; en position ATTRACTIF sous la cible ->
+    # RENFORCER d'une tranche ; presque à la cible -> on encaisse.
+    kk = dict(seuil_sortie_pct=2.0, notional_cfg=200.0, min_notional=6.0, tranche_max=50.0)
+    o = ca.decider_carry(6.5, "ATTRACTIF", None, None, 210.0, **kk)
+    assert o["action"] == "ouvrir" and o["notional"] == 50.0        # min(cible 199.5, tranche 50)
+    r = ca.decider_carry(6.5, "ATTRACTIF", {"side": "short", "notional_usdt": 50.0},
+                         "carry", 210.0, **kk)
+    assert r["action"] == "renforcer" and r["notional"] == 50.0     # manque 149.5 -> tranche 50
+    r2 = ca.decider_carry(6.5, "ATTRACTIF", {"side": "short", "notional_usdt": 195.0},
+                          "carry", 210.0, **kk)
+    assert r2["action"] == "rien"                                   # manque 4.5 < min 6 -> on encaisse
+    # APR entre sortie et entrée : TENIR sans renforcer (hystérésis, pas de rajout tiède)
+    r3 = ca.decider_carry(3.0, "NEUTRE", {"side": "short", "notional_usdt": 50.0},
+                          "carry", 210.0, **kk)
+    assert r3["action"] == "rien"
+    # la sortie ferme TOUT en un ordre (le reduceOnly est exempté des caps)
+    f = ca.decider_carry(1.0, "NEGATIF", {"side": "short", "notional_usdt": 180.0},
+                         "carry", 210.0, **kk)
+    assert f["action"] == "fermer" and f["notional"] == 180.0
 
 
 def test_carry_auto_couverture_etendue_bgbtc():

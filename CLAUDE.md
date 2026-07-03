@@ -42,7 +42,7 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 |---|---|
 | Lecture compte (portefeuille complet) | RÉEL, lecture seule (`bitget_hub_bridge`, `bitget_balance_reader`) |
 | Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, 2–5 $/j ∝ opportunité (§44), garde best-price, double verrou |
-| Futures borné (`futures_executor`) | **RÉEL depuis §45** : marge isolée, ≤×5, caps 15/60 (murs 50/250), stop journalier −5 % -> kill-switch |
+| Futures borné (`futures_executor`) | **RÉEL depuis §45** : marge adaptative (crossed en compte union), ≤×5, caps 50/trade · 200 cumulé (murs 50/250 ; décision 03/07, cap carry 200 par tranches), stop journalier −5 % sur le LIVRE COUVERT (futures + expo BTC spot) -> kill-switch |
 | Cerveau (13 agents), scan, pré-ordres | **PAPER** (`execution_gateway` DRY_RUN_ONLY — le câblage cerveau->futures réel est un chantier §45 séparé) |
 | Échelle d'edge | 0 agent LIVE — porte OUTREPASSÉE par décision §45 (`FUTURES_EDGE_GATE_OVERRIDE`) |
 
