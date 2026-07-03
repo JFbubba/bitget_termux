@@ -762,15 +762,31 @@ def test_brain_volatility_regime():
     assert sb.volatility_regime([100, 101, 102])["scale"] == 1.0  # court -> non bloquant
 
 def test_brain_coherence_scores():
+    # LEAVE-ONE-OUT (§51) : l'accord se mesure contre le consensus DES AUTRES —
+    # un agent dominant ne peut plus « s'accorder avec lui-même ».
     import swarm_brain as sb
     log = [
-        {"consensus": 0.5, "votes": {"x": 0.4, "y": -0.3}},   # consensus LONG
-        {"consensus": 0.3, "votes": {"x": 0.2, "y": -0.1}},
-        {"consensus": -0.4, "votes": {"x": -0.2, "y": 0.5}},  # consensus SHORT
+        {"consensus": 0.5, "votes": {"x": 0.4, "y": -0.3, "z": 0.2}},
+        {"consensus": 0.3, "votes": {"x": 0.2, "y": -0.1, "z": 0.3}},
+        {"consensus": -0.4, "votes": {"x": -0.2, "y": 0.5, "z": -0.6}},
     ]
     c = sb._coherence_scores(log)
-    assert c["x"] == 1.0    # x toujours d'accord avec le consensus
-    assert c["y"] == 0.0    # y toujours en désaccord
+    # x vs (y+z) : +0.4 vs −0.1 ✗ · +0.2 vs +0.2 ✓ · −0.2 vs −0.1 ✓ -> 2/3
+    assert abs(c["x"] - 2 / 3) < 1e-9
+    assert c["y"] == 0.0                           # y toujours opposé aux autres
+    # AUTO-COHÉRENCE cassée : sous l'ANCIEN calcul, "gros" (qui fabrique le
+    # consensus 0.9 à lui seul) aurait été cohérent à 100 % ; en LOO les autres
+    # le contredisent (somme −0.5) -> 0. Et a/b votent CONTRE leur propre reste
+    # (a : −0.2 vs gros+b=+0.7) -> 0 aussi : personne ne s'auto-valide.
+    dominant = [{"consensus": 0.9, "votes": {"gros": 1.0, "a": -0.2, "b": -0.3}}] * 4
+    cd = sb._coherence_scores(dominant)
+    assert cd["gros"] == 0.0 and cd["a"] == 0.0 and cd["b"] == 0.0
+    # vote seul -> ignoré (pas d'« autres ») ; deux votes opposés -> chacun est
+    # jugé contre L'AUTRE (désaccord mutuel) ; somme des AUTRES nulle -> skippé
+    assert sb._coherence_scores([{"votes": {"seul": 0.5}}]) == {}
+    assert sb._coherence_scores([{"votes": {"m": 0.5, "n": -0.5}}]) == {"m": 0.0, "n": 0.0}
+    tri = sb._coherence_scores([{"votes": {"p": 0.3, "q": -0.3, "r": 0.5}}])
+    assert "r" not in tri and tri["p"] == 1.0 and tri["q"] == 0.0
 
 def test_black_scholes():
     import black_scholes as bs, math
