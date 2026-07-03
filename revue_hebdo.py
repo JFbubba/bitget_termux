@@ -211,12 +211,58 @@ def collecter(now=None):
     return out
 
 
+def recommandations(d):
+    """PUR (§60, gouvernance). Recommandations CHIFFRÉES à partir des données de
+    la revue — le matériau de décision, l'humain tranche. Déclencheurs :
+      • espérance directionnelle réelle négative avec n >= 30 -> proposer de
+        refermer la porte d'edge (FUTURES_EDGE_GATE_OVERRIDE=0) ou durcir le
+        seuil d'entrée ;
+      • agent au palier LIVE en attente -> le signaler ;
+      • exécution propre 30 j (aucun échec d'ordre) -> rappeler que la montée
+        des caps par paliers est prévue par §45 (décision propriétaire)."""
+    recs = []
+    fb = (d.get("futures") or {}).get("fills_bot") or {}
+    n, net = fb.get("n_fills", 0) or 0, fb.get("net_usdt")
+    if n >= 30 and net is not None and net < 0:
+        recs.append(f"⚠️ Espérance directionnelle RÉELLE négative ({net:+.4f} $ sur "
+                    f"{n} fills) : envisager FUTURES_EDGE_GATE_OVERRIDE=0 ou seuil "
+                    "d'entrée plus dur (0.45).")
+    elif n < 30:
+        recs.append(f"Directionnel réel : {n}/30 fills — pas de verdict avant 30 "
+                    "(discipline anti-conclusion-hâtive).")
+    el = d.get("exit_lab") or {}
+    pl = el.get("paper") or {}
+    if pl.get("ratio_tp_sl") is not None and pl["ratio_tp_sl"] < 0.6:
+        recs.append(f"Exit lab : ratio TP/SL paper {pl['ratio_tp_sl']} — le RR 2 "
+                    "conventionnel mérite l'examen quand l'échantillon réel suffira.")
+    audit = (d.get("audit_live") or {}).get("agents") or []
+    for r in audit[:3]:
+        if (r.get("ic_t") or 0) >= 3.0:
+            recs.append(f"Agent '{r['agent']}' : IC live {r['ic']:+.3f} (t {r['ic_t']:+.1f}) "
+                        "— si le xs et le profond confirment, promotion à surveiller.")
+    for r in audit:
+        if (r.get("ic_t") or 0) <= -3.0:
+            recs.append(f"⚠️ Agent '{r['agent']}' : IC live {r['ic']:+.3f} "
+                        f"(t {r['ic_t']:+.1f}) — formulation à auditer (méthode §48-49).")
+    return recs
+
+
 def _n(v, motif="{:.2f}"):
     return motif.format(v) if isinstance(v, (int, float)) else "—"
 
 
 def build_report(d=None):
     d = collecter() if d is None else d
+    try:
+        import exit_lab
+        d.setdefault("exit_lab", exit_lab.snapshot())
+    except Exception:
+        pass
+    try:
+        import live_ic_audit
+        d.setdefault("audit_live", live_ic_audit.snapshot())
+    except Exception:
+        pass
     a = d.get("accum") or {}
     f = d.get("futures") or {}
     fb = f.get("fills_bot") or {}
@@ -264,6 +310,22 @@ def build_report(d=None):
         "",
         "Lecture seule. Décisions (caps, débrayages) = propriétaire. VERDICT: SAFE",
     ]
+    el = d.get("exit_lab") or {}
+    if el:
+        pl, rl = el.get("paper") or {}, el.get("reels") or {}
+        lignes += ["", "— EXIT LAB (sorties, advisory §60) —",
+                   f"paper : n {pl.get('n', 0)} · WR {_n(pl.get('wr_pct'))}% · "
+                   f"ratio TP/SL {_n(pl.get('ratio_tp_sl'), '{:.3f}')}",
+                   f"réel : {rl.get('note', 'n/a')}"]
+    audit = (d.get("audit_live") or {}).get("agents") or []
+    if audit:
+        lignes += ["", "— AUDIT IC LIVE (1 h, votes émis §60) —"]
+        for r in audit[:5]:
+            lignes.append(f"{r['agent']:<12} {r['ic']:+.4f} (t {r['ic_t']:+.2f})")
+    recs = recommandations(d)
+    if recs:
+        lignes += ["", "— RECOMMANDATIONS (données -> décision propriétaire) —"]
+        lignes += [f"• {r}" for r in recs]
     return "\n".join(lignes)
 
 

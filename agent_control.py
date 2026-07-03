@@ -72,6 +72,10 @@ COMMANDS = [
         "command": ["python", "carry_auto.py"],
     },
     {
+        "name": "Laboratoire xs paper : momentum cross-sectionnel long-short (§60, rebalance 24h)",
+        "command": ["python", "xs_paper.py"],
+    },
+    {
         "name": "Mandat de gestion : règles dures + agents autorisés en réel",
         "command": ["python", "mandate.py"],
     },

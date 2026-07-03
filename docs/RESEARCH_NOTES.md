@@ -2036,3 +2036,34 @@ dans la fenêtre d'une décision Fed ou d'un print CPI (les FERMETURES restent
 permises : réduire le risque n'attend pas). Fail-open : calendrier muet ->
 porte transparente. Première application concrète du savoir §56 (les annonces
 macro sont les moments de dislocation) à la protection du capital réel.
+
+---
+
+## §60 — Les sept chantiers du « que pourrais-tu faire de plus ? », exécutés
+
+1. **Sauvegarde hors-VPS** : archive chiffrée AES-256 des 15 registres
+   irremplaçables -> document Telegram, timer quotidien 03:40 UTC. Première
+   archive envoyée et vérifiée. Passphrase dans le .env ET à conserver hors-VPS
+   par le propriétaire. Restauration documentée dans backup_registres.py.
+2. **Exit lab** : l'instrument qui jugera SL 1.5·ATR / RR 2 (conventions jamais
+   mesurées). Paper : WR 33.5 %, ratio TP/SL 0.504 sur 212 issues — le RR
+   conventionnel mérite examen. Réel : 4 fermetures < 10 -> l'instrument
+   accumule sans conclure.
+3. **Timing de funding** : report d'OUVERTURE si un règlement (00/08/16 UTC)
+   tombe sous 20 min et que le côté paierait (fail-open, fermetures intactes).
+4. **Voie xs paper** (dernier survivant §52) : panier dollar-neutre 2×2 jambes
+   de 10 $ fictifs, rebalance 24 h, journal dédié. Premier panier : long
+   HYPE/ETH, short BTC/LAB. Le laboratoire tranchera dans les deux sens.
+5. **Audit IC live permanent** (live_ic_audit.py) : l'outil ad hoc du §51
+   devenu module, branché à la revue. Jour 1 : technicals +0.24 (t 6.2) et
+   flows +0.22 en tête ; carry/derivs/liquidations significativement négatifs
+   -> candidats à l'audit de formulation quand l'échantillon suffira.
+6. **Décisions propriétaire actées** : CryptoPanic PAYANT -> refus assumé, le
+   sous-système news est CLOS (retiré des attentes). Restent ouvertes, à sa
+   main : autorisation d'annuler ses propres ordres (maker-first carry),
+   montée des caps (déclencherait le sizing vol-target), CoinGlass payant
+   (flux ETF).
+7. **Gouvernance du temps de mesure** : la revue hebdo produit désormais des
+   RECOMMANDATIONS CHIFFRÉES automatiques (verdict directionnel bloqué avant
+   30 fills, ratio TP/SL, agents à promouvoir/auditer selon l'IC live) — le
+   matériau de décision, l'humain tranche.

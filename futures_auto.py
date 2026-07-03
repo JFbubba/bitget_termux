@@ -190,6 +190,28 @@ def dernier_ordre_auto_ts(events, agent="auto_dir",
     return None
 
 
+def report_funding(now, side, taux_funding, marge_min=None):
+    """PUR (§60). Raison de REPORT si un règlement de funding (00/08/16 UTC)
+    tombe dans les marge_min prochaines minutes ET que le côté à ouvrir PAIERAIT
+    (long paie si taux > 0, short paie si taux < 0) : ouvrir juste APRÈS le
+    règlement évite un paiement sec (SAVOIR.md §5). Ne s'applique qu'aux
+    OUVERTURES ; taux illisible/nul -> None (fail-open)."""
+    from numeric_utils import safe_float
+    taux = safe_float(taux_funding)
+    if not taux:
+        return None
+    paie = (side == "long" and taux > 0) or (side == "short" and taux < 0)
+    if not paie:
+        return None
+    marge_min = float(_cfg("FUTURES_FUNDING_TIMING_MIN", 20) if marge_min is None else marge_min)
+    prochain = (int(now) // 28800 + 1) * 28800          # prochain multiple de 8 h UTC
+    minutes = (prochain - now) / 60.0
+    if minutes <= marge_min:
+        return (f"règlement de funding dans {minutes:.0f} min et le {side} paierait "
+                f"({taux:+.6f}) — report après règlement")
+    return None
+
+
 def blackout_macro(now=None, evenements=None):
     """Raison de black-out macro si une annonce (Fed/CPI, calendrier VIVANT
     Kalshi §59) est imminente — le mandat le prévoyait (MANDATE_MACRO_BLACKOUT_*)
@@ -513,6 +535,17 @@ def _run_cycle(now=None):
     if raison_bo:
         out["decision"] = {**d, "action": "rien", "symbol": sym,
                            "raison": d["raison"] + f" [{sym}] — {raison_bo}"}
+        return out
+    try:                                           # timing de funding (§60, fail-open)
+        import carry_monitor as cm
+        import derivs_positioning as dp
+        taux = (dp.fetch_snapshot(sym) or {}).get("funding")
+    except Exception:
+        taux = None
+    raison_fd = report_funding(now, d["side"], taux)
+    if raison_fd:
+        out["decision"] = {**d, "action": "rien", "symbol": sym,
+                           "raison": d["raison"] + f" [{sym}] — {raison_fd}"}
         return out
     if not throttle_ok(dernier_ordre_auto_ts(events), now=now):
         out["decision"] = {**d, "action": "rien", "symbol": sym,

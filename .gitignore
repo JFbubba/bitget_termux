@@ -59,3 +59,5 @@ validation_report.json
 .futures_pos_state.json
 brain_hitrates.json
 data_history/
+xs_paper_journal.jsonl
+.xs_paper_etat.json

@@ -2136,6 +2136,83 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_exit_lab_purs():
+    import exit_lab as xl
+    # MFE/MAE long et short, en fraction du prix d'entrée
+    mfe, mae = xl.mfe_mae(100, "LONG", highs=[101, 103], lows=[99, 98])
+    assert abs(mfe - 0.03) < 1e-9 and abs(mae - 0.02) < 1e-9
+    mfe_s, mae_s = xl.mfe_mae(100, "short", highs=[101, 103], lows=[99, 98])
+    assert abs(mfe_s - 0.02) < 1e-9 and abs(mae_s - 0.03) < 1e-9
+    assert xl.mfe_mae(None, "LONG", [1], [1]) == (None, None)
+    # stats d'issues : labels en clair normalisés (« TP TOUCHÉ »)
+    s = xl.stats_issues([{"outcome": "TP TOUCHÉ"}] * 3 + [{"outcome": "SL TOUCHÉ"}] * 6
+                        + [{"outcome": "AMBIGU"}])
+    assert s["n"] == 10 and s["wr_pct"] == 33.3 and s["ratio_tp_sl"] == 0.5
+    assert xl.stats_issues([])["wr_pct"] is None
+
+
+def test_live_ic_audit_pur():
+    import live_ic_audit as la
+    # signal parfait : vote = signe du rendement à venir -> IC fortement positif
+    entrees = []
+    prix = 100.0
+    for i in range(200):
+        suivant = prix * (1.02 if i % 2 == 0 else 0.98)
+        entrees.append({"symbol": "X", "ts": i * 3600, "price": prix,
+                        "votes": {"bon": 1.0 if suivant > prix else -1.0,
+                                  "nul": 0.0, "inverse": -1.0 if suivant > prix else 1.0}})
+        prix = suivant
+    res = la.ic_par_agent(entrees, horizon_s=3600)
+    assert res["bon"]["ic"] > 0.8 and res["inverse"]["ic"] < -0.8
+    assert res["nul"]["pct_votants"] == 0.0
+    assert la.ic_par_agent([], 3600) == {}                       # vide -> {}
+
+
+def test_xs_paper_purs():
+    import xs_paper as xp
+    rend = {"A": 0.10, "B": 0.05, "C": -0.02, "D": -0.08, "E": None}
+    longs, shorts = xp.classement(rend, k=2)
+    assert longs == ["A", "B"] and shorts == ["C", "D"]
+    assert xp.classement({"A": 0.1, "B": 0.2}, k=2) == ([], [])  # trop court
+    # PnL dollar-neutre : long +5 %, short -5 % -> +1 $ sur 2 jambes de 10 $
+    panier = {"longs": {"A": 100.0}, "shorts": {"D": 50.0}}
+    pnl = xp.pnl_panier(panier, {"A": 105.0, "D": 47.5}, notional=10.0)
+    assert abs(pnl - 1.0) < 1e-9
+    assert xp.pnl_panier(panier, {"A": 105.0}) is None           # prix manquant -> None
+
+
+def test_revue_recommandations_pures():
+    import revue_hebdo as rv
+    # < 30 fills -> discipline anti-conclusion ; >= 30 négatif -> proposer refermer
+    d1 = {"futures": {"fills_bot": {"n_fills": 8, "net_usdt": -0.04}}}
+    recs1 = rv.recommandations(d1)
+    assert any("8/30" in r for r in recs1)
+    d2 = {"futures": {"fills_bot": {"n_fills": 40, "net_usdt": -1.5}}}
+    assert any("EDGE_GATE_OVERRIDE" in r for r in rv.recommandations(d2))
+    # agent live fortement négatif -> audit de formulation
+    d3 = {"futures": {"fills_bot": {}},
+          "audit_live": {"agents": [{"agent": "derivs", "ic": -0.18, "ic_t": -4.6}]}}
+    assert any("derivs" in r and "auditer" in r for r in rv.recommandations(d3))
+
+
+def test_report_funding_timing():
+    # §60 : pas d'ouverture qui PAIERAIT le funding dans les 20 min (00/08/16 UTC).
+    import futures_auto as fa
+    h8 = 28800
+    # long avec funding positif, règlement dans 10 min -> report
+    r = fa.report_funding(now=h8 * 3 - 600, side="long", taux_funding=0.0001)
+    assert r and "report" in r
+    # ... règlement dans 2 h -> pas de report
+    assert fa.report_funding(now=h8 * 3 - 7200, side="long", taux_funding=0.0001) is None
+    # le côté qui ENCAISSE n'est jamais reporté (short avec funding positif)
+    assert fa.report_funding(now=h8 * 3 - 600, side="short", taux_funding=0.0001) is None
+    # short avec funding négatif (le short paie) -> report
+    assert fa.report_funding(now=h8 * 3 - 600, side="short", taux_funding=-0.0002) is not None
+    # taux illisible/nul -> fail-open
+    assert fa.report_funding(now=0, side="long", taux_funding=None) is None
+    assert fa.report_funding(now=0, side="long", taux_funding=0.0) is None
+
+
 def test_blackout_macro_fenetre_et_fail_open():
     # §59 suite : black-out macro VIVANT (Kalshi) — n'agit que sur les OUVERTURES.
     import kalshi_probe as kp
