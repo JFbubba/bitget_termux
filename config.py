@@ -58,12 +58,12 @@ MANDATE_BENCHMARK = "ABSOLUTE"             # benchmark absolu, horizon perpétue
 # Porte d'edge paper -> réel (futures) : un agent ne trade en RÉEL que s'il bat ça.
 MANDATE_FUTURES_DSR_MIN = 0.90             # Deflated Sharpe Ratio minimal (multiple-testing)
 MANDATE_FUTURES_MIN_SAMPLES = 120          # taille d'échantillon minimale (anti faux-positif)
-# Exécution FUTURES réelle (étape 1 = DRY-RUN ; RESEARCH_NOTES §34). Tout OFF / petit.
-# Le réel reste non câblé tant qu'aucun agent n'est LIVE et sans GO explicite (étape 2).
-FUTURES_AUTONOMOUS_LIVE = False             # 2e verrou futures (avec MANDATE_LIVE_ENABLED)
-FUTURES_REAL_MAX_PER_TRADE_USDT = 10.0      # plafond dur du notional par trade
-FUTURES_REAL_MAX_GROSS_USDT = 20.0          # plafond dur de l'exposition cumulée
-FUTURES_REAL_LEDGER = "futures_real_ledger.json"   # journal DRY-RUN (gitignored)
+# Exécution FUTURES réelle (§45) — les CAPS effectifs sont définis UNE SEULE fois,
+# plus bas (section « FUTURES RÉEL ») : le doublon historique §34 (10/20) a été
+# retiré à l'audit du 03/07 — éditer une 1re occurrence écrasée par la 2e ne
+# faisait silencieusement rien.
+FUTURES_AUTONOMOUS_LIVE = False             # 2e verrou futures (armé via .env, avec MANDATE_LIVE_ENABLED)
+FUTURES_REAL_LEDGER = "futures_real_ledger.json"   # journal exécuteur : events DRY ET RÉELS (gitignored)
 # Numéraire dynamique : si le dollar se déprécie, tourner hors USD vers ces refuges.
 MANDATE_NUMERAIRE_REFUGES = ["BTCUSDT", "XAUTUSDT"]   # BTC, or tokenisé
 MANDATE_USD_WEAK_THRESHOLD = -3.0          # baisse % du DXY (fenêtre) déclenchant la rotation

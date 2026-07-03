@@ -153,7 +153,7 @@ def handle_command(text):
             "/paper_positions - positions paper ouvertes\n"
             "/paper_journal - dernières fermetures paper TP/SL\n"
             "/guard_journal - derniers blocages pré-ordres OBSERVATION\n"
-            "/run_once - lancer un cycle maintenant\n"
+            "/run_once - désactivé (§45 : le scan réel tourne seul toutes les 5 min)\n"
             "/pause - mettre l’agent en pause\n"
             "/resume - relancer l’agent\n"
             "/pause_status - voir l’état pause\n"
@@ -720,24 +720,14 @@ def handle_command(text):
         return "\n".join(output)
 
     if text == "/run_once":
-        reply_text("▶️ Cycle manuel lancé. Attends le rapport de fin.")
-        result = subprocess.run(
-            ["python", "agent_control.py"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            return (
-                "❌ Erreur pendant agent_control.py\n\n"
-                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
-                f"STDERR:\n{result.stderr[-2500:]}"
-            )
-
-        return (
-            "✅ Cycle manuel terminé.\n"
-            "Le rapport compact a été envoyé séparément par agent_control.py."
-        )
+        # §45 (audit 03/07) : un cycle complet peut désormais passer des ordres RÉELS
+        # (accumulation spot, boucles futures). Une commande chat ne déclenche plus
+        # JAMAIS ce chemin — le scan systemd tourne déjà toutes les 5 min, et un
+        # run_once concurrent créait un risque de course sur les registres réels.
+        return ("⛔ /run_once désactivé depuis le passage en réel (§45) : le cycle "
+                "complet peut passer des ordres réels et tourne déjà tout seul toutes "
+                "les 5 min (bitget-scan). Consultation : /status /futures /accum. "
+                "Cycle manuel assumé : SSH → python agent_control.py.")
 
     if text == "/pause":
         PAUSE_FILE.write_text("paused\n")
@@ -828,7 +818,15 @@ def main():
     offset = get_offset()
 
     while True:
-        updates = telegram_get_updates(offset=offset)
+        # POLLING INCASSABLE (audit 03/07) : un timeout réseau non attrapé crashait
+        # le process (32 redémarrages systemd cumulés, ~5 s de trou de polling à
+        # chaque fois). On journalise, on respire, on repart.
+        try:
+            updates = telegram_get_updates(offset=offset)
+        except Exception as exc:
+            print(f"getUpdates: {type(exc).__name__} — nouvel essai dans 5 s.")
+            time.sleep(5)
+            continue
 
         for update in updates:
             update_id = update["update_id"]

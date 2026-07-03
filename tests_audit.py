@@ -4644,6 +4644,78 @@ def test_futures_auto_decider_politique_frugale():
     assert fa.decider("x", None, **k)["action"] == "rien"
 
 
+def test_futures_auto_atr_signature_corrigee():
+    # RÉGRESSION (audit 03/07) : _atr appelait calculate_atr(highs, lows, closes)
+    # alors que la signature est (candles, period) -> TypeError avalé -> SL jamais
+    # basé ATR. Vérifie qu'un jeu de bougies dict produit bien un ATR numérique.
+    import futures_auto as fa
+    import technicals as tk
+    orig = tk.fetch_candles
+    try:
+        base = 60000.0
+        tk.fetch_candles = lambda s, tf, n: [
+            {"high": base + i * 10 + 50, "low": base + i * 10 - 50,
+             "close": base + i * 10, "open": base + i * 10, "ts": i, "volume": 1}
+            for i in range(40)]
+        atr = fa._atr(limit=40)
+        assert isinstance(atr, float) and atr > 0          # ATR réel, plus de repli silencieux
+        # et il alimente bien le SL (distance 1.5·ATR, pas le % fixe)
+        sl, tp = fa.sl_tp("long", 60000.0, atr=atr, sl_pct=1.5, rr=2.0)
+        assert abs((60000.0 - sl) - 1.5 * atr) < 1e-9
+    finally:
+        tk.fetch_candles = orig
+
+
+def test_futures_executor_equity_curve_et_halte_mdd():
+    # equity_curve : ouvertures journalières du ledger + point courant ; alimente la
+    # halte MDD du mandat (garde 6) désormais branchée sur le chemin réel des boucles.
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_eq = fe._futures_equity
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            import json as _json
+            fe.Path(config.FUTURES_REAL_LEDGER).write_text(_json.dumps(
+                {"equity_journal": [{"day": 1, "open_equity": 200.0},
+                                    {"day": 2, "open_equity": 210.0},
+                                    {"day": 3, "open_equity": None}]}))  # None filtré
+            fe._futures_equity = lambda: 205.0
+            assert fe.equity_curve() == [200.0, 210.0, 205.0]
+            # la garde 6 refuse un ordre quand la courbe est en drawdown >= MDD 20%
+            ok, reasons = fe.guards("auto_dir", 8, 2, equity_curve=[210.0, 160.0],
+                                    live=True, autonomous=True, futures_live=True,
+                                    kill=False, edge_override=1)
+            assert ok is False and any("drawdown" in r for r in reasons)
+            # ledger absent + equity vivante -> courbe = [equity] (jamais d'exception)
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "absent.json")
+            assert fe.equity_curve() == [205.0]
+        finally:
+            fe._futures_equity = orig_eq
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            else:
+                delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_telegram_run_once_desactive():
+    # §45 : /run_once ne déclenche PLUS JAMAIS agent_control (cycle pouvant trader
+    # en réel). La commande répond une explication, sans subprocess.
+    import telegram_command_bot as t
+    orig = t.subprocess.run
+    lances = []
+    try:
+        t.subprocess.run = lambda *a, **k: lances.append(a) or None
+        out = t.handle_command("/run_once")
+        assert "désactivé" in out and lances == []          # aucun process lancé
+    finally:
+        t.subprocess.run = orig
+
+
 def test_futures_auto_sl_tp_et_fraicheur():
     import futures_auto as fa
     # SL/TP : long -> SL sous, TP au-dessus, distance ATR prioritaire, RR appliqué

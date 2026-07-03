@@ -335,6 +335,26 @@ def daily_loss_breach(now=None):
     return breach
 
 
+def equity_curve():
+    """Courbe d'equity futures : ouvertures JOURNALIÈRES journalisées (equity_journal
+    du ledger, écrites par le tripwire) + point courant. Alimente la HALTE DRAWDOWN du
+    mandat (garde 6) sur le chemin réel — l'audit du 03/07 a montré qu'elle était
+    inerte faute d'equity_curve passée par les boucles. [] si rien (pas de halte sans
+    historique : la protection grandit avec les jours)."""
+    try:
+        led = json.loads(_ledger_path().read_text(encoding="utf-8"))
+    except Exception:
+        led = {}
+    from numeric_utils import safe_float
+    pts = [safe_float(r.get("open_equity")) for r in led.get("equity_journal", [])
+           if isinstance(r, dict)]
+    pts = [p for p in pts if p and p > 0]
+    eq = _futures_equity()
+    if eq:
+        pts.append(eq)
+    return pts
+
+
 # ---------- mode de marge ADAPTATIF (union -> crossed forcé) ----------
 
 def resolve_marge_mode(mode_cfg, asset_mode):

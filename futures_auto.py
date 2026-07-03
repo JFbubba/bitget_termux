@@ -182,14 +182,14 @@ def _executor_events():
 
 
 def _atr(limit=60):
+    """ATR 15m courant. calculate_atr prend des BOUGIES {high,low,close} — l'ancien
+    appel (highs, lows, closes) levait TypeError avalé en silence : le SL retombait
+    TOUJOURS sur le % fixe au lieu de l'ATR (bug trouvé à l'audit, corrigé)."""
     try:
         import technicals as tk
         import indicators
         candles = tk.fetch_candles(SYMBOL, "15m", limit)
-        highs = [c["high"] for c in candles]
-        lows = [c["low"] for c in candles]
-        closes = [c["close"] for c in candles]
-        return indicators.calculate_atr(highs, lows, closes)[-1]
+        return float(indicators.calculate_atr(candles)[-1])
     except Exception:
         return None
 
@@ -247,7 +247,8 @@ def run(now=None):
                          float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
                          entry=prix, stop_loss=sl, take_profit=tp,
                          confirm=True, now=now,
-                         gross_open_usdt=(pos or {}).get("notional_usdt") or 0.0)
+                         gross_open_usdt=(pos or {}).get("notional_usdt") or 0.0,
+                         equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
     try:

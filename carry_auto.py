@@ -181,7 +181,8 @@ def run(now=None):
                          now=now, size_btc=(out.get("position") or {}).get("size_btc"))
     else:                                          # ouvrir un short couvert, levier 1, sans SL/TP
         res = fe.execute("carry", "short", float(d["notional"]), 1.0,
-                         confirm=True, now=now)
+                         confirm=True, now=now,
+                         equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
     try:
