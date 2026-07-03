@@ -507,17 +507,29 @@ def _apply_edge_priors(weights):
 
 
 def _coherence_scores(entries):
-    """Cohérence EARCP : fréquence d'accord de chaque agent avec le consensus. Pur."""
+    """Cohérence EARCP : accord de chaque agent avec le consensus DES AUTRES
+    (leave-one-out, non pondéré). Pur.
+
+    Audit du 03/07 : l'ancien calcul comparait au consensus INCLUANT l'agent —
+    à poids 3, orderflow dominait le consensus et « s'accordait avec lui-même »
+    (auto-cohérence 0.761 vs 0.467 en LOO sur 723 cycles live), ce qui l'épinglait
+    au clamp avec un IC live NÉGATIF à l'horizon de trading (−0.05 à 1 h, quand
+    flows/technicals faisaient +0.23 avec les poids les plus bas). Le LOO casse
+    cette boucle d'auto-renforcement. NB mesuré : la cohérence récompense le
+    troupeau, pas la justesse (liquidations : pire IC, meilleure cohérence LOO) —
+    si l'anti-corrélation persiste sur la durée, le terme lui-même sera rejugé."""
     agree, total = {}, {}
     for e in entries:
-        cons = e.get("consensus", 0) or 0
-        if cons == 0:
+        votes = {n: v for n, v in (e.get("votes") or {}).items() if v}
+        if len(votes) < 2:
             continue
-        for name, vote in (e.get("votes") or {}).items():
-            if not vote:
+        s_tot = sum(votes.values())
+        for name, vote in votes.items():
+            autres = s_tot - vote                     # consensus SANS moi (non pondéré)
+            if autres == 0:
                 continue
             total[name] = total.get(name, 0) + 1
-            if (vote > 0) == (cons > 0):
+            if (vote > 0) == (autres > 0):
                 agree[name] = agree.get(name, 0) + 1
     return {n: agree.get(n, 0) / total[n] for n in total}
 
