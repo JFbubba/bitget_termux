@@ -478,6 +478,111 @@ def build_state(symbol=None, tf="5m"):
             pass
         return out
 
+    def _journal_de_bord():
+        """Derniers ÉVÉNEMENTS notables, fusionnés (§63) : ordres réels futures,
+        achats DCA, fermetures côté exchange, refus notables de la boucle.
+        Lecture seule, [] best-effort."""
+        evs = []
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            for ligne in (_P(REPO_ROOT) / "futures_auto_journal.jsonl").read_text(
+                    encoding="utf-8", errors="ignore").splitlines()[-2000:]:
+                try:
+                    e = _json.loads(ligne)
+                except Exception:
+                    continue
+                ts = e.get("ts")
+                if not ts:
+                    continue
+                if e.get("action") == "fermee_exchange":
+                    evs.append({"ts": ts, "type": "sl_tp",
+                                "txt": f"SL/TP exchange : {e.get('side')} {e.get('symbol', '')}"})
+                    continue
+                d = e.get("decision") or {}
+                res = e.get("resultat") or {}
+                if res and not res.get("executed"):
+                    evs.append({"ts": ts, "type": "echec",
+                                "txt": f"échec {d.get('action')} {e.get('symbol') or ''}"})
+                elif "black-out" in str(d.get("raison", "")):
+                    evs.append({"ts": ts, "type": "blackout",
+                                "txt": "ouverture gelée (black-out macro)"})
+        except Exception:
+            pass
+        try:                                       # ordres RÉELS : source de vérité = ledger exécuteur
+            import futures_auto as fa2
+            for e in (fa2._executor_events() or [])[-60:]:
+                if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+                    continue
+                o = e.get("order") or {}
+                evs.append({"ts": e.get("ts"), "type": "ordre",
+                            "txt": f"{'RÉDUIT' if o.get('reduce') else 'OUVRE'} "
+                                   f"{o.get('side') or ''} {o.get('symbol') or 'BTCUSDT'} "
+                                   f"~{o.get('notional_usdt') or '?'} $ ({o.get('agent')})"})
+        except Exception:
+            pass
+        try:
+            import spot_executor as se
+            for b in (se._load_real().get("buys") or [])[-10:]:
+                if b.get("ts"):
+                    m = b.get("amount_usdt")
+                    evs.append({"ts": b["ts"], "type": "dca",
+                                "txt": f"DCA réel {m if m is not None else '?'} $ BTC"})
+        except Exception:
+            pass
+        evs = [e for e in evs if e.get("ts")]
+        evs.sort(key=lambda x: -x["ts"])
+        return evs[:12]
+
+    def _rendez_vous():
+        """Prochains RENDEZ-VOUS du système (§63) : [{txt, ts}] triés. Best-effort."""
+        import time as _t
+        now = _t.time()
+        rv = []
+        rv.append({"txt": "règlement funding", "ts": (int(now) // 28800 + 1) * 28800})
+        try:                                       # fenêtre DCA (16-20h UTC, 1/jour)
+            import spot_executor as se
+            buys = se._load_real().get("buys") or []
+            dernier = buys[-1]["ts"] if buys else 0
+            possible = dernier + 24 * 3600
+            jour = int(max(now, possible) // 86400) * 86400
+            cible = jour + 16 * 3600
+            while cible < max(now, possible):
+                cible += 86400 if cible + 4 * 3600 < max(now, possible) else (
+                    0 if cible + 4 * 3600 > max(now, possible) else 86400)
+                if cible >= max(now, possible) or cible + 4 * 3600 > max(now, possible):
+                    break
+            rv.append({"txt": "fenêtre DCA (16-20h)", "ts": int(max(cible, possible))})
+        except Exception:
+            pass
+        try:                                       # throttle directionnel
+            import futures_auto as fa
+            dernier = fa.dernier_ordre_auto_ts(fa._executor_events())
+            if dernier:
+                from config_utils import cfg as _c
+                rv.append({"txt": "throttle directionnel libéré",
+                           "ts": int(dernier + float(_c("FUTURES_AUTO_MIN_INTERVAL_H", 4)) * 3600)})
+        except Exception:
+            pass
+        try:                                       # prochaine validation (6 h)
+            import json as _json
+            from pathlib import Path as _P
+            rep = _json.loads((_P(REPO_ROOT) / "validation_report.json").read_text())
+            rv.append({"txt": "validation (porte profonde)",
+                       "ts": int(rep.get("generated_at", 0)) + 6 * 3600})
+        except Exception:
+            pass
+        try:                                       # échéance macro (Kalshi)
+            import kalshi_probe as kp
+            pe = (kp.snapshot() or {}).get("prochain")
+            if pe:
+                rv.append({"txt": f"macro : {str(pe.get('titre'))[:28]}", "ts": pe["echeance_ts"]})
+        except Exception:
+            pass
+        rv = [r for r in rv if r.get("ts") and r["ts"] > now]
+        rv.sort(key=lambda x: x["ts"])
+        return rv[:6]
+
     def _carry():
         """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""
         import carry_monitor as cm
@@ -589,6 +694,14 @@ def build_state(symbol=None, tf="5m"):
     # futures réel §45 : préview de décision + réconciliation (lecture seule)
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
+    state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
+    state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
+    try:
+        import json as _json
+        state["hitrates"] = _cached("hitrates", 120, lambda: _safe(
+            lambda: _json.loads((REPO_ROOT / "brain_hitrates.json").read_text()), {}))
+    except Exception:
+        pass
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     fut_armed = (state.get("futures_live") or {}).get("armed")
