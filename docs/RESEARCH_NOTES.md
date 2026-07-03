@@ -2156,3 +2156,12 @@ dénaturé l'apprentissage) :
   lots — même demi-vie (~14 h) qu'avant malgré des lots ×5 plus fréquents ;
 - BRAIN_EARCP_LISSAGE 0.1 -> 0.02 : même vitesse horaire de convergence vers
   la cible qu'avant.
+
+**Addendum §63 — le cerveau a son timer dédié.** Mesure post-bascule : le cycle
+COMPLET de scan dure ~70-85 s (18 étapes) — un « toutes les minutes » précis
+était physiquement borné. Le cerveau seul : 18 s caches chauds. Restructuration :
+`bitget-brain.timer` (1 min précise, AccuracySec 10 s) exécute brain_cycle.py
+seul ; le scan (boucles, veille, moniteurs) le SAUTE désormais (SKIP) et garde
+sa cadence ~1 min effective. Résultat : les 14 agents votent CHAQUE minute,
+sans double vote, et les boucles décident sur un consensus jamais plus vieux
+que ~60 s.

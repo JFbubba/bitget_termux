@@ -1,0 +1,8 @@
+[Unit]
+Description=Bitget cerveau : 14 agents votent + apprennent (lecture seule, aucun ordre)
+ConditionPathExists=!/root/bitget_termux_repo/KILL_SWITCH
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 brain_cycle.py
+TimeoutStartSec=120
