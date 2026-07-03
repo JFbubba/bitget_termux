@@ -161,6 +161,8 @@ FUTURES_CARRY_NOTIONAL_USDT = 15.0    # short max (toujours ≤ 95 % de la couve
 FUTURES_CARRY_SEUIL_SORTIE_PCT = 2.0  # APR net sous lequel on FERME (hystérésis vs 5 %)
 FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de funding
 
+FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut
+FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
                                          # compte en mode multi-devises (assetMode union,
                                          # constaté le 02/07) -> crossed FORCÉ (Bitget

@@ -453,9 +453,23 @@ def to_bitget_order(order, spec, price, marge_mode=None):
     price_place = int((spec or {}).get("price_place") or 1)
     o = {"symbol": SYMBOL, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
          "marginMode": str(marge_mode or _cfg("FUTURES_MARGIN_MODE", "isolated")),
-         "orderType": "market", "side": side,
+         "side": side,
          "size": f"{size:.{vol_place}f}",
          "reduceOnly": "YES" if reduce else "NO"}
+    # style d'exécution (parité avec spot_executor, audit « plein potentiel ») :
+    #   • OUVERTURE en limit IOC plafonné à ±tol% du prix : remplit immédiatement
+    #     comme un market mais JAMAIS au-delà du plafond (anti-slippage borné ;
+    #     remplissage partiel possible = risque réduit, jamais aggravé) ;
+    #   • RÉDUCTION en market : la sortie doit TOUJOURS réussir.
+    style = str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+    if not reduce and style == "limit_ioc" and safe_float(price):
+        tol = float(_cfg("FUTURES_SLIPPAGE_TOL_PCT", 0.10)) / 100.0
+        cap = float(price) * (1.0 + tol) if side == "buy" else float(price) * (1.0 - tol)
+        o["orderType"] = "limit"
+        o["force"] = "ioc"
+        o["price"] = f"{round(cap, price_place):.{price_place}f}"
+    else:
+        o["orderType"] = "market"
     if order.get("clientOid"):
         o["clientOid"] = str(order["clientOid"])
     if not reduce:                                # TP/SL préréglés à l'ouverture seulement

@@ -1581,3 +1581,17 @@ morte → fermé à 03:36:06. PnL réalisé −0.0007 $, frais 0.0148 $, net −
 Toute la chaîne décision → gardes → ordre → position → sortie → journal →
 réconciliation a fonctionné sans intervention. (Le SL de ce trade datait d'avant
 le correctif ATR ; les suivants utilisent 1.5·ATR.)
+
+**Addendum §46 — « plein potentiel Bitget » (03/07)** : inventaire des outils du
+client (spot/futures/account/margin/convert/earn/copytrading/p2p/broker) croisé
+avec l'usage réel. Deux verdicts :
+- **Earn : INDISPONIBLE par API** pour ce compte/région (`EARN_UNAVAILABLE`,
+  vérifié en direct) — la « piste EARN » documentée depuis §38 n'est PAS
+  actionnable avec la clé actuelle ; seule l'app manuelle le permettrait. Piste
+  fermée honnêtement (ne pas re-creuser sans changement de compte/région).
+- **Ouvertures futures en limit IOC plafonné** (±FUTURES_SLIPPAGE_TOL_PCT=0.10 %
+  du mark, force ioc) : parité avec la protection anti-slippage du spot
+  (limit_ioc §31) — remplit comme un market mais jamais au-delà du plafond ; un
+  remplissage partiel RÉDUIT le risque, jamais ne l'aggrave. Les RÉDUCTIONS
+  restent en market (la sortie doit toujours réussir). Margin trading et
+  copytrading/p2p/broker restent interdits durs ; convert (poussière) sans objet.

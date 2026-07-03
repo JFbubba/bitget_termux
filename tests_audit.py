@@ -4561,7 +4561,9 @@ def test_futures_executor_dry_and_real_path():
     assert calls[0][1] == "futures_update_config" and "one_way_mode" in calls[0]
     assert calls[1][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
     bo = r3["bitget_order"]
-    assert bo["side"] == "buy" and bo["reduceOnly"] == "NO" and bo["orderType"] == "market"
+    assert bo["side"] == "buy" and bo["reduceOnly"] == "NO"
+    # ouverture en limit IOC anti-slippage : plafond +0.10% du mark, force ioc
+    assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "60060.0"
     assert bo["marginMode"] == "isolated" and bo["size"] == "0.0001"   # 8$/60000 -> plancher au pas
     # échec exchange -> executed False, jamais d'exception
     r4 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
@@ -4588,13 +4590,16 @@ def test_futures_executor_size_et_mapping_bitget():
     assert fe.size_for(5.9, 60000.0, _FUT_SPEC) is None           # 0.000098 -> floor 0 -> refus
     assert fe.size_for(8.0, None, _FUT_SPEC) is None
     assert fe.size_for(8.0, 60000.0, None) is None
-    # mapping : short ouvre en sell ; reduce d'un long ferme en sell + reduceOnly
+    # mapping : short ouvre en sell (limit IOC plafonné -0.10% : jamais pire que ça) ;
+    # reduce d'un long ferme en sell + reduceOnly, en MARKET (la sortie doit réussir)
     o_short = fe.build_futures_order("carry", "short", 12.0, 1.0, client_oid="c1")
     bo = fe.to_bitget_order(o_short, _FUT_SPEC, 60000.0)
     assert bo["side"] == "sell" and bo["reduceOnly"] == "NO" and bo["clientOid"] == "c1"
+    assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "59940.0"
     o_red = fe.build_futures_order("carry", "long", 12.0, 1.0, client_oid="c2", reduce=True)
     br_ = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0)
     assert br_["side"] == "sell" and br_["reduceOnly"] == "YES"
+    assert br_["orderType"] == "market" and "price" not in br_     # sortie certaine
     assert "presetStopLossPrice" not in br_                        # pas de TP/SL sur une réduction
     # TP/SL préréglés arrondis au tick (price_place=1)
     o_tp = fe.build_futures_order("x", "long", 12.0, 2.0, stop_loss=58999.96,
