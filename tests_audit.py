@@ -1315,15 +1315,18 @@ def test_macro_data_summarize_regime():
 
 def test_macro_data_degrades_without_lib(monkeypatch=None):
     import macro_data as md
-    # si yfinance absent, fetch_macro renvoie une erreur claire et fetch_regime None
-    orig = md._available
+    # §58 : sans yfinance, macro_data bascule sur AlphaVantage+FRED ; si CES
+    # sources sont muettes aussi, erreur claire + régime NEUTRE + regime None.
+    orig = (md._available, md._quote_av, md._quote_fred)
     md._available = lambda: False
+    md._quote_av = lambda name: None
+    md._quote_fred = lambda name: None
     try:
         d = md.fetch_macro()
-        assert d.get("error") and "yfinance" in d["error"] and d["regime"] == "NEUTRE"
+        assert d.get("error") and d["regime"] == "NEUTRE"
         assert md.fetch_regime() is None
     finally:
-        md._available = orig
+        md._available, md._quote_av, md._quote_fred = orig
 
 
 # ---------- ccxt multi-exchange (purs + dégradation) ----------
@@ -2130,6 +2133,27 @@ def test_savant_symmetry_break_detects_dislocation():
     disloc = sv.symmetry_break(sv.feature_matrix(_savant_market(70, 1, last=-0.05)))
     assert 0.0 <= normal <= 1.0 and 0.0 <= disloc <= 1.0
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
+
+
+def test_macro_data_parseurs_av_fred():
+    # §58 : TradFi ressuscité sur AlphaVantage (proxys ETF) + FRED (niveaux).
+    import macro_data as md
+    # GLOBAL_QUOTE AlphaVantage nominal
+    q = md.parse_av_quote({"Global Quote": {"05. price": "744.78",
+                                            "10. change percent": "-0.13%"}})
+    assert q == {"last": 744.78, "change_pct": -0.13}
+    # réponse de rate-limit (pas de Global Quote) -> None, jamais d'exception
+    assert md.parse_av_quote({"Note": "API call frequency"}) is None
+    assert md.parse_av_quote(None) is None
+    # FRED : deux observations -> niveau + variation ; vide -> None
+    q2 = md.parse_fred_quote([("2026-07-01", 16.45), ("2026-07-02", 16.59)])
+    assert q2["last"] == 16.59 and abs(q2["change_pct"] - 0.851) < 0.01
+    assert md.parse_fred_quote([("d", None)]) is None
+    assert md.parse_fred_quote([]) is None
+    # summarize reste PURE et tolère les trous
+    s = md.summarize({"VIX": {"last": 16.6, "change_pct": 0.9}, "DXY": None})
+    assert s["regime"] in ("RISK_ON", "RISK_OFF", "NEUTRE")
+    assert s["source"] == "alphavantage+fred"
 
 
 def test_validation_annuelle_et_porte_edge():
