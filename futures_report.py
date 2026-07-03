@@ -31,7 +31,7 @@ def resume_fills(rows, depuis_ts=None):
     n = 0
     volume = pnl = frais = 0.0
     for r in rows or []:
-        if not isinstance(r, dict) or str(r.get("symbol", "")).upper() != SYMBOL:
+        if not isinstance(r, dict):                     # multi-symboles §47 : tous comptent
             continue
         ts = safe_float(r.get("cTime"))
         if ts is None:
@@ -47,6 +47,54 @@ def resume_fills(rows, depuis_ts=None):
     return {"n_fills": n, "volume_usdt": round(volume, 4),
             "pnl_realise_usdt": round(pnl, 6), "frais_usdt": round(frais, 6),
             "net_usdt": round(pnl - frais, 6)}
+
+
+def serie_pnl(rows, depuis_ts=None):
+    """PUR. Série CUMULÉE du PnL réalisé NET du bot (profit − frais par fill, tous
+    symboles §47), triée par temps : [[ts_s, cum_net], ...]. Pour la courbe du
+    dashboard. Entrées illisibles ignorées."""
+    pts = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        ts = safe_float(r.get("cTime"))
+        if ts is None:
+            continue
+        ts_s = ts / 1000.0
+        if depuis_ts is not None and ts_s < float(depuis_ts):
+            continue
+        net = safe_float(r.get("profit")) or 0.0
+        for f in r.get("feeDetail") or []:
+            if isinstance(f, dict) and str(f.get("feeCoin", "")).upper() == "USDT":
+                net -= abs(safe_float(f.get("totalFee")) or 0.0)
+        pts.append((ts_s, net))
+    pts.sort()
+    out, cum = [], 0.0
+    for ts_s, net in pts:
+        cum += net
+        out.append([int(ts_s), round(cum, 6)])
+    return out
+
+
+def serie_funding(rows, depuis_ts=None):
+    """PUR. Série CUMULÉE des règlements de funding : [[ts_s, cum], ...]."""
+    pts = []
+    for r in rows or []:
+        if not isinstance(r, dict) or str(r.get("businessType", "")) != "contract_settle_fee":
+            continue
+        ts = safe_float(r.get("cTime"))
+        if ts is None:
+            continue
+        ts_s = ts / 1000.0
+        if depuis_ts is not None and ts_s < float(depuis_ts):
+            continue
+        pts.append((ts_s, safe_float(r.get("amount")) or 0.0))
+    pts.sort()
+    out, cum = [], 0.0
+    for ts_s, v in pts:
+        cum += v
+        out.append([int(ts_s), round(cum, 6)])
+    return out
 
 
 def somme_funding(rows, depuis_ts=None):

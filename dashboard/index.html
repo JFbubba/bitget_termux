@@ -115,6 +115,19 @@
   .ag .meta{font-size:9px;color:var(--dim);text-align:right}
   .vbar{position:relative;height:9px;background:#1C1914;border-radius:3px}
   .vbar .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#2a313c}
+  .lgd{display:flex;gap:12px;align-items:center;font-size:9px;color:var(--dim);
+    letter-spacing:.08em;text-transform:uppercase;font-family:system-ui,sans-serif;margin-bottom:3px}
+  .lgd i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .cbar{display:grid;grid-template-columns:44px 1fr 44px;gap:6px;align-items:center;padding:2px 0}
+  .cbar .sym{font-size:10px;color:var(--dim)} .cbar .val{font-size:10px;text-align:right}
+  .cbar .track{position:relative;height:8px;background:#1C1914;border-radius:2px}
+  .cbar .track .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#3A3222}
+  .cbar .track .seuil{position:absolute;top:0;bottom:0;width:1px;background:#4A3F28}
+  .cbar .track i{position:absolute;top:0;bottom:0;border-radius:2px}
+  .cbar.best .sym,.cbar.best .val{color:var(--accent)}
+  .syn-f{width:14px;background:var(--blue);border-radius:2px 2px 0 0;min-height:1px;position:relative}
+  .syn-f.mono{background:var(--purple)}
+  .syn-f .fl{position:absolute;bottom:-13px;left:0;right:0;text-align:center;font-size:8px;color:var(--dim)}
   .vbar i{position:absolute;top:0;bottom:0;border-radius:3px}
   .ag .note{grid-column:1/-1;font-size:8.5px;color:var(--dim);opacity:.88;line-height:1.35;margin-top:1px}
   .picker{display:inline-flex;gap:3px;flex-wrap:wrap;align-items:center;max-width:46vw}
@@ -373,6 +386,23 @@
       <div class="row"><span class="k">PnL réalisé bot (net)</span><span id="fu2-pnl">—</span></div>
       <div class="row"><span class="k">caps (eff · murs)</span><span id="fu2-caps">—</span></div>
       <div class="row"><span class="k">carry (couvert spot)</span><span id="fu2-carry">—</span></div>
+      <div style="margin-top:8px">
+        <div class="lgd"><span><i style="background:var(--blue)"></i>PnL net cumulé</span>
+          <span><i style="background:var(--purple)"></i>funding cumulé</span>
+          <span class="dim" id="pf-last" style="margin-left:auto">—</span></div>
+        <canvas id="pnl-funding" height="72" title="PnL réalisé net et funding du bot, cumulés depuis le premier ordre réel (tous symboles)"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Consensus de l'univers <span class="dim" style="letter-spacing:0">— ce que voit la boucle §47 · seuil ±0.35</span></h2>
+      <div id="cons-univ" style="line-height:1.1">—</div>
+      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+        <h2 style="border:0;padding:0;margin:0 0 6px">Palette du savant <span class="dim" style="letter-spacing:0">— formes ordinales §50</span></h2>
+        <div style="display:flex;align-items:flex-end;gap:10px">
+          <div id="syn-formes" style="display:flex;align-items:flex-end;gap:3px;height:44px"></div>
+          <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <h2>Vol implicite · Carry <span class="dim" style="letter-spacing:0">— DVOL/VRP · cash-and-carry PAPER</span></h2>
@@ -870,6 +900,8 @@ async function tick(){
     const fcr=fu2.carry||{};
     $("fu2-carry").textContent=(fcr.apr!=null)?("APR "+(fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% ("+(fcr.attrait||"—")+") · couv $"+(fcr.couverture!=null?fcr.couverture:"—")+" -> "+(fcr.action||"rien")):"—";
     $("fu2-carry").className=fcr.attrait==="ATTRACTIF"?"green":"dim";
+    // --- visualisations (viz : PnL/funding, consensus univers, palette §50) ---
+    try{ dessineViz(st.viz||{}); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");
@@ -907,6 +939,72 @@ initChart();
 
 setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
 tick();setInterval(tick,5000);
+
+// ===== visualisations (§ audit 03/07) : PnL/funding, consensus univers, palette =====
+function dessineViz(viz){
+  // 1) courbe PnL net + funding cumulés (deux séries, même unité USDT, un seul axe)
+  const cv=$("pnl-funding");
+  if(cv){
+    const ctx=cv.getContext("2d");const W=cv.width=cv.clientWidth||300,H=cv.height;
+    ctx.clearRect(0,0,W,H);
+    const S=[{d:viz.pnl_serie||[],col:"#5B9BD5"},{d:viz.funding_serie||[],col:"#A98CD6"}];
+    const pts=S.flatMap(s=>s.d);
+    if(pts.length>=2){
+      const t0=Math.min(...pts.map(p=>p[0])),t1=Math.max(...pts.map(p=>p[0]))||t0+1;
+      const vs=pts.map(p=>p[1]);let v0=Math.min(0,...vs),v1=Math.max(0,...vs);
+      if(v1-v0<1e-9){v0-=1e-3;v1+=1e-3;}
+      const X=t=>2+(W-4)*(t-t0)/Math.max(1,t1-t0), Y=v=>H-4-(H-8)*(v-v0)/(v1-v0);
+      ctx.strokeStyle="#3A3222";ctx.setLineDash([3,3]);ctx.beginPath();
+      ctx.moveTo(0,Y(0));ctx.lineTo(W,Y(0));ctx.stroke();ctx.setLineDash([]);   // zéro
+      for(const s of S){
+        if(s.d.length<1)continue;
+        ctx.strokeStyle=s.col;ctx.lineWidth=2;ctx.beginPath();
+        s.d.forEach((p,i)=>{const x=X(p[0]),y=Y(p[1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+        ctx.stroke();
+        const last=s.d[s.d.length-1];
+        ctx.fillStyle=s.col;ctx.beginPath();ctx.arc(X(last[0]),Y(last[1]),2.5,0,7);ctx.fill();
+      }
+      const lp=(viz.pnl_serie||[]).slice(-1)[0],lf=(viz.funding_serie||[]).slice(-1)[0];
+      $("pf-last").textContent=(lp?("PnL "+(lp[1]>=0?"+":"")+lp[1].toFixed(3)+"$"):"")+
+        (lf?(" · fund "+(lf[1]>=0?"+":"")+lf[1].toFixed(4)+"$"):"");
+    }else{
+      ctx.fillStyle="#8E8574";ctx.font="10px monospace";
+      ctx.fillText("en attente de fills du bot…",8,H/2);
+    }
+  }
+  // 2) consensus de l'univers : barres divergentes, seuils ±, meilleur en tête
+  const cu=$("cons-univ");
+  if(cu&&viz.consensus_univers){
+    const seuil=viz.seuil||0.35;
+    let html="";
+    viz.consensus_univers.slice(0,10).forEach((r,i)=>{
+      const c=r.c, sym=(r.s||"").replace(/USDT$/,"");
+      const cc=c==null?0:Math.max(-1,Math.min(1,c));
+      const half=Math.abs(cc)*50, left=cc>=0?50:50-half;
+      const col=c==null?"#3A3222":(cc>=0?"var(--green)":"var(--red)");
+      const best=i===0&&c!=null&&Math.abs(c)>=seuil;
+      html+=`<div class="cbar${best?" best":""}" title="consensus ${c==null?"périmé/absent":c} — seuil d'entrée ±${seuil}">`+
+        `<span class="sym">${sym}</span>`+
+        `<div class="track"><div class="zero"></div>`+
+        `<div class="seuil" style="left:${50+seuil*50}%"></div><div class="seuil" style="left:${50-seuil*50}%"></div>`+
+        `<i style="left:${left}%;width:${half}%;background:${col};opacity:${c==null?0:.9}"></i></div>`+
+        `<span class="val ${c==null?"dim":(cc>=0?"green":"red")}">${c==null?"·":((c>=0?"+":"")+c.toFixed(2))}</span></div>`;
+    });
+    cu.innerHTML=html||"—";
+  }
+  // 3) palette synesthésique du symbole affiché (6 formes ordinales, §50)
+  const sf=$("syn-formes"), si=$("syn-info"), syn=viz.synesthesie;
+  if(sf&&syn&&syn.formes){
+    const mx=Math.max(...syn.formes,1e-9);
+    sf.innerHTML=syn.formes.map((f,i)=>
+      `<div class="syn-f${(i===0||i===5)?" mono":""}" title="forme ${i} (${i===0?"montée franche":i===5?"descente franche":"mixte"}) : ${(100*f).toFixed(0)}%" `+
+      `style="height:${Math.max(2,42*f/mx)}px"><span class="fl">${i}</span></div>`).join("");
+    const pente=syn.biais>0.15?"montante":syn.biais<-0.15?"descendante":"plate";
+    si.innerHTML=`H ${syn.entropie.toFixed(2)} ${syn.entropie<0.85?"(dessine)":"(bruit)"}<br>`+
+      `biais ${(syn.biais>=0?"+":"")+syn.biais.toFixed(2)} · ${pente}<br>`+
+      `${syn.interdits} forme${syn.interdits>1?"s":""} interdite${syn.interdits>1?"s":""}`;
+  }else if(si){si.textContent="—";}
+}
 </script>
 </body>
 </html>

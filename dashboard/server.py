@@ -393,6 +393,48 @@ def build_state(symbol=None, tf="5m"):
                           "couverture": c.get("couverture_usdt"),
                           "action": (c.get("decision") or {}).get("action")}}
 
+    def _viz(symbol):
+        """Données de VISUALISATION (lecture seule, best-effort) : courbes PnL/funding
+        cumulés du bot (tous symboles §47), consensus de l'univers (ce que la boucle
+        multi-symboles voit), palette synesthésique du symbole affiché (§50)."""
+        out = {"pnl_serie": [], "funding_serie": [], "consensus_univers": [], "synesthesie": None}
+        try:
+            import futures_auto as fa
+            import futures_report as fr
+            events = fa._executor_events()
+            debut = fr.premier_ordre_reel_ts(events)
+            if debut:
+                out["pnl_serie"] = fr.serie_pnl(fr.fetch_fills(), depuis_ts=debut)[-200:]
+                out["funding_serie"] = fr.serie_funding(fr.fetch_bills(), depuis_ts=debut)[-200:]
+            ents = fa._brain_entries()
+            from config_utils import cfg as _cfg
+            seuil = float(_cfg("FUTURES_AUTO_SEUIL_ENTREE", 0.35))
+            cons = []
+            for s in fa._universe():
+                c = fa.consensus_frais(ents, symbol=s)
+                cons.append({"s": s, "c": c})
+            cons.sort(key=lambda r: -(abs(r["c"]) if r["c"] is not None else -1))
+            out["consensus_univers"] = cons
+            out["seuil"] = seuil
+        except Exception:
+            pass
+        try:
+            import market_sources as ms
+            import savant_agent as sa
+            closes = ms.closes(symbol, 80)
+            if closes and len(closes) >= 30:
+                syn = sa.synesthesie(closes)
+                m, w = sa.motifs_ordinaux([float(c) for c in closes][-73:])
+                freq = [0.0] * 6
+                wt = sum(w) or 1e-12
+                for mi, wi in zip(m, w):
+                    freq[mi] += wi / wt
+                syn["formes"] = [round(f, 4) for f in freq]
+                out["synesthesie"] = syn
+        except Exception:
+            pass
+        return out
+
     def _carry():
         """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""
         import carry_monitor as cm
@@ -503,6 +545,7 @@ def build_state(symbol=None, tf="5m"):
     state["carry"] = _cached("carry", 1800, lambda: _safe(_carry, {}))
     # futures réel §45 : préview de décision + réconciliation (lecture seule)
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
+    state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
     fut_armed = (state.get("futures_live") or {}).get("armed")
