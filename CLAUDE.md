@@ -1,9 +1,14 @@
 # CLAUDE.md — contexte & règles pour tout agent travaillant sur ce dépôt
 
-Bot de trading Bitget avec un **cerveau déterministe en mixture-of-experts** (13 agents,
-pondération adaptative EARCP). **AUCUN réseau de neurones** (contrainte du propriétaire).
-Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
-`claude/beautiful-heisenberg-c5aoqu`.
+Bot de trading Bitget avec un **cerveau déterministe en mixture-of-experts** (14 agents,
+pondération adaptative EARCP assainie §51 : hit-rates EWMA exogènes, cohérence
+leave-one-out, lissage — banc GELÉ à 14, §62). **AUCUN réseau de neurones**
+(contrainte du propriétaire). Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`).
+Branche de travail : `claude/beautiful-heisenberg-c5aoqu`.
+Cadences (§63) : cerveau 1 min (timer dédié bitget-brain), scan ~1 min,
+watchdog 5 min (carte de fraîcheur « rien d'aveugle » §61), notify 15 min,
+validation 6 h (porte PROFONDE 6 ans §54), sauvegarde chiffrée Telegram 03:40,
+revue hebdo dimanche 18:00 (recommandations chiffrées automatiques §60).
 
 ## ⚠️ RÈGLES D'ENGAGEMENT (révisées le 02/07/2026 — décision propriétaire, §45)
 
@@ -47,7 +52,8 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 | Lecture compte (portefeuille complet) | RÉEL, lecture seule (`bitget_hub_bridge`, `bitget_balance_reader`) |
 | Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, 2–5 $/j ∝ opportunité (§44), garde best-price, double verrou |
 | Futures borné (`futures_executor`) | **RÉEL depuis §45** : marge adaptative (crossed en compte union), ≤×5, caps 50/trade · 200 cumulé (murs 50/250 ; décision 03/07, cap carry 200 par tranches), stop journalier −5 % sur le LIVRE COUVERT (futures + expo BTC spot) -> kill-switch |
-| Cerveau (13 agents), scan, pré-ordres | **PAPER** (`execution_gateway` DRY_RUN_ONLY — le câblage cerveau->futures réel est un chantier §45 séparé) |
+| Cerveau (14 agents) -> consensus multi-symboles | **RÉEL depuis §47** : la boucle directionnelle trade le consensus de TOUT l'univers (1 position/symbole, 3 max) |
+| Pipeline pré-ordres + xs paper (§60) | **PAPER** (laboratoires : mesure, jamais d'exécution — le pré-ordre est mesuré PERDANT §52) |
 | Échelle d'edge | 0 agent LIVE — porte OUTREPASSÉE par décision §45 (`FUTURES_EDGE_GATE_OVERRIDE`) |
 
 ## Architecture (modules clés)
@@ -62,7 +68,15 @@ Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`). Branche de travail :
 - **Exécution réelle** : via l'Agent Hub `bgc` (CLI bitget-client). Kill-switch d'urgence :
   `touch KILL_SWITCH`.
 - **Dashboard** lecture seule : `python dashboard/server.py` (127.0.0.1:8787).
-- Détails & historique des décisions : `docs/RESEARCH_NOTES.md` (§1–33).
+- **Savoir vérifié** : `docs/SAVOIR.md` (§56 — combination puzzle, carte des horizons,
+  funding-euphorie, Kelly fractionnaire ; chaque acquis avec son implication).
+- **Instruments de mesure** : `live_ic_audit.py` (IC live par agent), `exit_lab.py`
+  (sorties), `candles_history.py` + `funding_history.py` (profondeur 6 ans / 90 j),
+  `agent_validation.replay_annuel` (porte profonde de l'échelle d'edge).
+- **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
+  spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
+  `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
+- Détails & historique des décisions : `docs/RESEARCH_NOTES.md` (§1–63).
 
 ## Leviers `.env` (jamais committés)
 
