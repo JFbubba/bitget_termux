@@ -167,6 +167,69 @@ def symmetry_break(X):
     return 1.0 - math.exp(-score / 2.0)
 
 
+# ========== SYNESTHÉSIE : l'alphabet de FORMES (motifs ordinaux, Bandt-Pompe) ==========
+# La « synesthésie » du savant rendue RIGOUREUSE (audit 03/07) : les chiffres
+# deviennent des FORMES. Chaque fenêtre de `dim` clôtures est traduite en son motif
+# ordinal (le rang relatif des valeurs) — la série de prix devient une suite de
+# formes, et la PALETTE de formes du marché se lit statistiquement :
+#   • entropie de permutation PONDÉRÉE par l'amplitude (Bandt-Pompe 2002 ;
+#     arXiv:2207.01169) : 1 = bruit (toutes les formes équiprobables),
+#     bas = le marché « dessine » (structure exploitable) ;
+#   • asymétrie des formes MONOTONES (montée franche vs descente franche) =
+#     irréversibilité temporelle directionnelle (arXiv:2307.08612, crypto) ;
+#   • motifs INTERDITS (jamais tracés) = signature de déterminisme (arXiv:0711.0729).
+
+_MOTIFS3 = {(0, 1, 2): 0, (0, 2, 1): 1, (1, 0, 2): 2, (1, 2, 0): 3, (2, 0, 1): 4, (2, 1, 0): 5}
+
+
+def motifs_ordinaux(closes, dim=3):
+    """Traduit les clôtures en (motifs, poids). PUR. motif = rang ordinal de la
+    fenêtre (dim=3 -> 6 formes ; 0 = montée franche, 5 = descente franche) ;
+    poids = variance de la fenêtre (weighted PE : une forme tracée sur un mouvement
+    AMPLE compte plus qu'une forme dans le bruit de fond). ([], []) si trop court."""
+    p = [float(c) for c in closes if c and c > 0]
+    if len(p) < dim + 1:
+        return [], []
+    motifs, poids = [], []
+    for i in range(len(p) - dim + 1):
+        w = p[i:i + dim]
+        ordre = tuple(int(r) for r in np.argsort(np.argsort(w)))
+        m = _MOTIFS3.get(ordre)
+        if m is None:
+            continue
+        motifs.append(m)
+        mu = sum(w) / dim
+        poids.append(sum((x - mu) ** 2 for x in w) / dim)
+    return motifs, poids
+
+
+def synesthesie(closes, dim=3, window=72):
+    """Perception SYNESTHÉSIQUE du marché. PUR. Retourne :
+      entropie ∈ [0,1] (permutation pondérée, normalisée), biais ∈ [-1,1]
+      (asymétrie pondérée montée-franche vs descente-franche), interdits (nb de
+      formes jamais tracées), signal ∈ [-1,1] = biais × structure (1−entropie) —
+      le marché ne « dit » quelque chose que quand il dessine ET penche."""
+    out = {"entropie": 1.0, "biais": 0.0, "interdits": 0, "signal": 0.0}
+    p = [float(c) for c in closes if c and c > 0][-(int(window) + 1):]
+    motifs, poids = motifs_ordinaux(p, dim)
+    if len(motifs) < 24:
+        return out
+    n_formes = 6
+    w_tot = sum(poids) or 1e-12
+    freq = [0.0] * n_formes
+    for m, w in zip(motifs, poids):
+        freq[m] += w
+    freq = [f / w_tot for f in freq]
+    H = -sum(f * math.log(f) for f in freq if f > 0) / math.log(n_formes)
+    monte, descend = freq[0], freq[5]
+    biais = (monte - descend) / (monte + descend + 1e-12)
+    interdits = sum(1 for f in freq if f == 0.0)
+    signal = max(-1.0, min(1.0, biais * (1.0 - H) * 4.0))   # ×4 : (1−H)~0.05-0.2 typique
+    out.update({"entropie": round(H, 4), "biais": round(biais, 4),
+                "interdits": interdits, "signal": round(signal, 4)})
+    return out
+
+
 # ---------- Value-at-Risk (indicative) ----------
 
 def value_at_risk(returns, alpha=0.05):
@@ -230,12 +293,22 @@ def signal(candles, fear_greed=None, thresh=0.55, window=72):
     vote = max(-1.0, min(1.0, vote))
     conf = min(sb, 1.0) * (0.7 if sb >= thresh else 0.2)
 
+    # SYNESTHÉSIE (audit 03/07) : perception de la PALETTE de formes du marché —
+    # calculée et EXPOSÉE, mais PAS votante : sa contribution au vote a échoué à la
+    # barre des deux fenêtres (1h : +0.089->+0.102 ; 15m : +0.172->+0.084 — la
+    # dégradation dépasse le gain, cf. §50). L'agent la « voit », la rapporte, et
+    # les consommateurs (rapports, futurs travaux) peuvent la lire.
+    closes = [_row(c)[3] for c in candles[-(int(window) + 1):]]
+    syn = synesthesie(closes)
     note = f"anomalie {sb:.2f}" + (
         f" · rupture {'baissière' if direction < 0 else 'haussière'} -> fade" if vote else " · sous seuil")
+    if syn["entropie"] < 0.85:
+        pente = "montante" if syn["biais"] > 0.15 else "descendante" if syn["biais"] < -0.15 else "plate"
+        note += f" · palette H{syn['entropie']:.2f} {pente}"
     out.update({"anomaly": round(sb, 3), "symmetry_break": round(sb, 3),
                 "mahalanobis": round(d2, 2), "direction": direction,
                 "vote": round(vote, 3), "confidence": round(conf, 3),
-                "var": var, "note": note})
+                "synesthesie": syn, "var": var, "note": note})
     return out
 
 

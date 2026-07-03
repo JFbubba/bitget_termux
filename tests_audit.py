@@ -2090,6 +2090,37 @@ def test_savant_symmetry_break_detects_dislocation():
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
 
 
+def test_savant_synesthesie_motifs_ordinaux():
+    # SYNESTHÉSIE (audit 03/07) : l'alphabet de formes de Bandt-Pompe. Perception
+    # exposée, NON votante (échec de la barre des deux fenêtres, cf. §50).
+    import numpy as np
+    import savant_agent as sv
+    # montée stricte -> motif 0 partout ; descente stricte -> motif 5 partout
+    m_up, w_up = sv.motifs_ordinaux([1, 2, 3, 4, 5])
+    m_dn, w_dn = sv.motifs_ordinaux([5, 4, 3, 2, 1])
+    assert m_up == [0, 0, 0] and m_dn == [5, 5, 5]
+    assert len(w_up) == 3 and all(w > 0 for w in w_up)
+    assert sv.motifs_ordinaux([1, 2]) == ([], [])                   # trop court
+    # série MONOTONE : entropie ~0 (une seule forme), biais +1, signal > 0
+    hausse = list(np.linspace(100, 120, 60))
+    s_h = sv.synesthesie(hausse)
+    assert s_h["entropie"] < 0.1 and s_h["biais"] > 0.9 and s_h["signal"] > 0.5
+    # bruit iid : entropie haute, signal faible
+    rng = np.random.default_rng(11)
+    bruit = list(100 * np.cumprod(1 + rng.normal(0, 0.01, 200)))
+    s_b = sv.synesthesie(bruit)
+    assert s_b["entropie"] > 0.6 and abs(s_b["signal"]) < 0.6
+    # bornes + court -> neutre
+    assert -1.0 <= s_b["signal"] <= 1.0 and 0 <= s_b["interdits"] <= 6
+    assert sv.synesthesie([100] * 10) == {"entropie": 1.0, "biais": 0.0,
+                                          "interdits": 0, "signal": 0.0}
+    # le vote de signal() reste INCHANGÉ par la synesthésie (perception seulement) —
+    # et la sortie l'expose pour les consommateurs
+    candles = [[i, p, p * 1.002, p * 0.998, p, 1000] for i, p in enumerate(hausse)]
+    out = sv.signal(candles)
+    assert "synesthesie" in out and out["synesthesie"]["biais"] > 0.9
+
+
 def test_savant_utilitaires_liquidite_turbulence():
     # utilitaires ajoutés à l'audit du 03/07 (Corwin-Schultz 2012, Kritzman-Li 2010,
     # normalisation robuste esprit Mahalanobis++ 2505.18032). MESURE HONNÊTE : testés

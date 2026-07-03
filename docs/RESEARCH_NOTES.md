@@ -1709,3 +1709,33 @@ Les utilitaires (corwin_schultz, turbulence_percentile, _standardize_robuste,
 tenseur enrichi=True) restent disponibles, TESTÉS, documentés « rejetés du vote à
 la mesure » — pour l'observabilité. Leçon reproduite deux fois (§48, §49) : chaque
 composant se mesure SÉPARÉMENT, la somme des bonnes idées n'est pas une bonne idée.
+
+---
+
+## §50 — Synesthésie du savant : l'alphabet de formes (Bandt-Pompe), perception non votante
+
+**Demande propriétaire (03/07)** : « ajoute un algorithme pour utiliser la
+synesthésie de l'agent autisme digital ». Traduction RIGOUREUSE (pas une
+métaphore) : les MOTIFS ORDINAUX de Bandt-Pompe — chaque fenêtre de 3 clôtures
+devient une « forme » d'un alphabet de 6 (0 = montée franche … 5 = descente
+franche) ; la série de prix devient une suite de formes, et la palette se lit :
+- `motifs_ordinaux` : traduction clôtures -> (formes, poids d'amplitude —
+  entropie de permutation PONDÉRÉE, arXiv:2207.01169) ;
+- `synesthesie` : entropie ∈ [0,1] (1 = bruit, bas = le marché « dessine »),
+  biais ∈ [−1,1] (asymétrie montée-franche vs descente-franche = irréversibilité
+  directionnelle, arXiv:2307.08612 crypto), motifs interdits (arXiv:0711.0729),
+  signal = biais × structure.
+
+**Mesure à l'étalon (bougies figées, 4 symboles)** : le sens CONTRARIAN gagne
+(+0.044 seul en 1h ; le sens continuation fait −0.044 — 3e confirmation du fait
+stylisé §35-38). En REPLI du fade (couverture 12 % -> 100 %) : 1h +0.089 -> +0.102
+MAIS 15m +0.172 -> +0.084 — **les deux fenêtres se CONTREDISENT, la dégradation
+15m dépasse le gain 1h -> PAS DE VOTE** (barre des deux fenêtres, comme §48-49).
+
+**Décision** : la synesthésie est PERCEPTION, pas vote — calculée à chaque
+signal(), exposée dans la sortie (`synesthesie: {entropie, biais, interdits,
+signal}`) et dans la note quand le marché « dessine » (H < 0.85 : « palette
+H0.72 montante »). Les consommateurs (rapports, dashboard, travaux futurs) la
+lisent ; le vote reste le fade Mahalanobis prouvé (§49). Si la validation
+transversale de longue durée montre un jour un edge stable du signal ordinal,
+le câblage au vote sera un chantier mesuré séparé.
