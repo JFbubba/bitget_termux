@@ -1884,3 +1884,33 @@ régime-dépendant par nature.
    plus être promu au réel.
 3. L'arbitrage fin des poids reste à la couche adaptative : hit-rate EWMA (§51)
    + priors d'edge — c'est leur travail, sur données vivantes.
+
+---
+
+## §55 — Profondeur d'historique : Bitget natif remonte à 6 ans ; ordres réels marqués sur le graphique
+
+**Sondage de profondeur (03/07)** : l'endpoint public `history-candles` de Bitget
+sert des bougies 1h jusqu'à ~juillet 2020 (−6 ans OK, −8 ans vide). AUCUNE source
+externe nécessaire pour 6 ans d'histoire AU PRIX DU LIEU D'EXÉCUTION — la
+cohérence qui compte pour les backtests. Binance (−5 ans testé OK) et Bybit
+(−4 ans OK) sont joignables depuis le VPS : replis documentés si un jour il faut
+pré-2020 ou des symboles absents de Bitget. Téléchargé : BTC 50 201 bougies
+(2020-09 -> aujourd'hui) ; ETH/SOL/XRP en cours d'approfondissement.
+
+**TradingView / MCP (demande propriétaire)** : il n'existe AUCUN serveur MCP
+TradingView officiel — uniquement des projets communautaires (principal :
+atilaahmettaner/tradingview-mcp — données temps réel, indicateurs, screeners ;
+tradesdontlie/tradingview-mcp pilote TradingView Desktop). Décision de sécurité :
+ne PAS installer de code tiers non audité sur le VPS de production qui détient
+les clés de trading — c'est une décision propriétaire explicite si souhaitée
+(utile pour les SESSIONS D'ANALYSE, jamais pour le pipeline du bot, qui reste
+sur ses sources HTTP déterministes). Les MCP déjà connectés côté session
+(coinpaprika OHLCV historique, alphavantage crypto) couvrent le besoin d'analyse.
+
+**Graphique : indicateurs et ordres réels MARQUÉS (§55)** :
+- valeurs COURANTES des indicateurs (EMA20/50, VWAP) affichées sur l'axe des
+  prix, dans la couleur de leur série (lastValueVisible) ;
+- ORDRES RÉELS du symbole affiché posés sur les bougies : DCA (rond phosphore),
+  ouvertures long/short (flèches vertes/rouges « OUVRE L/S »), réductions
+  (carré ×) — source : registres spot + futures, fusionnés avec le marqueur de
+  conscience du cerveau (les setMarkers s'écrasaient mutuellement avant).

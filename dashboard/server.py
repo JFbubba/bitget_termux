@@ -424,6 +424,27 @@ def build_state(symbol=None, tf="5m"):
         except Exception:
             pass
         try:
+            # ORDRES RÉELS du symbole affiché -> marqueurs sur le graphique (§55)
+            trades = []
+            if symbol == "BTCUSDT":
+                import spot_executor as se
+                for b in (se._load_real().get("buys") or [])[-100:]:
+                    trades.append({"ts": b.get("ts"), "type": "dca", "prix": b.get("price")})
+            import futures_auto as fa2
+            for e in (fa2._executor_events() or [])[-200:]:
+                if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+                    continue
+                o = e.get("order") or {}
+                if str(o.get("symbol") or "BTCUSDT").upper() != symbol:
+                    continue
+                trades.append({"ts": e.get("ts"),
+                               "type": "reduce" if o.get("reduce") else "open",
+                               "side": o.get("side"), "prix": o.get("entry")})
+            out["trades"] = sorted([x for x in trades if x.get("ts")],
+                                   key=lambda x: x["ts"])[-120:]
+        except Exception:
+            pass
+        try:
             import market_sources as ms
             import savant_agent as sa
             closes = ms.closes(symbol, 80)

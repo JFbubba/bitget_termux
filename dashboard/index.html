@@ -499,7 +499,7 @@ function initChart(){
       horzLine:{color:"#3A3222",labelBackgroundColor:"#221E16"}},
   });
   series.candles=chart.addCandlestickSeries({upColor:"#3FBF7F",downColor:"#E5484D",borderVisible:false,wickUpColor:"#3FBF7F",wickDownColor:"#E5484D"});
-  const lopt={lineWidth:1.4,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false};
+  const lopt={lineWidth:1.4,priceLineVisible:false,lastValueVisible:true,crosshairMarkerVisible:false};
   series.ema20=chart.addLineSeries(Object.assign({color:"#5B9BD5"},lopt));
   series.ema50=chart.addLineSeries(Object.assign({color:"#A98CD6"},lopt));
   series.vwap=chart.addLineSeries(Object.assign({color:"#E5A93D"},lopt));
@@ -530,18 +530,45 @@ function drawChart(candles){
   if(switched){chart.timeScale().fitContent();_drawnSym=SYMBOL;}  // recadre sur le nouvel actif
 }
 
-// pose la "conscience" du cerveau (biais + consensus + régime de vol) sur la dernière bougie
+// marqueurs du graphique = conscience du cerveau + ORDRES RÉELS (§55), fusionnés
+let _biasMarker=null,_tradeMarkers=[];
+function _applyMarkers(){
+  if(!series.candles)return;
+  const all=[..._tradeMarkers,...(_biasMarker?[_biasMarker]:[])]
+    .sort((a,b)=>a.time-b.time);
+  series.candles.setMarkers(all);
+}
 function markBrainOnChart(b){
   if(!chart||!series.candles||!_candles.length)return;
   const t=_candles[_candles.length-1][0];
   const bias=b&&b.bias;
-  if(!bias||bias==="NEUTRE"){series.candles.setMarkers([]);return;}
+  if(!bias||bias==="NEUTRE"){_biasMarker=null;_applyMarkers();return;}
   const long=bias==="LONG";
   const cons=(b.consensus!=null)?((b.consensus>=0?"+":"")+(+b.consensus).toFixed(2)):"";
   const vol=(b.volatility&&b.volatility.regime&&b.volatility.regime!=="normal")?(" · "+b.volatility.regime):"";
-  series.candles.setMarkers([{time:t,position:long?"belowBar":"aboveBar",
+  _biasMarker={time:t,position:long?"belowBar":"aboveBar",
     color:long?"#3FBF7F":"#E5484D",shape:long?"arrowUp":"arrowDown",
-    text:`${bias} ${cons}${vol}`}]);
+    text:`${bias} ${cons}${vol}`};
+  _applyMarkers();
+}
+// ordres RÉELS sur les bougies : DCA (rond phosphore), open long/short (flèches),
+// réductions (carré). Le temps est ancré à la bougie qui CONTIENT l'ordre.
+function markTradesOnChart(trades){
+  if(!chart||!series.candles||!_candles.length){_tradeMarkers=[];return;}
+  const t0=_candles[0][0],t1=_candles[_candles.length-1][0];
+  const tf=_candles.length>1?(_candles[1][0]-_candles[0][0]):300;
+  _tradeMarkers=(trades||[]).filter(x=>x.ts&&x.ts>=t0&&x.ts<=t1+tf).map(x=>{
+    const t=t0+Math.floor((x.ts-t0)/tf)*tf;
+    if(x.type==="dca")return{time:t,position:"belowBar",color:"#E5A93D",shape:"circle",
+      text:"DCA"+(x.prix?(" "+(+x.prix).toFixed(0)):"")};
+    if(x.type==="reduce")return{time:t,position:"aboveBar",color:"#8E8574",shape:"square",
+      text:"×"};
+    const long=x.side==="long";
+    return{time:t,position:long?"belowBar":"aboveBar",
+      color:long?"#3FBF7F":"#E5484D",shape:long?"arrowUp":"arrowDown",
+      text:(long?"OUVRE L":"OUVRE S")};
+  });
+  _applyMarkers();
 }
 
 function clearProjLines(){
@@ -907,6 +934,7 @@ async function tick(){
     $("fu2-carry").className=fcr.attrait==="ATTRACTIF"?"green":"dim";
     // --- visualisations (viz : PnL/funding, consensus univers, palette §50) ---
     try{ dessineViz(st.viz||{}); }catch(e){}
+    try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");
