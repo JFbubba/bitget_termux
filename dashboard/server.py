@@ -479,60 +479,14 @@ def build_state(symbol=None, tf="5m"):
         return out
 
     def _journal_de_bord():
-        """Derniers ÉVÉNEMENTS notables, fusionnés (§63) : ordres réels futures,
-        achats DCA, fermetures côté exchange, refus notables de la boucle.
-        Lecture seule, [] best-effort."""
-        evs = []
+        """Derniers ÉVÉNEMENTS notables, fusionnés (§63). Source UNIQUE partagée
+        avec la commande Telegram /bord : journal_de_bord.evenements(). Lecture
+        seule, [] best-effort."""
         try:
-            import json as _json
-            from pathlib import Path as _P
-            for ligne in (_P(REPO_ROOT) / "futures_auto_journal.jsonl").read_text(
-                    encoding="utf-8", errors="ignore").splitlines()[-2000:]:
-                try:
-                    e = _json.loads(ligne)
-                except Exception:
-                    continue
-                ts = e.get("ts")
-                if not ts:
-                    continue
-                if e.get("action") == "fermee_exchange":
-                    evs.append({"ts": ts, "type": "sl_tp",
-                                "txt": f"SL/TP exchange : {e.get('side')} {e.get('symbol', '')}"})
-                    continue
-                d = e.get("decision") or {}
-                res = e.get("resultat") or {}
-                if res and not res.get("executed"):
-                    evs.append({"ts": ts, "type": "echec",
-                                "txt": f"échec {d.get('action')} {e.get('symbol') or ''}"})
-                elif "black-out" in str(d.get("raison", "")):
-                    evs.append({"ts": ts, "type": "blackout",
-                                "txt": "ouverture gelée (black-out macro)"})
+            import journal_de_bord as jdb
+            return jdb.evenements(12)
         except Exception:
-            pass
-        try:                                       # ordres RÉELS : source de vérité = ledger exécuteur
-            import futures_auto as fa2
-            for e in (fa2._executor_events() or [])[-60:]:
-                if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
-                    continue
-                o = e.get("order") or {}
-                evs.append({"ts": e.get("ts"), "type": "ordre",
-                            "txt": f"{'RÉDUIT' if o.get('reduce') else 'OUVRE'} "
-                                   f"{o.get('side') or ''} {o.get('symbol') or 'BTCUSDT'} "
-                                   f"~{o.get('notional_usdt') or '?'} $ ({o.get('agent')})"})
-        except Exception:
-            pass
-        try:
-            import spot_executor as se
-            for b in (se._load_real().get("buys") or [])[-10:]:
-                if b.get("ts"):
-                    m = b.get("amount_usdt")
-                    evs.append({"ts": b["ts"], "type": "dca",
-                                "txt": f"DCA réel {m if m is not None else '?'} $ BTC"})
-        except Exception:
-            pass
-        evs = [e for e in evs if e.get("ts")]
-        evs.sort(key=lambda x: -x["ts"])
-        return evs[:12]
+            return []
 
     def _rendez_vous():
         """Prochains RENDEZ-VOUS du système (§63) : [{txt, ts}] triés. Best-effort."""

@@ -96,10 +96,27 @@ def build_report(s=None):
     return "\n".join(lignes)
 
 
+def bloc_mfe_mae_reels():
+    """Bloc texte MFE/MAE des ROUND-TRIPS RÉELS (via exit_lab, §63) — pour /audit.
+    Best-effort : chaîne vide si l'instrument n'est pas disponible. Lecture seule."""
+    try:
+        import exit_lab
+        r = exit_lab.analyser_reels()
+    except Exception:
+        return ""
+    if not isinstance(r, dict):
+        return ""
+    return ("\n=== MFE/MAE — round-trips RÉELS du bot (§63) ===\n"
+            f"  {r.get('note', 'indisponible')}")
+
+
 def main():
     import sys
     h = int(sys.argv[1]) if len(sys.argv) > 1 else 3600
     print(build_report(snapshot(h)))
+    bloc = bloc_mfe_mae_reels()
+    if bloc:
+        print(bloc)
 
 
 if __name__ == "__main__":

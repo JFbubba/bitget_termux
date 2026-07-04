@@ -114,6 +114,8 @@ def handle_command(text):
             "/agents - liste des agents\n"
             "/security - audit sécurité\n"
             "/getagent_audit - audit du skill GetAgent\n"
+            "/bord - journal de bord : derniers événements réels du bot (lecture seule)\n"
+            "/audit - audit live : IC par agent + MFE/MAE des trades réels (lecture seule)\n"
             "/git_version - version Git du dépôt (lecture seule)\n"
             "/system_health - bilan de santé du système (lecture seule)\n"
             "/watchdog - état de la boucle agent_loop (lecture seule)\n"
@@ -172,6 +174,7 @@ def handle_command(text):
             "/agents - affiche le manifest des agents\n"
             "/security - lance le Security Agent\n"
             "/getagent_audit - audite le skill GetAgent\n"
+            "/bord - journal de bord (derniers événements réels) · /audit - IC live + MFE/MAE réels\n"
             "/git_version - affiche la version Git (commit, branche, tag, état)\n"
             "/system_health - affiche le bilan de santé (lecture seule)\n"
             "/watchdog - vérifie si agent_loop tourne (lecture seule)\n"
@@ -548,6 +551,38 @@ def handle_command(text):
 
         return result.stdout
 
+    if text == "/bord":
+        result = subprocess.run(
+            ["python", "journal_de_bord.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur journal_de_bord.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/audit":
+        result = subprocess.run(
+            ["python", "live_ic_audit.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur live_ic_audit.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
     if text == "/signals":
         result = subprocess.run(
             ["python", "order_signal_engine.py"],
@@ -822,7 +857,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /accum /accum_reel /futures /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /bord /audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /accum /accum_reel /futures /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
