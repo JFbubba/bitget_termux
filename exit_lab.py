@@ -51,31 +51,88 @@ def stats_issues(rows):
             "ratio_tp_sl": round(tp / sl, 3) if sl else None}
 
 
-def analyser_reels(fills=None, candles_par_symbole=None, horizon_bars=16):
-    """MFE/MAE des trades RÉELS du bot (via fills appariés open->close). Retourne
-    {n, mfe_med, mae_med, note}. Honnête : « échantillon insuffisant » sous 10
-    round-trips — l'instrument ACCUMULE, il ne conclut pas avant l'heure."""
+def paires_reelles(events):
+    """PUR. Apparie les ordres RÉELS du ledger en ROUND-TRIPS :
+    [(symbol, side, entry, sl, ts_open, ts_close)]. Une ouverture (non-reduce)
+    est fermée par le premier reduce du même (symbol, side) qui la suit ;
+    les ouvertures encore vivantes sont ignorées."""
+    ouverts = {}
+    paires = []
+    for e in sorted(events or [], key=lambda x: x.get("ts", 0)):
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        o = e.get("order") or {}
+        cle = (str(o.get("symbol") or "BTCUSDT").upper(), str(o.get("side")))
+        if o.get("reduce"):
+            ouv = ouverts.pop(cle, None)
+            if ouv:
+                paires.append((cle[0], cle[1], ouv["entry"], ouv.get("sl"),
+                               ouv["ts"], e.get("ts")))
+        else:
+            entry = safe_float(o.get("entry"))
+            if entry:
+                ouverts[cle] = {"entry": entry, "sl": safe_float(o.get("stop_loss")),
+                                "ts": e.get("ts")}
+    return paires
+
+
+def _candles_fenetre(symbol, ts_debut, ts_fin):
+    """Bougies 1h couvrant [ts_debut, ts_fin] (fraîches d'abord, repli historique)."""
     try:
-        import futures_report as fr
-        import futures_auto as fa
-        events = fa._executor_events()
-        debut = fr.premier_ordre_reel_ts(events)
-        if fills is None:
-            fills = [f for f in (fr.fetch_fills() or [])
-                     if debut and safe_float(f.get("cTime", 0)) / 1000.0 >= debut]
+        import market_sources as ms
+        rows = ms.candles(symbol, "1h", 400) or []
     except Exception:
-        fills = fills or []
-    # round-trips approximés : fills avec profit != 0 = fermetures
-    fermetures = [f for f in fills if safe_float(f.get("profit"))]
-    n = len(fermetures)
-    if n < 10:
-        return {"n": n, "mfe_med": None, "mae_med": None,
-                "note": f"échantillon réel insuffisant ({n} fermetures < 10) — "
-                        "l'instrument accumule"}
-    # avec ≥10 fermetures, les MFE/MAE se calculeront depuis candles_history
-    # (chemins d'entrée/sortie horodatés) — implémentation au premier seuil atteint.
-    return {"n": n, "mfe_med": None, "mae_med": None,
-            "note": "seuil atteint — calcul MFE/MAE à câbler sur candles_history"}
+        rows = []
+    if not rows or rows[0][0] / 1000.0 > ts_debut:
+        try:
+            import candles_history as ch
+            rows = ch.load(symbol, "1h") or rows
+        except Exception:
+            pass
+    return [r for r in rows
+            if ts_debut * 1000 <= r[0] <= ts_fin * 1000 + 3_600_000]
+
+
+def analyser_reels(events=None, fenetres=None):
+    """MFE/MAE des ROUND-TRIPS RÉELS (§63 : câblé, plus de stub). Retourne
+    {n, mfe_med_pct, mae_med_pct, mfe_r_med, note} — les _r sont en unités de
+    DISTANCE DE STOP (R) quand le SL de l'ordre est connu. Honnête : les
+    médianes s'affichent dès la 1re paire, le verdict attend n >= 10."""
+    try:
+        if events is None:
+            import futures_auto as fa
+            events = fa._executor_events()
+    except Exception:
+        events = events or []
+    paires = paires_reelles(events)
+    mfes, maes, mfes_r = [], [], []
+    for sym, side, entry, sl, t0, t1 in paires:
+        rows = (fenetres or {}).get((sym, t0)) if fenetres else _candles_fenetre(sym, t0, t1)
+        if not rows:
+            continue
+        mfe, mae = mfe_mae(entry, side, [r[2] for r in rows], [r[3] for r in rows])
+        if mfe is None:
+            continue
+        mfes.append(mfe)
+        maes.append(mae)
+        if sl and entry:
+            r_dist = abs(entry - sl) / entry
+            if r_dist > 1e-6:
+                mfes_r.append(mfe / r_dist)
+    n = len(mfes)
+    if n == 0:
+        return {"n": 0, "mfe_med_pct": None, "mae_med_pct": None, "mfe_r_med": None,
+                "note": "aucun round-trip réel mesurable encore"}
+    import statistics
+    out = {"n": n,
+           "mfe_med_pct": round(100 * statistics.median(mfes), 3),
+           "mae_med_pct": round(100 * statistics.median(maes), 3),
+           "mfe_r_med": round(statistics.median(mfes_r), 2) if mfes_r else None}
+    out["note"] = (f"{n} round-trips · MFE méd {out['mfe_med_pct']}% · MAE méd "
+                   f"{out['mae_med_pct']}%"
+                   + (f" · MFE {out['mfe_r_med']}R" if out["mfe_r_med"] else "")
+                   + ("" if n >= 10 else f" — verdict à n>=10 ({n}/10)"))
+    return out
 
 
 def _lire_outcomes():
