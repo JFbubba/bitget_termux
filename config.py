@@ -147,6 +147,11 @@ FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à
 FUTURES_REAL_MAX_PER_TRADE_USDT = 50.0   # cap effectif par ordre = mur dur (décision propriétaire 03/07, cap carry 200)
 FUTURES_REAL_MAX_GROSS_USDT = 200.0      # cap effectif exposition cumulée (mur dur : 250 ; décision propriétaire 03/07)
 FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
+# RE-BASELINE sur flux de capital : un saut du LIVRE d'un tick à l'autre > ce % de
+# l'ouverture est impossible en P&L de trading borné (murs 50/250, progressif) -> c'est
+# un dépôt/retrait/CONVERT (ex. conversion BGBTC 05/07 : -161$ -> faux breach). On décale
+# alors la baseline du montant du flux : le stop mesure le P&L, pas les mouvements de fonds.
+FUTURES_BOOK_CLIFF_REBASE_PCT = 15.0
 # Boucle directionnelle automatique (futures_auto, §45) — décide, délègue à l'exécuteur.
 FUTURES_AUTO_DIRECTIONAL = 1          # 0 = débrayer la boucle (aucune décision d'ordre)
 FUTURES_AUTO_NOTIONAL_USDT = 10.0     # taille d'ouverture (≤ cap/trade 15, murs 50)

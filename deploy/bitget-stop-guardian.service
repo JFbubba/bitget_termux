@@ -1,0 +1,25 @@
+[Unit]
+Description=Bitget ENFORCEUR stop -5% (Couche 2 : independant de brain/scan, arme kill-switch + solde les positions)
+After=network-online.target
+Wants=network-online.target
+# PAS de ConditionPathExists sur KILL_SWITCH : l'enforceur DOIT tourner meme kill-switch
+# arme (fermer une position perdante est toujours permis et souhaitable).
+# Un organe de securite ne doit JAMAIS abandonner : StartLimitIntervalSec=0 desarme le
+# crash-loop detector de systemd (directive de section [Unit]) -> relance sans plafond.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 stop_guardian.py
+# Daemon persistant, boucle interne ~20s. sd_notify : READY=1 au demarrage,
+# WATCHDOG=1 a chaque tick -> systemd le tue+relance s'il se FIGE (pas de battement).
+WatchdogSec=90
+NotifyAccess=main
+Restart=always
+RestartSec=2
+User=root
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

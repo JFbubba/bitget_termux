@@ -69,7 +69,7 @@ echo
 echo "[5/5] Redemarrage des services..."
 restarted=0
 if command -v systemctl >/dev/null 2>&1; then
-  for svc in bitget-dashboard bitget-bot bitget-microstructure; do
+  for svc in bitget-dashboard bitget-bot bitget-microstructure bitget-stop-guardian; do
     if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}.service"; then
       sudo systemctl restart "$svc" && echo "  redemarre: $svc" && restarted=1
     fi

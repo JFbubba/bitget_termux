@@ -99,6 +99,8 @@ FILES_TO_SCAN = [
     "git_version.py",
     "system_health.py",
     "watchdog.py",
+    "stop_guardian.py",
+    "failsafe_escalate.py",
     "stats_report.py",
     "pro_indicators.py",
     "order_flow.py",

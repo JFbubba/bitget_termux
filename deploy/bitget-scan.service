@@ -2,6 +2,11 @@
 Description=Bitget paper monitoring scan (un cycle, aucun ordre reel)
 After=network-online.target
 Wants=network-online.target
+# Oneshot pilote par timer (~1/min). StartLimitIntervalSec=0 DESARME le rate-limiter de
+# systemd (sinon ~60 demarrages/h > tout burst -> refus de relancer un scan sain). La
+# detection de crash-loop est deportee au watchdog --heal. OnFailure : alerte immediate.
+StartLimitIntervalSec=0
+OnFailure=bitget-failsafe@%n.service
 
 [Service]
 Type=oneshot
@@ -11,5 +16,7 @@ ExecCondition=/usr/bin/test ! -f /root/bitget_termux_repo/KILL_SWITCH
 ExecStart=/usr/bin/python3 scan_paper.py
 User=root
 Nice=10
-# Coupe-circuit dur : si un cycle deborde (etape bloquee), systemd le tue.
-TimeoutStartSec=600
+# Coupe-circuit dur : si un cycle deborde (etape bloquee), systemd le tue. Resserre de
+# 600 -> 300s : un cycle sain dure ~60s (validation deportee au timer 6h), 300s = 5x
+# de marge tout en tuant 2x plus vite un cycle fige.
+TimeoutStartSec=300

@@ -7,8 +7,12 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/root/bitget_termux_repo
 # --alert : envoie Telegram UNIQUEMENT si DOWN/STALE (silencieux si sain).
-# Pas de --arm-killswitch ici : auto-halte sans cooldown = blocage sur transitoire.
-ExecStart=/usr/bin/python3 watchdog.py --alert
+# --heal  : SUPERVISION ACTIVE (Couche 3) — rearme les timers brain/scan morts sur
+#           STALE/DOWN, escalade en fail-safe (kill-switch) apres N cycles consecutifs
+#           (compteur avec reset sur reprise -> pas de blocage sur transitoire).
+# Pas de --arm-killswitch ici : l'escalade kill-switch est portee par --heal (avec
+# compteur), pas armee au premier transitoire.
+ExecStart=/usr/bin/python3 watchdog.py --alert --heal
 User=root
 Nice=10
 TimeoutStartSec=120

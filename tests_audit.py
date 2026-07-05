@@ -1577,7 +1577,8 @@ def test_watchdog_report_alert_text():
     txt = watchdog.build_report(running)
     assert "WATCHDOG" in txt and "RUNNING" in txt
     assert "ALERTE" not in txt
-    assert "Aucun redémarrage automatique" in txt
+    # Le rapport reste read-only ; le réarmement des timers n'a lieu qu'avec --heal (Couche 3).
+    assert "aucun ordre réel" in txt and "--heal" in txt
 
     down = dict(running, process_alive=False, verdict="DOWN", alert=True)
     txt2 = watchdog.build_report(down)
@@ -5161,17 +5162,38 @@ def test_futures_executor_daily_loss_state():
     import futures_executor as fe
     # jour 1 : l'equity courante devient l'ouverture, pas de breach
     b, st = fe.daily_loss_state_check(100.0, None, now=86400 * 10, stop_pct=5.0)
-    assert b is False and st == {"day": 10, "open_equity": 100.0}
+    assert b is False and st == {"day": 10, "open_equity": 100.0, "last_equity": 100.0}
     # même jour, -4% -> pas de breach ; -6% -> breach ; l'ouverture ne bouge pas
     assert fe.daily_loss_state_check(96.0, st, now=86400 * 10 + 3600, stop_pct=5.0)[0] is False
     b2, st2 = fe.daily_loss_state_check(94.0, st, now=86400 * 10 + 7200, stop_pct=5.0)
     assert b2 is True and st2["open_equity"] == 100.0
     # nouveau jour -> reset de l'ouverture (94 devient la base)
     b3, st3 = fe.daily_loss_state_check(94.0, st2, now=86400 * 11 + 60, stop_pct=5.0)
-    assert b3 is False and st3 == {"day": 11, "open_equity": 94.0}
+    assert b3 is False and st3 == {"day": 11, "open_equity": 94.0, "last_equity": 94.0}
     # FAIL-CLOSED : equity illisible/nulle -> breach (on ne trade pas à l'aveugle)
     assert fe.daily_loss_state_check(None, st3, now=86400 * 11)[0] is True
     assert fe.daily_loss_state_check(0.0, st3, now=86400 * 11)[0] is True
+
+
+def test_futures_daily_loss_cliff_rebaseline():
+    """Correctif faux breach (conversion BGBTC 05/07) : un saut du livre trop grand pour
+    un P&L borné (dépôt/retrait/convert) DÉCALE la baseline au lieu de déclencher ; une
+    vraie perte progressive reste captée."""
+    import futures_executor as fe
+    _, st = fe.daily_loss_state_check(400.0, None, now=86400 * 100, stop_pct=5.0, cliff_pct=15.0)
+    assert st["open_equity"] == 400.0 and st["last_equity"] == 400.0
+    # CONVERT -161 en un tick (400 -> 239) : |saut| 161 > 15% de 400 (=60) -> re-baseline,
+    # PAS de faux breach ; la nouvelle ouverture suit le flux.
+    b, st2 = fe.daily_loss_state_check(239.0, st, now=86400 * 100 + 20, stop_pct=5.0, cliff_pct=15.0)
+    assert b is False and st2["open_equity"] == 239.0 and st2["last_equity"] == 239.0
+    # depuis la base 239, perte PROGRESSIVE (pas de saut) -> le stop capte le vrai -5%
+    _, st3 = fe.daily_loss_state_check(232.0, st2, now=86400 * 100 + 40, stop_pct=5.0, cliff_pct=15.0)
+    assert st3["open_equity"] == 239.0                       # 7$ < seuil cliff -> pas de rebaseline
+    b3, _ = fe.daily_loss_state_check(226.0, st3, now=86400 * 100 + 60, stop_pct=5.0, cliff_pct=15.0)
+    assert b3 is True                                        # 226 < 239*0.95 -> vraie perte captée
+    # un DÉPÔT +200 en un tick rebaseline vers le HAUT (ce n'est pas un gain de trading)
+    _, st4 = fe.daily_loss_state_check(600.0, st, now=86400 * 100 + 80, stop_pct=5.0, cliff_pct=15.0)
+    assert st4["open_equity"] == 600.0                       # 400 + (600-400)
 
 
 def test_futures_daily_loss_breach_kill_switch_et_dedup():
@@ -6424,6 +6446,288 @@ def test_config_utils_cfg_and_centralized():
     import risk_manager, spot_executor, mandate, futures_executor
     for mod in (risk_manager, spot_executor, mandate, futures_executor):
         assert mod._cfg is config_utils.cfg
+
+
+# ================= COUCHES 1-3 : enforceur stop -5% + supervision (incident) =================
+
+def test_couche1_invariant_sl():
+    """Couche 1 : sl_tp fail-closed (prix illisible -> pas de SL -> le cycle refuse
+    d'ouvrir), et l'audit détecte toute ouverture directionnelle réelle SANS SL."""
+    import futures_auto as fa
+    import futures_executor as fe
+    assert fa.sl_tp("long", None) == (None, None)
+    assert fa.sl_tp("long", 0) == (None, None)
+    sl, tp = fa.sl_tp("long", 100.0, sl_pct=2.0, rr=2.0)
+    assert sl == 98.0 and tp == 104.0
+    sl_s, tp_s = fa.sl_tp("short", 100.0, sl_pct=2.0, rr=2.0)
+    assert sl_s == 102.0 and tp_s == 96.0
+    ev = [{"action": "FUTURES_REAL",
+           "order": {"agent": "auto_dir", "reduce": False, "symbol": "BTCUSDT", "clientOid": "x"}}]
+    assert len(fe.opens_sans_stop(ev)) == 1
+
+
+def test_opens_sans_stop():
+    """PUR. Seules les OUVERTURES directionnelles RÉELLES sans stop_loss sont signalées :
+    carry exclu (couvert), réductions exclues, DRY-RUN exclu, ouverture avec SL exclue."""
+    import futures_executor as fe
+    ev = [
+        {"action": "FUTURES_REAL", "ts": 1, "order": {"agent": "auto_dir", "reduce": False,
+                                                       "symbol": "BTCUSDT", "clientOid": "a"}},
+        {"action": "FUTURES_REAL", "ts": 2, "order": {"agent": "auto_dir", "reduce": False,
+                                                       "symbol": "ETHUSDT", "stop_loss": 10.0, "clientOid": "b"}},
+        {"action": "FUTURES_REAL", "ts": 3, "order": {"agent": "carry", "reduce": False,
+                                                       "symbol": "BTCUSDT", "clientOid": "c"}},
+        {"action": "FUTURES_REAL", "ts": 4, "order": {"agent": "auto_dir", "reduce": True,
+                                                       "symbol": "BTCUSDT", "clientOid": "d"}},
+        {"action": "FUTURES_DRY_RUN", "ts": 5, "order": {"agent": "auto_dir", "reduce": False,
+                                                         "symbol": "BTCUSDT"}},
+    ]
+    nus = fe.opens_sans_stop(ev)
+    assert len(nus) == 1 and nus[0]["symbol"] == "BTCUSDT" and nus[0]["oid"] == "a"
+    assert fe.opens_sans_stop([]) == []
+
+
+def test_futures_flatten_all():
+    """Couche 2 : flatten_all solde chaque position en RÉDUCTION forcée (overrides ->
+    jamais bloqué par la porte d'edge/le double verrou) ; idempotent à plat ;
+    fail-closed si positions illisibles (aucune fermeture, retente au prochain tick)."""
+    import futures_executor as fe
+    orig_pos, orig_exec, orig_mark = fe.positions_ouvertes, fe.execute, fe._mark_price
+    seen = []
+
+    def _stub_exec(agent, side, notional, lev, **kw):
+        seen.append({"agent": agent, "side": side, "reduce": kw.get("reduce"),
+                     "confirm": kw.get("confirm"), "size_btc": kw.get("size_btc"),
+                     "symbol": kw.get("symbol"), "edge_override": kw.get("edge_override"),
+                     "kill": kw.get("kill")})
+        return {"executed": True}
+    try:
+        fe._mark_price = lambda s=None: 60000.0
+        fe.execute = _stub_exec
+        fe.positions_ouvertes = lambda runner=None, symbol=None: [
+            {"holdSide": "long", "total": "0.001", "symbol": "BTCUSDT", "markPrice": "60000"},
+            {"holdSide": "short", "total": "0.5", "symbol": "ETHUSDT"},   # markPrice absent -> _mark_price
+            {"holdSide": "", "total": "0", "symbol": "X"},                # ignorée (côté/ taille nuls)
+        ]
+        r = fe.flatten_all()
+        assert r["lisible"] and r["tentees"] == 2 and r["soldees"] == 2
+        assert all(s["reduce"] and s["confirm"] and s["edge_override"] == 1 and s["kill"] is False
+                   for s in seen)
+        assert seen[0]["side"] == "long" and seen[0]["symbol"] == "BTCUSDT" and seen[0]["size_btc"] == 0.001
+        assert seen[1]["side"] == "short" and seen[1]["symbol"] == "ETHUSDT"
+        fe.positions_ouvertes = lambda runner=None, symbol=None: []
+        assert fe.flatten_all()["tentees"] == 0                          # idempotent à plat
+        fe.positions_ouvertes = lambda runner=None, symbol=None: None
+        r3 = fe.flatten_all()
+        assert r3["lisible"] is False and r3["tentees"] == 0             # fail-closed
+    finally:
+        fe.positions_ouvertes, fe.execute, fe._mark_price = orig_pos, orig_exec, orig_mark
+
+
+def test_futures_enforce_daily_loss():
+    """Couche 2 : enforce ne SOLDE que sur un breach CONFIRMÉ (daily_loss_alert_day ==
+    jour) ; un breach 'aveugle' (equity illisible, autre jour) ne ferme RIEN."""
+    import json as _j
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_breach, orig_flat = fe.daily_loss_breach, fe.flatten_all
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    flats = []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            led = os.path.join(td, "led.json")
+            config.FUTURES_REAL_LEDGER = led
+            fe.flatten_all = lambda runner=None, now=None, motif="": (
+                flats.append(motif), {"tentees": 1, "soldees": 1, "positions": [], "erreurs": []})[1]
+            jour = 80
+            fe.daily_loss_breach = lambda now=None: True
+            open(led, "w").write(_j.dumps({"daily_loss_alert_day": jour}))
+            r = fe.enforce_daily_loss(now=86400 * jour + 100)
+            assert r["breach"] and r["confirme"] and r["flatten"]["soldees"] == 1 and flats
+            flats.clear()
+            open(led, "w").write(_j.dumps({"daily_loss_alert_day": jour - 1}))
+            r2 = fe.enforce_daily_loss(now=86400 * jour + 200)
+            assert r2["breach"] is True and r2["confirme"] is False and r2["flatten"] is None and not flats
+            fe.daily_loss_breach = lambda now=None: False
+            open(led, "w").write(_j.dumps({}))
+            r3 = fe.enforce_daily_loss(now=86400 * jour + 300)
+            assert r3["confirme"] is False and r3["flatten"] is None
+    finally:
+        fe.daily_loss_breach, fe.flatten_all = orig_breach, orig_flat
+        if had:
+            config.FUTURES_REAL_LEDGER = orig_led
+        else:
+            delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_chaos_stop_enforce_independant_de_brain_scan():
+    """CHAOS — reproduit l'incident : brain ET scan morts (timer désarmé), aucune
+    tentative d'ordre décisionnel. L'enforceur (Couche 2), INDÉPENDANT, doit quand même
+    au -5% : (1) armer le kill-switch, (2) SOLDER toutes les positions en réduction.
+    Hermétique : equity/positions/spec/prix/marge stubbés, ordres via runner injecté."""
+    import json as _j
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    import telegram_notifier as tn
+    orig = {"eq": fe._book_equity, "pos": fe.positions_ouvertes, "mark": fe._mark_price,
+            "spec": fe._contract_spec, "marge": fe._marge_mode, "send": tn.send_telegram}
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    ks = fe.Path(fe.__file__).resolve().parent / "KILL_SWITCH"
+    ks_avant = ks.exists()
+    calls = []
+
+    def _runner_ok(cmd):
+        calls.append(cmd)
+        return '{"data": {"orderId": "z"}}'
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            tn.send_telegram = lambda m: None
+            fe._mark_price = lambda s=None: 60000.0
+            fe._contract_spec = lambda s=None: dict(_FUT_SPEC)
+            fe._marge_mode = lambda: "isolated"
+            fe.positions_ouvertes = lambda runner=None, symbol=None: [
+                {"holdSide": "long", "total": "0.001", "symbol": "BTCUSDT", "markPrice": "60000"},
+                {"holdSide": "short", "total": "0.02", "symbol": "ETHUSDT", "markPrice": "3000"},
+            ]
+            fe._book_equity = lambda: 100.0                       # jour J : ouverture, pas de breach
+            assert fe.enforce_daily_loss(now=86400 * 70)["confirme"] is False
+            fe._book_equity = lambda: 94.0                        # -6% : breach CONFIRMÉ
+            recap = fe.enforce_daily_loss(now=86400 * 70 + 3600, runner=_runner_ok)
+            assert recap["breach"] and recap["confirme"]
+            assert ks.exists()                                    # kill-switch armé
+            assert recap["flatten"]["tentees"] == 2 and recap["flatten"]["soldees"] == 2
+            place = [c for c in calls if c[1] == "futures_place_order"]
+            assert len(place) == 2                                # une RÉDUCTION par position
+            payload = _j.loads(place[0][3])[0]
+            assert payload["tradeSide"] == "close" and payload["orderType"] == "market"
+            # blip API le lendemain (equity illisible) : jamais de fermeture à l'aveugle
+            calls.clear()
+            if ks.exists():
+                ks.unlink()
+            fe._book_equity = lambda: None
+            recap2 = fe.enforce_daily_loss(now=86400 * 71 + 3600, runner=_runner_ok)
+            assert recap2["confirme"] is False and recap2["flatten"] is None
+            assert not [c for c in calls if c[1] == "futures_place_order"]
+    finally:
+        fe._book_equity, fe.positions_ouvertes, fe._mark_price = orig["eq"], orig["pos"], orig["mark"]
+        fe._contract_spec, fe._marge_mode, tn.send_telegram = orig["spec"], orig["marge"], orig["send"]
+        if ks.exists() and not ks_avant:
+            ks.unlink()
+        if had:
+            config.FUTURES_REAL_LEDGER = orig_led
+        else:
+            delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_watchdog_heal_reanime_et_escalade():
+    """Couche 3 : sur DOWN/STALE, réarme les timers brain/scan morts ; compte les échecs
+    consécutifs ; escalade en fail-safe (kill-switch) au seuil ; reset propre sur reprise."""
+    import tempfile
+    import watchdog as wd
+    import telegram_notifier as tn
+    assert wd.timers_a_rearmer({"a": True, "b": False, "c": None}) == ["b", "c"]
+    assert wd.heal_escalade(3, 3) is True and wd.heal_escalade(2, 3) is False
+    assert wd.heal_escalade(5, 0) is False
+    keys = ("service_active", "restart_unit", "_reset_failed", "arm_kill_switch",
+            "_kill_actif", "HEAL_STATE_FILE")
+    orig = {k: getattr(wd, k) for k in keys}
+    orig_send = tn.send_telegram
+    restarts, armed = [], []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            wd.HEAL_STATE_FILE = wd.Path(td) / "heal.json"
+            wd.service_active = lambda n: False
+            wd.restart_unit = lambda n: (restarts.append(n), True)[1]
+            wd._reset_failed = lambda n: None
+            wd._kill_actif = lambda: False
+            wd.arm_kill_switch = lambda why: armed.append(why)
+            tn.send_telegram = lambda m: None
+            a0 = wd.heal("RUNNING", seuil_escalade=2)
+            assert a0["rearmes"] == [] and not a0.get("escalade")
+            a1 = wd.heal("DOWN", seuil_escalade=2)
+            assert set(r["unit"] for r in a1["rearmes"]) == set(wd.UNITES_DECISION)
+            assert a1["consecutifs"] == 1 and a1["escalade"] is False and not armed
+            a2 = wd.heal("DOWN", seuil_escalade=2)
+            assert a2["consecutifs"] == 2 and a2["escalade"] is True and armed
+            wd.heal("RUNNING", seuil_escalade=2)                  # reprise -> reset
+            a3 = wd.heal("DOWN", seuil_escalade=2)
+            assert a3["consecutifs"] == 1 and a3["escalade"] is False
+            # KILL_SWITCH armé (halte volontaire) : ni réarmement, ni escalade, reset
+            restarts.clear()
+            wd._kill_actif = lambda: True
+            a4 = wd.heal("DOWN", seuil_escalade=2)
+            assert a4.get("halte_volontaire") is True and a4["rearmes"] == [] and not restarts
+            a5 = wd.heal("DOWN", seuil_escalade=2)                 # reste silencieux, jamais d'escalade
+            assert a5["escalade"] is False
+    finally:
+        for k, v in orig.items():
+            setattr(wd, k, v)
+        tn.send_telegram = orig_send
+
+
+def test_failsafe_should_alert_dedup():
+    """OnFailure : une alerte par service par fenêtre de dédup, indépendante par unité."""
+    import failsafe_escalate as fs
+    st = {}
+    a, st = fs.should_alert(st, "bitget-brain.service", now=1000)
+    assert a is True and st["bitget-brain.service"] == 1000
+    a2, st = fs.should_alert(st, "bitget-brain.service", now=1300, dedup_s=900)
+    assert a2 is False
+    a3, st = fs.should_alert(st, "bitget-brain.service", now=2000, dedup_s=900)
+    assert a3 is True
+    a4, st = fs.should_alert(st, "bitget-scan.service", now=1300)
+    assert a4 is True
+
+
+def test_stop_guardian_tick_et_heartbeat():
+    """Le tick du guardian : écrit un battement, rend compte du breach, alerte sur flatten,
+    et n'explose JAMAIS sur un tick raté (état d'erreur absorbé)."""
+    import tempfile
+    import futures_executor as fe
+    import stop_guardian as sg
+    orig_enf, orig_hb, orig_alert = fe.enforce_daily_loss, sg.HEARTBEAT_FILE, sg._alerter_flatten
+    alerts = []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            sg.HEARTBEAT_FILE = sg.Path(td) / "hb.json"
+            sg._alerter_flatten = lambda flat: alerts.append(flat)
+            fe.enforce_daily_loss = lambda now=None: {"breach": False, "confirme": False, "flatten": None}
+            out = sg.tick(now=123)
+            assert out["ok"] and out["confirme"] is False and sg.HEARTBEAT_FILE.exists() and not alerts
+            fe.enforce_daily_loss = lambda now=None: {
+                "breach": True, "confirme": True,
+                "flatten": {"tentees": 2, "soldees": 2, "positions": [], "erreurs": []}}
+            out2 = sg.tick(now=456)
+            assert out2["confirme"] is True and "2/2" in out2["note"] and alerts
+
+            def _boom(now=None):
+                raise RuntimeError("x")
+            fe.enforce_daily_loss = _boom
+            out3 = sg.tick(now=789)
+            assert out3["ok"] is False and out3["erreur"] == "RuntimeError"
+    finally:
+        fe.enforce_daily_loss, sg.HEARTBEAT_FILE, sg._alerter_flatten = orig_enf, orig_hb, orig_alert
+
+
+def test_stop_guardian_sd_notify_sans_socket():
+    """sd_notify est best-effort : sans NOTIFY_SOCKET (hors systemd), renvoie False sans lever."""
+    import os
+    import stop_guardian as sg
+    had = "NOTIFY_SOCKET" in os.environ
+    old = os.environ.get("NOTIFY_SOCKET")
+    try:
+        os.environ.pop("NOTIFY_SOCKET", None)
+        assert sg._sd_notify("READY=1") is False
+    finally:
+        if had:
+            os.environ["NOTIFY_SOCKET"] = old
 
 
 def _run_all():

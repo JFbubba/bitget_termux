@@ -4,7 +4,10 @@ watchdog.py — surveillance LECTURE SEULE de la boucle agent_loop.py.
 Classement : SAFE.
   - ne fait QUE constater (PID, /proc, fraicheur du dernier scan)
   - n'envoie aucun ordre, ne touche jamais au trading
-  - ne REDEMARRE PAS la boucle (alerte uniquement, jamais d'action)
+  - par defaut : alerte uniquement. Avec --heal (Couche 3, sur l'hote) : SUPERVISION
+    ACTIVE — rearme les timers brain/scan morts, escalade en fail-safe (kill-switch)
+    apres N cycles STALE/DOWN. Aucune action de trading : seulement systemctl restart
+    des timers + kill-switch defensif (n'ouvre jamais rien).
   - n'affiche aucun secret
 
 Sources de liveness combinees (indépendantes, robustes sous Termux) :
@@ -19,6 +22,7 @@ Usage CLI :
 Commande Telegram associee : /watchdog
 """
 
+import json
 import os
 import time
 from pathlib import Path
@@ -199,6 +203,159 @@ def arm_kill_switch(reason):
         return False
 
 
+# ---------- SUPERVISION ACTIVE (Couche 3 : réanimer brain/scan, escalade fail-safe) ----------
+
+# Les DEUX services décisionnels dont l'incident a montré qu'ils n'étaient ni
+# supervisés ni redémarrés : pilotés par timer, un timer désarmé = mort silencieuse.
+UNITES_DECISION = ("bitget-brain.timer", "bitget-scan.timer")
+HEAL_STATE_FILE = Path(".watchdog_heal_state.json")
+
+
+def timers_a_rearmer(active_map):
+    """PUR. Parmi les unités décisionnelles, celles à REDÉMARRER = celles qui ne sont
+    pas 'active' de façon certaine (False ou None/indéterminé -> on réarme, fail-safe :
+    mieux vaut un restart inutile qu'un timer mort ignoré)."""
+    return [u for u, a in active_map.items() if a is not True]
+
+
+def heal_escalade(consecutifs, seuil):
+    """PUR. Faut-il ESCALADER (fail-safe) ? Vrai si le nombre de cycles STALE/DOWN
+    consécutifs (malgré les réarmements) atteint le seuil : brain/scan restent morts,
+    personne ne gère les positions -> on arme le kill-switch (le guardian, lui,
+    continue d'enforcer le stop −5 %)."""
+    try:
+        return int(consecutifs) >= int(seuil) and int(seuil) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def restart_unit(name):
+    """systemctl restart <name>. ACTION défensive (réarme un timer décisionnel mort).
+    Best-effort : True si la commande a réussi, None si systemctl indisponible."""
+    try:
+        import subprocess
+        r = subprocess.run(["systemctl", "restart", name], capture_output=True,
+                           text=True, timeout=15)
+        return r.returncode == 0
+    except Exception:
+        return None
+
+
+def _reset_failed(name):
+    """Purge l'état 'failed' d'un service (un cycle oneshot bloqué/tué par timeout
+    laisse le .service en échec, ce qui peut bloquer les relances). Best-effort."""
+    try:
+        import subprocess
+        subprocess.run(["systemctl", "reset-failed", name.replace(".timer", ".service")],
+                       capture_output=True, text=True, timeout=10)
+    except Exception:
+        pass
+
+
+def _load_heal_state():
+    try:
+        return json.loads(HEAL_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"consecutifs": 0}
+
+
+def _save_heal_state(state):
+    try:
+        HEAL_STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def heal(verdict, *, seuil_escalade=None):
+    """SUPERVISION ACTIVE. Sur STALE/DOWN : réarme les timers brain/scan morts, purge
+    les cycles bloqués, et compte les échecs CONSÉCUTIFS ; à partir du seuil, ESCALADE
+    en fail-safe (kill-switch + alerte forte). Sur RUNNING : remet le compteur à zéro.
+    Retourne un récapitulatif d'actions (aucun secret)."""
+    from config_utils import cfg as _cfg
+    seuil = int(_cfg("WATCHDOG_HEAL_ESCALADE_SEUIL", 3)) if seuil_escalade is None else int(seuil_escalade)
+    state = _load_heal_state()
+    actions = {"verdict": verdict, "rearmes": [], "escalade": False}
+
+    # KILL_SWITCH armé = HALTE VOLONTAIRE : brain/scan sont SENSÉS être au repos
+    # (leur ExecCondition les saute). Un scan périmé n'est alors PAS une panne -> ni
+    # réarmement, ni escalade, ni fausse alerte ; on remet le compteur à zéro. Le
+    # stop_guardian, lui, continue d'enforcer le stop indépendamment.
+    if _kill_actif():
+        actions["halte_volontaire"] = True
+        if state.get("consecutifs"):
+            state["consecutifs"] = 0
+            _save_heal_state(state)
+        return actions
+
+    if verdict in ("RUNNING", "RUNNING?", "PAUSE"):
+        if state.get("consecutifs"):
+            state["consecutifs"] = 0
+            _save_heal_state(state)
+        return actions
+
+    # STALE / DOWN / UNKNOWN : brain/scan possiblement morts -> tenter de réanimer.
+    active_map = {u: service_active(u) for u in UNITES_DECISION}
+    for unit in timers_a_rearmer(active_map):
+        _reset_failed(unit)
+        ok = restart_unit(unit)
+        actions["rearmes"].append({"unit": unit, "ok": ok})
+
+    state["consecutifs"] = int(state.get("consecutifs", 0)) + 1
+    actions["consecutifs"] = state["consecutifs"]
+    if heal_escalade(state["consecutifs"], seuil):
+        actions["escalade"] = True
+        if not _kill_actif():
+            arm_kill_switch(f"supervision : brain/scan STALE/DOWN x{state['consecutifs']} "
+                            f"(seuil {seuil}) — fail-safe")
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram(
+                f"🚑 SUPERVISION : brain/scan {verdict} depuis {state['consecutifs']} cycles "
+                f"malgré réarmement des timers. Kill-switch ARMÉ (fail-safe : plus aucune "
+                "OUVERTURE ; le stop −5 % reste enforced par stop_guardian). "
+                "Intervention requise : journalctl -u bitget-scan -u bitget-brain.")
+        except Exception:
+            pass
+    _save_heal_state(state)
+    return actions
+
+
+def _kill_actif():
+    try:
+        import risk_manager
+        return risk_manager.kill_switch_active()
+    except Exception:
+        return False
+
+
+def audit_ouvertures_nues():
+    """Invariant Couche 1 (observabilité) : alerte si une ouverture directionnelle
+    RÉELLE est partie SANS stop-loss préréglé côté exchange. Best-effort, lecture
+    seule. Dédup 1/jour (fichier d'état). Retourne la liste des ouvertures nues."""
+    try:
+        import futures_executor as fe
+        nus = fe.opens_sans_stop()
+    except Exception:
+        return []
+    if not nus:
+        return []
+    try:
+        jour = int(time.time() // 86400)
+        st = _load_heal_state()
+        if int(st.get("nus_alert_day", -1)) != jour:
+            detail = " · ".join(f"{n.get('agent')} {n.get('symbol')} (oid {n.get('oid')})"
+                                for n in nus[-5:])
+            import telegram_notifier as tn
+            tn.send_telegram(f"🩹 INVARIANT SL : {len(nus)} ouverture(s) directionnelle(s) "
+                             f"RÉELLE(S) sans stop-loss exchange — {detail}. À corriger : toute "
+                             "position directionnelle doit porter son SL préréglé.")
+            st["nus_alert_day"] = jour
+            _save_heal_state(st)
+    except Exception:
+        pass
+    return nus
+
+
 def evaluate():
     """Rassemble les signaux I/O et applique decide_verdict."""
     status = {"paused": PAUSE_FILE.exists()}
@@ -275,7 +432,7 @@ def build_report(status):
         lines.append("⚠️ ALERTE: agent_loop semble arrêté ou le scan est périmé.")
 
     lines.append("")
-    lines.append("Mode: lecture seule. Aucun ordre réel. Aucun redémarrage automatique.")
+    lines.append("Mode: aucun ordre réel. Réarmement des timers brain/scan seulement avec --heal.")
     return "\n".join(lines)
 
 
@@ -289,6 +446,7 @@ CARTE_FRAICHEUR = [
     ("brain_hitrates.json", 90), ("brain_weights.json", 90),
     (".runtime_cache.json", 20), (".carry_journal.json", 120),
     ("microstructure_history.jsonl", 20), ("validation_report.json", 420),
+    (".stop_guardian_heartbeat.json", 5),   # enforceur stop −5 % (tick ~20s) : mort visible
 ]
 
 
@@ -375,6 +533,28 @@ def main(argv=None):
                 print(f"\n⛔ KILL_SWITCH posé automatiquement : {why}")
         except Exception as exc:
             print(f"\n[arm-killswitch indisponible: {type(exc).__name__}]")
+
+    # --heal : SUPERVISION ACTIVE (Couche 3). Réarme les timers brain/scan morts sur
+    # STALE/DOWN, escalade en fail-safe après N cycles. À N'ACTIVER que sur l'hôte
+    # (le timer bitget-watchdog) — le mode par défaut reste alerte seule.
+    if "--heal" in argv:
+        try:
+            actions = heal(status.get("verdict"))
+            if actions.get("rearmes"):
+                detail = " · ".join(f"{r['unit']}={'ok' if r['ok'] else 'échec'}"
+                                    for r in actions["rearmes"])
+                print(f"\n🚑 Supervision : réarmement -> {detail}"
+                      + (f" [x{actions.get('consecutifs')} consécutifs]" if actions.get('consecutifs') else ""))
+            if actions.get("escalade"):
+                print("⛔ ESCALADE fail-safe : kill-switch armé (brain/scan persistants DOWN).")
+        except Exception as exc:
+            print(f"\n[supervision --heal indisponible: {type(exc).__name__}]")
+
+    # Invariant SL (Couche 1) : alerte si une ouverture directionnelle est partie nue.
+    try:
+        audit_ouvertures_nues()
+    except Exception:
+        pass
 
     if "--alert" in argv and status.get("alert"):
         try:

@@ -265,12 +265,20 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
 
 # ---------- stop de perte JOURNALIER (arme le kill-switch, fail-closed) ----------
 
-def daily_loss_state_check(equity, state, now=None, stop_pct=None):
+def daily_loss_state_check(equity, state, now=None, stop_pct=None, cliff_pct=None):
     """PUR. Compare l'equity courante à l'equity d'OUVERTURE du jour (mémorisée dans
-    `state` = {"day", "open_equity"}). Retourne (breach, nouvel_état). Nouveau jour ->
-    l'equity courante devient l'ouverture. Equity illisible -> BREACH (fail-closed :
-    on ne trade pas à l'aveugle)."""
+    `state` = {"day", "open_equity", "last_equity"}). Retourne (breach, nouvel_état).
+    Nouveau jour -> l'equity courante devient l'ouverture. Equity illisible -> BREACH
+    (fail-closed : on ne trade pas à l'aveugle).
+
+    RE-BASELINE sur FLUX DE CAPITAL (correctif faux breach 05/07) : un saut du livre
+    d'un tick à l'autre > cliff_pct de l'ouverture est impossible en P&L de trading
+    borné (murs 50/250, progressif) -> c'est un dépôt/retrait/CONVERT (ex. conversion
+    BGBTC). On DÉCALE l'ouverture du même montant : le stop continue de mesurer le P&L,
+    jamais un mouvement de fonds. Une vraie perte, elle, s'accumule par petits pas et ne
+    franchit jamais ce seuil -> le stop la capte normalement."""
     stop_pct = float(_cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0) if stop_pct is None else stop_pct)
+    cliff_pct = float(_cfg("FUTURES_BOOK_CLIFF_REBASE_PCT", 15.0) if cliff_pct is None else cliff_pct)
     now = time.time() if now is None else now
     day = int(now // 86400)
     from numeric_utils import safe_float
@@ -279,9 +287,14 @@ def daily_loss_state_check(equity, state, now=None, stop_pct=None):
     if eq is None or eq <= 0:
         return True, state                        # aveugle -> on n'ouvre pas
     if state.get("day") != day or safe_float(state.get("open_equity")) is None:
-        state = {"day": day, "open_equity": eq}
+        state = {"day": day, "open_equity": eq, "last_equity": eq}
         return False, state
     ouverture = float(state["open_equity"])
+    last = safe_float(state.get("last_equity"))
+    if last is not None and cliff_pct > 0 and abs(eq - last) > ouverture * cliff_pct / 100.0:
+        ouverture += (eq - last)                   # la baseline SUIT le flux de capital
+        state["open_equity"] = ouverture
+    state["last_equity"] = eq
     breach = eq < ouverture * (1.0 - stop_pct / 100.0)
     return breach, state
 
@@ -790,6 +803,104 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                   "real_order_sent": bool(res.get("executed")),
                   "reasons": res.get("reasons"), "response": res.get("response")})
     return {**res, "preview": preview, "clientOid": oid}
+
+
+# ---------- ENFORCEUR de stop (Couche 2, indépendant de brain/scan) ----------
+
+def flatten_all(runner=None, now=None, motif="stop journalier"):
+    """SOLDE toutes les positions futures ouvertes en RÉDUCTION market (reduceOnly).
+    Fail-safe : fermer n'aggrave JAMAIS le risque — un flatten de sécurité ne dépend
+    d'AUCUN verrou d'OUVERTURE (double verrou, porte d'edge, kill-switch) : on passe
+    les overrides pour qu'une réduction reste TOUJOURS exécutable, même mandat coupé.
+
+    Idempotent (à plat -> aucun ordre). Fail-closed par position : une ligne illisible
+    n'empêche pas de solder les autres. Retourne un récapitulatif (aucun secret)."""
+    now = time.time() if now is None else now
+    from numeric_utils import safe_float
+    rows = positions_ouvertes(runner=runner)
+    if rows is None:
+        return {"lisible": False, "tentees": 0, "soldees": 0, "positions": [],
+                "erreurs": ["positions illisibles (fail-closed) — nouvelle tentative au prochain tick"]}
+    recap = {"lisible": True, "motif": str(motif), "tentees": 0, "soldees": 0,
+             "positions": [], "erreurs": []}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        cote = str(r.get("holdSide", "")).lower()
+        taille = safe_float(r.get("total") or r.get("size")) or 0.0
+        symbole = str(r.get("symbol", "")).upper()
+        if cote not in ("long", "short") or taille <= 1e-12 or not symbole:
+            continue
+        prix = safe_float(r.get("markPrice")) or _mark_price(symbole)
+        notional = round(taille * prix, 2) if prix and prix > 0 else 1.0
+        if notional <= 0:
+            notional = 1.0
+        recap["tentees"] += 1
+        try:
+            res = execute("guardian", cote, notional, 1.0, reduce=True, confirm=True,
+                          now=now, size_btc=taille, symbol=symbole, runner=runner,
+                          live=True, autonomous=True, futures_live=True, edge_override=1,
+                          kill=False)
+            ok = bool(res.get("executed"))
+            recap["positions"].append({"symbol": symbole, "side": cote,
+                                       "size": round(taille, 6), "executed": ok})
+            if ok:
+                recap["soldees"] += 1
+            else:
+                recap["erreurs"].append(f"{cote} {symbole}: {res.get('reasons') or 'échec exchange'}")
+        except Exception as exc:
+            recap["erreurs"].append(f"{cote} {symbole}: {type(exc).__name__}")
+    return recap
+
+
+def enforce_daily_loss(runner=None, now=None):
+    """ENFORCEUR complet du stop journalier −5 % (Couche 2). Appelé par un organe
+    INDÉPENDANT de brain/scan (stop_guardian) à cadence serrée :
+      1) daily_loss_breach() : arme le kill-switch + alerte Telegram (dédup 1/jour),
+         persiste l'état — inchangé ;
+      2) si le breach est CONFIRMÉ (equity LISIBLE sous le seuil, signalé par
+         daily_loss_alert_day == jour dans le ledger), SOLDE toutes les positions.
+         Un breach 'aveugle' (API illisible) NE solde RIEN (jamais de fermeture sur
+         un simple blip de lecture ; fail-closed = on n'OUVRE pas, pas on ne ferme).
+    Retourne {breach, confirme, flatten}."""
+    now = time.time() if now is None else now
+    breach = daily_loss_breach(now=now)               # effets protecteurs (kill-switch + alerte)
+    jour = int(now // 86400)
+    try:
+        led = json.loads(_ledger_path().read_text(encoding="utf-8"))
+    except Exception:
+        led = {}
+    confirme = int(led.get("daily_loss_alert_day", -1) or -1) == jour
+    recap = {"breach": bool(breach), "confirme": bool(confirme), "flatten": None}
+    if confirme:
+        recap["flatten"] = flatten_all(runner=runner, now=now, motif="stop journalier -5%")
+    return recap
+
+
+def opens_sans_stop(events=None, agents_directionnels=("auto_dir", "directional", "dir")):
+    """PUR (si events injecté). Ouvertures RÉELLES directionnelles passées SANS
+    stop-loss préréglé côté exchange (invariant Couche 1). Le carry est exclu :
+    short volontairement couvert par le spot (sans SL, protégé par le stop du LIVRE).
+    Retourne [{ts, agent, symbol, oid}] — [] = tout ordre directionnel portait son SL."""
+    if events is None:
+        try:
+            events = json.loads(_ledger_path().read_text(encoding="utf-8")).get("events", [])
+        except Exception:
+            events = []
+    nus = []
+    for e in events or []:
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        order = e.get("order") or {}
+        if order.get("reduce"):
+            continue                                  # une réduction n'a pas à porter de SL
+        agent = str(order.get("agent", ""))
+        if not any(agent.startswith(a) for a in agents_directionnels):
+            continue                                  # carry/autres : hors invariant
+        if order.get("stop_loss") is None:
+            nus.append({"ts": e.get("ts"), "agent": agent,
+                        "symbol": order.get("symbol"), "oid": order.get("clientOid")})
+    return nus
 
 
 def main():

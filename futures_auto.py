@@ -554,6 +554,14 @@ def _run_cycle(now=None):
     out["decision"] = {**d, "symbol": sym}
     prix = fe._mark_price(sym)
     sl, tp = sl_tp(d["side"], prix, atr=_atr(symbol=sym))
+    if sl is None:
+        # Invariant Couche 1 : JAMAIS d'ouverture directionnelle sans stop-loss préréglé
+        # côté exchange (le seul filet qui survive à la mort de l'host). Prix illisible
+        # -> sl_tp rend (None, None) : on s'abstient (fail-closed) plutôt que d'ouvrir nu.
+        out["decision"] = {**d, "action": "rien", "symbol": sym,
+                           "raison": d["raison"] + f" [{sym}] — SL introuvable (prix illisible), "
+                                     "ouverture refusée (invariant SL exchange)"}
+        return out
     res = fe.execute("auto_dir", d["side"],
                      float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0)),
                      float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
