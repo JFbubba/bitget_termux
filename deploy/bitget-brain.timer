@@ -1,0 +1,8 @@
+[Unit]
+Description=Cadence du cerveau : 1 minute precise (cycle ~18 s, demande proprietaire §63)
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=1min
+AccuracySec=10s
+[Install]
+WantedBy=timers.target

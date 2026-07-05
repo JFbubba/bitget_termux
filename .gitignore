@@ -46,6 +46,7 @@ accumulation_real_ledger.json
 futures_real_ledger.json
 .accum_spend_alert.json
 .market_timing_alert.json
+.carry_journal.json
 
 # Claude Code : hooks locaux (machine-specifique, contient des mots-cles d'ordre
 # pour le garde-fou ; ne doit pas etre suivi sinon safe_push_check les detecte)
@@ -55,3 +56,13 @@ futures_real_ledger.json
 agent_hub/
 # Artefact runtime (rapport de validation des agents, regenere)
 validation_report.json
+.futures_pos_state.json
+brain_hitrates.json
+data_history/
+xs_paper_journal.jsonl
+.xs_paper_etat.json
+
+# Runtime state — garde-fou stop & supervision (regenere a chaud, machine-specifique)
+.stop_guardian_heartbeat.json
+.watchdog_heal_state.json
+logs/

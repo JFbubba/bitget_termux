@@ -14,7 +14,8 @@ Paliers :
   • NEGATIVE  : sinon                                      -> bridé (prior faible)
 
 Cohérent avec `mandate.futures_live_allowed` (même critère LIVE). Les priors de poids
-sont ADVISORY : ils n'écrasent pas l'apprentissage EARCP, ils le bornent/orientent.
+sont ADVISORY : ils n'écrasent pas l'apprentissage EARCP, ils le bornent/orientent —
+branchés dans swarm_brain._apply_edge_priors (adoucis prior**alpha, débrayables).
 """
 
 import json
@@ -69,11 +70,24 @@ def _replay_passes(row, dsr_min=None, min_n=None):
     return dsr >= dsr_min and n >= min_n and oos > 0
 
 
+def _annuel_ok(row):
+    """Robustesse ANNUELLE (§54). PUR. Un agent dont l'IC sur UN AN d'historique est
+    NÉGATIF est un artefact de régime possible : pas de LIVE. FAIL-OPEN : sans
+    mesure annuelle (historique absent), la porte est transparente — on bride sur
+    preuve, pas sur absence de mesure."""
+    an = (row or {}).get("annuel")
+    if not isinstance(an, dict) or an.get("ic") is None:
+        return True
+    return float(an["ic"]) > 0.0
+
+
 def tier_of(row, live_row=None, dsr_min=None, min_n=None):
     """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
-    sur les VOTES REELS (live) ; replay seul -> PROBATION (prometteur, reste paper)."""
+    sur les VOTES REELS (live) ET la robustesse ANNUELLE (§54 : pas de promotion
+    d'un artefact de régime) ; replay seul -> PROBATION (prometteur, reste paper)."""
     if _replay_passes(row, dsr_min, min_n):
-        return "LIVE" if _live_confirms(live_row) else "PROBATION"  # live pas (encore) confirme
+        return ("LIVE" if (_live_confirms(live_row) and _annuel_ok(row))
+                else "PROBATION")                    # live/annuel pas (encore) confirmés
     dsr = float((row or {}).get("dsr", 0) or 0)
     n = int((row or {}).get("n", 0) or 0)
     if dsr >= 0.50 and n >= 30:
@@ -87,7 +101,8 @@ def live_pending(row, live_row=None, dsr_min=None, min_n=None):
     """L'agent bat-il le REPLAY mais PAS (encore) la confirmation live ? PUR.
     True = « à une confirmation live près du palier LIVE » : purement informatif (observabilité),
     ne donne AUCUN droit réel. Sert à voir qui approche du réel sans qu'aucun verrou ne bouge."""
-    return bool(_replay_passes(row, dsr_min, min_n) and not _live_confirms(live_row))
+    return bool(_replay_passes(row, dsr_min, min_n)
+                and not (_live_confirms(live_row) and _annuel_ok(row)))
 
 
 def agent_tier(agent, report=None):
@@ -109,6 +124,37 @@ def all_tiers(report=None):
 def weight_prior(agent, report=None):
     """Prior de poids ADVISORY selon le palier (borne/oriente EARCP). PUR."""
     return _PRIOR[agent_tier(agent, report)]
+
+
+def weight_priors(report=None):
+    """{agent: prior ADVISORY} pour les agents PRÉSENTS dans le rapport. PUR.
+
+    Deux sources d'évidence, toutes deux bornées par _PRIOR :
+      • palier replay (section 'ranking') -> prior du palier ;
+      • dérate LIVE : un IC significativement NÉGATIF sur les votes réels
+        (n ≥ MANDATE_LIVE_MIN_SAMPLES, ic_t ≤ −MANDATE_LIVE_MIN_IC_T) plafonne le
+        prior à NEGATIVE — l'évidence CONTRE un agent compte autant que l'évidence
+        pour (symétrique de _live_confirms).
+    Un agent ABSENT du rapport n'a AUCUNE entrée : le cerveau le traite neutre
+    (×1.0) — on ne bride pas faute de mesure, on bride sur preuve. (≠ agent_tier,
+    qui répond NEGATIVE pour un absent : là c'est une PORTE de promotion au réel,
+    fail-closed par construction.)"""
+    rep = _load(report)
+    out = {}
+    for row in rep.get("ranking", []):
+        a = str(row.get("agent"))
+        out[a] = _PRIOR[tier_of(row, _live_row(rep, a))]
+    min_n = int(_cfg("MANDATE_LIVE_MIN_SAMPLES", 60))
+    min_t = float(_cfg("MANDATE_LIVE_MIN_IC_T", 2.0))
+    for r in (rep.get("live", {}) or {}).get("agents", []):
+        a = str(r.get("agent"))
+        try:
+            n, ic_t = int(r.get("n", 0) or 0), float(r.get("ic_t", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if n >= min_n and ic_t <= -min_t:
+            out[a] = min(out.get(a, 1.0), _PRIOR["NEGATIVE"])
+    return out
 
 
 def live_agents(report=None):

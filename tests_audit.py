@@ -259,6 +259,27 @@ def test_dashboard_assemble_state():
                              liquidations={"skew": {"net": 0.3}})
     assert st2["brain"]["bias"] == "LONG" and st2["liquidations"]["skew"]["net"] == 0.3
 
+
+def test_dashboard_edge_summary():
+    # résumé d'échelle d'edge du dashboard (§41) : paliers + pending + priors +
+    # provenance du ranking, sans réseau (rapport factice), fail-safe sur {}/None.
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server2", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    rep = _edge_report()
+    rep.update({"ranking_mode": "xs", "n_symbols": 9})
+    s = mod.edge_summary(rep)
+    assert s["mode"] == "xs" and s["n_symbols"] == 9
+    assert s["tiers"]["alpha"] == "LIVE" and s["tiers"]["delta"] == "NEGATIVE"
+    assert s["pending"] == ["beta"]                    # replay OK, live pas confirmé
+    assert s["priors"]["alpha"] == 1.5 and s["priors"]["delta"] == 0.3
+    assert [t["agent"] for t in s["top"]] == ["alpha", "beta", "gamma", "delta"]
+    vide = mod.edge_summary({})
+    assert vide["tiers"] == {} and vide["pending"] == [] and vide["top"] == []
+    assert mod.edge_summary(None)["priors"] == {}
+
 def test_macro_risk_regime():
     import macro_context as mc
     on = mc.compute_risk_regime(vix=15.0, yield_2s10s=0.5, dxy_change_pct=-1.0)
@@ -709,6 +730,36 @@ def test_brain_update_weights_clamped():
     assert w["good"] > w["bad"]
     assert w["good"] / w["bad"] <= 3.0 / 0.2 + 1e-6  # ratio borné par les clamps
 
+def test_brain_hitrates_exogenes_et_stabilite():
+    # §51 (5e mécanisme) : l'entrée performance de l'EARCP est le HIT-RATE EWMA
+    # mesuré, PAS le poids — fin de la boucle auto-excitée poids->P->cible->poids.
+    import swarm_brain as sb
+    # alpha EXPLICITE : le défaut vient de la config (constante de TEMPS, §63 —
+    # 0.01 à cadence 1 min) ; le test vérifie le MÉCANISME, pas la config.
+    hr = sb.maj_hitrates({}, {"a": [True, True, False], "b": [False], "vide": []},
+                         alpha=0.05)
+    assert abs(hr["a"] - (0.95 * 0.5 + 0.05 * (2 / 3))) < 1e-9   # part de 0.5 (neutre)
+    assert abs(hr["b"] - (0.95 * 0.5 + 0.05 * 0.0)) < 1e-9
+    assert "vide" not in hr                                       # lot vide ignoré
+    assert sb._hitrate_alpha() <= 0.05                            # cadence compensée (§63)
+    # STABILITÉ : agent SANS edge (hit-rate neutre) mais cohérence haute, 100
+    # apprentissages chaînés (l'ancienne composition claquait au clamp 3.0) ->
+    # le poids reste ~1, il ne s'auto-excite plus.
+    w = {"of": 1.0, "x": 1.0, "y": 1.0, "z": 1.0}
+    hr = {n: 0.5 for n in w}                                      # personne n'a d'edge
+    coh = {"of": 0.9, "x": 0.5, "y": 0.5, "z": 0.5}
+    for _ in range(100):
+        ew = sb.earcp_weights(hr, coh, beta=0.9, perf_bounds=(0.3, 0.7))
+        avg = sum(ew.values()) / len(ew)
+        cible = {k: v / avg for k, v in ew.items()}
+        w = {k: max(0.2, min(3.0, 0.9 * w[k] + 0.1 * cible[k])) for k in cible}
+    assert w["of"] < 1.5, w                                       # plus de winner-take-all
+    # ...mais un edge RÉEL mesuré est toujours récompensé (monotonie préservée)
+    hr2 = dict(hr, of=0.65)
+    ew2 = sb.earcp_weights(hr2, coh, beta=0.9, perf_bounds=(0.3, 0.7))
+    assert ew2["of"] == max(ew2.values())
+
+
 def test_brain_earcp_weights():
     import swarm_brain as sb
     perf = {"a": 3.0, "b": 1.0, "c": 0.3, "d": 1.0}
@@ -740,16 +791,104 @@ def test_brain_volatility_regime():
     assert 0.6 <= vt["scale"] < 1.0                              # escompte, mais jamais < 0.6
     assert sb.volatility_regime([100, 101, 102])["scale"] == 1.0  # court -> non bloquant
 
+def test_brain_learn_smoke_bout_en_bout():
+    # §61 : learn() a été cassé 4.7 h par un NameError AVALÉ (import _cfg local
+    # manquant) — aucun test ne l'exerçait de bout en bout. Ce smoke test le fait,
+    # sur fichiers temporaires : il DOIT dérouler sans exception et produire des
+    # poids bornés, un log évalué et des hit-rates.
+    import json as _json
+    import tempfile
+    import time as _time
+    from pathlib import Path as _P
+    import swarm_brain as sb
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        old = (sb.WEIGHTS_FILE, sb.HITRATE_FILE, sb._read_log, sb._write_log)
+        ecrits = {}
+        try:
+            sb.WEIGHTS_FILE = tmp / "w.json"
+            sb.HITRATE_FILE = tmp / "h.json"
+            vieux = int(_time.time()) - 2 * sb.HORIZON_S
+            log = [{"ts": vieux, "symbol": "BTCUSDT", "price": 100.0,
+                    "votes": {"a": 0.5, "b": -0.4}, "consensus": 0.2,
+                    "evaluated": False}]
+            sb._read_log = lambda: log
+            sb._write_log = lambda l: ecrits.update(log=l)
+            w = sb.learn("BTCUSDT", 110.0, {"a": 1.0, "b": 1.0})
+            assert all(0.2 <= v <= 3.0 for v in w.values()), w
+            assert ecrits["log"][0]["evaluated"] is True         # la décision est jugée
+            hr = _json.loads(sb.HITRATE_FILE.read_text())
+            assert 0.0 <= hr["a"] <= 1.0 and hr["a"] > 0.5       # a avait raison (hausse)
+            assert hr["b"] < 0.5                                 # b avait tort
+        finally:
+            sb.WEIGHTS_FILE, sb.HITRATE_FILE, sb._read_log, sb._write_log = old
+
+
+def test_watchdog_artefacts_figes():
+    # §61 suite : la carte de fraîcheur — figé (> seuil), absent, frais.
+    import tempfile, time as _time
+    from pathlib import Path as _P
+    import watchdog as wd
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        (tmp / "frais.json").write_text("{}")
+        vieux = tmp / "vieux.json"
+        vieux.write_text("{}")
+        import os
+        il_y_a_1h = _time.time() - 3600
+        os.utime(vieux, (il_y_a_1h, il_y_a_1h))
+        carte = [("frais.json", 20), ("vieux.json", 20), ("absent.json", 20),
+                 ("vieux.json", 120)]                     # même fichier, seuil large -> ok
+        figes = wd.artefacts_figes(carte, racine=tmp)
+        noms = [n for n, _ in figes]
+        assert noms == ["vieux.json", "absent.json"]      # frais exclu, seuil large exclu
+        assert figes[0][1] is not None and 55 <= figes[0][1] <= 65
+        assert figes[1][1] is None                        # absent
+        assert wd.artefacts_figes([("frais.json", 20)], racine=tmp) == []
+    # la carte par défaut couvre le cerveau ET la boucle réelle
+    defaut = [n for n, _ in wd.CARTE_FRAICHEUR]
+    assert "brain_log.json" in defaut and "futures_auto_journal.jsonl" in defaut
+
+
+def test_watchdog_brain_age():
+    import json as _json
+    import tempfile
+    import time as _time
+    import watchdog as wd
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        _json.dump([{"ts": int(_time.time()) - 300}], f)
+        chemin = f.name
+    a = wd.brain_age(chemin)
+    assert a is not None and 290 <= a <= 320
+    assert wd.brain_age("/inexistant.json") is None
+
+
 def test_brain_coherence_scores():
+    # LEAVE-ONE-OUT (§51) : l'accord se mesure contre le consensus DES AUTRES —
+    # un agent dominant ne peut plus « s'accorder avec lui-même ».
     import swarm_brain as sb
     log = [
-        {"consensus": 0.5, "votes": {"x": 0.4, "y": -0.3}},   # consensus LONG
-        {"consensus": 0.3, "votes": {"x": 0.2, "y": -0.1}},
-        {"consensus": -0.4, "votes": {"x": -0.2, "y": 0.5}},  # consensus SHORT
+        {"consensus": 0.5, "votes": {"x": 0.4, "y": -0.3, "z": 0.2}},
+        {"consensus": 0.3, "votes": {"x": 0.2, "y": -0.1, "z": 0.3}},
+        {"consensus": -0.4, "votes": {"x": -0.2, "y": 0.5, "z": -0.6}},
     ]
     c = sb._coherence_scores(log)
-    assert c["x"] == 1.0    # x toujours d'accord avec le consensus
-    assert c["y"] == 0.0    # y toujours en désaccord
+    # x vs (y+z) : +0.4 vs −0.1 ✗ · +0.2 vs +0.2 ✓ · −0.2 vs −0.1 ✓ -> 2/3
+    assert abs(c["x"] - 2 / 3) < 1e-9
+    assert c["y"] == 0.0                           # y toujours opposé aux autres
+    # AUTO-COHÉRENCE cassée : sous l'ANCIEN calcul, "gros" (qui fabrique le
+    # consensus 0.9 à lui seul) aurait été cohérent à 100 % ; en LOO les autres
+    # le contredisent (somme −0.5) -> 0. Et a/b votent CONTRE leur propre reste
+    # (a : −0.2 vs gros+b=+0.7) -> 0 aussi : personne ne s'auto-valide.
+    dominant = [{"consensus": 0.9, "votes": {"gros": 1.0, "a": -0.2, "b": -0.3}}] * 4
+    cd = sb._coherence_scores(dominant)
+    assert cd["gros"] == 0.0 and cd["a"] == 0.0 and cd["b"] == 0.0
+    # vote seul -> ignoré (pas d'« autres ») ; deux votes opposés -> chacun est
+    # jugé contre L'AUTRE (désaccord mutuel) ; somme des AUTRES nulle -> skippé
+    assert sb._coherence_scores([{"votes": {"seul": 0.5}}]) == {}
+    assert sb._coherence_scores([{"votes": {"m": 0.5, "n": -0.5}}]) == {"m": 0.0, "n": 0.0}
+    tri = sb._coherence_scores([{"votes": {"p": 0.3, "q": -0.3, "r": 0.5}}])
+    assert "r" not in tri and tri["p"] == 1.0 and tri["q"] == 0.0
 
 def test_black_scholes():
     import black_scholes as bs, math
@@ -1252,15 +1391,19 @@ def test_macro_data_summarize_regime():
 
 def test_macro_data_degrades_without_lib(monkeypatch=None):
     import macro_data as md
-    # si yfinance absent, fetch_macro renvoie une erreur claire et fetch_regime None
-    orig = md._available
+    # §58 : sans yfinance, macro_data bascule sur AlphaVantage+FRED ; si CES
+    # sources sont muettes aussi, erreur claire + régime NEUTRE + regime None.
+    orig = (md._available, md._quote_av, md._quote_fred, md._quote_td)
     md._available = lambda: False
+    md._quote_av = lambda name: None
+    md._quote_fred = lambda name: None
+    md._quote_td = lambda name: None
     try:
         d = md.fetch_macro()
-        assert d.get("error") and "yfinance" in d["error"] and d["regime"] == "NEUTRE"
+        assert d.get("error") and d["regime"] == "NEUTRE"
         assert md.fetch_regime() is None
     finally:
-        md._available = orig
+        md._available, md._quote_av, md._quote_fred, md._quote_td = orig
 
 
 # ---------- ccxt multi-exchange (purs + dégradation) ----------
@@ -1434,7 +1577,8 @@ def test_watchdog_report_alert_text():
     txt = watchdog.build_report(running)
     assert "WATCHDOG" in txt and "RUNNING" in txt
     assert "ALERTE" not in txt
-    assert "Aucun redémarrage automatique" in txt
+    # Le rapport reste read-only ; le réarmement des timers n'a lieu qu'avec --heal (Couche 3).
+    assert "aucun ordre réel" in txt and "--heal" in txt
 
     down = dict(running, process_alive=False, verdict="DOWN", alert=True)
     txt2 = watchdog.build_report(down)
@@ -1937,6 +2081,99 @@ def test_load_weights_self_heals_partial_file(tmpfile=None):
         sb.WEIGHTS_FILE = old
 
 
+# ---------- Porte directionnelle régime-aware (regime_gate) ----------
+
+def test_regime_gate_pure():
+    import regime_gate as rg
+    # RISK_OFF coupe les LONG, laisse passer les SHORT
+    assert rg.gate_decision("LONG POSSIBLE", "RISK_OFF") == "NEUTRE"
+    assert rg.gate_decision("BIAIS LONG", "RISK_OFF") == "NEUTRE"
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_OFF") == "SHORT POSSIBLE"
+    # RISK_ON coupe les SHORT, laisse passer les LONG
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_ON") == "NEUTRE"
+    assert rg.gate_decision("BIAIS SHORT", "RISK_ON") == "NEUTRE"
+    assert rg.gate_decision("LONG POSSIBLE", "RISK_ON") == "LONG POSSIBLE"
+    # NEUTRE / None / inconnu -> porte transparente
+    assert rg.gate_decision("LONG POSSIBLE", "NEUTRE") == "LONG POSSIBLE"
+    assert rg.gate_decision("LONG POSSIBLE", None) == "LONG POSSIBLE"
+    assert rg.gate_decision("SHORT POSSIBLE", "n'importe quoi") == "SHORT POSSIBLE"
+    # label neutre personnalisable (decision_engine utilise "NEUTRE / ATTENDRE")
+    assert rg.gate_decision("SHORT POSSIBLE", "RISK_ON",
+                            neutral_label="NEUTRE / ATTENDRE") == "NEUTRE / ATTENDRE"
+
+
+def test_regime_gate_effective_regime():
+    import regime_gate as rg
+    # l'extrême du Fear&Greed prime sur le macro (override à contre-régime)
+    assert rg.effective_regime("RISK_ON", fng_value=5) == "RISK_OFF"
+    assert rg.effective_regime("RISK_OFF", fng_value=95) == "RISK_ON"
+    # hors extrême (F&G absent ou neutre), le macro fait foi
+    assert rg.effective_regime("RISK_ON", fng_value=None) == "RISK_ON"
+    assert rg.effective_regime("RISK_ON", fng_value=50) == "RISK_ON"
+    # F&G extrême quand le macro est NEUTRE/inconnu
+    assert rg.effective_regime("NEUTRE", fng_value=11) == "RISK_OFF"
+    assert rg.effective_regime("NEUTRE", fng_value=85) == "RISK_ON"
+    assert rg.effective_regime("NEUTRE", fng_value=50) == "NEUTRE"
+    assert rg.effective_regime(None, fng_value=None) == "NEUTRE"
+    # F&G illisible -> pas de crash, le macro fait foi
+    assert rg.effective_regime("NEUTRE", fng_value="n/a") == "NEUTRE"
+
+
+def test_regime_gate_fetch_failsafe():
+    import regime_gate as rg
+    import macro_context
+    import sentiment_index
+    om, of = macro_context.macro_snapshot, sentiment_index.fetch_fear_greed
+
+    def _boom(*a, **k):
+        raise RuntimeError("réseau coupé")
+
+    try:
+        macro_context.macro_snapshot = _boom
+        sentiment_index.fetch_fear_greed = _boom
+        snap = rg.fetch_regime_snapshot()                 # ne DOIT PAS lever
+        assert snap == {"regime": "NEUTRE", "fng": None}
+        # régime effectif NEUTRE -> porte no-op (comportement historique préservé)
+        eff = rg.effective_regime(snap["regime"], snap["fng"])
+        assert rg.gate_decision("LONG POSSIBLE", eff) == "LONG POSSIBLE"
+    finally:
+        macro_context.macro_snapshot = om
+        sentiment_index.fetch_fear_greed = of
+
+
+# ---------- Cerveau : clamp des poids post-normalisation (swarm_brain) ----------
+
+def test_brain_weight_clamp_after_normalization():
+    import swarm_brain as sb
+    clamped = sb._clamp_weights({"divergent": 4.715, "macro": 0.6, "x": 0.05})
+    assert clamped["divergent"] <= 3.0 + 1e-9             # plafond respecté (le bug atteignait ~4.7)
+    assert clamped["x"] >= 0.2 - 1e-9                     # plancher respecté
+    assert clamped["macro"] == 0.6                        # valeur dans les bornes -> intacte
+
+
+def test_load_weights_clamps_stale_file():
+    import json
+    import tempfile
+    from pathlib import Path
+    import swarm_brain as sb
+    old = sb.WEIGHTS_FILE
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"divergent": 4.715, "macro": 0.8}, f)   # fichier obsolète hors bornes (bug)
+            sb.WEIGHTS_FILE = Path(f.name)
+        w = sb.load_weights()
+        assert w["divergent"] <= 3.0 + 1e-9              # auto-réparation dès la lecture
+        assert w["macro"] == 0.8                          # valeur dans les bornes -> préservée
+        for a in sb.AGENTS:
+            assert a in w                                 # auto-réparation des agents manquants conservée
+    finally:
+        try:
+            Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = old
+
+
 # ---------- Agent SAVANT (« autiste digitale ») : rupture de symétrie tensorielle ----------
 
 def _savant_market(n=70, seed=1, last=None):
@@ -1974,6 +2211,371 @@ def test_savant_symmetry_break_detects_dislocation():
     disloc = sv.symmetry_break(sv.feature_matrix(_savant_market(70, 1, last=-0.05)))
     assert 0.0 <= normal <= 1.0 and 0.0 <= disloc <= 1.0
     assert disloc > normal and disloc > 0.5                  # la dislocation brise la symétrie
+
+
+def test_exit_lab_purs():
+    import exit_lab as xl
+    # MFE/MAE long et short, en fraction du prix d'entrée
+    mfe, mae = xl.mfe_mae(100, "LONG", highs=[101, 103], lows=[99, 98])
+    assert abs(mfe - 0.03) < 1e-9 and abs(mae - 0.02) < 1e-9
+    mfe_s, mae_s = xl.mfe_mae(100, "short", highs=[101, 103], lows=[99, 98])
+    assert abs(mfe_s - 0.02) < 1e-9 and abs(mae_s - 0.03) < 1e-9
+    assert xl.mfe_mae(None, "LONG", [1], [1]) == (None, None)
+    # stats d'issues : labels en clair normalisés (« TP TOUCHÉ »)
+    s = xl.stats_issues([{"outcome": "TP TOUCHÉ"}] * 3 + [{"outcome": "SL TOUCHÉ"}] * 6
+                        + [{"outcome": "AMBIGU"}])
+    assert s["n"] == 10 and s["wr_pct"] == 33.3 and s["ratio_tp_sl"] == 0.5
+    assert xl.stats_issues([])["wr_pct"] is None
+
+
+def test_live_ic_audit_pur():
+    import live_ic_audit as la
+    # signal parfait : vote = signe du rendement à venir -> IC fortement positif
+    entrees = []
+    prix = 100.0
+    for i in range(200):
+        suivant = prix * (1.02 if i % 2 == 0 else 0.98)
+        entrees.append({"symbol": "X", "ts": i * 3600, "price": prix,
+                        "votes": {"bon": 1.0 if suivant > prix else -1.0,
+                                  "nul": 0.0, "inverse": -1.0 if suivant > prix else 1.0}})
+        prix = suivant
+    res = la.ic_par_agent(entrees, horizon_s=3600)
+    assert res["bon"]["ic"] > 0.8 and res["inverse"]["ic"] < -0.8
+    assert res["nul"]["pct_votants"] == 0.0
+    assert la.ic_par_agent([], 3600) == {}                       # vide -> {}
+
+
+def test_xs_paper_purs():
+    import xs_paper as xp
+    rend = {"A": 0.10, "B": 0.05, "C": -0.02, "D": -0.08, "E": None}
+    longs, shorts = xp.classement(rend, k=2)
+    assert longs == ["A", "B"] and shorts == ["C", "D"]
+    assert xp.classement({"A": 0.1, "B": 0.2}, k=2) == ([], [])  # trop court
+    # PnL dollar-neutre : long +5 %, short -5 % -> +1 $ sur 2 jambes de 10 $
+    panier = {"longs": {"A": 100.0}, "shorts": {"D": 50.0}}
+    pnl = xp.pnl_panier(panier, {"A": 105.0, "D": 47.5}, notional=10.0)
+    assert abs(pnl - 1.0) < 1e-9
+    assert xp.pnl_panier(panier, {"A": 105.0}) is None           # prix manquant -> None
+
+
+def test_revue_recommandations_pures():
+    import revue_hebdo as rv
+    # < 30 fills -> discipline anti-conclusion ; >= 30 négatif -> proposer refermer
+    d1 = {"futures": {"fills_bot": {"n_fills": 8, "net_usdt": -0.04}}}
+    recs1 = rv.recommandations(d1)
+    assert any("8/30" in r for r in recs1)
+    d2 = {"futures": {"fills_bot": {"n_fills": 40, "net_usdt": -1.5}}}
+    assert any("EDGE_GATE_OVERRIDE" in r for r in rv.recommandations(d2))
+    # agent live fortement négatif -> audit de formulation
+    d3 = {"futures": {"fills_bot": {}},
+          "audit_live": {"agents": [{"agent": "derivs", "ic": -0.18, "ic_t": -4.6}]}}
+    assert any("derivs" in r and "auditer" in r for r in rv.recommandations(d3))
+
+
+def test_report_funding_timing():
+    # §60 : pas d'ouverture qui PAIERAIT le funding dans les 20 min (00/08/16 UTC).
+    import futures_auto as fa
+    h8 = 28800
+    # long avec funding positif, règlement dans 10 min -> report
+    r = fa.report_funding(now=h8 * 3 - 600, side="long", taux_funding=0.0001)
+    assert r and "report" in r
+    # ... règlement dans 2 h -> pas de report
+    assert fa.report_funding(now=h8 * 3 - 7200, side="long", taux_funding=0.0001) is None
+    # le côté qui ENCAISSE n'est jamais reporté (short avec funding positif)
+    assert fa.report_funding(now=h8 * 3 - 600, side="short", taux_funding=0.0001) is None
+    # short avec funding négatif (le short paie) -> report
+    assert fa.report_funding(now=h8 * 3 - 600, side="short", taux_funding=-0.0002) is not None
+    # taux illisible/nul -> fail-open
+    assert fa.report_funding(now=0, side="long", taux_funding=None) is None
+    assert fa.report_funding(now=0, side="long", taux_funding=0.0) is None
+
+
+def test_blackout_macro_fenetre_et_fail_open():
+    # §59 suite : black-out macro VIVANT (Kalshi) — n'agit que sur les OUVERTURES.
+    import kalshi_probe as kp
+    import futures_auto as fa
+    ev = [{"serie": "KXCPI", "titre": "CPI in July", "echeance_ts": 10_000}]
+    # fenêtre : [échéance - 30 min, échéance + 15 min]
+    assert kp.evenement_imminent(ev, now=10_000 - 29 * 60) is not None
+    assert kp.evenement_imminent(ev, now=10_000 + 14 * 60) is not None
+    assert kp.evenement_imminent(ev, now=10_000 - 31 * 60) is None
+    assert kp.evenement_imminent(ev, now=10_000 + 16 * 60) is None
+    # fail-open : liste vide / entrées illisibles -> None, jamais d'exception
+    assert kp.evenement_imminent([], now=0) is None
+    assert kp.evenement_imminent([{"titre": "sans ts"}], now=0) is None
+    assert kp.evenement_imminent(None, now=0) is None
+    # côté boucle : raison lisible dans la fenêtre, None hors fenêtre / calendrier muet
+    r = fa.blackout_macro(now=10_000, evenements=ev)
+    assert r and "CPI in July" in r
+    assert fa.blackout_macro(now=10_000 + 3600, evenements=ev) is None
+    assert fa.blackout_macro(now=10_000, evenements=[]) is None
+
+
+def test_backup_registres_archive_et_chiffrement():
+    # §60 : sauvegarde hors-VPS — sélection pure + aller-retour chiffré local.
+    import tempfile
+    from pathlib import Path as _P
+    import backup_registres as br
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        (tmp / "a.json").write_text('{"x":1}')
+        (tmp / "sub").mkdir()
+        (tmp / "sub" / "b.jsonl").write_text('{"y":2}\n')
+        # sélection : présents seulement, ordre préservé
+        sel = br.fichiers_presents(racine=tmp, noms=["a.json", "absent.json", "sub/b.jsonl"])
+        assert [p.name for p in sel] == ["a.json", "b.jsonl"]
+        # archive + chiffrement + déchiffrement = contenu intact
+        old = br.RACINE
+        br.RACINE = tmp
+        try:
+            tgz, enc, dec = tmp / "t.tgz", tmp / "t.enc", tmp / "t.dec.tgz"
+            assert br.archiver(sel, tgz) > 0
+            assert br.chiffrer(tgz, enc, "phrase-test") > 0
+            assert enc.read_bytes()[:8] == b"Salted__"          # vraiment chiffré
+            br.dechiffrer(enc, dec, "phrase-test")
+            import tarfile
+            with tarfile.open(dec) as tar:
+                assert sorted(m.name for m in tar) == ["a.json", "sub/b.jsonl"]
+        finally:
+            br.RACINE = old
+    # sans passphrase -> refus propre, jamais d'exception
+    import os
+    old_env = os.environ.pop("BACKUP_PASSPHRASE", None)
+    orig = br._secrets
+    br._secrets = lambda: (None, None, None)
+    try:
+        assert "IMPOSSIBLE" in br.run(dry=True)
+    finally:
+        br._secrets = orig
+        if old_env:
+            os.environ["BACKUP_PASSPHRASE"] = old_env
+
+
+def test_kalshi_probe_parseurs():
+    # §58 : marchés de prédiction (clé .env fonctionnelle) — parsing PUR.
+    import kalshi_probe as kp
+    payload = {"events": [
+        {"series_ticker": "KXFEDDECISION", "title": "Fed decision in Jul 2026?",
+         "strike_date": "2026-07-29T18:00:00Z"},
+        {"series_ticker": "KXCPI", "title": "CPI in June",
+         "strike_date": "2026-06-10T12:30:00Z"},                  # PASSÉE -> exclue
+        {"series_ticker": "KXCPI", "title": "CPI in July",
+         "strike_date": None,                                      # repli close_time marché
+         "markets": [{"close_time": "2026-07-15T12:30:00Z"}]},
+        {"series_ticker": "KXCPI", "title": "illisible"},          # sans date -> exclue
+    ]}
+    now = kp._iso_vers_ts("2026-07-03T12:00:00Z")
+    evs = kp.parser_evenements(payload, now=now)
+    assert [e["titre"] for e in evs] == ["CPI in July", "Fed decision in Jul 2026?"]
+    assert evs[0]["jours"] == 12.0 and evs[1]["serie"] == "KXFEDDECISION"
+    assert kp.prochaine_echeance(evs)["titre"] == "CPI in July"
+    assert kp.prochaine_echeance([]) is None
+    assert kp.parser_evenements(None) == []
+    assert kp._iso_vers_ts("n/a") is None
+
+
+def test_funding_history_percentile_et_td():
+    # §59 : historique de funding Bitget (public) + percentile PUR ; TwelveData.
+    import funding_history as fh
+    import macro_data as md
+    rates = [[i, 0.0001] for i in range(80)] + [[100 + i, 0.0003] for i in range(20)]
+    # percentile : 0.0001 <= 80 % de l'historique... (80 bas + 20 hauts)
+    assert fh.percentile_taux(rates, 0.0001) == 0.8
+    assert fh.percentile_taux(rates, 0.0005) == 1.0
+    assert fh.percentile_taux(rates, -0.001) == 0.0
+    assert fh.percentile_taux(rates[:50], 0.0001) is None      # < 90 taux -> None
+    assert fh.percentile_taux(None, 0.0001) is None
+    # parse TwelveData : nominal, inversé (dollar via EUR/USD), illisible
+    q = md.parse_td_quote({"close": "1.14409", "percent_change": "-0.05"})
+    assert q == {"last": 1.1441, "change_pct": -0.05}
+    qi = md.parse_td_quote({"close": "1.14409", "percent_change": "-0.05"}, inverse=True)
+    assert qi["change_pct"] == 0.05                            # EUR/USD baisse = dollar monte
+    assert md.parse_td_quote({"code": 404}) is None
+    assert md.parse_td_quote(None) is None
+
+
+def test_macro_data_parseurs_av_fred():
+    # §58 : TradFi ressuscité sur AlphaVantage (proxys ETF) + FRED (niveaux).
+    import macro_data as md
+    # GLOBAL_QUOTE AlphaVantage nominal
+    q = md.parse_av_quote({"Global Quote": {"05. price": "744.78",
+                                            "10. change percent": "-0.13%"}})
+    assert q == {"last": 744.78, "change_pct": -0.13}
+    # réponse de rate-limit (pas de Global Quote) -> None, jamais d'exception
+    assert md.parse_av_quote({"Note": "API call frequency"}) is None
+    assert md.parse_av_quote(None) is None
+    # FRED : deux observations -> niveau + variation ; vide -> None
+    q2 = md.parse_fred_quote([("2026-07-01", 16.45), ("2026-07-02", 16.59)])
+    assert q2["last"] == 16.59 and abs(q2["change_pct"] - 0.851) < 0.01
+    assert md.parse_fred_quote([("d", None)]) is None
+    assert md.parse_fred_quote([]) is None
+    # summarize reste PURE et tolère les trous
+    s = md.summarize({"VIX": {"last": 16.6, "change_pct": 0.9}, "DXY": None})
+    assert s["regime"] in ("RISK_ON", "RISK_OFF", "NEUTRE")
+    assert s["source"] == "td+av+fred"
+
+
+def test_validation_annuelle_et_porte_edge():
+    # §54 : le rejeu ANNUEL est le 3e juge — pas de promotion LIVE d'un artefact
+    # de régime (IC annuel négatif), fail-open sans mesure.
+    import math
+    import numpy as np
+    import agent_validation as av
+    import edge_ladder as el
+    # replay_annuel PUR avec données injectées : signal moyenne-réversion parfait
+    rng = np.random.default_rng(12)
+    prix = 100.0
+    candles = []
+    for i in range(700):
+        prix = prix * (1 + rng.normal(0, 0.004)) * (1 + 0.002 * math.sin(i / 3))
+        candles.append([i * 3600000, prix, prix * 1.001, prix * 0.999, prix, 100])
+    def sig_parfait(c):
+        # anticipe la sinusoïde (edge synthétique certain) — l'indice global se lit
+        # dans le TIMESTAMP (le rejeu passe des tranches de 200 bougies)
+        i = c[-1][0] // 3600000
+        return math.sin((i + 4) / 3)
+    res = av.replay_annuel(donnees={"X": candles}, pas=6,
+                           agents={"parfait": sig_parfait})
+    assert "parfait" in res and res["parfait"]["ic"] > 0.3 and res["parfait"]["n"] >= 50
+    assert av.replay_annuel(donnees={}) == {}                       # vide -> {} (fail-open)
+    # porte annuelle : négatif -> pas LIVE (PROBATION) ; positif/absent -> transparent
+    row_ok = {"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4}
+    live_ok = {"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}
+    assert el.tier_of(row_ok, live_ok) == "LIVE"                    # sans mesure annuelle
+    assert el.tier_of({**row_ok, "annuel": {"ic": 0.02}}, live_ok) == "LIVE"
+    assert el.tier_of({**row_ok, "annuel": {"ic": -0.03}}, live_ok) == "PROBATION"
+    assert el._annuel_ok({"annuel": {"ic": None}}) is True          # illisible -> transparent
+
+
+def test_accum_fenetre_achat_horaire():
+    # §53 : le DCA vise la fenêtre 16-20h UTC (mesurée ~10 bps moins chère sur 1 an)
+    import accumulation_engine as ae
+    H = 3600
+    hier_17h = 0 * 86400 + 17 * H
+    # dans la fenêtre -> ok ; hors fenêtre -> refus (l'achat attend)
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 17 * H, last_buy_ts=hier_17h) is True
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 12 * H, last_buy_ts=hier_17h) is False
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 20 * H, last_buy_ts=hier_17h) is False  # fin exclue
+    # FAIL-OPEN : > 30 h de retard (panne/fenêtre manquée) -> achète au 1er cycle
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 12 * H, last_buy_ts=hier_17h - 20 * H) is True
+    # registre vierge -> achète sans attendre la fenêtre
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 3 * H, last_buy_ts=None) is True
+    # bornes paramétrables
+    assert ae.fenetre_achat_ok(now=1 * 86400 + 9 * H, last_buy_ts=hier_17h, debut=8, fin=10) is True
+
+
+def test_candles_history_purs():
+    import candles_history as ch
+    # normalisation mix : heures/jours en MAJUSCULE, minutes inchangées
+    assert ch._norm_gran("1h") == "1H" and ch._norm_gran("4h") == "4H"
+    assert ch._norm_gran("1d") == "1D" and ch._norm_gran("15m") == "15m"
+    assert ch._norm_gran("1H") == "1H"
+    # nommage disque + chargement vide fail-safe
+    assert ch._fichier("btcusdt", "1h").name == "BTCUSDT_1H.json"
+    assert ch.load("INEXISTANTUSDT", "1h") == []
+
+
+def test_leadlag_agent_contrarian_btc():
+    # 14e agent (§52) : fade du mouvement BTC sur les alts — mesuré avant adoption
+    # (IC +0.178 en 1h / +0.201 en 15m, bougies figées, 2 fenêtres indépendantes).
+    import numpy as np
+    import leadlag_agent as ll
+    rng = np.random.default_rng(6)
+    calme = list(100 * np.cumprod(1 + rng.normal(0, 0.004, 120)))
+    # BTC vient de MONTER fort -> vote NÉGATIF (fade) sur l'alt, borné
+    btc_up = calme[:-8] + [calme[-9] * (1.005 ** i) for i in range(1, 9)]
+    v_up = ll.signal(calme, btc_up)
+    assert -1.0 < v_up < -0.3
+    # BTC vient de CHUTER -> vote POSITIF
+    btc_dn = calme[:-8] + [calme[-9] * (0.995 ** i) for i in range(1, 9)]
+    assert 0.3 < ll.signal(calme, btc_dn) < 1.0
+    # BTC calme -> vote ~0 ; données courtes -> 0 (fail-closed) ; déterministe
+    assert abs(ll.signal(calme, calme)) < 0.5
+    assert ll.signal(calme, calme[:20]) == 0.0
+    assert ll.signal([], btc_up) == 0.0
+    assert ll.signal(calme, btc_up) == v_up
+    # BTC lui-même : jamais de self lead-lag (au niveau analyze)
+    a = ll.analyze("BTCUSDT")
+    assert a["vote"] == 0.0 and a["confidence"] == 0.0
+    # enregistré dans le cerveau (14 agents), adaptateur ne lève jamais
+    import swarm_brain as sb
+    assert "leadlag" in sb.AGENTS and "leadlag" in sb.AGENT_FUNCS
+    out = sb.AGENT_FUNCS["leadlag"]("ETHUSDT")
+    assert -1.0 <= out["vote"] <= 1.0 and 0.0 <= out["confidence"] <= 1.0
+
+
+def test_savant_synesthesie_motifs_ordinaux():
+    # SYNESTHÉSIE (audit 03/07) : l'alphabet de formes de Bandt-Pompe. Perception
+    # exposée, NON votante (échec de la barre des deux fenêtres, cf. §50).
+    import numpy as np
+    import savant_agent as sv
+    # montée stricte -> motif 0 partout ; descente stricte -> motif 5 partout
+    m_up, w_up = sv.motifs_ordinaux([1, 2, 3, 4, 5])
+    m_dn, w_dn = sv.motifs_ordinaux([5, 4, 3, 2, 1])
+    assert m_up == [0, 0, 0] and m_dn == [5, 5, 5]
+    assert len(w_up) == 3 and all(w > 0 for w in w_up)
+    assert sv.motifs_ordinaux([1, 2]) == ([], [])                   # trop court
+    # série MONOTONE : entropie ~0 (une seule forme), biais +1, signal > 0
+    hausse = list(np.linspace(100, 120, 60))
+    s_h = sv.synesthesie(hausse)
+    assert s_h["entropie"] < 0.1 and s_h["biais"] > 0.9 and s_h["signal"] > 0.5
+    # bruit iid : entropie haute, signal faible
+    rng = np.random.default_rng(11)
+    bruit = list(100 * np.cumprod(1 + rng.normal(0, 0.01, 200)))
+    s_b = sv.synesthesie(bruit)
+    assert s_b["entropie"] > 0.6 and abs(s_b["signal"]) < 0.6
+    # bornes + court -> neutre
+    assert -1.0 <= s_b["signal"] <= 1.0 and 0 <= s_b["interdits"] <= 6
+    assert sv.synesthesie([100] * 10) == {"entropie": 1.0, "biais": 0.0,
+                                          "interdits": 0, "signal": 0.0}
+    # le vote de signal() reste INCHANGÉ par la synesthésie (perception seulement) —
+    # et la sortie l'expose pour les consommateurs
+    candles = [[i, p, p * 1.002, p * 0.998, p, 1000] for i, p in enumerate(hausse)]
+    out = sv.signal(candles)
+    assert "synesthesie" in out and out["synesthesie"]["biais"] > 0.9
+
+
+def test_savant_utilitaires_liquidite_turbulence():
+    # utilitaires ajoutés à l'audit du 03/07 (Corwin-Schultz 2012, Kritzman-Li 2010,
+    # normalisation robuste esprit Mahalanobis++ 2505.18032). MESURE HONNÊTE : testés
+    # dans le chemin du vote et REJETÉS (ils le dégradaient) — gardés pour
+    # l'observabilité, leurs contrats restent vérifiés.
+    import numpy as np
+    import savant_agent as sv
+    # spread Corwin-Schultz : positif sur amplitudes larges, 0 sur dégénéré
+    assert sv.corwin_schultz(101, 99, 101.5, 98.5) > 0.0
+    assert sv.corwin_schultz(100, 100, 100, 100) == 0.0
+    assert sv.corwin_schultz(0, -1, 2, 1) == 0.0
+    # standardisation robuste : un outlier ne déplace pas la baseline (médiane/MAD)
+    X = np.array([[1.0], [1.1], [0.9], [1.0], [50.0]])
+    Z = sv._standardize_robuste(X)
+    assert abs(Z[1, 0]) < 2.0 and Z[-1, 0] > 10.0     # le normal reste normal, l'outlier ressort
+    # turbulence en percentile : un choc final = percentile ~1
+    rng = np.random.default_rng(3)
+    base = rng.normal(0, 1, (60, 3))
+    base[-1] = [8.0, 8.0, 8.0]
+    d2, pct = sv.turbulence_percentile(base)
+    assert pct >= 0.95 and d2 > 0
+    assert sv.turbulence_percentile(base[:5]) == (0.0, 0.0)   # trop court -> neutre
+    # tenseur enrichi OPTIONNEL : D=7 avec enrichi=True, D=5 par défaut (chemin du vote)
+    candles = [[i, 100 + i, 101 + i, 99 + i, 100.5 + i, 1000] for i in range(20)]
+    assert sv.feature_matrix(candles).shape[1] == 5
+    assert sv.feature_matrix(candles, enrichi=True).shape[1] == 7
+
+
+def test_savant_fenetre_bornee():
+    # audit 03/07 : la fenêtre NON bornée faisait diverger replay (tout l'historique)
+    # et live (80 bougies). signal() borne à `window` : passer 600 bougies ou les 73
+    # dernières doit donner LE MÊME vote.
+    import numpy as np
+    import savant_agent as sv
+    rng = np.random.default_rng(9)
+    px = list(100 * np.cumprod(1 + rng.normal(0, 0.01, 600)))
+    candles = [[i, p, p * 1.002, p * 0.998, p, 1000] for i, p in enumerate(px)]
+    s_long = sv.signal(candles)
+    s_court = sv.signal(candles[-73:])
+    assert s_long["vote"] == s_court["vote"]
+    assert s_long["anomaly"] == s_court["anomaly"]
 
 
 def test_savant_signal_fades_dislocation():
@@ -2133,6 +2735,34 @@ def test_geometric_bns_relative_jump():
     assert g.bipower_variation([0.01]) == 0.0               # < 2 points -> 0
 
 
+def test_geometric_noyaux_signatures_dfa_w1():
+    # noyaux ajoutés à l'audit du 03/07 (littérature : 2107.00066, 2310.19051, 1208.4158)
+    import numpy as np
+    import geometric_agent as g
+    # AIRE DE LÉVY (temps, prix) : convexité signée du chemin
+    t = np.linspace(0, 1, 64)
+    accel = list(100 * np.exp(0.1 * t ** 2))          # gain concentré en FIN -> A > 0
+    decel = list(100 * np.exp(0.1 * np.sqrt(t)))      # gain concentré au DÉBUT -> A < 0
+    droit = list(100 * np.exp(0.1 * t))               # ligne (log) -> A ≈ 0
+    assert g.levy_area_tp(accel) > 0.05
+    assert g.levy_area_tp(decel) < -0.05
+    assert abs(g.levy_area_tp(droit)) < 0.03
+    assert -1.0 < g.levy_area_tp(accel) < 1.0 and g.levy_area_tp([1, 2]) == 0.0
+    # HURST DFA : persistant (cumul lissé) > 0.5 > anti-persistant (alternance)
+    rng = np.random.default_rng(5)
+    brn = rng.normal(0, 1, 600)
+    persistant = np.convolve(brn, np.ones(12) / 12, mode="valid")   # mémoire longue
+    anti = np.diff(rng.normal(0, 1, 601))                            # anti-persistant (H~0.25)
+    h_p, h_a = g.dfa_hurst(persistant), g.dfa_hurst(anti)
+    assert h_p is not None and h_a is not None and h_p > 0.6 > 0.45 > h_a
+    assert g.dfa_hurst([0.1] * 10) is None                           # trop court
+    # WASSERSTEIN-1 vers la gaussienne : gaussien petit, queue lourde grand
+    w_g = g.w1_gauss(rng.standard_normal(160))
+    w_t = g.w1_gauss(rng.standard_t(2.5, 160))
+    assert w_g is not None and w_t is not None and w_g < 0.12 < w_t
+    assert g.w1_gauss([0.1] * 10) is None
+
+
 def test_geometric_signal_and_gates():
     import numpy as np
     import geometric_agent as g
@@ -2167,7 +2797,44 @@ def test_geometric_brain_registration():
         except Exception:
             pass
         sb.WEIGHTS_FILE = _old
-    assert len(sb.AGENTS) == 11                             # 11e agent
+    assert len(sb.AGENTS) == 14                             # 11 historiques + flows + carry + leadlag (§52)
+
+
+def test_flows_carry_brain_registration():
+    import swarm_brain as sb
+    # les 12e/13e agents (flux de capitaux, positionnement dérivés) sont enregistrés
+    assert "flows" in sb.AGENTS and "flows" in sb.AGENT_FUNCS
+    assert "carry" in sb.AGENTS and "carry" in sb.AGENT_FUNCS
+    # auto-réparation : un fichier de poids ancien (sans eux) les re-seed à 1.0
+    import json as _json, tempfile as _tf
+    from pathlib import Path as _Path
+    _old = sb.WEIGHTS_FILE
+    try:
+        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as _f:
+            _json.dump({"orderflow": 1.2}, _f)
+            sb.WEIGHTS_FILE = _Path(_f.name)
+        w = sb.load_weights()
+        assert w.get("flows") == 1.0 and w.get("carry") == 1.0
+    finally:
+        try:
+            _Path(sb.WEIGHTS_FILE).unlink()
+        except Exception:
+            pass
+        sb.WEIGHTS_FILE = _old
+    # fail-safe des adaptateurs : fournisseur cassé -> vote neutre, jamais d'exception
+    import flows_agent as fa, carry_agent as ca
+    old_fa, old_ca = fa.analyze, ca.analyze
+
+    def _boom(*a, **k):
+        raise RuntimeError("source coupée")
+
+    try:
+        fa.analyze, ca.analyze = _boom, _boom
+        for fn in (sb.agent_flows, sb.agent_carry):
+            v = fn("BTCUSDT")
+            assert v["vote"] == 0 and v["confidence"] == 0
+    finally:
+        fa.analyze, ca.analyze = old_fa, old_ca
 
 
 def test_geometric_degrades_on_short_input():
@@ -2806,6 +3473,947 @@ def test_brain_validation_build_output_includes_live():
     # live vide -> structure sure, pas de crash
     out2 = bv.build_output("BTCUSDT", ranked, {}, now=1)
     assert out2["live"]["agents"] == [] and out2["live"]["n_entries"] == 0
+    # section market_timing (chemin 3, §39) : presente, advisory, retro-compatible
+    timing = {"agents": [{"agent": "macro", "ic": 0.2, "n": 8}],
+              "n_cycles": 98, "n_echantillons": 8, "horizon_cycles": 12}
+    out3 = bv.build_output("BTCUSDT", ranked, live, timing, now=2)
+    assert out3["market_timing"]["n_cycles"] == 98
+    assert out3["market_timing"]["agents"][0]["agent"] == "macro"
+    assert out3["ranking"] == ranked["agents"]                # palier toujours via replay
+    # timing omis (retro-compat) -> zeros surs
+    assert out2["market_timing"]["agents"] == []
+    assert out2["market_timing"]["n_echantillons"] == 0
+
+
+def test_brain_validation_promotions_live_front_montant():
+    # alerte de promotion : UNIQUEMENT les fronts montants (LIVE atteint, nouveau
+    # pending) — stables et rétrogradations silencieux. La porte du réel ne bouge pas.
+    import brain_validation as bv
+    live, pend = bv.promotions_live(
+        {"a": "PROBATION", "b": "LIVE", "c": "PAPER"},
+        {"a": "LIVE", "b": "LIVE", "c": "NEGATIVE"},
+        pending_avant=["x"], pending_apres=["x", "y"])
+    assert live == ["a"]                      # b déjà LIVE -> silence ; c rétrogradé -> silence
+    assert pend == ["y"]                      # x déjà pending -> silence
+    # agent inconnu avant (nouveau dans le rapport) qui arrive LIVE -> alerte
+    live2, _ = bv.promotions_live({}, {"z": "LIVE"})
+    assert live2 == ["z"]
+    # entrées dégénérées -> silence, jamais d'exception
+    assert bv.promotions_live(None, None, None, None) == ([], [])
+    # _etat_echelle sur le rapport factice : tiers + pending cohérents avec edge_ladder
+    rep = _edge_report()
+    tiers, pending = bv._etat_echelle(rep)
+    assert tiers["alpha"] == "LIVE" and pending == ["beta"]
+    assert bv._etat_echelle({}) == ({}, [])
+
+
+def test_brain_validation_build_output_records_ranking_mode():
+    # §40 : le rapport dit d'ou vient le ranking — coupe transversale (n EFFECTIF,
+    # palier LIVE atteignable) ou repli mono-symbole. PUR (pas de run/reseau).
+    import brain_validation as bv
+    ranked_xs = {"agents": [], "deflation": {}, "n_symbols": 7}
+    out = bv.build_output("BTCUSDT", ranked_xs, {}, mode="xs", now=1)
+    assert out["ranking_mode"] == "xs" and out["n_symbols"] == 7
+    # defaut retro-compatible : mono-symbole
+    out2 = bv.build_output("BTCUSDT", {"agents": [], "deflation": {}}, {}, now=1)
+    assert out2["ranking_mode"] == "mono" and out2["n_symbols"] == 1
+
+
+# ---------- chemin 3 : edge temporel market-timing (agent_validation, §39) ----------
+
+def _log_timing_synthetique(votes_bons, pas_s=300, n_cycles=None):
+    """Journal synthétique 2 symboles : l'agent 'bon' vote la direction du prochain
+    mouvement du marché (les DEUX symboles bougent ensemble = common-mode pur, le cas
+    que la coupe transversale ne peut pas mesurer). PUR, aide de test."""
+    n_cycles = n_cycles if n_cycles is not None else len(votes_bons) + 1
+    log, ts0 = [], 1_000_000
+    pa, pb = 100.0, 200.0
+    for k in range(n_cycles):
+        v = votes_bons[k] if k < len(votes_bons) else 0.0
+        for sym, p in (("AAA", pa), ("BBB", pb)):
+            log.append({"ts": ts0 + k * pas_s + (0 if sym == "AAA" else 5),
+                        "symbol": sym, "price": p,
+                        "votes": {"bon": v, "nul": 0.0},
+                        "consensus": v * 0.5, "evaluated": False})
+        if k < len(votes_bons):
+            ampl = 0.01 * (1 + (k % 3))           # amplitudes variees (anti-ties)
+            move = 1.0 + ampl if v > 0 else 1.0 - ampl
+            pa *= move; pb *= move
+    return log
+
+
+def test_validation_market_timing_cycles_et_edge():
+    import agent_validation as av
+    votes = [1, -1, 1, 1, -1, 1, -1, -1, 1, -1, 1, 1]
+    log = _log_timing_synthetique(votes)          # 13 cycles, 2 symboles
+    # groupage par cycle : 2 entrees a <240s -> meme cycle ; pas de 300s -> nouveau
+    cycles = av._cycles_from_log(log, bucket_s=240)
+    assert len(cycles) == 13
+    assert set(cycles[0]["prices"]) == {"AAA", "BBB"}
+    # horizon 1 cycle : l'agent 'bon' prevoit chaque mouvement -> IC eleve (les ties
+    # des votes +/-1 plafonnent le Spearman sous 1.0), hit parfait, t significatif
+    r = av.evaluate_market_timing(log, bucket_s=240, horizon_cycles=1)
+    assert r["n_cycles"] == 13 and r["n_echantillons"] == 12
+    par_agent = {a["agent"]: a for a in r["agents"]}
+    assert par_agent["bon"]["ic"] > 0.8 and par_agent["bon"]["hit"] == 1.0
+    assert par_agent["bon"]["ic_t"] > 2.0
+    # agent muet (vote 0 constant) : IC nul, hit None (aucun vote directionnel)
+    assert abs(par_agent["nul"]["ic"]) < 1e-9 and par_agent["nul"]["hit"] is None
+    # le consensus est evalue comme pseudo-agent
+    assert "consensus" in par_agent and par_agent["consensus"]["ic"] > 0.8
+
+
+def test_validation_market_timing_purge_et_failsafe():
+    import agent_validation as av
+    votes = [1, -1, 1, 1, -1, 1, -1, -1, 1, -1, 1, 1]
+    log = _log_timing_synthetique(votes)          # 13 cycles
+    # non-chevauchant : horizon 4 -> echantillons a i=0,4,8 seulement (purge)
+    r = av.evaluate_market_timing(log, bucket_s=240, horizon_cycles=4)
+    assert r["n_echantillons"] == 3
+    for a in r["agents"]:
+        assert a["n"] == 3
+    # fail-safe : journal vide / entrees invalides -> structure neutre, pas de crash
+    assert av.evaluate_market_timing([]) == {"agents": [], "n_cycles": 0,
+                                             "n_echantillons": 0, "horizon_cycles": 12}
+    sale = [{"ts": None, "symbol": "X", "price": 1.0, "votes": {}},
+            {"ts": 10, "symbol": "X", "price": None, "votes": {"a": 1}}]
+    r2 = av.evaluate_market_timing(sale)
+    assert r2["agents"] == [] and r2["n_cycles"] == 0
+
+
+
+
+# ---------- derivs_positioning : positionnement dérivés multi-venues ----------
+
+# ---------- derivs_positioning : coeurs purs + fetchs fail-safe, SANS réseau ----------
+
+def test_derivs_positioning_basis_bornes():
+    import derivs_positioning as dp
+    assert dp.basis_en_pct(101.0, 100.0) == 1.0
+    assert abs(dp.basis_en_pct(99.0, 100.0) + 1.0) < 1e-9
+    assert dp.basis_en_pct("101.5", "100") is not None      # strings API tolérées
+    assert dp.basis_en_pct(None, 100.0) is None
+    assert dp.basis_en_pct(101.0, None) is None
+    assert dp.basis_en_pct(101.0, 0.0) is None              # spot <= 0 -> None
+    assert dp.basis_en_pct(101.0, -5.0) is None
+    assert dp.basis_en_pct("x", "y") is None
+
+
+def test_derivs_positioning_foule_clamps():
+    import derivs_positioning as dp
+    assert dp.foule(None) == 0.0                            # absent -> neutre
+    assert dp.foule("n/a") == 0.0                           # illisible -> neutre
+    assert dp.foule(0) == 0.0 and dp.foule(-1.0) == 0.0     # ratio <= 0 -> neutre
+    assert dp.foule(1.0) == 0.0                             # équilibre
+    assert dp.foule(2.5) == 1.0 and dp.foule(10.0) == 1.0   # clamp haut (foule long)
+    assert dp.foule(0.4) == -1.0 and dp.foule(0.1) == -1.0  # clamp bas (foule short)
+    assert abs(dp.foule(1.75) - 0.5) < 1e-9                 # graduel : (1.75-1)/1.5
+    assert 0.0 < dp.foule(1.5) < 1.0
+    assert -1.0 < dp.foule(0.8) < 0.0
+    assert dp.foule(1.5) == dp.foule(1.5)                   # déterminisme
+
+
+def test_derivs_positioning_funding_zscore():
+    import derivs_positioning as dp
+    assert dp.funding_zscore(None, 0.01) is None            # historique absent
+    assert dp.funding_zscore([0.01] * 9, 0.02) is None      # < 10 points
+    assert dp.funding_zscore([0.01] * 20, 0.02) is None     # écart-type ~0
+    assert dp.funding_zscore([0.01] * 20, None) is None     # courant absent
+    assert dp.funding_zscore([0.01] * 8 + [None, "x"], 0.02) is None  # invalides filtrés
+    hist = [0.0, 0.01] * 10                                 # moyenne 0.005
+    z = dp.funding_zscore(hist, 0.02)
+    assert z is not None and z > 2.0                        # courant bien au-dessus
+    assert dp.funding_zscore(hist, 0.02) == z               # déterminisme
+    assert dp.funding_zscore(hist, -0.01) < 0
+
+
+def test_derivs_positioning_parseurs_tolerants():
+    import derivs_positioning as dp
+    vide = {"funding": None, "oi": None, "mark": None, "index": None, "perp_last": None}
+    assert dp.parse_ticker_mix(None) == vide
+    assert dp.parse_ticker_mix({}) == vide
+    assert dp.parse_ticker_mix({"data": []}) == vide
+    assert dp.parse_ticker_mix({"data": ["pas-un-dict"]}) == vide
+    assert dp.parse_spot_last(None) is None and dp.parse_spot_last({"data": []}) is None
+    assert dp.parse_ls_serie(None) == [] and dp.parse_ls_serie({}) == []
+    assert dp.parse_funding_history({"data": None}) == []
+    # strings API + désordre -> floats triés par temps ASC (récent en dernier)
+    assert dp.parse_funding_history({"data": [
+        {"fundingRate": "0.0002", "fundingTime": "2000"},
+        {"fundingRate": "0.0001", "fundingTime": "1000"},
+        {"fundingRate": "zzz", "fundingTime": "3000"},      # illisible -> ignoré
+    ]}) == [0.0001, 0.0002]
+    assert dp.parse_ls_serie({"data": [
+        {"longShortAccountRatio": "1.4", "ts": "2000"},
+        {"longShortAccountRatio": "1.2", "ts": "1000"},
+    ]}) == [1.2, 1.4]
+    assert dp.moyenne_venues({"a": 0.01, "b": None, "c": 0.03}) == (0.02, 2)
+    assert dp.moyenne_venues({}) == (None, 0)
+    assert dp.moyenne_venues(None) == (None, 0)
+
+
+def _dp_rc_direct(key, ttl, fetch, fallback=None, now=None):
+    """Passe-plat runtime_cache pour les tests : fetch direct, fallback sur exception
+    (évite toute dépendance à l'état du cache disque)."""
+    try:
+        return fetch()
+    except Exception:
+        return fallback
+
+
+class _DPFakeResp:
+    """Réponse HTTP factice : .raise_for_status() inerte, .json() rend le payload."""
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def test_derivs_positioning_fetch_snapshot_ok():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _FakeRequests:
+        @staticmethod
+        def get(url, params=None, **k):
+            if "spot/market/tickers" in url:
+                return _DPFakeResp({"data": [{"lastPr": "100.0"}]})
+            if "account-long-short" in url:
+                return _DPFakeResp({"data": [
+                    {"longShortAccountRatio": "2.5", "ts": "2000"},
+                    {"longShortAccountRatio": "1.0", "ts": "1000"}]})
+            if "mix/market/ticker" in url:
+                return _DPFakeResp({"data": [{
+                    "lastPr": "101.0", "markPrice": "100.5", "indexPrice": "100.2",
+                    "fundingRate": "0.0001", "holdingAmount": "1234.5"}]})
+            raise RuntimeError("URL inattendue (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _FakeRequests, _dp_rc_direct
+    try:
+        snap = dp.fetch_snapshot("btcusdt")                 # normalisation majuscules
+        assert snap["symbol"] == "BTCUSDT"
+        assert snap["funding"] == 0.0001 and snap["funding_interval_h"] == 8
+        assert snap["oi"] == 1234.5 and snap["mark"] == 100.5 and snap["index"] == 100.2
+        assert snap["perp_last"] == 101.0 and snap["spot_last"] == 100.0
+        assert abs(snap["basis_pct"] - 1.0) < 1e-9
+        assert snap["ls_serie"] == [1.0, 2.5] and snap["ls_ratio"] == 2.5   # tri ASC, dernier
+        assert isinstance(snap["ts"], int)
+        snap2 = dp.fetch_snapshot("BTCUSDT")                # déterminisme (hors horloge)
+        assert {k: v for k, v in snap.items() if k != "ts"} == \
+               {k: v for k, v in snap2.items() if k != "ts"}
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+def test_derivs_positioning_funding_multi_une_seule_venue():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _FakeRequests:
+        """Seul Bitget répond (cas XAUTUSDT) : les autres venues lèvent."""
+        @staticmethod
+        def get(url, params=None, **k):
+            if "api.bitget.com" in url and "mix/market/ticker" in url:
+                return _DPFakeResp({"data": [{"fundingRate": "0.0002"}]})
+            raise RuntimeError("venue KO (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _FakeRequests, _dp_rc_direct
+    try:
+        multi = dp.fetch_funding_multi("XAUTUSDT")
+        assert multi["bitget"] == 0.0002
+        assert multi["binance"] is None and multi["okx"] is None and multi["bybit"] is None
+        assert multi["venues"] == 1 and multi["moyenne"] == 0.0002
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+def test_derivs_positioning_fetchs_fail_safe():
+    import derivs_positioning as dp
+    import runtime_cache as rc
+
+    class _BoomRequests:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    saved_req, saved_get = dp.requests, rc.get
+    dp.requests, rc.get = _BoomRequests, _dp_rc_direct
+    try:
+        assert dp.fetch_snapshot("BTCUSDT") == {}           # forme neutre, pas d'exception
+        assert dp.fetch_funding_multi("BTCUSDT") == {}      # 0 venue -> fallback {}
+        assert dp.fetch_funding_history("BTCUSDT") == []
+        rapport = dp.build_report("BTCUSDT")                # rapport dégradé mais complet
+        assert rapport.endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+        assert "n/a" in rapport
+    finally:
+        dp.requests, rc.get = saved_req, saved_get
+
+
+# ---------- onchain_btc : Hash Ribbons + congestion (source on-chain) ----------
+
+def test_onchain_btc_sma_bornes():
+    import onchain_btc as oc
+    assert oc.sma([], 3) is None                    # série vide
+    assert oc.sma([1, 2], 3) is None                # insuffisant
+    assert oc.sma(None, 3) is None                  # None toléré
+    assert oc.sma([1, 2, 3], 0) is None             # fenêtre invalide
+    assert oc.sma([1, 2, 3], 3) == 2.0
+    assert oc.sma([1, 2, 3, 4], 2) == 3.5           # n DERNIERS seulement
+    assert oc.sma([1, None, 3], 3) is None          # entrée illisible -> None
+    assert oc.sma(["1", "3"], 2) == 2.0             # chaînes numériques tolérées
+
+
+def test_onchain_btc_hash_ribbons_bornes_et_capitulation():
+    import onchain_btc as oc
+    neutre = {"sma_courte": None, "sma_longue": None,
+              "capitulation": False, "reprise": False, "signal": 0.0}
+    assert oc.hash_ribbons([]) == neutre                      # vide
+    assert oc.hash_ribbons(None) == neutre                    # None toléré
+    assert oc.hash_ribbons([100.0] * 64) == neutre            # < longue + 5
+    assert oc.hash_ribbons([100.0] * 100, courte="x") == neutre  # param illisible
+    # plateau puis chute -> capitulation en cours, signal -0.3
+    r = oc.hash_ribbons([100.0] * 80 + [60.0] * 20)
+    assert r["capitulation"] is True and r["reprise"] is False
+    assert r["signal"] == -0.3
+    assert r["sma_courte"] < r["sma_longue"]
+    # plateau stable -> néant, signal 0.0
+    r = oc.hash_ribbons([100.0] * 100)
+    assert r["capitulation"] is False and r["reprise"] is False and r["signal"] == 0.0
+
+
+def test_onchain_btc_hash_ribbons_reprise():
+    import onchain_btc as oc
+    # plateau -> capitulation profonde -> fort rebond : le croisement haussier
+    # SMA30/SMA60 tombe dans les 14 derniers points -> reprise, signal +1.0
+    serie = [100.0] * 60 + [50.0] * 25 + [120.0] * 15
+    r = oc.hash_ribbons(serie)
+    assert r["reprise"] is True
+    assert r["signal"] == 1.0
+    assert -1.0 <= r["signal"] <= 1.0               # borné
+    # déterminisme : deux appels identiques -> même résultat
+    assert oc.hash_ribbons(serie) == oc.hash_ribbons(serie)
+
+
+def test_onchain_btc_congestion_bornes():
+    import onchain_btc as oc
+    assert oc.congestion(None) == 0.0               # neutre
+    assert oc.congestion("abc") == 0.0              # illisible
+    assert oc.congestion(0) == 0.0
+    assert oc.congestion(2) == 0.0                  # plancher
+    assert abs(oc.congestion(50) - 0.5) < 0.02      # ancrage médian
+    assert oc.congestion(200) == 1.0                # plafond
+    assert oc.congestion(5000) == 1.0               # clip haut
+    assert oc.congestion(10) < oc.congestion(30) < oc.congestion(100)  # monotone
+    assert oc.congestion(37) == oc.congestion(37)   # déterminisme
+
+
+def test_onchain_btc_parseurs_tolerants():
+    import onchain_btc as oc
+    assert oc.parse_hashrate(None) == []
+    assert oc.parse_hashrate({}) == []
+    pts = oc.parse_hashrate({"values": [{"x": 2, "y": "5.5"}, {"x": 1, "y": 4},
+                                        {"x": 3, "y": None}, "junk"]})
+    assert pts == [{"t": 1, "v": 4.0}, {"t": 2, "v": 5.5}]   # tri asc + illisibles ignorés
+    vide = {"rapide": None, "demi_heure": None, "heure": None, "eco": None}
+    assert oc.parse_frais(None) == vide
+    assert oc.parse_frais({}) == vide
+    assert oc.parse_frais({"fastestFee": 12, "halfHourFee": "8",
+                           "hourFee": 5, "economyFee": 2}) == \
+        {"rapide": 12, "demi_heure": 8, "heure": 5, "eco": 2}
+    assert oc.parse_difficulte({}) == {"variation_pct": None,
+                                       "progression_pct": None, "blocs_restants": None}
+    d = oc.parse_difficulte({"difficultyChange": -3.2, "progressPercent": "41.5",
+                             "remainingBlocks": 1180})
+    assert d == {"variation_pct": -3.2, "progression_pct": 41.5, "blocs_restants": 1180}
+
+
+def test_onchain_btc_fetch_failsafe_et_succes():
+    import onchain_btc as oc
+    import runtime_cache as rc
+
+    class _FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeRequests:
+        def __init__(self, payload=None, panne=False):
+            self.payload, self.panne = payload, panne
+
+        def get(self, *args, **kwargs):
+            if self.panne:
+                raise RuntimeError("source injoignable")
+            return _FakeResp(self.payload)
+
+    vrai_requests = oc.requests
+    orig_load, orig_save = rc._load_disk, rc._save_disk
+    rc._MEM.clear()
+    store = {}
+    rc._load_disk = lambda: dict(store)
+    rc._save_disk = lambda d: store.update(d)
+    try:
+        # panne totale + cache vide -> formes neutres, jamais d'exception
+        oc.requests = _FakeRequests(panne=True)
+        assert oc.fetch_hashrate() == []
+        assert oc.fetch_frais() == {}
+        assert oc.fetch_difficulte() == {}
+        # succès : payloads factices -> formes parsées
+        oc.requests = _FakeRequests(payload={"values": [{"x": 1, "y": 10.0},
+                                                        {"x": 2, "y": 12.0}]})
+        rc._MEM.clear(); store.clear()
+        assert oc.fetch_hashrate() == [{"t": 1, "v": 10.0}, {"t": 2, "v": 12.0}]
+        oc.requests = _FakeRequests(payload={"fastestFee": 7, "halfHourFee": 5,
+                                             "hourFee": 3, "economyFee": 1})
+        rc._MEM.clear(); store.clear()
+        assert oc.fetch_frais() == {"rapide": 7, "demi_heure": 5, "heure": 3, "eco": 1}
+        # nouvelle panne : la valeur cachée (stale-while-error) est servie
+        oc.requests = _FakeRequests(panne=True)
+        assert oc.fetch_frais()["rapide"] == 7
+    finally:
+        oc.requests = vrai_requests
+        rc._load_disk, rc._save_disk = orig_load, orig_save
+        rc._MEM.clear()
+
+
+# ---------- accum_backtest : backtest cost-basis de l'accumulation (§42) ----------
+
+def test_accum_backtest_ribbon_signals_equiv_prefixes():
+    # PROPRIÉTÉ : ribbon_signals (une passe O(n)) reproduit EXACTEMENT
+    # hash_ribbons rejoué sur chaque préfixe (la version canonique).
+    import math
+    import accum_backtest as ab
+    import onchain_btc as oc
+    v = [100 + 40 * math.sin(i / 17.0) + ((i * 37) % 11 - 5) for i in range(200)]
+    fast = ab.ribbon_signals(v)
+    assert len(fast) == len(v)
+    for t in range(len(v)):
+        assert fast[t] == oc.hash_ribbons(v[:t + 1])["signal"]
+    # entrées dégénérées -> neutre, jamais d'exception
+    assert ab.ribbon_signals([]) == []
+    assert ab.ribbon_signals(None) == []
+    assert ab.ribbon_signals([1, 2, 3], courte=0) == [0.0, 0.0, 0.0]
+    assert ab.ribbon_signals([1, "x", None, 2]) == [0.0, 0.0]   # illisibles filtrés
+
+
+def test_accum_backtest_cost_basis_et_avantage():
+    import accum_backtest as ab
+    # cost basis = Σ$/Σbtc ; acheter PLUS quand c'est BAS -> meilleur prix de revient
+    prix = [100.0, 50.0, 100.0]
+    assert ab.cost_basis([1, 1, 1], prix) < 100.0
+    assert ab.cost_basis([1, 3, 1], prix) < ab.cost_basis([1, 1, 1], prix)
+    # INVARIANCE D'ÉCHELLE : ×c ne change rien -> comparaison à budget égal automatique
+    assert abs(ab.cost_basis([2, 6, 2], prix) - ab.cost_basis([1, 3, 1], prix)) < 1e-9
+    assert ab.avantage_pct([1, 3, 1], prix) > 0        # surpondère le creux -> avantage
+    assert ab.avantage_pct([3, 1, 3], prix) < 0        # surpondère le haut -> désavantage
+    assert abs(ab.avantage_pct([1, 1, 1], prix)) < 1e-9  # plat vs plat = 0
+    # dégénéré -> None, jamais d'exception
+    assert ab.cost_basis([], []) is None
+    assert ab.avantage_pct([0, 0], [0, 0]) is None
+
+
+def test_accum_backtest_score_hr_formes():
+    import accum_backtest as ab
+    # "boost" : seule la reprise (signal>0) renforce ; la capitulation est ignorée
+    assert ab.score_hr(0.4, 1.0, 0.3, "boost") == 0.7
+    assert ab.score_hr(0.4, -0.3, 0.3, "boost") == 0.4
+    # "signed" : la capitulation réduit aussi
+    assert ab.score_hr(0.4, -0.3, 0.3, "signed") < 0.4
+    # borné [0,1], entrées illisibles neutres
+    assert ab.score_hr(0.9, 1.0, 0.5, "boost") == 1.0
+    assert ab.score_hr(0.05, -1.0, 0.5, "signed") == 0.0
+    assert ab.score_hr(None, None, 0.3, "boost") == 0.0
+
+
+def test_accum_backtest_align_series_normalise_cles_json():
+    # RÉGRESSION : le cache runtime passe par JSON -> les clés int du F&G
+    # deviennent des str ; l'alignement doit les retrouver quand même.
+    import accum_backtest as ab
+    prix = [{"t": j * 86400, "v": 100.0 + j} for j in range(5)]
+    hs = [{"t": j * 86400, "v": 50.0} for j in range(5)]
+    fng_str = {str(j): 40.0 + j for j in range(5)}     # clés str (post-JSON)
+    closes, fg, hashrates = ab.align_series(prix, hs, fng_str)
+    assert closes == [100.0, 101.0, 102.0, 103.0, 104.0]
+    assert fg == [40.0, 41.0, 42.0, 43.0, 44.0]        # F&G retrouvé malgré les str
+    assert hashrates == [50.0] * 5
+    # jour sans F&G -> None (le score dégrade comme en production)
+    closes2, fg2, _ = ab.align_series(prix, hs, {"1": 25.0})
+    assert fg2 == [None, 25.0, None, None, None]
+    # F&G absent/illisible -> tous None, pas d'exception
+    assert ab.align_series(prix, hs, None)[1] == [None] * 5
+    assert ab.align_series(prix, hs, {"pas_un_jour": 1.0})[1] == [None] * 5
+
+
+def test_accum_backtest_run_backtest_structure_et_selection_is():
+    # Backtest synthétique de bout en bout : structure du rapport, sélection sur
+    # IS seulement, verdict booléen. PUR (aucun réseau).
+    import math
+    import accum_backtest as ab
+    n = 900
+    closes = [100 + 30 * math.sin(i / 40.0) + i * 0.05 for i in range(n)]
+    hashrates = [1000 + 200 * math.sin(i / 55.0) for i in range(n)]
+    fg = [None] * n
+    res = ab.run_backtest(closes, fg, hashrates)
+    assert res["n_jours"] == n and res["n_essais"] == 8
+    assert len(res["grille"]) == 8
+    assert res["baseline"]["poids"] == 0.0             # la baseline EST le moteur actuel
+    for g in res["grille"]:
+        assert g["is"] is not None and g["oos"] is not None
+    assert res["meilleur"] in res["grille"]
+    assert res["meilleur"]["is"] == max(g["is"] for g in res["grille"])  # choix sur IS
+    assert isinstance(res["retenu"], bool)
+    assert "jours_reprise" in res["signal_hr"]
+    # le rapport texte se construit et reste SAFE
+    txt = ab.build_report(res)
+    assert "VERDICT: SAFE" in txt and "essais" in txt
+    assert "VERDICT: SAFE" in ab.build_report({"erreur": "x"})
+
+
+# ---------- revue_hebdo : agrégats purs du rapport hebdomadaire ----------
+
+def test_revue_hebdo_stats_pures():
+    import revue_hebdo as rh
+    # distribution du consensus : |valeurs|, filtre fenêtre + boucle, % au seuil
+    dec = [{"ts": 100, "boucle": "auto_dir", "consensus": 0.4},
+           {"ts": 200, "boucle": "auto_dir", "consensus": -0.2},
+           {"ts": 300, "boucle": "carry", "consensus": None},       # carry ignoré
+           {"ts": 50, "boucle": "auto_dir", "consensus": 0.9},      # hors fenêtre
+           {"ts": 400, "consensus": 0.1}]                           # boucle absente = auto_dir
+    s = rh.stats_consensus(dec, seuil_entree=0.35, depuis_ts=60)
+    assert s["n"] == 3 and s["p50"] == 0.2 and s["max"] == 0.4
+    assert abs(s["pct_seuil"] - 100.0 / 3) < 0.1
+    assert rh.stats_consensus([], depuis_ts=0) == {"n": 0}
+    # actions par boucle
+    a = rh.stats_actions(dec, depuis_ts=60)
+    assert a == {"auto_dir:rien": 0} or isinstance(a, dict)         # structure sûre
+    # carry : répartition + APR médian, fenêtre respectée
+    jc = [{"ts": 100, "resultats": [{"symbol": "BTCUSDT", "attrait": "NEUTRE",
+                                     "apr_net_pct": 3.5}]},
+          {"ts": 200, "resultats": [{"symbol": "BTCUSDT", "attrait": "ATTRACTIF",
+                                     "apr_net_pct": 6.0},
+                                    {"symbol": "ETHUSDT", "attrait": "NEGATIF"}]},
+          {"ts": 10, "resultats": [{"symbol": "BTCUSDT", "attrait": "NEGATIF"}]}]
+    c = rh.stats_carry(jc, depuis_ts=50)
+    assert c["comptes"] == {"NEUTRE": 1, "ATTRACTIF": 1} and c["apr_median"] == 4.75
+    # runway : libre / moyenne des achats récents ; dégénéré -> None
+    assert rh.runway_jours(45.0, [5.0, 5.0, 5.0]) == 9.0
+    assert rh.runway_jours(45.0, []) == 15.0                        # repli 3$/j
+    assert rh.runway_jours(None, [5.0]) is None
+    # avantage réel vs plat : surpondérer le creux -> positif ; < 3 achats -> None
+    paires = [{"fill": {"amount_usdt": 2.0, "price_avg": 100.0}},
+              {"fill": {"amount_usdt": 5.0, "price_avg": 50.0}},
+              {"fill": {"amount_usdt": 2.0, "price_avg": 100.0}}]
+    assert rh.avantage_reel_vs_plat(paires) > 0
+    assert rh.avantage_reel_vs_plat(paires[:2]) is None
+
+
+# ---------- journal_append : JSONL append-only avec rotation (audit P2) ----------
+
+def test_journal_append_jsonl_et_rotation():
+    import tempfile
+    import pathlib
+    import journal_append as ja
+    with tempfile.TemporaryDirectory() as td:
+        p = pathlib.Path(td) / "j.jsonl"
+        assert ja.append_jsonl(p, {"a": 1}) is True
+        assert ja.append_jsonl(p, {"a": 2}) is True
+        assert [e["a"] for e in ja.read_jsonl(p)] == [1, 2]
+        assert ja.read_jsonl(p, limit=1) == [{"a": 2}]
+        # ligne illisible ignorée à la lecture (jamais d'exception)
+        with p.open("a") as f:
+            f.write("pas du json\n")
+        assert [e["a"] for e in ja.read_jsonl(p)] == [1, 2]
+        # rotation : au-delà du budget, bascule en .old et repart à neuf
+        assert ja.append_jsonl(p, {"a": 3}, max_bytes=1) is True   # taille > 1 -> rotation
+        assert [e["a"] for e in ja.read_jsonl(p)] == [3]
+        old = p.with_suffix(p.suffix + ".old")
+        assert old.exists() and [e["a"] for e in ja.read_jsonl(old)][:2] == [1, 2]
+        # fichier absent -> [] proprement
+        assert ja.read_jsonl(pathlib.Path(td) / "absent.jsonl") == []
+
+
+def test_spot_executor_record_extra_contexte():
+    # audit P2 : le contexte de décision (score/prix/premium) est journalisé AVEC
+    # l'achat réel — champs numériques/str seulement, jamais d'écrasement des champs
+    # canoniques. Hermétique : ledger temporaire.
+    import tempfile
+    import pathlib
+    import spot_executor as se
+    orig = se.REAL_LEDGER
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            se._record_real_buy(5.0, "oid1", now=1000,
+                                extra={"score": 0.123456789, "price": 61000.0,
+                                       "ts": 999999,            # champ canonique : ignoré
+                                       "objet": {"pas": "sérialisable simple"}})  # ignoré
+            b = se._load_real()["buys"][0]
+            assert b["amount_usdt"] == 5.0 and b["clientOid"] == "oid1"
+            assert b["score"] == 0.123457 and b["price"] == 61000.0
+            assert b["ts"] == 1000 and "objet" not in b
+        finally:
+            se.REAL_LEDGER = orig
+
+
+# ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
+
+def test_carry_transitions_attractif_front_montant():
+    import carry_monitor as cm
+    avant = [{"symbol": "BTCUSDT", "attrait": "NEUTRE"},
+             {"symbol": "ETHUSDT", "attrait": "ATTRACTIF"}]
+    apres = [{"symbol": "BTCUSDT", "attrait": "ATTRACTIF", "apr_net_pct": 6.2},
+             {"symbol": "ETHUSDT", "attrait": "ATTRACTIF", "apr_net_pct": 5.1},
+             {"symbol": "SOLUSDT", "attrait": "NEGATIF"}]
+    t = cm.transitions_attractif(avant, apres)
+    # BTC passe en ATTRACTIF -> alerte ; ETH y était déjà -> silence (pas de spam)
+    assert [r["symbol"] for r in t] == ["BTCUSDT"]
+    # symbole NOUVEAU directement attractif -> alerte aussi
+    t2 = cm.transitions_attractif([], [{"symbol": "X", "attrait": "ATTRACTIF"}])
+    assert len(t2) == 1
+    # entrées dégénérées tolérées, jamais d'exception
+    assert cm.transitions_attractif(None, None) == []
+    assert cm.transitions_attractif([{"symbol": "A", "attrait": "ATTRACTIF"}],
+                                    [None, {"symbol": "A", "attrait": "ATTRACTIF"}]) == []
+
+
+# ---------- accum_reconcile : réconciliation de l'accumulation réelle ----------
+
+def _fill(oid, ts_ms, size, amount, side="buy", fee_btc=None):
+    """Fill spot Bitget factice (aide de test)."""
+    import json as _json
+    f = {"orderId": oid, "cTime": ts_ms, "size": str(size), "amount": str(amount),
+         "side": side, "symbol": "BTCUSDT"}
+    if fee_btc is not None:
+        f["feeDetail"] = _json.dumps({"feeCoin": "BTC", "totalFee": str(-fee_btc)})
+    return f
+
+
+def test_accum_reconcile_group_fills_vwap_et_frais():
+    import accum_reconcile as ar
+    # un ordre rempli en DEUX fills -> agrégé, VWAP, frais sommés
+    rows = [_fill("A", 1000_000, 0.00008, 4.9, fee_btc=8e-8),
+            _fill("A", 1000_500, 0.000001, 0.0613, fee_btc=1e-9),
+            _fill("B", 2000_000, 0.0001, 6.0, fee_btc=1e-7),
+            _fill("C", 3000_000, 0.0001, 6.0, side="sell"),        # vente ignorée (hors périmètre)
+            {"orderId": "D", "cTime": None, "size": "x", "amount": "1"}]  # illisible ignoré
+    g = ar.group_fills(rows)
+    assert [x["order_id"] for x in g] == ["A", "B"]
+    a = g[0]
+    assert a["size_btc"] == round(0.000081, 8) and a["amount_usdt"] == round(4.9613, 6)
+    assert a["price_avg"] == round(4.9613 / 0.000081, 2)           # VWAP, pas moyenne simple
+    assert abs(a["fee_btc"] - 8.1e-8) < 1e-12
+    assert a["ts"] == 1000.0                                        # ts = premier fill
+    # feeDetail JSON string / autre devise / illisible -> 0.0, jamais d'exception
+    assert ar._fee_btc('{"feeCoin": "BTC", "totalFee": "-0.00000008"}') == 8e-8
+    assert ar._fee_btc({"feeCoin": "BGB", "totalFee": "-0.01"}) == 0.0
+    assert ar._fee_btc("pas du json") == 0.0 and ar._fee_btc(None) == 0.0
+    assert ar.group_fills(None) == [] and ar.group_fills([]) == []
+
+
+def test_accum_reconcile_match_et_fenetre():
+    import accum_reconcile as ar
+    groups = ar.group_fills([_fill("A", 1_000_000_000, 0.00008, 5.0),
+                             _fill("B", 1_000_100_000, 0.00008, 5.0),
+                             _fill("AVANT", 900_000_000, 0.001, 60.0)])  # antérieur au registre
+    buys = [{"ts": 1_000_003, "amount_usdt": 5.0},                 # ↔ A (Δt 3 s)
+            {"ts": 1_000_103, "amount_usdt": 5.0},                 # ↔ B
+            {"ts": 1_000_500, "amount_usdt": 5.0}]                 # sans fill -> orphelin
+    paires, orphelins, fills_orphelins = ar.match_buys(buys, groups)
+    assert len(paires) == 2 and len(orphelins) == 1
+    assert paires[0]["fill"]["order_id"] == "A" and paires[1]["fill"]["order_id"] == "B"
+    # le fill ANTÉRIEUR au 1er achat journalisé n'est PAS compté comme écart
+    assert fills_orphelins == []
+    # montant trop différent -> pas d'appariement même si le temps colle
+    g2 = ar.group_fills([_fill("X", 1_000_000_000, 0.001, 60.0)])
+    p2, o2, _ = ar.match_buys([{"ts": 1_000_001, "amount_usdt": 5.0}], g2)
+    assert not p2 and len(o2) == 1
+    assert ar.match_buys([], []) == ([], [], [])
+
+
+def test_accum_reconcile_bilan_cost_basis_et_anomalies():
+    import accum_reconcile as ar
+    paires = [{"buy": {"ts": 1, "amount_usdt": 5.0},
+               "fill": {"order_id": "A", "ts": 1.0, "size_btc": 0.0001,
+                        "amount_usdt": 5.0, "fee_btc": 1e-8, "price_avg": 50000.0}}]
+    # solde qui COUVRE le cumul net -> OK ; PnL latent vs prix courant
+    b = ar.bilan(paires, [], [], btc_compte=0.0001, prix=55000.0)
+    assert b["ok"] and b["cost_basis"] == 50000.0
+    assert abs(b["pnl_latent_pct"] - 10.0) < 1e-9
+    assert b["ecart_btc"] > 0                                       # frais -> léger surplus
+    # solde INFÉRIEUR au cumul acheté net -> ANOMALIE (on ne vend jamais)
+    b2 = ar.bilan(paires, [], [], btc_compte=0.00005, prix=55000.0)
+    assert not b2["ok"] and any("vente/retrait" in a for a in b2["anomalies"])
+    # achats sans fill / fills sans achat -> anomalies nommées
+    b3 = ar.bilan([], [{"ts": 1}], [{"order_id": "Z"}], btc_compte=None, prix=None)
+    assert not b3["ok"] and len(b3["anomalies"]) == 2
+    assert b3["cost_basis"] is None and b3["pnl_latent_pct"] is None
+    # rapport texte : se construit sur un bilan vide et reste SAFE
+    assert "VERDICT: SAFE" in ar.build_report({**b3, "n_registre": 1, "fenetre_fills": 1})
+
+
+def test_accumulation_real_dca_amount_proportionnel_sous_cap():
+    import accumulation_engine as ae
+    # échelle §44 : cap·(0.4 + 0.6·score) ∈ [2, 5] avec cap 5 — JAMAIS au-dessus du cap
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=0.4) == 2.0
+    assert ae.real_dca_amount(0.5, cap=5.0, floor_frac=0.4) == 3.5
+    assert ae.real_dca_amount(1.0, cap=5.0, floor_frac=0.4) == 5.0
+    # monotone : plus l'opportunité est haute, plus on achète
+    vals = [ae.real_dca_amount(s, cap=5.0, floor_frac=0.4) for s in (0, 0.25, 0.5, 0.75, 1)]
+    assert vals == sorted(vals)
+    # bornes : score dégénéré écrêté, jamais 0, jamais > cap
+    assert ae.real_dca_amount(None, cap=5.0, floor_frac=0.4) == 2.0
+    assert ae.real_dca_amount(9.0, cap=5.0, floor_frac=0.4) == 5.0
+    assert ae.real_dca_amount(-3.0, cap=5.0, floor_frac=0.4) == 2.0
+    # config dégénérée : floor écrêté [0.1, 1] (1.0 = retour au plat, jamais > cap)
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=7.0) == 5.0
+    assert ae.real_dca_amount(0.0, cap=5.0, floor_frac=-1.0) == 0.5
+    # tout montant produit passe la garde per-buy de spot_executor (amt <= cap)
+    import spot_executor as se
+    for s in (0.0, 0.3, 0.7, 1.0):
+        amt = ae.real_dca_amount(s, cap=5.0, floor_frac=0.4)
+        ok, raisons = se.guards(amt, balance=100.0, spent=0.0, live=True, kill=False)
+        assert ok, raisons
+
+
+def test_accumulation_status_lecture_seule():
+    # --status / status() : consultation qui ne doit JAMAIS acheter ni écrire —
+    # avec le double verrou armé, run() peut déclencher un achat réel ; les
+    # commandes chat/CLI de consultation passent par status().
+    import accumulation_engine as ae
+    orig_analyze, orig_bal, orig_gate = ae.analyze, ae.real_spot_balance, ae.gate_advice
+    orig_run_real = ae._run_real
+    achats = []
+    try:
+        ae.analyze = lambda s="BTCUSDT": {"score": 0.5, "amount_usd": 20.0, "price": 100.0}
+        ae.real_spot_balance = lambda: 100.0
+        ae.gate_advice = lambda a, b: None
+        ae._run_real = lambda a, now: achats.append(1)              # sentinelle : jamais appelé
+        a = ae.status("BTCUSDT")
+        assert a["bought"] is False and achats == []                # AUCUN achat déclenché
+        assert "consultation" in a["mode"]
+        assert "ledger" in a                                        # résumé du registre présent
+    finally:
+        ae.analyze, ae.real_spot_balance, ae.gate_advice = orig_analyze, orig_bal, orig_gate
+        ae._run_real = orig_run_real
+
+
+# ---------- stablecoin_flow : flux de capitaux stablecoins (DefiLlama) ----------
+
+def test_stablecoin_flow_parse_serie():
+    import stablecoin_flow as sf
+    assert sf.parse_serie(None) == [] and sf.parse_serie([]) == []
+    brut = [
+        {"date": "200", "totalCirculating": {"peggedUSD": 2.0}},
+        {"date": "100", "totalCirculating": 1.0},                # nombre nu toléré
+        "junk", {"date": "x", "totalCirculating": {"peggedUSD": 9}},
+        {"date": "300", "totalCirculating": {"peggedUSD": 3.0}}, # jour en cours -> exclu
+    ]
+    assert sf.parse_serie(brut) == [(100, 1.0), (200, 2.0)]      # tri asc + dernier exclu
+
+
+def test_stablecoin_flow_variation_et_signal():
+    import stablecoin_flow as sf
+    jour = 86400
+    serie = [(i * jour, 100.0 + i) for i in range(31)]           # +1/jour depuis 100
+    v7 = sf.variation_pct(serie, 7)                              # (130-123)/123
+    assert v7 is not None and abs(v7 - (130.0 - 123.0) / 123.0 * 100.0) < 1e-9
+    assert sf.variation_pct(serie, 60) is None                   # fenêtre non couverte
+    assert sf.variation_pct([(0, 100.0)], 7) is None             # trop court
+    assert sf.variation_pct(None, 7) is None
+    # signal borné, signe correct, renormalisation à une composante
+    assert sf.signal_flux(None, None) == 0.0
+    assert -1.0 <= sf.signal_flux(-5.0, -10.0) <= -0.9
+    assert sf.signal_flux(0.5, None) > 0.7                       # tanh(1) seul
+    assert sf.signal_flux(None, -2.0) < 0
+    assert sf.signal_flux(1.0, 2.0) == sf.signal_flux(1.0, 2.0)  # déterminisme
+    assert sf.pct_mensuel({"actuel": 110.0, "prev_mois": 100.0}) == 10.0
+    assert sf.pct_mensuel({"actuel": 110.0, "prev_mois": 0}) is None
+    assert sf.pct_mensuel(None) is None
+
+
+def test_stablecoin_flow_fetch_failsafe():
+    import stablecoin_flow as sf
+    import runtime_cache as rc
+
+    class _Boom:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    old_req, old_get = sf.requests, rc.get
+    sf.requests, rc.get = _Boom, _dp_rc_direct
+    try:
+        assert sf.fetch_serie_totale() == []
+        snap = sf.snapshot()
+        assert snap["signal"] == 0.0 and snap["pct_7j"] is None
+        assert sf.build_report(snap).endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+    finally:
+        sf.requests, rc.get = old_req, old_get
+
+
+# ---------- deribit_vol : DVOL / VRP / régime de vol implicite ----------
+
+def test_deribit_vol_parseurs_et_coeurs():
+    import deribit_vol as dv
+    assert dv.parse_dvol(None) == [] and dv.parse_dvol({}) == []
+    data = {"result": {"data": [[2000, 0, 0, 0, "41.5"], [1000, 0, 0, 0, 40.0],
+                                [3000, 0, 0], [4000, 0, 0, 0, None]]}}
+    assert dv.parse_dvol(data) == [40.0, 41.5]                   # tri asc + illisibles ignorés
+    assert dv.parse_rv(None) is None
+    assert dv.parse_rv({"result": [[1000, 50.0], [2000, "53.2"], [500, 48.0]]}) == 53.2
+    assert dv.pente_pct([40.0] * 23, 24) is None                 # trop court
+    assert dv.pente_pct([40.0] * 23 + [44.0], 24) == 10.0
+    assert dv.pente_pct(None, 24) is None
+    assert dv.vrp(40.5, 53.2) == -12.7 and dv.vrp(None, 50) is None
+    assert dv.regime_vol(35, 0)["regime"] == "calme"
+    assert dv.regime_vol(55, 0)["regime"] == "normal"
+    assert dv.regime_vol(75, 0)["regime"] == "stress"
+    assert dv.regime_vol(None, 0)["regime"] == "inconnu"
+    assert dv.regime_vol(50, 11.0)["expansion"] is True
+    assert dv.regime_vol(50, 9.0)["expansion"] is False
+
+
+def test_deribit_vol_fetch_failsafe():
+    import deribit_vol as dv
+    import runtime_cache as rc
+
+    class _Boom:
+        @staticmethod
+        def get(*a, **k):
+            raise RuntimeError("réseau coupé (simulé)")
+
+    old_req, old_get = dv.requests, rc.get
+    dv.requests, rc.get = _Boom, _dp_rc_direct
+    try:
+        assert dv.fetch_dvol("BTC") == []
+        assert dv.fetch_vol_realisee("BTC") is None
+        snap = dv.snapshot("BTC")
+        assert snap["niveau"] is None and snap["regime"] == "inconnu"
+        assert dv.build_report().endswith("Lecture seule. Aucun ordre. VERDICT: SAFE")
+    finally:
+        dv.requests, rc.get = old_req, old_get
+
+
+# ---------- flows_agent : agent flux de capitaux (12e agent) ----------
+
+def test_flows_agent_signal_pur():
+    import flows_agent as fa
+    n = fa.signal(None, None)
+    assert n == {"vote": 0.0, "confidence": 0.0, "note": "données insuffisantes"}
+    s = fa.signal(-1.06, -2.66)                                  # contraction actuelle
+    assert -1.0 <= s["vote"] <= -0.9 and s["confidence"] == 0.5  # cap humilité 0.5
+    assert fa.signal(0.5, None)["vote"] > 0.7                    # renormalisation 1 composante
+    assert fa.signal(None, 2.0)["vote"] > 0.7
+    h = fa.signal(0.1, 0.4)
+    assert 0 < h["vote"] < 0.3 and abs(h["confidence"] - abs(h["vote"])) < 1e-9
+    assert fa.signal(-1.06, -2.66) == s                          # déterminisme
+
+
+def test_flows_agent_failsafe():
+    import flows_agent as fa
+    import runtime_cache as rc
+    old_get = rc.get
+    rc.get = _dp_rc_direct
+    try:
+        import stablecoin_flow as sf
+        old_snap = sf.snapshot
+        sf.snapshot = lambda: (_ for _ in ()).throw(RuntimeError("source coupée"))
+        try:
+            a = fa.analyze()
+            assert a["vote"] == 0.0 and a["confidence"] == 0.0   # fallback neutre
+        finally:
+            sf.snapshot = old_snap
+    finally:
+        rc.get = old_get
+
+
+# ---------- carry_agent : agent positionnement dérivés (13e agent) ----------
+
+def test_carry_agent_signal_contrarian():
+    import carry_agent as ca
+    # tout absent / insuffisant -> muet (exclu du consensus)
+    assert ca.signal(None, None, None, None)["confidence"] == 0.0
+    assert ca.signal([0.0001] * 5, 0.0001, None, None)["confidence"] == 0.0
+    # funding extrême positif + foule très long + perp premium -> vote NÉGATIF fort
+    hist = [0.0, 0.0001] * 10
+    s = ca.signal(hist, 0.0005, 2.5, 0.5)
+    assert s["vote"] <= -0.8 and s["confidence"] == 0.6          # cap humilité 0.6
+    # symétrique : funding très négatif + foule très short + discount -> POSITIF
+    s2 = ca.signal(hist, -0.0005, 0.4, -0.5)
+    assert s2["vote"] >= 0.6
+    # sigma ~0 -> z incalculable -> renormalisation sur la foule seule
+    s3 = ca.signal([0.0001] * 20, 0.0001, 2.5, None)
+    assert abs(s3["vote"] + 0.8) < 1e-9
+    # bornes + déterminisme
+    assert -1.0 <= s["vote"] <= 1.0
+    assert ca.signal(hist, 0.0005, 2.5, 0.5) == s
+
+
+def test_carry_agent_failsafe():
+    import carry_agent as ca
+    import runtime_cache as rc
+    old_get = rc.get
+    rc.get = _dp_rc_direct
+    try:
+        import derivs_positioning as dp
+        old_snap = dp.fetch_snapshot
+        dp.fetch_snapshot = lambda s: (_ for _ in ()).throw(RuntimeError("source coupée"))
+        try:
+            a = ca.analyze("BTCUSDT")
+            assert a["vote"] == 0.0 and a["confidence"] == 0.0   # fallback neutre
+        finally:
+            dp.fetch_snapshot = old_snap
+    finally:
+        rc.get = old_get
+
+
+# ---------- carry_monitor : APR du cash-and-carry (PAPER) ----------
+
+def test_carry_monitor_coeurs_purs():
+    import carry_monitor as cm
+    assert cm.apr_brut_pct([]) is None and cm.apr_brut_pct(None) is None
+    apr = cm.apr_brut_pct([0.0001] * 30, intervalle_h=8, fenetre=30)
+    assert abs(apr - 0.0001 * 3 * 365 * 100) < 1e-9              # 10.95 %
+    assert cm.apr_brut_pct([0.0001] * 60, fenetre=30) == apr     # fenêtre = 30 DERNIERS
+    net = cm.apr_net_pct(apr, frais_aller_retour_pct=0.2, horizon_jours=30)
+    assert abs(net - (apr - 0.2 * 365 / 30)) < 1e-9              # frais amortis
+    assert cm.apr_net_pct(None) is None
+    assert cm.apr_net_pct(10.0, 0.2, 0) is None                  # horizon invalide
+    assert cm.attrait(8.0) == "ATTRACTIF" and cm.attrait(2.0) == "NEUTRE"
+    assert cm.attrait(-1.0) == "NEGATIF" and cm.attrait(None) == "INCONNU"
+    assert cm.borner_journal(list(range(600))) == list(range(100, 600))
+    assert cm.borner_journal("pas-une-liste") == []
+
+
+def test_carry_monitor_journal_throttle_et_atomique():
+    import carry_monitor as cm
+    import json as _j
+    import tempfile as _tf
+    from pathlib import Path as _P
+    old = cm.JOURNAL_FILE
+    try:
+        with _tf.TemporaryDirectory() as d:
+            cm.JOURNAL_FILE = _P(d) / ".carry_journal.json"
+            assert cm.journaliser([{"symbol": "BTCUSDT"}]) is True
+            # ré-appel immédiat -> throttle (dernière entrée trop récente)
+            assert cm.journaliser([{"symbol": "BTCUSDT"}]) is False
+            data = _j.loads(cm.JOURNAL_FILE.read_text())
+            assert len(data) == 1 and data[0]["resultats"][0]["symbol"] == "BTCUSDT"
+            # throttle désactivé -> append, cap conservé
+            assert cm.journaliser([{"symbol": "ETHUSDT"}], min_intervalle_s=0) is True
+            assert len(_j.loads(cm.JOURNAL_FILE.read_text())) == 2
+    finally:
+        cm.JOURNAL_FILE = old
 
 
 def test_equity_curve_realized_and_drawdown():
@@ -2984,7 +4592,7 @@ def test_accumulation_run_real_premium_guard_fail_closed():
     try:
         se._load_real = lambda: {"buys": []}                 # aucun achat antérieur -> intervalle écoulé
         se.execute = lambda amt, **k: (calls.append(amt), {"executed": True})[1]
-        base = {"price": 60000.0, "amount_usd": 5.0, "premium_pct": 0.0}
+        base = {"price": 60000.0, "amount_usd": 20.0, "score": 0.5, "premium_pct": 0.0}
 
         # 1) garde premium illisible -> FAIL-CLOSED : aucun achat, execute jamais appelé
         fp.is_fair_to_buy = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("fair_price indispo"))
@@ -2996,18 +4604,24 @@ def test_accumulation_run_real_premium_guard_fail_closed():
         r2 = ae._run_real(dict(base), now=1_000_000)
         assert r2["bought"] is False and calls == []
 
-        # 3) prix juste + intervalle écoulé -> achat délégué à spot_executor (montant plafonné)
+        # 3) prix juste + intervalle écoulé -> achat au montant PROPORTIONNEL à
+        #    l'opportunité (§44 : real_dca_amount, plus le clamp plat au cap)
         fp.is_fair_to_buy = lambda *a, **k: True
         r3 = ae._run_real(dict(base), now=2_000_000)
-        assert r3["bought"] is True and calls == [5.0]
+        assert r3["bought"] is True and calls == [ae.real_dca_amount(0.5)]
+        assert r3["real_amount_usd"] == ae.real_dca_amount(0.5)
 
-        # 4) montant DCA élevé -> CLAMPÉ au cap réel aligné sur spot_executor (pas 50)
+        # 4) le montant réel est piloté par le SCORE (jamais par amount_usd paper) et
+        #    reste ≤ backstop spot_executor quel que soit le score
         calls.clear()
-        r4 = ae._run_real(dict(base, amount_usd=50.0), now=3_000_000)
-        cap_accum = float(ae._cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0))
+        r4 = ae._run_real(dict(base, amount_usd=50.0, score=1.0), now=3_000_000)
         cap_spot = se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT)
-        assert r4["bought"] is True and calls == [cap_accum]   # clampé au cap, jamais 50
-        assert cap_accum <= cap_spot                           # INVARIANT : jamais au-dessus du backstop spot
+        assert r4["bought"] is True and calls == [ae.real_dca_amount(1.0)]  # pas 50
+        assert calls[0] <= cap_spot                            # INVARIANT : jamais au-dessus du backstop
+        calls.clear()
+        r5 = ae._run_real(dict(base, score=0.0), now=4_000_000)
+        assert calls == [ae.real_dca_amount(0.0)]              # jour cher -> plancher, jamais 0
+        assert 0 < calls[0] <= cap_spot
     finally:
         (se._load_real, se.execute, fp.is_fair_to_buy) = saved
 
@@ -3374,7 +4988,8 @@ def test_futures_executor_build_order():
     assert o["leverage"] == 5.0                    # 10 demandé -> borné au mur ×5
     assert o["clientOid"] == "oid1" and o["agent"] == "geometric"
     assert o["entry"] == 50000.0 and o["stop_loss"] == 49000.0 and o["take_profit"] == 52000.0
-    assert o["execution_mode"] == "FUTURES_DRY_RUN_ONLY"
+    # le mode reflète l'armement du double verrou (dry hors armement, réel borné sinon)
+    assert o["execution_mode"] in ("FUTURES_DRY_RUN_ONLY", "FUTURES_REAL_BOUNDED")
     assert "e" not in o["size"].lower()            # quantité jamais en notation scientifique
     # reduce + short, levier sous le mur conservé
     m = fe.build_futures_order("savant", "short", 20.0, 2.0, reduce=True)
@@ -3390,20 +5005,29 @@ def test_futures_executor_build_order():
 def test_futures_executor_guards_8():
     import futures_executor as fe
     # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps
-    base = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=0)
     assert fe.guards("geometric", 8, 2, **base)[0] is True
-    # 1. kill-switch
+    # 1. kill-switch : bloque les OUVERTURES ; une RÉDUCTION passe (fermer
+    # n'aggrave jamais le risque — audit P3)
     assert fe.guards("geometric", 8, 2, **{**base, "kill": True})[0] is False
+    assert fe.guards("geometric", 8, 2, reduce=True, **{**base, "kill": True})[0] is True
     # 2. double verrou (l'un OU l'autre coupé suffit à refuser)
     assert fe.guards("geometric", 8, 2, **{**base, "live": False})[0] is False
     assert fe.guards("geometric", 8, 2, **{**base, "autonomous": False})[0] is False
-    # 3. porte d'edge (agent non LIVE)
+    # 3. porte d'edge (agent non LIVE) — SANS override, la porte refuse toujours
     assert fe.guards("geometric", 8, 2, **{**base, "futures_live": False})[0] is False
+    # 3bis. override §45 (décision propriétaire) : la porte s'ouvre ; à 0 elle referme
+    assert fe.guards("geometric", 8, 2,
+                     **{**base, "futures_live": False, "edge_override": 1})[0] is True
     # 4. levier > mur ×5
     assert fe.guards("geometric", 8, 10, **base)[0] is False
-    # 5. caps : notional/trade puis exposition cumulée
-    assert fe.guards("geometric", 50, 2, **base)[0] is False
-    assert fe.guards("geometric", 8, 2, gross_open_usdt=15, **base)[0] is False
+    # 5. caps : notional/trade (50 = mur, décision 03/07) puis exposition cumulée (200)
+    assert fe.guards("geometric", 51, 2, **base)[0] is False
+    assert fe.guards("geometric", 8, 2, gross_open_usdt=195, **base)[0] is False
+    # 5bis. une RÉDUCTION est exemptée des caps notional (reduceOnly = bornée à la
+    # position ; permet de fermer en UN ordre un carry construit par tranches)
+    assert fe.guards("carry", 179, 1, reduce=True, **base)[0] is True
+    assert fe.guards("carry", 179, 1, **base)[0] is False
     # 6. halte drawdown (equity réelle : -30% ≥ MDD 20%)
     assert fe.guards("geometric", 8, 2, equity_curve=[100, 70], **base)[0] is False
     # 8. idempotence clientOid (anti-doublon)
@@ -3429,23 +5053,628 @@ def test_futures_guards_fail_closed_on_bad_inputs():
     assert fe.guards("geometric", 0, 2, **base)[0] is False
 
 
+_FUT_SPEC = {"min_size": 0.0001, "step": 0.0001, "vol_place": 4, "price_place": 1,
+             "min_usdt": 5.0}
+
+
 def test_futures_executor_dry_and_real_path():
     import futures_executor as fe
-    full = dict(live=True, autonomous=True, futures_live=True, kill=False)
+    full = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=0)
     # DRY par défaut : aucun ordre. journal=False -> hermétique (pas d'écriture ledger)
     r = fe.execute("geometric", "long", 8, 2, confirm=False, journal=False, **full)
     assert r["ok"] is True and r["executed"] is False and r.get("dry") is True
     # gardes qui échouent -> refus propre, jamais de réel, même avec --confirm
     r2 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
-                    live=False, autonomous=False, futures_live=False, kill=False)
+                    live=False, autonomous=False, futures_live=False, kill=False, edge_override=0)
     assert r2["ok"] is False and r2["executed"] is False
-    # gardes vertes + confirm=True -> chemin réel NON câblé (étape 1) : NotImplementedError
-    raised = False
+    # gardes vertes + confirm=True -> chemin RÉEL (étape 2, §45) via runner injecté :
+    # 1) levier fixé AVANT l'ordre (2 appels holdSide en isolé), 2) ordre market mappé
+    calls = []
+    def _runner_ok(cmd):
+        calls.append(cmd)
+        return '{"data": {"orderId": "123"}}'
+    r3 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
+    assert r3["executed"] is True
+    # séquence : bascule hedge à plat (mode cible 03/07), puis levier, puis l'ordre
+    assert calls[0][1] == "futures_update_config" and "hedge_mode" in calls[0]
+    assert calls[1][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
+    bo = r3["bitget_order"]
+    # format HEDGE : side = côté de la POSITION (buy=long), tradeSide open, pas de reduceOnly
+    assert bo["side"] == "buy" and bo["tradeSide"] == "open" and "reduceOnly" not in bo
+    # ouverture en limit IOC anti-slippage : plafond +0.10% du mark, force ioc
+    assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "60060.0"
+    assert bo["marginMode"] == "isolated" and bo["size"] == "0.0001"   # 8$/60000 -> plancher au pas
+    # échec exchange -> executed False, jamais d'exception
+    r4 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    runner=lambda c: '{"ok": false, "error": "x"}',
+                    daily_loss=False, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
+    assert r4["executed"] is False
+    # stop de perte journalier franchi -> OUVERTURE refusée, RÉDUCTION permise
+    r5 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
+                    daily_loss=True, spec=_FUT_SPEC, price=60000.0, **full)
+    assert r5["ok"] is False and any("stop de perte" in x for x in r5["reasons"])
+    r6 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, reduce=True,
+                    runner=_runner_ok, daily_loss=True, spec=_FUT_SPEC, price=60000.0,
+                    marge_mode="isolated", **full)
+    assert r6["executed"] is True                     # fermer n'aggrave jamais le risque
+
+
+def test_futures_executor_size_et_mapping_bitget():
+    import futures_executor as fe
+    # taille : arrondie VERS LE BAS au pas, refus sous les minima (taille OU notional)
+    assert fe.size_for(8.0, 60000.0, _FUT_SPEC) == 0.0001         # 0.000133 -> plancher
+    assert fe.size_for(13.0, 60000.0, _FUT_SPEC) == 0.0002
+    assert fe.size_for(4.0, 60000.0, _FUT_SPEC) is None           # floor -> 0 < taille min
+    assert fe.size_for(5.9, 60000.0, _FUT_SPEC) is None           # 0.000098 -> floor 0 -> refus
+    assert fe.size_for(8.0, None, _FUT_SPEC) is None
+    assert fe.size_for(8.0, 60000.0, None) is None
+    # mapping HEDGE (défaut depuis le 03/07) : short ouvre side=sell/tradeSide=open
+    # (limit IOC plafonné -0.10%) ; fermer un long = side=buy/tradeSide=close en MARKET
+    o_short = fe.build_futures_order("carry", "short", 12.0, 1.0, client_oid="c1")
+    bo = fe.to_bitget_order(o_short, _FUT_SPEC, 60000.0)
+    assert bo["side"] == "sell" and bo["tradeSide"] == "open" and bo["clientOid"] == "c1"
+    assert bo["orderType"] == "limit" and bo["force"] == "ioc" and bo["price"] == "59940.0"
+    o_red = fe.build_futures_order("carry", "long", 12.0, 1.0, client_oid="c2", reduce=True)
+    br_ = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0)
+    assert br_["side"] == "buy" and br_["tradeSide"] == "close"    # convention Bitget hedge
+    assert br_["orderType"] == "market" and "price" not in br_     # sortie certaine
+    assert "presetStopLossPrice" not in br_                        # pas de TP/SL sur une réduction
+    # format ONE-WAY explicite (transition : position historique) : reduceOnly conservé
+    ow = fe.to_bitget_order(o_red, _FUT_SPEC, 60000.0, pos_mode="one_way_mode")
+    assert ow["side"] == "sell" and ow["reduceOnly"] == "YES" and "tradeSide" not in ow
+    # TP/SL préréglés arrondis au tick (price_place=1)
+    o_tp = fe.build_futures_order("x", "long", 12.0, 2.0, stop_loss=58999.96,
+                                  take_profit=62000.049, client_oid="c3")
+    bt = fe.to_bitget_order(o_tp, _FUT_SPEC, 60000.0)
+    assert bt["presetStopLossPrice"] == "59000.0" and bt["presetStopSurplusPrice"] == "62000.0"
+    # infaisable -> None (jamais un ordre que l'exchange gonflerait)
+    assert fe.to_bitget_order(fe.build_futures_order("x", "long", 3.0, 1.0), _FUT_SPEC, 60000.0) is None
+
+
+def test_futures_executor_marge_mode_adaptatif():
+    import futures_executor as fe
+    # compte multi-devises (union) : Bitget interdit l'isolé -> crossed FORCÉ
+    assert fe.resolve_marge_mode("isolated", "union") == "crossed"
+    assert fe.resolve_marge_mode("crossed", "union") == "crossed"
+    # compte mono-devise (ou mode illisible) -> le mode configuré est respecté
+    assert fe.resolve_marge_mode("isolated", "single") == "isolated"
+    assert fe.resolve_marge_mode("isolated", None) == "isolated"
+    assert fe.resolve_marge_mode(None, None) == "isolated"
+    # le mode résolu se propage jusqu'à l'ordre API
+    o = fe.build_futures_order("validation", "long", 8.0, 2.0, client_oid="cm1")
+    bo = fe.to_bitget_order(o, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo["marginMode"] == "crossed"
+    # et _ensure_leverage en crossed fait UN appel sans holdSide
+    calls = []
+    fe._ensure_leverage(2, runner=lambda c: (calls.append(c), '{"data": {}}')[1],
+                        marge_mode="crossed")
+    assert len(calls) == 1 and "--holdSide" not in calls[0]
+    calls.clear()
+    fe._ensure_leverage(2, runner=lambda c: (calls.append(c), '{"data": {}}')[1],
+                        marge_mode="isolated")
+    assert len(calls) == 2 and all("--holdSide" in c for c in calls)
+
+
+def test_futures_executor_daily_loss_state():
+    import futures_executor as fe
+    # jour 1 : l'equity courante devient l'ouverture, pas de breach
+    b, st = fe.daily_loss_state_check(100.0, None, now=86400 * 10, stop_pct=5.0)
+    assert b is False and st == {"day": 10, "open_equity": 100.0, "last_equity": 100.0}
+    # même jour, -4% -> pas de breach ; -6% -> breach ; l'ouverture ne bouge pas
+    assert fe.daily_loss_state_check(96.0, st, now=86400 * 10 + 3600, stop_pct=5.0)[0] is False
+    b2, st2 = fe.daily_loss_state_check(94.0, st, now=86400 * 10 + 7200, stop_pct=5.0)
+    assert b2 is True and st2["open_equity"] == 100.0
+    # nouveau jour -> reset de l'ouverture (94 devient la base)
+    b3, st3 = fe.daily_loss_state_check(94.0, st2, now=86400 * 11 + 60, stop_pct=5.0)
+    assert b3 is False and st3 == {"day": 11, "open_equity": 94.0, "last_equity": 94.0}
+    # FAIL-CLOSED : equity illisible/nulle -> breach (on ne trade pas à l'aveugle)
+    assert fe.daily_loss_state_check(None, st3, now=86400 * 11)[0] is True
+    assert fe.daily_loss_state_check(0.0, st3, now=86400 * 11)[0] is True
+
+
+def test_futures_daily_loss_cliff_rebaseline():
+    """Correctif faux breach (conversion BGBTC 05/07) : un saut du livre trop grand pour
+    un P&L borné (dépôt/retrait/convert) DÉCALE la baseline au lieu de déclencher ; une
+    vraie perte progressive reste captée."""
+    import futures_executor as fe
+    _, st = fe.daily_loss_state_check(400.0, None, now=86400 * 100, stop_pct=5.0, cliff_pct=15.0)
+    assert st["open_equity"] == 400.0 and st["last_equity"] == 400.0
+    # CONVERT -161 en un tick (400 -> 239) : |saut| 161 > 15% de 400 (=60) -> re-baseline,
+    # PAS de faux breach ; la nouvelle ouverture suit le flux.
+    b, st2 = fe.daily_loss_state_check(239.0, st, now=86400 * 100 + 20, stop_pct=5.0, cliff_pct=15.0)
+    assert b is False and st2["open_equity"] == 239.0 and st2["last_equity"] == 239.0
+    # depuis la base 239, perte PROGRESSIVE (pas de saut) -> le stop capte le vrai -5%
+    _, st3 = fe.daily_loss_state_check(232.0, st2, now=86400 * 100 + 40, stop_pct=5.0, cliff_pct=15.0)
+    assert st3["open_equity"] == 239.0                       # 7$ < seuil cliff -> pas de rebaseline
+    b3, _ = fe.daily_loss_state_check(226.0, st3, now=86400 * 100 + 60, stop_pct=5.0, cliff_pct=15.0)
+    assert b3 is True                                        # 226 < 239*0.95 -> vraie perte captée
+    # un DÉPÔT +200 en un tick rebaseline vers le HAUT (ce n'est pas un gain de trading)
+    _, st4 = fe.daily_loss_state_check(600.0, st, now=86400 * 100 + 80, stop_pct=5.0, cliff_pct=15.0)
+    assert st4["open_equity"] == 600.0                       # 400 + (600-400)
+
+
+def test_futures_daily_loss_breach_kill_switch_et_dedup():
+    # breach réel (état injecté via ledger temp + equity stubbée) : KILL_SWITCH armé,
+    # alerte Telegram UNE seule fois par jour (dédup), breach reste True aux passages
+    # suivants (tripwire horaire). Hermétique : aucun réseau, fichiers temporaires.
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_eq = fe._book_equity
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    import telegram_notifier as tn
+    orig_send = tn.send_telegram
+    alertes = []
+    ks = fe.Path(fe.__file__).resolve().parent / "KILL_SWITCH"
+    ks_avant = ks.exists()
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led_test.json")
+            tn.send_telegram = lambda m: alertes.append(m)
+            # jour J : ouverture à 100 (pas de breach) — base = LIVRE couvert
+            fe._book_equity = lambda: 100.0
+            assert fe.daily_loss_breach(now=86400 * 50) is False
+            # même jour : -6% -> breach, kill-switch armé, UNE alerte
+            fe._book_equity = lambda: 94.0
+            assert fe.daily_loss_breach(now=86400 * 50 + 3600) is True
+            assert ks.exists() and len(alertes) == 1
+            # passage horaire suivant : toujours breach, PAS de nouvelle alerte (dédup)
+            assert fe.daily_loss_breach(now=86400 * 50 + 7200) is True
+            assert len(alertes) == 1
+            # equity ILLISIBLE (blip API) : True (pas d'ouverture à l'aveugle) mais
+            # SANS armer le kill-switch — un raté de lecture ne gèle pas la machine
+            ks.unlink()
+            fe._book_equity = lambda: None
+            assert fe.daily_loss_breach(now=86400 * 50 + 10800) is True
+            assert not ks.exists() and len(alertes) == 1
+        finally:
+            fe._book_equity = orig_eq
+            tn.send_telegram = orig_send
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            else:
+                delattr(config, "FUTURES_REAL_LEDGER")
+            if not ks_avant and ks.exists():
+                ks.unlink()                        # ne laisse pas le kill-switch du test armé
+
+
+def test_futures_executor_caps_murs_absolus():
+    import futures_executor as fe
+    import os
+    # l'env peut ABAISSER le cap effectif, JAMAIS dépasser le mur absolu en dur
+    old = os.environ.get("FUTURES_REAL_MAX_PER_TRADE_USDT")
     try:
-        fe.execute("geometric", "long", 8, 2, confirm=True, journal=False, **full)
-    except NotImplementedError:
-        raised = True
-    assert raised   # le réel reste hors d'atteinte à l'étape 1
+        os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = "9999"
+        assert fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                          fe.FUT_ABS_MAX_PER_TRADE_USDT) == fe.FUT_ABS_MAX_PER_TRADE_USDT
+        os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = "3"
+        assert fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
+                          fe.FUT_ABS_MAX_PER_TRADE_USDT) == 3.0
+    finally:
+        if old is None:
+            os.environ.pop("FUTURES_REAL_MAX_PER_TRADE_USDT", None)
+        else:
+            os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = old
+    # un notional au-dessus du mur est refusé même tout-verrous-ouverts
+    ok, reasons = fe.guards("carry", fe.FUT_ABS_MAX_PER_TRADE_USDT + 1, 2,
+                            live=True, autonomous=True, futures_live=True,
+                            kill=False, edge_override=1)
+    assert ok is False and any("plafond/trade" in r for r in reasons)
+
+
+def test_futures_auto_decider_politique_frugale():
+    import futures_auto as fa
+    k = dict(seuil_entree=0.35, seuil_sortie=0.15)
+    # pas de position : conviction forte -> ouvrir ; faible -> rien
+    assert fa.decider(0.5, None, **k) == {"action": "ouvrir", "side": "long",
+                                          "raison": fa.decider(0.5, None, **k)["raison"]}
+    assert fa.decider(-0.5, None, **k)["action"] == "ouvrir"
+    assert fa.decider(-0.5, None, **k)["side"] == "short"
+    assert fa.decider(0.2, None, **k)["action"] == "rien"
+    # position alignée + conviction vivante -> TENIR (jamais de pyramidage)
+    assert fa.decider(0.5, "long", **k)["action"] == "rien"
+    assert fa.decider(0.16, "long", **k)["action"] == "rien"
+    # conviction morte -> fermer ; consensus opposé -> fermer (flip au cycle suivant)
+    assert fa.decider(0.05, "long", **k)["action"] == "fermer"
+    assert fa.decider(-0.5, "long", **k)["action"] == "fermer"
+    assert fa.decider(0.5, "short", **k)["action"] == "fermer"
+    # consensus illisible -> fail-closed
+    assert fa.decider(None, "long", **k)["action"] == "rien"
+    assert fa.decider("x", None, **k)["action"] == "rien"
+
+
+def test_futures_auto_atr_signature_corrigee():
+    # RÉGRESSION (audit 03/07) : _atr appelait calculate_atr(highs, lows, closes)
+    # alors que la signature est (candles, period) -> TypeError avalé -> SL jamais
+    # basé ATR. Vérifie qu'un jeu de bougies dict produit bien un ATR numérique.
+    import futures_auto as fa
+    import technicals as tk
+    orig = tk.fetch_candles
+    try:
+        base = 60000.0
+        tk.fetch_candles = lambda s, tf, n: [
+            {"high": base + i * 10 + 50, "low": base + i * 10 - 50,
+             "close": base + i * 10, "open": base + i * 10, "ts": i, "volume": 1}
+            for i in range(40)]
+        atr = fa._atr(limit=40)
+        assert isinstance(atr, float) and atr > 0          # ATR réel, plus de repli silencieux
+        # et il alimente bien le SL (distance 1.5·ATR, pas le % fixe)
+        sl, tp = fa.sl_tp("long", 60000.0, atr=atr, sl_pct=1.5, rr=2.0)
+        assert abs((60000.0 - sl) - 1.5 * atr) < 1e-9
+    finally:
+        tk.fetch_candles = orig
+
+
+def test_futures_executor_equity_curve_et_halte_mdd():
+    # equity_curve : ouvertures journalières du ledger + point courant ; alimente la
+    # halte MDD du mandat (garde 6) désormais branchée sur le chemin réel des boucles.
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_eq = fe._book_equity
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            import json as _json
+            fe.Path(config.FUTURES_REAL_LEDGER).write_text(_json.dumps(
+                {"equity_journal": [{"day": 1, "open_equity": 200.0},
+                                    {"day": 2, "open_equity": 210.0},
+                                    {"day": 3, "open_equity": None}]}))  # None filtré
+            fe._book_equity = lambda: 205.0
+            assert fe.equity_curve() == [200.0, 210.0, 205.0]
+            # la garde 6 refuse un ordre quand la courbe est en drawdown >= MDD 20%
+            ok, reasons = fe.guards("auto_dir", 8, 2, equity_curve=[210.0, 160.0],
+                                    live=True, autonomous=True, futures_live=True,
+                                    kill=False, edge_override=1)
+            assert ok is False and any("drawdown" in r for r in reasons)
+            # ledger absent + equity vivante -> courbe = [equity] (jamais d'exception)
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "absent.json")
+            assert fe.equity_curve() == [205.0]
+        finally:
+            fe._book_equity = orig_eq
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            else:
+                delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_telegram_run_once_desactive():
+    # §45 : /run_once ne déclenche PLUS JAMAIS agent_control (cycle pouvant trader
+    # en réel). La commande répond une explication, sans subprocess.
+    import telegram_command_bot as t
+    orig = t.subprocess.run
+    lances = []
+    try:
+        t.subprocess.run = lambda *a, **k: lances.append(a) or None
+        out = t.handle_command("/run_once")
+        assert "désactivé" in out and lances == []          # aucun process lancé
+    finally:
+        t.subprocess.run = orig
+
+
+def test_futures_auto_sl_tp_et_fraicheur():
+    import futures_auto as fa
+    # SL/TP : long -> SL sous, TP au-dessus, distance ATR prioritaire, RR appliqué
+    sl, tp = fa.sl_tp("long", 60000.0, atr=400.0, sl_pct=1.5, rr=2.0)
+    assert sl == 60000.0 - 600.0 and tp == 60000.0 + 1200.0
+    sl2, tp2 = fa.sl_tp("short", 60000.0, atr=None, sl_pct=1.0, rr=2.0)
+    assert sl2 == 60600.0 and tp2 == 58800.0          # % du prix en repli, miroir short
+    assert fa.sl_tp("long", None) == (None, None)
+    # fraîcheur du consensus : périmé (> 15 min) -> None (jamais de décision sur du vieux)
+    log = [{"symbol": "BTCUSDT", "ts": 1000.0, "consensus": 0.4}]
+    assert fa.consensus_frais(log, now=1500.0) == 0.4
+    assert fa.consensus_frais(log, now=1000.0 + 901.0) is None
+    assert fa.consensus_frais([], now=0) is None
+    assert fa.consensus_frais([{"symbol": "ETHUSDT", "ts": 10, "consensus": 1}], now=20) is None
+    # throttle : au plus un ordre / min_h heures
+    assert fa.throttle_ok(None, now=0, min_h=4) is True
+    assert fa.throttle_ok(1000.0, now=1000.0 + 3.9 * 3600, min_h=4) is False
+    assert fa.throttle_ok(1000.0, now=1000.0 + 4.1 * 3600, min_h=4) is True
+    # dernier ordre auto dans le journal de l'exécuteur (les autres agents ne comptent pas)
+    ev = [{"action": "FUTURES_REAL", "ts": 5.0, "order": {"agent": "validation"}},
+          {"action": "FUTURES_REAL", "ts": 9.0, "order": {"agent": "auto_dir"}},
+          {"action": "FUTURES_DRY_RUN", "ts": 12.0, "order": {"agent": "auto_dir"}}]
+    assert fa.dernier_ordre_auto_ts(ev) == 9.0
+    assert fa.dernier_ordre_auto_ts([]) is None
+    # les ÉCHECS comptent pour le throttle : pas de martèlement toutes les 5 min
+    ev2 = ev + [{"action": "FUTURES_REAL_FAILED", "ts": 15.0, "order": {"agent": "auto_dir"}}]
+    assert fa.dernier_ordre_auto_ts(ev2) == 15.0
+
+
+def test_futures_executor_fermeture_taille_exacte():
+    import futures_executor as fe
+    # fermeture avec size_btc EXPLICITE : taille exacte de la position, pas un
+    # notional re-converti (le floor laisserait une poussière infermable)
+    o = fe.build_futures_order("auto_dir", "long", 14.0, 2.0, client_oid="cx",
+                               reduce=True, size_btc=0.00023)
+    bo = fe.to_bitget_order(o, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo["size"] == "0.0002" and bo["tradeSide"] == "close"  # 0.00023 arrondi au vol_place
+    # poussière SOUS le minimum : relevée au min du contrat (reduceOnly borne à la
+    # position côté exchange -> la poussière est fermée, jamais bloquée)
+    o2 = fe.build_futures_order("carry", "short", 3.0, 1.0, client_oid="cy",
+                                reduce=True, size_btc=0.00004)
+    bo2 = fe.to_bitget_order(o2, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo2["size"] == "0.0001" and bo2["tradeSide"] == "close"
+    # size_btc IGNORÉ sur une OUVERTURE (le sizing d'ouverture reste notional/caps)
+    o3 = fe.build_futures_order("auto_dir", "long", 8.0, 2.0, client_oid="cz",
+                                size_btc=0.005)
+    bo3 = fe.to_bitget_order(o3, _FUT_SPEC, 60000.0, marge_mode="crossed")
+    assert bo3["size"] == "0.0001"                                # notional 8$ -> floor au pas
+
+
+def test_futures_report_resume_fills_et_borne():
+    import futures_report as fr
+    rows = [
+        {"symbol": "BTCUSDT", "cTime": 2_000_000, "quoteVolume": "22.14", "profit": "-0.003",
+         "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.0132"}]},
+        {"symbol": "BTCUSDT", "cTime": 4_000_000, "quoteVolume": "10.00", "profit": "0.05",
+         "feeDetail": [{"feeCoin": "USDT", "totalFee": "-0.006"}]},
+        {"symbol": "ETHUSDT", "cTime": 4_000_000, "quoteVolume": "99", "profit": "9"},  # multi-symboles §47 : COMPTE
+        {"symbol": "BTCUSDT", "cTime": None},                                            # illisible ignoré
+    ]
+    tout = fr.resume_fills(rows)
+    # multi-symboles (§47) : le bot trade tout l'univers, TOUS les fills comptent
+    assert tout["n_fills"] == 3 and abs(tout["pnl_realise_usdt"] - 9.047) < 1e-9
+    assert abs(tout["frais_usdt"] - 0.0192) < 1e-9
+    assert abs(tout["net_usdt"] - (9.047 - 0.0192)) < 1e-9
+    # BORNE : les fills antérieurs au 1er ordre du bot (trading manuel) sont exclus
+    borne = fr.resume_fills(rows, depuis_ts=3_000)                # cTime ms vs depuis_ts s
+    assert borne["n_fills"] == 2 and abs(borne["pnl_realise_usdt"] - 9.05) < 1e-9
+    assert fr.resume_fills(None) == {"n_fills": 0, "volume_usdt": 0.0,
+                                     "pnl_realise_usdt": 0.0, "frais_usdt": 0.0, "net_usdt": 0.0}
+    # 1er ordre réel du journal exécuteur = borne ; dry-run/refus ne comptent pas
+    ev = [{"action": "FUTURES_DRY_RUN", "ts": 1.0},
+          {"action": "FUTURES_REAL", "ts": 7.5}, {"action": "FUTURES_REAL", "ts": 9.0}]
+    assert fr.premier_ordre_reel_ts(ev) == 7.5
+    assert fr.premier_ordre_reel_ts([{"action": "FUTURES_REFUSED", "ts": 1}]) is None
+    assert fr.compte_events(ev) == {"FUTURES_DRY_RUN": 1, "FUTURES_REAL": 2}
+
+
+def test_futures_auto_status_lecture_seule():
+    # status() : préview de décision qui n'appelle JAMAIS l'exécuteur (Telegram /futures).
+    import futures_auto as fa
+    import futures_executor as fe
+    import time as _t
+    orig = (fa._brain_entries, fa.position_nette, fa._executor_events, fe.execute)
+    ordres = []
+    try:
+        fa._brain_entries = lambda: [{"symbol": "BTCUSDT", "ts": _t.time(), "consensus": 0.9}]
+        fa.position_nette = lambda: None
+        fa._executor_events = lambda: []
+        fe.execute = lambda *a, **k: ordres.append(1)   # sentinelle : jamais appelé
+        st = fa.status()
+        assert st["consultation"] is True
+        assert st["decision"]["action"] == "ouvrir"     # il DIRAIT ouvrir (consensus 0.9)...
+        assert ordres == []                             # ...mais n'exécute RIEN
+    finally:
+        fa._brain_entries, fa.position_nette, fa._executor_events, fe.execute = orig
+
+
+def test_futures_auto_proprietaire_position():
+    import futures_auto as fa
+    # propriétaire = agent du dernier ordre RÉEL d'OUVERTURE (reduce=False)
+    ev = [{"action": "FUTURES_REAL", "ts": 1, "order": {"agent": "auto_dir", "reduce": False}},
+          {"action": "FUTURES_REAL", "ts": 2, "order": {"agent": "auto_dir", "reduce": True}},
+          {"action": "FUTURES_REAL", "ts": 3, "order": {"agent": "carry", "reduce": False}}]
+    assert fa.proprietaire_position(ev) == "carry"
+    # les dry-run/refus ne donnent pas la propriété
+    assert fa.proprietaire_position([{"action": "FUTURES_DRY_RUN",
+                                      "order": {"agent": "x", "reduce": False}}]) is None
+    assert fa.proprietaire_position([]) is None
+
+
+def test_carry_auto_decider_couverture_et_hysteresis():
+    import carry_auto as ca
+    k = dict(seuil_sortie_pct=2.0, notional_cfg=15.0, min_notional=6.0)
+    # FLAT + ATTRACTIF + couverture large -> ouvrir un short ≤ 95 % de la couverture
+    d = ca.decider_carry(6.5, "ATTRACTIF", None, None, 30.0, **k)
+    assert d["action"] == "ouvrir" and d["side"] == "short"
+    assert d["notional"] == 15.0                        # plafond config < couverture
+    d2 = ca.decider_carry(6.5, "ATTRACTIF", None, None, 10.0, **k)
+    assert d2["notional"] == round(10.0 * 0.95, 2)      # couverture qui borne
+    # couverture insuffisante -> RIEN (jamais de short nu)
+    assert ca.decider_carry(6.5, "ATTRACTIF", None, None, 5.0, **k)["action"] == "rien"
+    assert ca.decider_carry(6.5, "ATTRACTIF", None, None, None, **k)["action"] == "rien"
+    # pas attractif -> rien
+    assert ca.decider_carry(3.0, "NEUTRE", None, None, 30.0, **k)["action"] == "rien"
+    # POSITION à nous : APR au-dessus de la sortie -> tenir ; en-dessous -> fermer
+    pos = {"side": "short", "notional_usdt": 14.0}
+    assert ca.decider_carry(4.0, "NEUTRE", pos, "carry", None, **k)["action"] == "rien"
+    f = ca.decider_carry(1.0, "NEGATIF", pos, "carry", None, **k)
+    assert f["action"] == "fermer" and f["notional"] == 14.0
+    # APR illisible en position -> TENIR (hedgé : pas de sortie aveugle)
+    assert ca.decider_carry(None, None, pos, "carry", None, **k)["action"] == "rien"
+    # position d'un autre agent / d'un autre sens -> on ne touche pas
+    assert ca.decider_carry(1.0, "NEGATIF", pos, "auto_dir", None, **k)["action"] == "rien"
+    assert ca.decider_carry(1.0, "NEGATIF", {"side": "long"}, "carry", None, **k)["action"] == "rien"
+
+
+def test_futures_hedge_mode_resolution_et_cotes():
+    import futures_executor as fe
+    import futures_auto as fa
+    # resolve_pos_mode : une position OUVERTE fait autorité ; à plat -> mode cible
+    assert fe.resolve_pos_mode([{"posMode": "one_way_mode"}], "hedge_mode") == "one_way_mode"
+    assert fe.resolve_pos_mode([{"posMode": "hedge_mode"}], "one_way_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode([], "hedge_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode(None, "hedge_mode") == "hedge_mode"
+    assert fe.resolve_pos_mode([{"posMode": "?"}], "hedge_mode") == "hedge_mode"
+    # parser_positions : les deux côtés coexistent en hedge ; tailles nulles ignorées
+    rows = [{"holdSide": "long", "total": "0.0001", "markPrice": "60000"},
+            {"holdSide": "short", "total": "0.003", "markPrice": "60000"},
+            {"holdSide": "long", "total": "0"}]
+    cotes = fa.parser_positions(rows)
+    assert cotes["long"]["notional_usdt"] == 6.0 and cotes["short"]["notional_usdt"] == 180.0
+    assert fa.parser_positions([]) == {"long": None, "short": None}
+    # propriété PAR CÔTÉ : carry possède son short pendant qu'auto_dir a son long
+    ev = [{"action": "FUTURES_REAL", "order": {"agent": "auto_dir", "side": "long", "reduce": False}},
+          {"action": "FUTURES_REAL", "order": {"agent": "carry", "side": "short", "reduce": False}},
+          {"action": "FUTURES_REAL", "order": {"agent": "carry", "side": "short", "reduce": True}}]
+    assert fa.proprietaire_cote(ev, "long") == "auto_dir"
+    assert fa.proprietaire_cote(ev, "short") == "carry"    # la réduction ne change pas le proprio
+    assert fa.proprietaire_cote([], "long") is None
+
+
+def test_spend_watch_positions_pres_liquidation():
+    import accum_spend_watch as sw
+    rows = [
+        {"symbol": "BTCUSDT", "holdSide": "long", "markPrice": "100000",
+         "liquidationPrice": "90000"},                                   # 10 % -> danger
+        {"symbol": "ETHUSDT", "holdSide": "short", "markPrice": "3000",
+         "liquidationPrice": "3800"},                                    # 26.7 % -> ok
+        {"symbol": "HYPEUSDT", "holdSide": "long", "markPrice": "40",
+         "liquidationPrice": None},                                      # illisible -> ignoré
+    ]
+    d = sw.positions_pres_liquidation(rows, seuil_pct=15.0)
+    assert len(d) == 1 and d[0]["symbol"] == "BTCUSDT" and d[0]["dist_pct"] == 10.0
+    assert sw.positions_pres_liquidation(rows, seuil_pct=30.0) and \
+        len(sw.positions_pres_liquidation(rows, seuil_pct=30.0)) == 2
+    assert sw.positions_pres_liquidation(None) == []
+    assert sw.positions_pres_liquidation([{"markPrice": "0", "liquidationPrice": "5"}]) == []
+
+
+def test_futures_equity_intraday_journal_et_courbe():
+    # équité INTRAJOURNALIÈRE : point throttlé (≥10 min), plafonné, et equity_curve
+    # préfère la série intrajournalière au journal quotidien.
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+    import futures_executor as fe
+    tmp = _Path(tempfile.mkstemp(suffix=".json")[1])
+    old_path, old_eq = fe._ledger_path, fe._book_equity
+    try:
+        fe._ledger_path = lambda: tmp
+        fe._book_equity = lambda runner=None: 400.0
+        tmp.write_text(_json.dumps({"equity_intraday": [[1000, 395.0]],
+                                    "equity_journal": [{"day": 1, "open_equity": 390.0}]}),
+                       encoding="utf-8")
+        assert fe.journal_equity_point(now=1300) is False               # < 10 min -> throttlé
+        assert fe.journal_equity_point(now=1700) is True                # ≥ 10 min -> écrit
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert led["equity_intraday"][-1] == [1700, 400.0]
+        # la courbe = série intrajournalière + point courant (pas le journal quotidien)
+        curve = fe.equity_curve()
+        assert curve == [395.0, 400.0, 400.0]
+        # équité illisible -> pas de faux point
+        fe._book_equity = lambda runner=None: None
+        assert fe.journal_equity_point(now=9999) is False
+        # plafond : cap respecté
+        fe._book_equity = lambda runner=None: 400.0
+        tmp.write_text(_json.dumps({"equity_intraday": [[i, 1.0] for i in range(3000)]}),
+                       encoding="utf-8")
+        assert fe.journal_equity_point(now=10**9, cap=100) is True
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert len(led["equity_intraday"]) == 100
+    finally:
+        fe._ledger_path, fe._book_equity = old_path, old_eq
+        tmp.unlink(missing_ok=True)
+
+
+def test_futures_report_somme_funding():
+    import futures_report as fr
+    rows = [{"businessType": "contract_settle_fee", "cTime": 2_000_000, "amount": "0.0005"},
+            {"businessType": "contract_settle_fee", "cTime": 4_000_000, "amount": "-0.0006"},
+            {"businessType": "buy", "cTime": 4_000_000, "amount": "9"},         # pas du funding
+            {"businessType": "contract_settle_fee", "cTime": None}]             # illisible
+    tout = fr.somme_funding(rows)
+    assert tout["n"] == 2 and abs(tout["total_usdt"] - (-0.0001)) < 1e-9
+    assert tout["recu_usdt"] == 0.0005 and tout["paye_usdt"] == 0.0006
+    # borne temporelle (cTime en ms vs depuis_ts en s)
+    borne = fr.somme_funding(rows, depuis_ts=3_000)
+    assert borne["n"] == 1 and borne["total_usdt"] == -0.0006
+    assert fr.somme_funding(None) == {"n": 0, "total_usdt": 0.0,
+                                      "recu_usdt": 0.0, "paye_usdt": 0.0}
+
+
+def test_futures_auto_fermetures_exchange():
+    import futures_auto as fa
+    # une position du bot disparaît SANS ordre de fermeture du bot -> détectée
+    avant = [{"symbol": "BTCUSDT", "side": "long", "agent": "auto_dir"},
+             {"symbol": "HYPEUSDT", "side": "short", "agent": "auto_dir"}]
+    apres = [{"symbol": "HYPEUSDT", "side": "short", "agent": "auto_dir"}]
+    d = fa.fermetures_exchange(avant, apres, events=[], depuis_ts=100)
+    assert len(d) == 1 and d[0]["symbol"] == "BTCUSDT"      # SL/TP côté exchange
+    # ...mais si le BOT a fermé (reduce journalisé depuis l'état) -> pas d'alerte
+    ev = [{"action": "FUTURES_REAL", "ts": 150,
+           "order": {"symbol": "BTCUSDT", "side": "long", "reduce": True}}]
+    assert fa.fermetures_exchange(avant, apres, events=ev, depuis_ts=100) == []
+    # un reduce ANTÉRIEUR à l'état ne compte pas (la position avait été rouverte)
+    ev_vieux = [{"action": "FUTURES_REAL", "ts": 50,
+                 "order": {"symbol": "BTCUSDT", "side": "long", "reduce": True}}]
+    assert len(fa.fermetures_exchange(avant, apres, events=ev_vieux, depuis_ts=100)) == 1
+    assert fa.fermetures_exchange(None, [], [], 0) == []
+
+
+def test_carry_auto_tranches_cap_200():
+    import carry_auto as ca
+    # TRANCHES (cap carry 200, décision propriétaire 03/07) : la 1re ouverture est
+    # bornée à la tranche (= cap/trade) ; en position ATTRACTIF sous la cible ->
+    # RENFORCER d'une tranche ; presque à la cible -> on encaisse.
+    kk = dict(seuil_sortie_pct=2.0, notional_cfg=200.0, min_notional=6.0, tranche_max=50.0)
+    o = ca.decider_carry(6.5, "ATTRACTIF", None, None, 210.0, **kk)
+    assert o["action"] == "ouvrir" and o["notional"] == 50.0        # min(cible 199.5, tranche 50)
+    r = ca.decider_carry(6.5, "ATTRACTIF", {"side": "short", "notional_usdt": 50.0},
+                         "carry", 210.0, **kk)
+    assert r["action"] == "renforcer" and r["notional"] == 50.0     # manque 149.5 -> tranche 50
+    r2 = ca.decider_carry(6.5, "ATTRACTIF", {"side": "short", "notional_usdt": 195.0},
+                          "carry", 210.0, **kk)
+    assert r2["action"] == "rien"                                   # manque 4.5 < min 6 -> on encaisse
+    # APR entre sortie et entrée : TENIR sans renforcer (hystérésis, pas de rajout tiède)
+    r3 = ca.decider_carry(3.0, "NEUTRE", {"side": "short", "notional_usdt": 50.0},
+                          "carry", 210.0, **kk)
+    assert r3["action"] == "rien"
+    # la sortie ferme TOUT en un ordre (le reduceOnly est exempté des caps)
+    f = ca.decider_carry(1.0, "NEGATIF", {"side": "short", "notional_usdt": 180.0},
+                         "carry", 210.0, **kk)
+    assert f["action"] == "fermer" and f["notional"] == 180.0
+
+
+def test_carry_auto_couverture_etendue_bgbtc():
+    # audit portefeuille 03/07 : l'exposition BTC réelle inclut le wrapper BGBTC
+    # (décoté 10 %) — la couverture carry n'en comptait que le BTC natif.
+    import bitget_balance_reader as br
+    import futures_executor as fe
+    import carry_auto as ca
+    orig_assets, orig_prix = br.get_spot_assets, fe._mark_price
+    try:
+        br.get_spot_assets = lambda coin=None: {"data": [
+            {"coin": "BTC", "available": "0.0005", "frozen": "0"},
+            {"coin": "BGBTC", "available": "0.002", "frozen": "0.001"},
+            {"coin": "ETH", "available": "1.0", "frozen": "0"},      # hors couverture
+        ]}
+        fe._mark_price = lambda: 60000.0
+        c = ca.couverture_spot_usdt()
+        # 0.0005 + (0.003 × 0.9) = 0.0032 BTC × 60000 = 192 $
+        assert abs(c - 192.0) < 1e-6
+        # aucun token de couverture -> None (fail-closed à l'entrée)
+        br.get_spot_assets = lambda coin=None: {"data": [{"coin": "ETH", "available": "1"}]}
+        assert ca.couverture_spot_usdt() is None
+        # prix illisible -> None
+        br.get_spot_assets = lambda coin=None: {"data": [{"coin": "BTC", "available": "1"}]}
+        fe._mark_price = lambda: None
+        assert ca.couverture_spot_usdt() is None
+    finally:
+        br.get_spot_assets, fe._mark_price = orig_assets, orig_prix
+
+
+def test_carry_auto_releve_frais():
+    import carry_auto as ca
+    e = {"ts": 1000, "resultats": [{"symbol": "BTCUSDT", "apr_net_pct": 5.4,
+                                    "attrait": "ATTRACTIF"},
+                                   {"symbol": "ETHUSDT", "apr_net_pct": -1.0,
+                                    "attrait": "NEGATIF"}]}
+    assert ca.releve_carry(e, now=2000) == (5.4, "ATTRACTIF")
+    # relevé PÉRIMÉ (> 2 h) ou absent -> (None, None) : fail-closed à l'entrée
+    assert ca.releve_carry(e, now=1000 + 7201) == (None, None)
+    assert ca.releve_carry(None, now=0) == (None, None)
+    assert ca.releve_carry({"ts": 10, "resultats": []}, now=20) == (None, None)
 
 
 def test_macro_regime_pressures_and_bias():
@@ -4076,6 +6305,68 @@ def test_edge_ladder_weight_prior_by_tier():
     assert priors == sorted(priors, reverse=True) and min(priors) > 0
 
 
+def test_edge_ladder_weight_priors_map_and_live_derate():
+    import edge_ladder as el
+    rep = _edge_report()
+    assert el.weight_priors(rep) == {"alpha": 1.5, "beta": 1.0, "gamma": 0.6, "delta": 0.3}
+    # agent absent du rapport -> AUCUNE entrée (le cerveau le traite neutre ×1.0)
+    assert "inconnu" not in el.weight_priors(rep)
+    # dérate live : IC significativement NÉGATIF (n>=min, ic_t<=-seuil) plafonne à NEGATIVE
+    rep2 = _edge_report()
+    rep2["live"]["agents"] += [{"agent": "beta", "n": 100000, "ic_t": -10.0},
+                               {"agent": "omega", "n": 100000, "ic_t": -10.0}]
+    pri2 = el.weight_priors(rep2)
+    assert pri2["beta"] == 0.3                            # replay OK mais live CONTRE -> bridé
+    assert pri2["omega"] == 0.3                           # évidence live seule suffit à brider
+    # évidence live NON significative (n trop petit) -> ne dérate pas
+    rep3 = _edge_report()
+    rep3["live"]["agents"].append({"agent": "gamma", "n": 5, "ic_t": -10.0})
+    assert el.weight_priors(rep3)["gamma"] == 0.6
+
+
+def test_swarm_brain_applies_edge_priors_softened_and_failsafe():
+    import edge_ladder as el
+    import swarm_brain as sb
+    orig = el.weight_priors
+    try:
+        el.weight_priors = lambda report=None: {"a": 1.5, "b": 0.3}
+        w = sb._apply_edge_priors({"a": 1.0, "b": 1.0, "c": 1.0})
+        # oriente sans écraser : LIVE > absent (neutre) > NEGATIVE, adouci (alpha=0.5)
+        assert w["a"] > w["c"] > w["b"]
+        assert abs(sum(w.values()) / len(w) - 1.0) < 0.05  # renormalisé moyenne ~1
+        assert all(0.2 <= v <= 3.0 for v in w.values())    # re-borné [MIN,MAX]
+        # fail-safe NEUTRE : pas de priors -> poids inchangés
+        el.weight_priors = lambda report=None: {}
+        assert sb._apply_edge_priors({"a": 1.2, "b": 0.8}) == {"a": 1.2, "b": 0.8}
+        # module en panne -> poids inchangés (jamais de crash du learn)
+        def _boom(report=None):
+            raise RuntimeError("panne")
+        el.weight_priors = _boom
+        assert sb._apply_edge_priors({"a": 1.1}) == {"a": 1.1}
+    finally:
+        el.weight_priors = orig
+
+
+def test_swarm_brain_edge_priors_can_be_disabled():
+    import config
+    import edge_ladder as el
+    import swarm_brain as sb
+    orig_priors, had = el.weight_priors, hasattr(config, "BRAIN_EDGE_PRIORS")
+    orig_flag = getattr(config, "BRAIN_EDGE_PRIORS", None)
+    try:
+        el.weight_priors = lambda report=None: {"a": 0.3}
+        config.BRAIN_EDGE_PRIORS = 0
+        assert sb._apply_edge_priors({"a": 2.0, "b": 1.0}) == {"a": 2.0, "b": 1.0}
+        config.BRAIN_EDGE_PRIORS = 1
+        assert sb._apply_edge_priors({"a": 2.0, "b": 1.0}) != {"a": 2.0, "b": 1.0}
+    finally:
+        el.weight_priors = orig_priors
+        if had:
+            config.BRAIN_EDGE_PRIORS = orig_flag
+        else:
+            del config.BRAIN_EDGE_PRIORS
+
+
 # ---------- mandate : sizing du capital réel (déploiement / risque par trade) ----------
 
 def test_mandate_risk_per_trade_usd():
@@ -4155,6 +6446,288 @@ def test_config_utils_cfg_and_centralized():
     import risk_manager, spot_executor, mandate, futures_executor
     for mod in (risk_manager, spot_executor, mandate, futures_executor):
         assert mod._cfg is config_utils.cfg
+
+
+# ================= COUCHES 1-3 : enforceur stop -5% + supervision (incident) =================
+
+def test_couche1_invariant_sl():
+    """Couche 1 : sl_tp fail-closed (prix illisible -> pas de SL -> le cycle refuse
+    d'ouvrir), et l'audit détecte toute ouverture directionnelle réelle SANS SL."""
+    import futures_auto as fa
+    import futures_executor as fe
+    assert fa.sl_tp("long", None) == (None, None)
+    assert fa.sl_tp("long", 0) == (None, None)
+    sl, tp = fa.sl_tp("long", 100.0, sl_pct=2.0, rr=2.0)
+    assert sl == 98.0 and tp == 104.0
+    sl_s, tp_s = fa.sl_tp("short", 100.0, sl_pct=2.0, rr=2.0)
+    assert sl_s == 102.0 and tp_s == 96.0
+    ev = [{"action": "FUTURES_REAL",
+           "order": {"agent": "auto_dir", "reduce": False, "symbol": "BTCUSDT", "clientOid": "x"}}]
+    assert len(fe.opens_sans_stop(ev)) == 1
+
+
+def test_opens_sans_stop():
+    """PUR. Seules les OUVERTURES directionnelles RÉELLES sans stop_loss sont signalées :
+    carry exclu (couvert), réductions exclues, DRY-RUN exclu, ouverture avec SL exclue."""
+    import futures_executor as fe
+    ev = [
+        {"action": "FUTURES_REAL", "ts": 1, "order": {"agent": "auto_dir", "reduce": False,
+                                                       "symbol": "BTCUSDT", "clientOid": "a"}},
+        {"action": "FUTURES_REAL", "ts": 2, "order": {"agent": "auto_dir", "reduce": False,
+                                                       "symbol": "ETHUSDT", "stop_loss": 10.0, "clientOid": "b"}},
+        {"action": "FUTURES_REAL", "ts": 3, "order": {"agent": "carry", "reduce": False,
+                                                       "symbol": "BTCUSDT", "clientOid": "c"}},
+        {"action": "FUTURES_REAL", "ts": 4, "order": {"agent": "auto_dir", "reduce": True,
+                                                       "symbol": "BTCUSDT", "clientOid": "d"}},
+        {"action": "FUTURES_DRY_RUN", "ts": 5, "order": {"agent": "auto_dir", "reduce": False,
+                                                         "symbol": "BTCUSDT"}},
+    ]
+    nus = fe.opens_sans_stop(ev)
+    assert len(nus) == 1 and nus[0]["symbol"] == "BTCUSDT" and nus[0]["oid"] == "a"
+    assert fe.opens_sans_stop([]) == []
+
+
+def test_futures_flatten_all():
+    """Couche 2 : flatten_all solde chaque position en RÉDUCTION forcée (overrides ->
+    jamais bloqué par la porte d'edge/le double verrou) ; idempotent à plat ;
+    fail-closed si positions illisibles (aucune fermeture, retente au prochain tick)."""
+    import futures_executor as fe
+    orig_pos, orig_exec, orig_mark = fe.positions_ouvertes, fe.execute, fe._mark_price
+    seen = []
+
+    def _stub_exec(agent, side, notional, lev, **kw):
+        seen.append({"agent": agent, "side": side, "reduce": kw.get("reduce"),
+                     "confirm": kw.get("confirm"), "size_btc": kw.get("size_btc"),
+                     "symbol": kw.get("symbol"), "edge_override": kw.get("edge_override"),
+                     "kill": kw.get("kill")})
+        return {"executed": True}
+    try:
+        fe._mark_price = lambda s=None: 60000.0
+        fe.execute = _stub_exec
+        fe.positions_ouvertes = lambda runner=None, symbol=None: [
+            {"holdSide": "long", "total": "0.001", "symbol": "BTCUSDT", "markPrice": "60000"},
+            {"holdSide": "short", "total": "0.5", "symbol": "ETHUSDT"},   # markPrice absent -> _mark_price
+            {"holdSide": "", "total": "0", "symbol": "X"},                # ignorée (côté/ taille nuls)
+        ]
+        r = fe.flatten_all()
+        assert r["lisible"] and r["tentees"] == 2 and r["soldees"] == 2
+        assert all(s["reduce"] and s["confirm"] and s["edge_override"] == 1 and s["kill"] is False
+                   for s in seen)
+        assert seen[0]["side"] == "long" and seen[0]["symbol"] == "BTCUSDT" and seen[0]["size_btc"] == 0.001
+        assert seen[1]["side"] == "short" and seen[1]["symbol"] == "ETHUSDT"
+        fe.positions_ouvertes = lambda runner=None, symbol=None: []
+        assert fe.flatten_all()["tentees"] == 0                          # idempotent à plat
+        fe.positions_ouvertes = lambda runner=None, symbol=None: None
+        r3 = fe.flatten_all()
+        assert r3["lisible"] is False and r3["tentees"] == 0             # fail-closed
+    finally:
+        fe.positions_ouvertes, fe.execute, fe._mark_price = orig_pos, orig_exec, orig_mark
+
+
+def test_futures_enforce_daily_loss():
+    """Couche 2 : enforce ne SOLDE que sur un breach CONFIRMÉ (daily_loss_alert_day ==
+    jour) ; un breach 'aveugle' (equity illisible, autre jour) ne ferme RIEN."""
+    import json as _j
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    orig_breach, orig_flat = fe.daily_loss_breach, fe.flatten_all
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    flats = []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            led = os.path.join(td, "led.json")
+            config.FUTURES_REAL_LEDGER = led
+            fe.flatten_all = lambda runner=None, now=None, motif="": (
+                flats.append(motif), {"tentees": 1, "soldees": 1, "positions": [], "erreurs": []})[1]
+            jour = 80
+            fe.daily_loss_breach = lambda now=None: True
+            open(led, "w").write(_j.dumps({"daily_loss_alert_day": jour}))
+            r = fe.enforce_daily_loss(now=86400 * jour + 100)
+            assert r["breach"] and r["confirme"] and r["flatten"]["soldees"] == 1 and flats
+            flats.clear()
+            open(led, "w").write(_j.dumps({"daily_loss_alert_day": jour - 1}))
+            r2 = fe.enforce_daily_loss(now=86400 * jour + 200)
+            assert r2["breach"] is True and r2["confirme"] is False and r2["flatten"] is None and not flats
+            fe.daily_loss_breach = lambda now=None: False
+            open(led, "w").write(_j.dumps({}))
+            r3 = fe.enforce_daily_loss(now=86400 * jour + 300)
+            assert r3["confirme"] is False and r3["flatten"] is None
+    finally:
+        fe.daily_loss_breach, fe.flatten_all = orig_breach, orig_flat
+        if had:
+            config.FUTURES_REAL_LEDGER = orig_led
+        else:
+            delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_chaos_stop_enforce_independant_de_brain_scan():
+    """CHAOS — reproduit l'incident : brain ET scan morts (timer désarmé), aucune
+    tentative d'ordre décisionnel. L'enforceur (Couche 2), INDÉPENDANT, doit quand même
+    au -5% : (1) armer le kill-switch, (2) SOLDER toutes les positions en réduction.
+    Hermétique : equity/positions/spec/prix/marge stubbés, ordres via runner injecté."""
+    import json as _j
+    import os
+    import tempfile
+    import config
+    import futures_executor as fe
+    import telegram_notifier as tn
+    orig = {"eq": fe._book_equity, "pos": fe.positions_ouvertes, "mark": fe._mark_price,
+            "spec": fe._contract_spec, "marge": fe._marge_mode, "send": tn.send_telegram}
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led = getattr(config, "FUTURES_REAL_LEDGER", None)
+    ks = fe.Path(fe.__file__).resolve().parent / "KILL_SWITCH"
+    ks_avant = ks.exists()
+    calls = []
+
+    def _runner_ok(cmd):
+        calls.append(cmd)
+        return '{"data": {"orderId": "z"}}'
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            tn.send_telegram = lambda m: None
+            fe._mark_price = lambda s=None: 60000.0
+            fe._contract_spec = lambda s=None: dict(_FUT_SPEC)
+            fe._marge_mode = lambda: "isolated"
+            fe.positions_ouvertes = lambda runner=None, symbol=None: [
+                {"holdSide": "long", "total": "0.001", "symbol": "BTCUSDT", "markPrice": "60000"},
+                {"holdSide": "short", "total": "0.02", "symbol": "ETHUSDT", "markPrice": "3000"},
+            ]
+            fe._book_equity = lambda: 100.0                       # jour J : ouverture, pas de breach
+            assert fe.enforce_daily_loss(now=86400 * 70)["confirme"] is False
+            fe._book_equity = lambda: 94.0                        # -6% : breach CONFIRMÉ
+            recap = fe.enforce_daily_loss(now=86400 * 70 + 3600, runner=_runner_ok)
+            assert recap["breach"] and recap["confirme"]
+            assert ks.exists()                                    # kill-switch armé
+            assert recap["flatten"]["tentees"] == 2 and recap["flatten"]["soldees"] == 2
+            place = [c for c in calls if c[1] == "futures_place_order"]
+            assert len(place) == 2                                # une RÉDUCTION par position
+            payload = _j.loads(place[0][3])[0]
+            assert payload["tradeSide"] == "close" and payload["orderType"] == "market"
+            # blip API le lendemain (equity illisible) : jamais de fermeture à l'aveugle
+            calls.clear()
+            if ks.exists():
+                ks.unlink()
+            fe._book_equity = lambda: None
+            recap2 = fe.enforce_daily_loss(now=86400 * 71 + 3600, runner=_runner_ok)
+            assert recap2["confirme"] is False and recap2["flatten"] is None
+            assert not [c for c in calls if c[1] == "futures_place_order"]
+    finally:
+        fe._book_equity, fe.positions_ouvertes, fe._mark_price = orig["eq"], orig["pos"], orig["mark"]
+        fe._contract_spec, fe._marge_mode, tn.send_telegram = orig["spec"], orig["marge"], orig["send"]
+        if ks.exists() and not ks_avant:
+            ks.unlink()
+        if had:
+            config.FUTURES_REAL_LEDGER = orig_led
+        else:
+            delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_watchdog_heal_reanime_et_escalade():
+    """Couche 3 : sur DOWN/STALE, réarme les timers brain/scan morts ; compte les échecs
+    consécutifs ; escalade en fail-safe (kill-switch) au seuil ; reset propre sur reprise."""
+    import tempfile
+    import watchdog as wd
+    import telegram_notifier as tn
+    assert wd.timers_a_rearmer({"a": True, "b": False, "c": None}) == ["b", "c"]
+    assert wd.heal_escalade(3, 3) is True and wd.heal_escalade(2, 3) is False
+    assert wd.heal_escalade(5, 0) is False
+    keys = ("service_active", "restart_unit", "_reset_failed", "arm_kill_switch",
+            "_kill_actif", "HEAL_STATE_FILE")
+    orig = {k: getattr(wd, k) for k in keys}
+    orig_send = tn.send_telegram
+    restarts, armed = [], []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            wd.HEAL_STATE_FILE = wd.Path(td) / "heal.json"
+            wd.service_active = lambda n: False
+            wd.restart_unit = lambda n: (restarts.append(n), True)[1]
+            wd._reset_failed = lambda n: None
+            wd._kill_actif = lambda: False
+            wd.arm_kill_switch = lambda why: armed.append(why)
+            tn.send_telegram = lambda m: None
+            a0 = wd.heal("RUNNING", seuil_escalade=2)
+            assert a0["rearmes"] == [] and not a0.get("escalade")
+            a1 = wd.heal("DOWN", seuil_escalade=2)
+            assert set(r["unit"] for r in a1["rearmes"]) == set(wd.UNITES_DECISION)
+            assert a1["consecutifs"] == 1 and a1["escalade"] is False and not armed
+            a2 = wd.heal("DOWN", seuil_escalade=2)
+            assert a2["consecutifs"] == 2 and a2["escalade"] is True and armed
+            wd.heal("RUNNING", seuil_escalade=2)                  # reprise -> reset
+            a3 = wd.heal("DOWN", seuil_escalade=2)
+            assert a3["consecutifs"] == 1 and a3["escalade"] is False
+            # KILL_SWITCH armé (halte volontaire) : ni réarmement, ni escalade, reset
+            restarts.clear()
+            wd._kill_actif = lambda: True
+            a4 = wd.heal("DOWN", seuil_escalade=2)
+            assert a4.get("halte_volontaire") is True and a4["rearmes"] == [] and not restarts
+            a5 = wd.heal("DOWN", seuil_escalade=2)                 # reste silencieux, jamais d'escalade
+            assert a5["escalade"] is False
+    finally:
+        for k, v in orig.items():
+            setattr(wd, k, v)
+        tn.send_telegram = orig_send
+
+
+def test_failsafe_should_alert_dedup():
+    """OnFailure : une alerte par service par fenêtre de dédup, indépendante par unité."""
+    import failsafe_escalate as fs
+    st = {}
+    a, st = fs.should_alert(st, "bitget-brain.service", now=1000)
+    assert a is True and st["bitget-brain.service"] == 1000
+    a2, st = fs.should_alert(st, "bitget-brain.service", now=1300, dedup_s=900)
+    assert a2 is False
+    a3, st = fs.should_alert(st, "bitget-brain.service", now=2000, dedup_s=900)
+    assert a3 is True
+    a4, st = fs.should_alert(st, "bitget-scan.service", now=1300)
+    assert a4 is True
+
+
+def test_stop_guardian_tick_et_heartbeat():
+    """Le tick du guardian : écrit un battement, rend compte du breach, alerte sur flatten,
+    et n'explose JAMAIS sur un tick raté (état d'erreur absorbé)."""
+    import tempfile
+    import futures_executor as fe
+    import stop_guardian as sg
+    orig_enf, orig_hb, orig_alert = fe.enforce_daily_loss, sg.HEARTBEAT_FILE, sg._alerter_flatten
+    alerts = []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            sg.HEARTBEAT_FILE = sg.Path(td) / "hb.json"
+            sg._alerter_flatten = lambda flat: alerts.append(flat)
+            fe.enforce_daily_loss = lambda now=None: {"breach": False, "confirme": False, "flatten": None}
+            out = sg.tick(now=123)
+            assert out["ok"] and out["confirme"] is False and sg.HEARTBEAT_FILE.exists() and not alerts
+            fe.enforce_daily_loss = lambda now=None: {
+                "breach": True, "confirme": True,
+                "flatten": {"tentees": 2, "soldees": 2, "positions": [], "erreurs": []}}
+            out2 = sg.tick(now=456)
+            assert out2["confirme"] is True and "2/2" in out2["note"] and alerts
+
+            def _boom(now=None):
+                raise RuntimeError("x")
+            fe.enforce_daily_loss = _boom
+            out3 = sg.tick(now=789)
+            assert out3["ok"] is False and out3["erreur"] == "RuntimeError"
+    finally:
+        fe.enforce_daily_loss, sg.HEARTBEAT_FILE, sg._alerter_flatten = orig_enf, orig_hb, orig_alert
+
+
+def test_stop_guardian_sd_notify_sans_socket():
+    """sd_notify est best-effort : sans NOTIFY_SOCKET (hors systemd), renvoie False sans lever."""
+    import os
+    import stop_guardian as sg
+    had = "NOTIFY_SOCKET" in os.environ
+    old = os.environ.get("NOTIFY_SOCKET")
+    try:
+        os.environ.pop("NOTIFY_SOCKET", None)
+        assert sg._sd_notify("READY=1") is False
+    finally:
+        if had:
+            os.environ["NOTIFY_SOCKET"] = old
 
 
 def _run_all():

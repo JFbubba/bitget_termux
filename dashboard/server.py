@@ -99,6 +99,20 @@ def _count_csv(path):
         return max(sum(1 for _ in f) - 1, 0)
 
 
+def edge_summary(rep):
+    """Résumé de l'échelle d'edge pour le dashboard (fonction pure, testable) :
+    paliers + « proche LIVE » + priors EARCP + provenance du ranking (§41)."""
+    import edge_ladder as el
+    rep = rep or {}
+    pending = [r.get("agent") for r in rep.get("ranking", [])
+               if el.live_pending(r, el._live_row(rep, r.get("agent")))]
+    top = [{"agent": r.get("agent"), "dsr": r.get("dsr"), "n": r.get("n")}
+           for r in rep.get("ranking", [])[:6]]
+    return {"tiers": el.all_tiers(rep), "pending": pending,
+            "priors": el.weight_priors(rep), "mode": rep.get("ranking_mode"),
+            "n_symbols": rep.get("n_symbols"), "top": top}
+
+
 def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None, liquidations=None, positions=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
@@ -315,11 +329,18 @@ def build_state(symbol=None, tf="5m"):
         a = _safe(lambda: ae.analyze("BTCUSDT"), {})        # analyze = lecture seule
         out["opportunity"] = a.get("score")
         out["dca_reco"] = a.get("amount_usd")
+        # montant RÉEL prévu (sizing proportionnel §44) quand l'autonome est armé
+        if out.get("autonomous_armed"):
+            out["dca_real"] = _safe(lambda: ae.real_dca_amount(a.get("score")), None)
         out["rsi"] = a.get("rsi")
         out["fear_greed"] = a.get("fear_greed")
         out["premium_pct"] = a.get("premium_pct")           # premium Bitget vs médiane marché
         out["fair"] = a.get("fair")
         out["spot_free_usdt"] = _safe(lambda: __import__("spot_executor")._spot_free_usdt(), None)
+        # réconciliation réelle (registre ↔ fills ↔ compte) : prix de revient RÉEL,
+        # PnL latent, anomalies. Cache long (les fills bougent 1x/jour).
+        out["reconcile"] = _cached("reconcile", 900,
+                                   lambda: _safe(__import__("accum_reconcile").snapshot, None))
         return out
 
     def _mandate():
@@ -327,8 +348,202 @@ def build_state(symbol=None, tf="5m"):
         return mandate.summary()
 
     def _edge():
-        import edge_ladder
-        return edge_ladder.all_tiers()
+        """Échelle d'edge ENRICHIE (§41) — voir edge_summary (pur, testé)."""
+        import edge_ladder as el
+        return edge_summary(el._load())
+
+    def _onchain():
+        """On-chain BTC (§40) : Hash Ribbons, congestion mempool, difficulté.
+        Advisory LENT (observabilité seulement : rejeté comme entrée de sizing, §42)."""
+        import onchain_btc as oc
+        s = oc.snapshot()
+        rb = s.get("ribbon") or {}
+        return {"hashrate_ths": s.get("hashrate_ths"), "etat": oc.etat_ribbon(rb),
+                "signal": rb.get("signal"), "congestion": s.get("congestion"),
+                "frais_rapide": (s.get("frais") or {}).get("rapide"),
+                "diff_pct": (s.get("difficulte") or {}).get("variation_pct")}
+
+    def _flows():
+        """Flux stablecoins (§40) : offre totale, momentum 7j/30j, signal dry-powder."""
+        import stablecoin_flow as sf
+        return sf.snapshot()
+
+    def _vol_iv():
+        """Vol implicite Deribit (§40) : DVOL, VRP = DVOL − RV, régime par devise."""
+        import deribit_vol as dv
+        return {"BTC": dv.snapshot("BTC"), "ETH": dv.snapshot("ETH")}
+
+    def _futures_live():
+        """Futures réel §45 (LECTURE SEULE) : préview de décision de la boucle auto,
+        position, equity, stop journalier, PnL réalisé du bot — via futures_report."""
+        import futures_report as fr
+        s = fr.snapshot()
+        b = s.get("boucle") or {}
+        c = s.get("carry") or {}
+        return {"armed": b.get("armed"), "consensus": b.get("consensus"),
+                "position": b.get("position"), "positions": b.get("positions"),
+                "symbol": b.get("symbol"), "funding": s.get("funding"),
+                "decision": b.get("decision"),
+                "throttle_pret": b.get("throttle_pret"),
+                "equity": s.get("equity_usdt"), "stop": s.get("stop_journalier"),
+                "stop_pct": s.get("stop_pct"), "fills_bot": s.get("fills_bot"),
+                "caps": s.get("caps"), "events": s.get("events"),
+                "carry": {"armed": c.get("armed"), "apr": c.get("apr_net_pct"),
+                          "attrait": c.get("attrait"),
+                          "couverture": c.get("couverture_usdt"),
+                          "action": (c.get("decision") or {}).get("action")}}
+
+    def _viz(symbol):
+        """Données de VISUALISATION (lecture seule, best-effort) : courbes PnL/funding
+        cumulés du bot (tous symboles §47), consensus de l'univers (ce que la boucle
+        multi-symboles voit), palette synesthésique du symbole affiché (§50)."""
+        out = {"pnl_serie": [], "funding_serie": [], "consensus_univers": [], "synesthesie": None}
+        try:
+            import futures_auto as fa
+            import futures_report as fr
+            events = fa._executor_events()
+            debut = fr.premier_ordre_reel_ts(events)
+            if debut:
+                out["pnl_serie"] = fr.serie_pnl(fr.fetch_fills(), depuis_ts=debut)[-200:]
+                out["funding_serie"] = fr.serie_funding(fr.fetch_bills(), depuis_ts=debut)[-200:]
+            import futures_executor as fe
+            import json as _json
+            led = _json.loads(fe._ledger_path().read_text(encoding="utf-8"))
+            out["equity_serie"] = [p for p in led.get("equity_intraday", [])
+                                   if isinstance(p, list) and len(p) == 2][-200:]
+            ents = fa._brain_entries()
+            from config_utils import cfg as _cfg
+            seuil = float(_cfg("FUTURES_AUTO_SEUIL_ENTREE", 0.35))
+            cons = []
+            for s in fa._universe():
+                c = fa.consensus_frais(ents, symbol=s)
+                cons.append({"s": s, "c": c})
+            cons.sort(key=lambda r: -(abs(r["c"]) if r["c"] is not None else -1))
+            out["consensus_univers"] = cons
+            out["seuil"] = seuil
+        except Exception:
+            pass
+        try:
+            # ORDRES RÉELS du symbole affiché -> marqueurs sur le graphique (§55)
+            trades = []
+            if symbol == "BTCUSDT":
+                import spot_executor as se
+                for b in (se._load_real().get("buys") or [])[-100:]:
+                    trades.append({"ts": b.get("ts"), "type": "dca", "prix": b.get("price")})
+            import futures_auto as fa2
+            for e in (fa2._executor_events() or [])[-200:]:
+                if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+                    continue
+                o = e.get("order") or {}
+                if str(o.get("symbol") or "BTCUSDT").upper() != symbol:
+                    continue
+                trades.append({"ts": e.get("ts"),
+                               "type": "reduce" if o.get("reduce") else "open",
+                               "side": o.get("side"), "prix": o.get("entry")})
+            out["trades"] = sorted([x for x in trades if x.get("ts")],
+                                   key=lambda x: x["ts"])[-120:]
+        except Exception:
+            pass
+        try:
+            # labo xs paper + percentile de funding + audit IC live (§60/§63)
+            import xs_paper
+            out["xs_paper"] = xs_paper.status()
+        except Exception:
+            pass
+        try:
+            import funding_history as fhy
+            out["funding_pctl"] = fhy.percentile_courant("BTCUSDT")
+        except Exception:
+            pass
+        try:
+            import live_ic_audit as lia
+            audit = _cached("audit_live", 900, lambda: lia.snapshot())
+            out["audit_live"] = (audit or {}).get("agents", [])[:14]
+        except Exception:
+            pass
+        try:
+            import market_sources as ms
+            import savant_agent as sa
+            closes = ms.closes(symbol, 80)
+            if closes and len(closes) >= 30:
+                syn = sa.synesthesie(closes)
+                m, w = sa.motifs_ordinaux([float(c) for c in closes][-73:])
+                freq = [0.0] * 6
+                wt = sum(w) or 1e-12
+                for mi, wi in zip(m, w):
+                    freq[mi] += wi / wt
+                syn["formes"] = [round(f, 4) for f in freq]
+                out["synesthesie"] = syn
+        except Exception:
+            pass
+        return out
+
+    def _journal_de_bord():
+        """Derniers ÉVÉNEMENTS notables, fusionnés (§63). Source UNIQUE partagée
+        avec la commande Telegram /bord : journal_de_bord.evenements(). Lecture
+        seule, [] best-effort."""
+        try:
+            import journal_de_bord as jdb
+            return jdb.evenements(12)
+        except Exception:
+            return []
+
+    def _rendez_vous():
+        """Prochains RENDEZ-VOUS du système (§63) : [{txt, ts}] triés. Best-effort."""
+        import time as _t
+        now = _t.time()
+        rv = []
+        rv.append({"txt": "règlement funding", "ts": (int(now) // 28800 + 1) * 28800})
+        try:                                       # fenêtre DCA (16-20h UTC, 1/jour)
+            import spot_executor as se
+            buys = se._load_real().get("buys") or []
+            dernier = buys[-1]["ts"] if buys else 0
+            possible = dernier + 24 * 3600
+            jour = int(max(now, possible) // 86400) * 86400
+            cible = jour + 16 * 3600
+            while cible < max(now, possible):
+                cible += 86400 if cible + 4 * 3600 < max(now, possible) else (
+                    0 if cible + 4 * 3600 > max(now, possible) else 86400)
+                if cible >= max(now, possible) or cible + 4 * 3600 > max(now, possible):
+                    break
+            rv.append({"txt": "fenêtre DCA (16-20h)", "ts": int(max(cible, possible))})
+        except Exception:
+            pass
+        try:                                       # throttle directionnel
+            import futures_auto as fa
+            dernier = fa.dernier_ordre_auto_ts(fa._executor_events())
+            if dernier:
+                from config_utils import cfg as _c
+                rv.append({"txt": "throttle directionnel libéré",
+                           "ts": int(dernier + float(_c("FUTURES_AUTO_MIN_INTERVAL_H", 4)) * 3600)})
+        except Exception:
+            pass
+        try:                                       # prochaine validation (6 h)
+            import json as _json
+            from pathlib import Path as _P
+            rep = _json.loads((_P(REPO_ROOT) / "validation_report.json").read_text())
+            rv.append({"txt": "validation (porte profonde)",
+                       "ts": int(rep.get("generated_at", 0)) + 6 * 3600})
+        except Exception:
+            pass
+        try:                                       # échéance macro (Kalshi)
+            import kalshi_probe as kp
+            pe = (kp.snapshot() or {}).get("prochain")
+            if pe:
+                rv.append({"txt": f"macro : {str(pe.get('titre'))[:28]}", "ts": pe["echeance_ts"]})
+        except Exception:
+            pass
+        rv = [r for r in rv if r.get("ts") and r["ts"] > now]
+        rv.sort(key=lambda x: x["ts"])
+        return rv[:6]
+
+    def _carry():
+        """Cash-and-carry (§40, PAPER) : APR net par symbole, trié décroissant."""
+        import carry_monitor as cm
+        import config_utils as cu
+        rows = [r for r in cm.evaluer() if r.get("apr_net_pct") is not None]
+        rows.sort(key=lambda r: r["apr_net_pct"], reverse=True)
+        return {"seuil_pct": cu.cfg("CARRY_SEUIL_APR_PCT", 5.0), "rows": rows[:6]}
 
     def _microstructure():
         """Edge microstructure accumulé (chemin 2) : n enregistrements + meilleure feature."""
@@ -400,7 +615,7 @@ def build_state(symbol=None, tf="5m"):
     market = _cached("market", 600, lambda: _safe(_market, {}))
     candles = _cached(f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, []))
     book = _cached(f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []}))
-    # le cerveau réinterroge 6 agents (réseau) : cache plus long pour le polling.
+    # le cerveau réinterroge 13 agents (réseau) : cache plus long pour le polling.
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     liq = _cached(f"lq:{symbol}", 45, lambda: _safe(_liq, {}))
     health = _safe(_health, {})
@@ -425,9 +640,27 @@ def build_state(symbol=None, tf="5m"):
     state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
     state["micro_live"] = _cached(f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {}))
     state["system"] = _cached("system", 20, lambda: _safe(_system, {}))
+    # sources orthogonales §40 (lentes par nature -> caches longs, best-effort)
+    state["onchain"] = _cached("onchain", 3600, lambda: _safe(_onchain, {}))
+    state["flows"] = _cached("flows", 3600, lambda: _safe(_flows, {}))
+    state["vol_iv"] = _cached("voliv", 1800, lambda: _safe(_vol_iv, {}))
+    state["carry"] = _cached("carry", 1800, lambda: _safe(_carry, {}))
+    # futures réel §45 : préview de décision + réconciliation (lecture seule)
+    state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
+    state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
+    state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
+    state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
+    try:
+        import json as _json
+        state["hitrates"] = _cached("hitrates", 120, lambda: _safe(
+            lambda: _json.loads((REPO_ROOT / "brain_hitrates.json").read_text()), {}))
+    except Exception:
+        pass
     # mode HONNÊTE : futures/cerveau en paper, accumulation spot potentiellement RÉELLE
     armed = (state["accumulation"] or {}).get("autonomous_armed")
-    state["mode"] = "PAPER futures · " + ("RÉEL spot DCA ≤5$/j" if armed else "paper accumulation")
+    fut_armed = (state.get("futures_live") or {}).get("armed")
+    state["mode"] = (("RÉEL spot 2–5$/j" if armed else "paper accumulation")
+                     + " · " + ("RÉEL futures borné §45" if fut_armed else "PAPER futures"))
     return state
 
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Bitget validation T5 des agents (toutes les 6h)
+
+[Timer]
+# La validation (§41) rejoue les agents purs en coupe TRANSVERSALE (univers liquide,
+# n effectif) : plusieurs minutes de calcul + réseau. Elle vivait dans le cycle de
+# scan 5 min, mais STEP_TIMEOUT=90s l'aurait tuée à chaque tentative dès le rapport
+# périmé (90s brûlées par cycle, rapport jamais rafraîchi) -> timer dédié.
+OnBootSec=20min
+OnUnitActiveSec=6h
+AccuracySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

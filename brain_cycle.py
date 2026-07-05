@@ -7,7 +7,7 @@ Classement : SAFE. Lit le marché (lecture seule) et écrit UNIQUEMENT brain_log
 Pourquoi (audit #9) : sans planification, swarm_brain.learn() n'était déclenché que
 par une requête humaine -> EARCP de facto non entraîné, brain_weights incomplet
 (6/11 agents). Ce script, lancé à chaque cycle par agent_control, journalise les votes
-des 11 agents et fait apprendre les poids sur les décisions matures.
+des 13 agents et fait apprendre les poids sur les décisions matures.
 """
 
 

@@ -102,7 +102,7 @@ def brain_adjustment(side, bias, conviction, oppose_floor=0.3, min_factor=0.4):
     return ("scale", 0.6, f"cerveau neutre/faible (bias {b}, conv {c:.2f})")
 
 
-def build_preorder(row, equity, equity_source, opened):
+def build_preorder(row, equity, equity_source, opened, skip_brain=False):
     symbol = find_value(row, ["symbol", "pair", "market"]).upper()
     side = normalize_side(find_value(row, ["side", "direction", "signal", "decision"]))
 
@@ -153,11 +153,15 @@ def build_preorder(row, equity, equity_source, opened):
         notional = None
         sl_distance_percent = None
 
-    # CERVEAU (essaim, 11 agents) en GATE + MULTIPLICATEUR de taille. Fail-safe NEUTRE :
+    # CERVEAU (essaim, 13 agents) en GATE + MULTIPLICATEUR de taille. Fail-safe NEUTRE :
     # si le cerveau s'oppose au signal -> rejet ; sinon il REDUIT la taille selon la
     # conviction (jamais ne l'augmente). Indisponible -> facteur 1.0 (aucun changement).
     brain_bias, brain_conv, brain_note, brain_factor = None, None, None, 1.0
-    if side in ("LONG", "SHORT") and size is not None:
+    # skip_brain (audit 03/07) : quand une halte GLOBALE (kill-switch/MDD) rejettera
+    # de toute façon tous les pré-ordres, on ne paie NI le cerveau (13 agents réseau
+    # par symbole) NI le vol-targeting — chaque cycle en risk-off brûlait tout ce
+    # réseau pour des rejets à 100 %.
+    if not skip_brain and side in ("LONG", "SHORT") and size is not None:
         try:
             import swarm_brain
             r = swarm_brain.peek(symbol)
@@ -179,7 +183,7 @@ def build_preorder(row, equity, equity_source, opened):
     # Effet : risk-off automatique quand la vol monte (le levier autorise baisse) ;
     # un levier implicite au-dessus de ce plafond passe en REJECTED. Best-effort (paper).
     vol_target_lev = None
-    if leverage is not None and side in ("LONG", "SHORT"):
+    if not skip_brain and leverage is not None and side in ("LONG", "SHORT"):
         try:
             import market_sources as _ms
             import mandate as _mdt
@@ -223,6 +227,26 @@ def build_preorder(row, equity, equity_source, opened):
         "reasons": reasons,
         "execution": "LOCKED_NO_REAL_ORDER",
     }
+
+
+def _halte_globale():
+    """(halted, raison) si le kill-switch OU la halte drawdown sont actifs — auquel
+    cas TOUT pré-ordre sera rejeté : autant le savoir AVANT de payer le cerveau.
+    Best-effort : un état illisible ne halte pas ici (les gardes aval retesteront)."""
+    try:
+        import risk_manager
+        if risk_manager.kill_switch_active():
+            return True, "KILL_SWITCH actif — tout trading arrêté"
+    except Exception:
+        pass
+    try:
+        import equity_curve
+        _dd = equity_curve.drawdown_state()
+        if _dd.get("halt"):
+            return True, f"halte drawdown : MDD {_dd['dd_pct']:.1f}% >= seuil tolere (risk-off)"
+    except Exception:
+        pass
+    return False, None
 
 
 def _apply_portfolio_guards(preorders, opened):
@@ -275,10 +299,19 @@ def main():
 
     preorders = []
 
+    # halte globale évaluée AVANT la boucle : en risk-off, on construit les
+    # pré-ordres SANS interroger le cerveau/vol-target (rejet direct, réseau épargné).
+    halted, raison_halte = _halte_globale()
     for row in rows[-MAX_PREORDERS:]:
-        preorders.append(build_preorder(row, equity, equity_source, opened))
-
-    _apply_portfolio_guards(preorders, opened)
+        preorders.append(build_preorder(row, equity, equity_source, opened,
+                                        skip_brain=halted))
+    if halted:
+        for o in preorders:
+            if o.get("status") == "PENDING_APPROVAL":
+                o["status"] = "REJECTED"
+                o.setdefault("reasons", []).append(raison_halte)
+    else:
+        _apply_portfolio_guards(preorders, opened)
 
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

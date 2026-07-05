@@ -1,0 +1,12 @@
+[Unit]
+Description=Bitget validation T5 des agents (replay transversal, lecture seule, advisory)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 brain_validation.py
+# Coupe transversale : ~10-12 symboles x 600 bougies + replay de 4 agents purs.
+# Large marge (le défaut systemd de 90s serait trop court).
+TimeoutStartSec=1500
+User=root
+Nice=15

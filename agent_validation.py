@@ -200,6 +200,47 @@ PURE_AGENTS = {"simons": _sig_simons, "savant": _sig_savant,
                "geometric": _sig_geometric, "divergent": _sig_divergent}
 
 
+def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
+    """IC ANNUEL des agents PURS sur l'historique profond (candles_history, §54).
+    PUR si `donnees` est injecté ({symbol: bougies}). L'audit du 03/07 a montré que
+    des fenêtres récentes, même « indépendantes », peuvent partager le MÊME régime
+    (juin-juillet 2026 réversif : geometric §48 y faisait +0.11/+0.17 mais −0.07
+    sur l'année) — le rejeu annuel est le 3e juge, câblé dans la porte d'edge :
+    pas de promotion LIVE d'un artefact de régime. Retourne
+    {agent: {ic, ic_t, n}} ; {} si pas de données (fail-open : la porte annuelle
+    ne s'applique que si la mesure existe)."""
+    import math
+    if donnees is None:
+        try:
+            import candles_history as ch
+            donnees = {s: ch.load(s, "1h") for s in
+                       ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")}
+            donnees = {s: c for s, c in donnees.items() if len(c) > 500}
+        except Exception:
+            return {}
+    if not donnees:
+        return {}
+    agents = agents or PURE_AGENTS
+    out = {}
+    for nom, fn in agents.items():
+        votes, fwd = [], []
+        for s, c in donnees.items():
+            # pas AUTO-PLAFONNÉ : ~400 échantillons max par symbole, sinon 6 ans
+            # d'historique × HMM par échantillon dépassent le budget du timer de
+            # validation (mesuré : > 10 min). Déterministe (fonction de len(c)).
+            pas_eff = max(int(pas), (len(c) - warmup) // 400)
+            for t_ in range(warmup, len(c) - horizon, pas_eff):
+                try:
+                    votes.append(float(fn(c[max(0, t_ - 200):t_ + 1]) or 0.0))
+                    fwd.append(math.log(float(c[t_ + horizon][4]) / float(c[t_][4])))
+                except Exception:
+                    continue
+        if len(votes) >= 50:
+            m = evaluate(votes, fwd)
+            out[nom] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"), "n": m.get("n")}
+    return out
+
+
 def replay(signal_fn, candles, horizon, warmup=80, step=None):
     """Rejoue un signal pur sur l'historique : vote_t = f(bougies[:t+1]), rendement
     futur close[t+h]/close[t]−1. Pas de look-ahead. Pas = horizon (purge). Pur-ish
@@ -254,8 +295,10 @@ def rank_pure_agents(candles, horizon=8, warmup=80):
 # TRANSVERSALE sur l'univers liquide multiplie le nombre de paris directionnels — MAIS le
 # crypto est très corrélé (beta commun), donc empiler 20 symboles ne donne PAS 20× d'info
 # indépendante. On corrige par un n EFFECTIF (variance inflation) : sans ça, on promouvrait
-# un agent en LIVE sur un edge factice -> trade réel sur du vent. ADVISORY : ce chemin ne
-# touche NI la porte d'edge (mandate/edge_ladder) NI les poids du cerveau.
+# un agent en LIVE sur un edge factice -> trade réel sur du vent. Depuis §40, ce chemin
+# EST le ranking préféré du rapport de validation (brain_validation, repli mono-symbole) :
+# c'est ce qui rend le palier LIVE atteignable SANS baisser aucun seuil — la porte d'edge
+# (mandate/edge_ladder) et ses seuils DSR/n/OOS/live restent inchangés.
 
 def average_cross_correlation(panel):
     """Corrélation transversale MOYENNE (hors-diagonale) des séries de rendements-
@@ -304,8 +347,9 @@ def _strat_and_series(signal_fn, candles, horizon, warmup, step=None):
 def rank_pure_agents_xs(candles_by_symbol, horizon=8, warmup=80):
     """Validation TRANSVERSALE (breadth) des agents PURS sur plusieurs symboles. Met en
     commun les paris directionnels et calcule DSR/PSR/IC sur un n EFFECTIF corrigé de la
-    corrélation transversale (anti-inflation). ADVISORY — ne touche NI la porte d'edge NI
-    les poids. Retourne {agents:[...trié par DSR...], deflation, horizon, n_symbols}."""
+    corrélation transversale (anti-inflation). Ranking préféré du rapport de validation
+    (§40) — les seuils de la porte d'edge restent inchangés, seul le n devient honnête.
+    Retourne {agents:[...trié par DSR...], deflation, horizon, n_symbols}."""
     syms = [s for s, c in candles_by_symbol.items() if c and len(c) > warmup + horizon]
     raw = {}
     for name, fn in PURE_AGENTS.items():
@@ -355,7 +399,7 @@ def rank_pure_agents_xs(candles_by_symbol, horizon=8, warmup=80):
 
 def run_xs(symbols=None, timeframe="1h", limit=600, horizon=8, top_n=12, warmup=80):
     """Replay TRANSVERSAL des agents purs sur l'univers liquide + breadth. Best-effort
-    (réseau). Retourne le ranking transversal ou {error}. ADVISORY (lecture seule)."""
+    (réseau). Retourne le ranking transversal ou {error}. Lecture seule, aucun ordre."""
     if symbols is None:
         try:
             import universe
@@ -403,6 +447,80 @@ def evaluate_from_log(log, horizon_entries=1):
         out.append(m)
     out.sort(key=lambda d: (d.get("ic", 0)), reverse=True)
     return {"agents": out, "n_entries": len(log)}
+
+
+# ---------- chemin 3 : edge TEMPOREL (market-timing) des agents marché-large ----------
+# Frontière identifiée en §39 (RESEARCH_NOTES) : la coupe transversale zéro-note PAR
+# CONSTRUCTION les agents marché-large (macro, sentiment, flows... votent pareil sur
+# tous les symboles). Leur edge éventuel est TEMPOREL : le vote moyen au cycle t
+# prédit-il le rendement MOYEN du marché h cycles plus tard ? Mesure time-gated
+# (l'échantillon s'accumule avec les semaines de votes journalisés), ADVISORY.
+
+def _cycles_from_log(log, bucket_s=240):
+    """PUR. Regroupe les entrées de brain_log par CYCLE de scan : les entrées dont le
+    ts est à moins de bucket_s du début du groupe appartiennent au même cycle (le scan
+    journalise tous les symboles en quelques secondes, cadence 5 min). Retourne les
+    cycles ordonnés : [{"ts", "prices": {sym: prix}, "votes": {agent: [votes]},
+    "consensus": [floats]}]."""
+    entries = sorted((e for e in log or [] if e.get("price") and e.get("ts")),
+                     key=lambda e: e["ts"])
+    cycles, cur, debut = [], None, None
+    for e in entries:
+        if cur is None or e["ts"] - debut > bucket_s:
+            cur = {"ts": e["ts"], "prices": {}, "votes": {}, "consensus": []}
+            debut = e["ts"]
+            cycles.append(cur)
+        sym = e.get("symbol")
+        if sym:
+            try:
+                cur["prices"][sym] = float(e["price"])
+            except (TypeError, ValueError):
+                pass
+        for ag, v in (e.get("votes") or {}).items():
+            try:
+                cur["votes"].setdefault(ag, []).append(float(v))
+            except (TypeError, ValueError):
+                pass
+        if e.get("consensus") is not None:
+            try:
+                cur["consensus"].append(float(e["consensus"]))
+            except (TypeError, ValueError):
+                pass
+    return cycles
+
+
+def evaluate_market_timing(log, bucket_s=240, horizon_cycles=12, min_symbols=1):
+    """Évalue l'edge TEMPOREL de chaque agent (+ le consensus, pseudo-agent
+    'consensus') : IC/t/hit/Sharpe/PSR entre le vote MOYEN marché-large au cycle t et
+    le rendement MOYEN du marché au cycle t+h. Échantillonnage NON CHEVAUCHANT
+    (pas = horizon) : pas d'inflation de n par des rendements qui se recouvrent.
+    horizon_cycles=12 ≈ 1 h à cadence 5 min (cohérent avec HORIZON_S du cerveau).
+    PUR. Best-effort (peu de cycles au début -> métriques neutres)."""
+    cycles = _cycles_from_log(log, bucket_s)
+    h = max(1, int(horizon_cycles))
+    pairs, n_echantillons, i = {}, 0, 0
+    while i + h < len(cycles):
+        c0, c1 = cycles[i], cycles[i + h]
+        commun = [s for s in c0["prices"] if s in c1["prices"] and c0["prices"][s] > 0]
+        if len(commun) >= min_symbols:
+            fwd = sum(c1["prices"][s] / c0["prices"][s] - 1.0 for s in commun) / len(commun)
+            for ag, vs in c0["votes"].items():
+                if vs:
+                    pairs.setdefault(ag, []).append((sum(vs) / len(vs), fwd))
+            if c0["consensus"]:
+                pairs.setdefault("consensus", []).append(
+                    (sum(c0["consensus"]) / len(c0["consensus"]), fwd))
+            n_echantillons += 1
+        i += h                                   # non chevauchant : échantillons purgés
+    out = []
+    for ag, pv in pairs.items():
+        m = evaluate([x[0] for x in pv], [x[1] for x in pv])
+        m = {k: v for k, v in m.items() if not k.startswith("_")}
+        m["agent"] = ag
+        out.append(m)
+    out.sort(key=lambda d: (d.get("ic", 0)), reverse=True)
+    return {"agents": out, "n_cycles": len(cycles),
+            "n_echantillons": n_echantillons, "horizon_cycles": h}
 
 
 def suggest_weight_priors(ranked, floor=0.4, cap=1.8):

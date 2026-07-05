@@ -21,6 +21,7 @@ import agent_control as ac
 SKIP = (
     "accumulation_engine",    # chemin d'achat REEL -> pilote a part (cron quotidien)
     "telegram_notifier",      # notifications -> timer dedie bitget-notify (espacees)
+    "brain_cycle",            # cerveau -> timer dedie bitget-brain (1 min PRECISE, §63)
 )
 STEP_TIMEOUT = 90              # s max par etape (une etape bloquee est tuee)
 

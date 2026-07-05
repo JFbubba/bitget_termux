@@ -54,9 +54,26 @@ COMMANDS = [
         "name": "Envoyer le résumé compact et les signaux sur Telegram",
         "command": ["python", "telegram_notifier.py"],
     },
+    # Validation T5 : SORTIE du cycle de scan — §41 l'a rendue TRANSVERSALE (univers
+    # complet, n effectif), donc lourde : le STEP_TIMEOUT=90s de scan_paper la tuerait
+    # à chaque tentative dès le rapport périmé (90s brûlées par cycle, rapport jamais
+    # rafraîchi). Elle tourne sur son timer dédié : deploy/bitget-validation.timer
+    # (6h, TimeoutStartSec=1500).
     {
-        "name": "Validation T5 des agents (auto-throttlée ~6h, advisory)",
-        "command": ["python", "brain_validation.py"],
+        "name": "Moniteur carry non-directionnel (PAPER, journal auto-throttlé ~1h)",
+        "command": ["python", "carry_monitor.py"],
+    },
+    {
+        "name": "Boucle futures directionnelle bornée (§45 : décide, délègue à l'exécuteur)",
+        "command": ["python", "futures_auto.py"],
+    },
+    {
+        "name": "Jambes cash-and-carry couvertes par le spot (§45 : décide, délègue)",
+        "command": ["python", "carry_auto.py"],
+    },
+    {
+        "name": "Laboratoire xs paper : momentum cross-sectionnel long-short (§60, rebalance 24h)",
+        "command": ["python", "xs_paper.py"],
     },
     {
         "name": "Mandat de gestion : règles dures + agents autorisés en réel",

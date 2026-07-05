@@ -58,12 +58,12 @@ MANDATE_BENCHMARK = "ABSOLUTE"             # benchmark absolu, horizon perpétue
 # Porte d'edge paper -> réel (futures) : un agent ne trade en RÉEL que s'il bat ça.
 MANDATE_FUTURES_DSR_MIN = 0.90             # Deflated Sharpe Ratio minimal (multiple-testing)
 MANDATE_FUTURES_MIN_SAMPLES = 120          # taille d'échantillon minimale (anti faux-positif)
-# Exécution FUTURES réelle (étape 1 = DRY-RUN ; RESEARCH_NOTES §34). Tout OFF / petit.
-# Le réel reste non câblé tant qu'aucun agent n'est LIVE et sans GO explicite (étape 2).
-FUTURES_AUTONOMOUS_LIVE = False             # 2e verrou futures (avec MANDATE_LIVE_ENABLED)
-FUTURES_REAL_MAX_PER_TRADE_USDT = 10.0      # plafond dur du notional par trade
-FUTURES_REAL_MAX_GROSS_USDT = 20.0          # plafond dur de l'exposition cumulée
-FUTURES_REAL_LEDGER = "futures_real_ledger.json"   # journal DRY-RUN (gitignored)
+# Exécution FUTURES réelle (§45) — les CAPS effectifs sont définis UNE SEULE fois,
+# plus bas (section « FUTURES RÉEL ») : le doublon historique §34 (10/20) a été
+# retiré à l'audit du 03/07 — éditer une 1re occurrence écrasée par la 2e ne
+# faisait silencieusement rien.
+FUTURES_AUTONOMOUS_LIVE = False             # 2e verrou futures (armé via .env, avec MANDATE_LIVE_ENABLED)
+FUTURES_REAL_LEDGER = "futures_real_ledger.json"   # journal exécuteur : events DRY ET RÉELS (gitignored)
 # Numéraire dynamique : si le dollar se déprécie, tourner hors USD vers ces refuges.
 MANDATE_NUMERAIRE_REFUGES = ["BTCUSDT", "XAUTUSDT"]   # BTC, or tokenisé
 MANDATE_USD_WEAK_THRESHOLD = -3.0          # baisse % du DXY (fenêtre) déclenchant la rotation
@@ -100,6 +100,104 @@ ACCUM_AUTONOMOUS_LIVE = False
 # Garde « meilleur prix » : n'accumule PAS si Bitget cote au-dessus de la médiane
 # cross-exchange de plus de ce % (premium). Évite d'acheter sur un pic propre à Bitget.
 ACCUM_MAX_PREMIUM_PCT = 0.30
+
+# === Porte directionnelle régime-aware (regime_gate.py, lue par journal_scanner) ===
+# Supprime les signaux qui combattent la marée macro : en RISK_OFF, aucun LONG n'est
+# généré/suivi ; en RISK_ON, aucun SHORT (symétrique). Motivé par les résultats
+# mesurés (LONG ~18 % WR en peur extrême). Analyse seule — AUCUN ordre. Fail-safe :
+# régime indisponible -> NEUTRE -> porte transparente (comportement historique).
+REGIME_GATE_ENABLED = True          # False = restaure l'ancien comportement sans toucher au code
+REGIME_GATE_USE_SENTIMENT = True    # l'extrême Fear&Greed PRIME sur le macro (peur -> RISK_OFF)
+REGIME_GATE_FNG_FEAR = 20           # F&G <= seuil -> RISK_OFF effectif (coupe les LONG, même si macro RISK_ON)
+REGIME_GATE_FNG_GREED = 80          # F&G >= seuil -> RISK_ON effectif (coupe les SHORT, même si macro RISK_OFF)
+
+# === Carry non-directionnel (carry_monitor.py, PAPER — mesure, n'exécute rien) ===
+# Le cash-and-carry (long spot + short perp, delta-neutre) encaisse le funding sans
+# parier sur la direction — la seule famille de rendement qui ne suppose aucun edge
+# directionnel (RESEARCH_NOTES §35-38 : pas d'edge directionnel robuste).
+CARRY_FRAIS_ALLER_RETOUR_PCT = 0.20   # frais estimés entrée+sortie (2 jambes spot+perp, %)
+CARRY_SEUIL_APR_PCT = 5.0             # APR net annualisé au-dessus duquel le carry est jugé ATTRACTIF
+
+# === Cerveau : bornes DURES des poids d'agents (swarm_brain._clamp_weights) ===
+# Empêche un agent de dominer artificiellement le consensus (bug : la normalisation
+# post-EARCP court-circuitait le clamp historique 0.2..3.0).
+BRAIN_WEIGHT_MIN = 0.2
+BRAIN_WEIGHT_MAX = 3.0
+
+# === Cerveau : priors d'edge ADVISORY (edge_ladder -> poids EARCP, §40) ===
+# L'edge MESURÉ borne l'edge APPRIS : les poids EARCP sont multipliés par
+# prior**ALPHA (adouci), renormalisés (moy ~1) puis re-bornés. Un agent à l'IC live
+# significativement NÉGATIF est bridé même si sa cohérence de consensus le flatte.
+BRAIN_EDGE_PRIORS = 1                 # 0 = débrayer (poids EARCP purs)
+BRAIN_EDGE_PRIOR_ALPHA = 0.5          # adoucissement (1.0 = prior plein, 0.0 = neutre)
+BRAIN_VOTES_WORKERS = 8
+# §63 — cadence scan 1 min (demande propriétaire) : constantes de TEMPS compensées.
+BRAIN_LOG_CAP = 2400                  # fenêtre roulante ~5 h à 480 entrées/h (maturation 1 h garantie)
+BRAIN_HITRATE_ALPHA = 0.01            # EWMA hit-rates : même demi-vie (~14 h) qu'à 5 min
+BRAIN_EARCP_LISSAGE = 0.02            # lissage vers la cible : même vitesse horaire qu'avant               # threads de gather_votes (agents = I/O réseau ; 1 = séquentiel)
+
+# === FUTURES RÉEL (§45 — décision propriétaire du 02/07/2026) ===
+# Le propriétaire a changé les règles (3 questions d'engagement répondues) : futures
+# réel autorisé (carry + directionnel), directement en réel, plafond = solde futures.
+# La porte d'edge est OUTREPASSÉE en connaissance de cause (0 agent LIVE) — remettre
+# FUTURES_EDGE_GATE_OVERRIDE=0 la referme instantanément. Les caps effectifs démarrent
+# BAS (montée progressive si l'exécution est propre) ; murs absolus en dur dans
+# futures_executor : 50 $/trade, 250 $ cumulé, infranchissables par env/config.
+FUTURES_EDGE_GATE_OVERRIDE = 1        # 0 = re-fermer la porte d'edge (retour à la preuve)
+FUTURES_REAL_MAX_PER_TRADE_USDT = 50.0   # cap effectif par ordre = mur dur (décision propriétaire 03/07, cap carry 200)
+FUTURES_REAL_MAX_GROSS_USDT = 200.0      # cap effectif exposition cumulée (mur dur : 250 ; décision propriétaire 03/07)
+FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
+# RE-BASELINE sur flux de capital : un saut du LIVRE d'un tick à l'autre > ce % de
+# l'ouverture est impossible en P&L de trading borné (murs 50/250, progressif) -> c'est
+# un dépôt/retrait/CONVERT (ex. conversion BGBTC 05/07 : -161$ -> faux breach). On décale
+# alors la baseline du montant du flux : le stop mesure le P&L, pas les mouvements de fonds.
+FUTURES_BOOK_CLIFF_REBASE_PCT = 15.0
+# Boucle directionnelle automatique (futures_auto, §45) — décide, délègue à l'exécuteur.
+FUTURES_AUTO_DIRECTIONAL = 1          # 0 = débrayer la boucle (aucune décision d'ordre)
+FUTURES_AUTO_NOTIONAL_USDT = 10.0     # taille d'ouverture (≤ cap/trade 15, murs 50)
+FUTURES_AUTO_LEVERAGE = 2.0           # levier demandé (mur ×5)
+FUTURES_AUTO_SEUIL_ENTREE = 0.35      # |consensus| minimal pour OUVRIR (conviction rare)
+FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (conviction morte)
+FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
+FUTURES_AUTO_MAX_POSITIONS = 3        # positions directionnelles simultanées max (multi-symboles §47,
+                                      # une par symbole ; aligné sur MAX_OPEN_POSITIONS)
+FUTURES_MARGE_ALERTE_DIST_PCT = 15.0
+FUTURES_FUNDING_TIMING_MIN = 20       # report d'OUVERTURE si un règlement de funding tombe
+                                      # dans N min et que le côté paierait (§60, SAVOIR §5)  # tripwire : alerte si une position est à < N % de son prix
+                                      # de liquidation (marge croisée, positions §47 empilées)
+FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
+FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
+
+# Jambes cash-and-carry automatiques (carry_auto, §45) — short perp COUVERT par le
+# BTC spot détenu (delta-neutre, levier ×1, sans SL : hedgé). Entrée : ATTRACTIF
+# (carry_monitor, seuil 5 %) ; sortie par hystérésis sous le seuil ci-dessous.
+FUTURES_AUTO_CARRY = 1                # 0 = débrayer les jambes carry
+FUTURES_CARRY_NOTIONAL_USDT = 200.0   # cible carry (décision propriétaire 03/07) — toujours ≤ 95 % de la couverture spot, montée par TRANCHES ≤ cap/trade toutes les 8 h
+FUTURES_CARRY_SEUIL_SORTIE_PCT = 2.0  # APR net sous lequel on FERME (hystérésis vs 5 %)
+FUTURES_CARRY_MIN_INTERVAL_H = 8.0    # une action carry max par période de funding
+# Couverture de la jambe carry : tokens du portefeuille comptant comme exposition
+# BTC, avec décote (wrapper BGBTC décoté 10 % — prudence dé-peg/conversion).
+CARRY_COUVERTURE_TOKENS = {"BTC": 1.0, "BGBTC": 0.9}
+
+FUTURES_POSITION_MODE = "hedge_mode"  # mode CIBLE (déclaré par le propriétaire 03/07) : long ET short
+                                      # simultanés (carry + directionnel). ADAPTATIF : une position
+                                      # OUVERTE fait autorité (Bitget refuse de basculer en position) ;
+                                      # la bascule s'applique au premier ordre à plat.
+FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut
+FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)
+FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
+                                         # compte en mode multi-devises (assetMode union,
+                                         # constaté le 02/07) -> crossed FORCÉ (Bitget
+                                         # interdit l'isolé en union) — resolve_marge_mode
+
+# === Accumulation RÉELLE : sizing proportionnel à l'opportunité (§44) ===
+# montant réel = cap·(FLOOR + (1−FLOOR)·score) ∈ [2, 5] $ avec cap 5 : restaure
+# l'edge de sizing validé (§38) que le clamp plat à 5 $ neutralisait. Décision
+# propriétaire du 02/07. FLOOR=1.0 -> retour au 5 $ plat.
+ACCUM_FENETRE_DEBUT_H = 16.0          # fenêtre d'achat DCA (UTC) : 16-19h mesurées ~10 bps
+ACCUM_FENETRE_FIN_H = 20.0            # moins chères que 12h sur 1 an de bougies 1h (§53)
+ACCUM_REAL_FLOOR_FRAC = 0.4
+ACCUM_RUNWAY_ALERT_USDT = 15.0        # alerte réapprovisionnement quand l'USDT spot libre passe dessous
 
 # Stratégie
 EMA_FAST = 9

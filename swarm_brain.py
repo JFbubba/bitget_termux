@@ -15,6 +15,8 @@ CLI : python swarm_brain.py [SYMBOL]
 import json
 import os
 import time
+
+from config_utils import cfg as _cfg
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -22,11 +24,27 @@ WEIGHTS_FILE = ROOT / "brain_weights.json"
 LOG_FILE = ROOT / "brain_log.json"
 HORIZON_S = int(os.getenv("BRAIN_HORIZON_S", "3600"))  # délai avant de juger une décision
 
-AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric"]
+AGENTS = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidations", "divergent", "structure", "simons", "savant", "geometric", "flows", "carry", "leadlag"]
+
+# Bornes DURES des poids finaux d'agents (convention historique, cf. update_weights).
+# La normalisation post-EARCP dans learn() les court-circuitait -> un agent pouvait
+# dériver au-delà (bug observé : divergent ~4.7). On re-borne à la sortie ET à la
+# lecture (auto-réparation du fichier obsolète). Surchargeable via config.
+BRAIN_WEIGHT_MIN = 0.2
+BRAIN_WEIGHT_MAX = 3.0
 
 
 def _clamp(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, x))
+
+
+def _clamp_weights(weights):
+    """Re-borne des poids finaux dans [MIN, MAX]. PUR. Évite qu'un agent domine
+    artificiellement le consensus après la normalisation post-EARCP."""
+    from config_utils import cfg as _cfg
+    lo = _cfg("BRAIN_WEIGHT_MIN", BRAIN_WEIGHT_MIN)
+    hi = _cfg("BRAIN_WEIGHT_MAX", BRAIN_WEIGHT_MAX)
+    return {k: round(max(lo, min(hi, v)), 3) for k, v in weights.items()}
 
 
 def _slope(y):
@@ -333,11 +351,49 @@ def agent_geometric(symbol):
         return {"vote": 0, "confidence": 0, "note": "n/a"}
 
 
+def agent_leadlag(symbol):
+    """Agent LEAD-LAG — contrarian BTC->alts (§52) : fade du z du mouvement BTC
+    récent, appliqué aux ALTS (BTC lui-même : vote 0). Mesuré AVANT adoption :
+    IC +0.178 (1h) / +0.201 (15m) sur bougies figées, 2 fenêtres indépendantes.
+    Déterministe, aucun NN. Voir leadlag_agent.py."""
+    try:
+        import leadlag_agent
+        return leadlag_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0.0, "confidence": 0.0, "note": "leadlag indisponible"}
+
+
+def agent_flows(symbol):
+    """Agent FLOWS — flux de capitaux marché-large : momentum de l'offre totale de
+    stablecoins (DefiLlama). Expansion = liquidités entrantes (haussier), contraction
+    = repli. Ignore le symbole (comme macro/sentiment) : son edge éventuel est
+    TEMPOREL (market-timing, §39), mesuré par le chemin 3 de la validation.
+    Déterministe, aucun NN. Voir flows_agent.py."""
+    try:
+        import flows_agent
+        return flows_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
+def agent_carry(symbol):
+    """Agent CARRY — positionnement dérivés contrarian : funding extrême + foule
+    long/short (ratio de comptes Bitget) + basis perp-spot. Fade le côté surpeuplé.
+    Famille de données ORTHOGONALE à la recherche négative §36-37 (qui n'a balayé
+    que des dérivés de bougies). Déterministe, aucun NN. Voir carry_agent.py."""
+    try:
+        import carry_agent
+        return carry_agent.agent(symbol)
+    except Exception:
+        return {"vote": 0, "confidence": 0, "note": "n/a"}
+
+
 AGENT_FUNCS = {
     "orderflow": agent_orderflow, "technicals": agent_technicals, "macro": agent_macro,
     "sentiment": agent_sentiment, "derivs": agent_derivs, "liquidations": agent_liquidations,
     "divergent": agent_divergent, "structure": agent_structure, "simons": agent_simons,
     "savant": agent_savant, "geometric": agent_geometric,
+    "flows": agent_flows, "carry": agent_carry, "leadlag": agent_leadlag,
 }
 
 
@@ -407,7 +463,7 @@ def update_weights(weights, agent_correct):
     return w
 
 
-def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
+def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05, perf_bounds=(0.2, 3.0)):
     """Pondération EARCP complète (arXiv:2603.14651). Pur.
 
     Combine PERFORMANCE et COHÉRENCE : chacune normalisée en [0,1], puis
@@ -420,16 +476,21 @@ def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
         return {}
     import math
 
-    def _norm(d):
-        vals = [float(d.get(n, 0.0)) for n in names]
-        lo, hi = min(vals), max(vals)
+    def _norm(d, lo, hi):
+        """Normalisation par bornes ABSOLUES (audit §51) : l'ancien min-max PAR LOT
+        étirait le meilleur du lot à 1 et le pire à 0 même pour un écart d'UN hit,
+        puis exp(η=5·s) donnait un ratio ×148 -> le gagnant du lot claquait au
+        clamp 3.0 à chaque learn (winner-take-all, poids d'orderflow saturé des
+        jours durant, re-saturé 2 cycles après un reset). Les entrées sont déjà
+        naturellement bornées (poids Hedge ∈ [0.2,3], cohérence ∈ [0,1]) : des
+        écarts RÉELS produisent des écarts de poids, des écarts d'un hit non."""
         rng = (hi - lo) or 1.0
-        return {n: (float(d.get(n, 0.0)) - lo) / rng for n in names}
+        return {n: min(1.0, max(0.0, (float(d.get(n, lo)) - lo) / rng)) for n in names}
 
     M = len(names)
     if w_min * M >= 1.0:                         # garde-fou : plancher réalisable
         w_min = 0.5 / M
-    P, C = _norm(perf), _norm(coherence)
+    P, C = _norm(perf, *perf_bounds), _norm(coherence, 0.0, 1.0)
     s = {n: beta * P[n] + (1.0 - beta) * C[n] for n in names}
     mx = max(s.values())                         # softmax stable numériquement
     ex = {n: math.exp(eta * (s[n] - mx)) for n in names}
@@ -439,18 +500,55 @@ def earcp_weights(perf, coherence, beta=0.7, eta=5.0, w_min=0.05):
     return {n: round(w_min + free * sm[n], 4) for n in names}
 
 
+def _apply_edge_priors(weights):
+    """Applique les priors ADVISORY de l'échelle d'edge (edge_ladder.weight_priors)
+    aux poids EARCP — ils bornent/orientent l'apprentissage, ne l'écrasent pas :
+    multiplicateur ADOUCI prior**alpha (alpha≤1), renormalisation à moyenne ~1,
+    re-borne [MIN,MAX]. Un agent ABSENT du rapport de validation reste neutre
+    (×1.0). Fail-safe NEUTRE : pas de rapport / module en panne -> poids inchangés.
+    Débrayable : BRAIN_EDGE_PRIORS=0."""
+    from config_utils import cfg as _cfg
+    try:
+        if not int(_cfg("BRAIN_EDGE_PRIORS", 1)):
+            return weights
+        import edge_ladder
+        priors = edge_ladder.weight_priors()
+        alpha = max(0.0, min(1.0, float(_cfg("BRAIN_EDGE_PRIOR_ALPHA", 0.5))))
+    except Exception:
+        return weights
+    if not priors:
+        return weights
+    w = {k: v * (max(float(priors.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
+    avg = (sum(w.values()) / len(w)) if w else 1.0
+    if avg > 0:
+        w = {k: round(v / avg, 3) for k, v in w.items()}
+    return _clamp_weights(w)
+
+
 def _coherence_scores(entries):
-    """Cohérence EARCP : fréquence d'accord de chaque agent avec le consensus. Pur."""
+    """Cohérence EARCP : accord de chaque agent avec le consensus DES AUTRES
+    (leave-one-out, non pondéré). Pur.
+
+    Audit du 03/07 : l'ancien calcul comparait au consensus INCLUANT l'agent —
+    à poids 3, orderflow dominait le consensus et « s'accordait avec lui-même »
+    (auto-cohérence 0.761 vs 0.467 en LOO sur 723 cycles live), ce qui l'épinglait
+    au clamp avec un IC live NÉGATIF à l'horizon de trading (−0.05 à 1 h, quand
+    flows/technicals faisaient +0.23 avec les poids les plus bas). Le LOO casse
+    cette boucle d'auto-renforcement. NB mesuré : la cohérence récompense le
+    troupeau, pas la justesse (liquidations : pire IC, meilleure cohérence LOO) —
+    si l'anti-corrélation persiste sur la durée, le terme lui-même sera rejugé."""
     agree, total = {}, {}
     for e in entries:
-        cons = e.get("consensus", 0) or 0
-        if cons == 0:
+        votes = {n: v for n, v in (e.get("votes") or {}).items() if v}
+        if len(votes) < 2:
             continue
-        for name, vote in (e.get("votes") or {}).items():
-            if not vote:
+        s_tot = sum(votes.values())
+        for name, vote in votes.items():
+            autres = s_tot - vote                     # consensus SANS moi (non pondéré)
+            if autres == 0:
                 continue
             total[name] = total.get(name, 0) + 1
-            if (vote > 0) == (cons > 0):
+            if (vote > 0) == (autres > 0):
                 agree[name] = agree.get(name, 0) + 1
     return {n: agree.get(n, 0) / total[n] for n in total}
 
@@ -501,7 +599,7 @@ def load_weights():
         w = {}
     for a in AGENTS:
         w.setdefault(a, 1.0)
-    return w
+    return _clamp_weights(w)          # auto-répare un fichier obsolète hors bornes dès la lecture
 
 
 def save_weights(w):
@@ -520,7 +618,7 @@ def _read_log():
 
 def _write_log(log):
     try:
-        LOG_FILE.write_text(json.dumps(log[-500:]), encoding="utf-8")
+        LOG_FILE.write_text(json.dumps(log[-int(_cfg("BRAIN_LOG_CAP", 2400)):]), encoding="utf-8")
     except Exception:
         pass
 
@@ -531,13 +629,68 @@ def _price(symbol):
 
 
 def _record(symbol, votes, result, price):
-    log = _read_log()
-    log.append({
+    entry = {
         "ts": int(time.time()), "symbol": symbol, "price": price,
         "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items()},
         "consensus": result["consensus"], "evaluated": False,
-    })
+    }
+    log = _read_log()
+    log.append(entry)
     _write_log(log)
+    # HISTORIQUE append-only (audit P2) : la fenêtre de 500 entrées ci-dessus ne
+    # couvre que ~6 h — l'historique long (revue des seuils, edge temporel) vit
+    # dans un JSONL gitignoré, à rotation bornée, une ligne par vote journalisé.
+    try:
+        import journal_append as ja
+        ja.append_jsonl(ROOT / "brain_log_history.jsonl", entry)
+    except Exception:
+        pass
+
+
+HITRATE_FILE = Path(__file__).resolve().parent / "brain_hitrates.json"
+HITRATE_ALPHA = 0.05                        # défaut historique (cadence 5 min)
+
+
+def _hitrate_alpha():
+    """§63 : α est une constante de TEMPS, pas de lots — à cadence 1 min les lots
+    arrivent ×5 plus vite, α passe à 0.01 (config) pour garder la même demi-vie
+    (~14 h) qu'avant. Sinon les hit-rates deviendraient regime-twitchy."""
+    return float(_cfg("BRAIN_HITRATE_ALPHA", HITRATE_ALPHA))
+
+
+def _load_hitrates():
+    """Taux de réussite EWMA par agent (0.5 = neutre). Fail-safe : {} si illisible."""
+    try:
+        d = json.loads(HITRATE_FILE.read_text(encoding="utf-8"))
+        return {k: float(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_hitrates(hr):
+    try:
+        tmp = HITRATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({k: round(v, 4) for k, v in hr.items()}), encoding="utf-8")
+        import os
+        os.replace(tmp, HITRATE_FILE)
+    except Exception:
+        pass
+
+
+def maj_hitrates(hitrates, correctness, alpha=None):
+    """PUR. EWMA du taux de réussite par agent : hr ← (1−α)·hr + α·taux_du_lot.
+    C'est l'entrée PERFORMANCE de l'EARCP (audit §51, 5e mécanisme) : l'ancienne
+    entrée était le POIDS lui-même (mémoire Hedge) — poids↑ -> P̃↑ -> cible↑ ->
+    poids↑, boucle auto-excitée jusqu'au clamp sur n'importe quelle inclinaison
+    persistante. Le hit-rate mesuré est EXOGÈNE : aucun chemin du poids vers lui."""
+    alpha = _hitrate_alpha() if alpha is None else alpha
+    hr = dict(hitrates)
+    for n, hits in (correctness or {}).items():
+        if not hits:
+            continue
+        taux = sum(1 for h in hits if h) / len(hits)
+        hr[n] = (1.0 - alpha) * float(hr.get(n, 0.5)) + alpha * taux
+    return hr
 
 
 def learn(symbol, price_now, weights):
@@ -558,13 +711,35 @@ def learn(symbol, price_now, weights):
         e["evaluated"] = True
         changed = True
     if correctness:
-        agent_correct = {n: (sum(v) / len(v) >= 0.5) for n, v in correctness.items()}
-        perf_w = update_weights(weights, agent_correct)         # mémoire de performance (Hedge borné)
+        hitrates = maj_hitrates(_load_hitrates(), correctness)  # performance EXOGÈNE (EWMA)
+        _save_hitrates(hitrates)
+        perf_hr = {n: hitrates.get(n, 0.5) for n in weights}
         coherence = _coherence_scores(log)                      # accord avec le consensus
-        coh = {n: coherence.get(n, 0.5) for n in perf_w}        # neutre (0.5) si pas d'historique
-        ew = earcp_weights(perf_w, coh)                         # EARCP : performance + cohérence
+        coh = {n: coherence.get(n, 0.5) for n in perf_hr}       # neutre (0.5) si pas d'historique
+        # β relevé 0.7 -> 0.9 (audit §51) : la cohérence MESURÉE anti-corrèle avec
+        # la justesse live (liquidations : meilleure cohérence LOO 0.78, PIRE IC
+        # −0.16 ; technicals l'inverse) — elle ne peut pas peser 30 % du score.
+        # À 10 % elle départage ; la PERFORMANCE décide. Configurable pour la
+        # revue : BRAIN_EARCP_BETA=0.7 restaure l'ancien arbitrage.
+        beta = float(_cfg("BRAIN_EARCP_BETA", 0.9))
+        # P = hit-rate EWMA ∈ [0.3, 0.7] (50 % ± 20 % couvre les taux réalistes) —
+        # une statistique MESURÉE, pas le poids (fin de la boucle auto-excitée §51).
+        ew = earcp_weights(perf_hr, coh, beta=beta, perf_bounds=(0.3, 0.7))
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
-        weights = {k: round(v / avg, 3) for k, v in ew.items()}  # remise à moyenne ~1.0 (convention)
+        cible = {k: v / avg for k, v in ew.items()}             # cible EARCP (moyenne ~1.0)
+        # LISSAGE vers la cible (audit §51, 3e mécanisme de saturation) : learn()
+        # tourne une fois PAR SYMBOLE (10×/cycle) et la cohérence ne change pas
+        # entre ces appels — ÉCRASER les poids par la cible re-composait la
+        # concentration exponentielle à chaque appel (×1.5 puis ^10 ≈ ×57 ->
+        # clamp 3.0 en un cycle, quel que soit l'écart réel). En se déplaçant de
+        # 10 % par apprentissage, un cycle complet ≈ 65 % du chemin vers une
+        # cible BORNÉE : un agent ne tient un poids haut que si sa cible RESTE
+        # haute (edge soutenu), plus jamais sur un lot chanceux.
+        lissage = float(_cfg("BRAIN_EARCP_LISSAGE", 0.1))
+        weights = {k: round((1.0 - lissage) * float(weights.get(k, 1.0))
+                            + lissage * cible[k], 3) for k in cible}
+        weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
+        weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
         save_weights(weights)
     if changed:
         _write_log(log)
@@ -572,13 +747,25 @@ def learn(symbol, price_now, weights):
 
 
 def gather_votes(symbol):
-    votes = {}
-    for name in AGENTS:
+    """Vote des 13 agents EN PARALLÈLE (threads — les agents sont I/O réseau).
+
+    Audit 03/07 : la version séquentielle mettait > 90 s pour l'univers complet dans
+    brain_cycle, TUÉE par le STEP_TIMEOUT du scan à 98 % des cycles sur 7 jours —
+    l'apprentissage n'aboutissait jamais au-delà des ~7 premiers symboles (biais
+    tête-de-liste dans brain_log). Les caches runtime_cache sont thread-sûrs
+    (verrou + écriture atomique). Ordre du dict = ordre AGENTS (déterministe)."""
+    from concurrent.futures import ThreadPoolExecutor
+    from config_utils import cfg as _cfg
+
+    def _vote(name):
         try:
-            votes[name] = AGENT_FUNCS[name](symbol)
+            return name, AGENT_FUNCS[name](symbol)
         except Exception as exc:
-            votes[name] = {"vote": 0, "confidence": 0, "note": f"err {type(exc).__name__}"}
-    return votes
+            return name, {"vote": 0, "confidence": 0, "note": f"err {type(exc).__name__}"}
+
+    workers = max(1, int(_cfg("BRAIN_VOTES_WORKERS", 8)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return dict(ex.map(_vote, AGENTS))
 
 
 def _attach_cognition(result, votes, weights, closes=None):
@@ -626,14 +813,26 @@ def read(symbol="BTCUSDT", do_learn=True):
     result = aggregate(votes, weights)
     result["symbol"] = symbol
     result["weights"] = weights
+    # §61 : learn et record SÉPARÉS, exceptions IMPRIMÉES. L'ancien try unique
+    # muet a caché 4.7 h de NameError dans learn() (import _cfg manquant) : le
+    # cerveau n'enregistrait plus AUCUN vote et personne ne le voyait — la
+    # boucle directionnelle tournait aveugle (fail-closed, mais aveugle).
     try:
         price = _price(symbol)
-        if do_learn:
+    except Exception as exc:
+        print(f"brain read({symbol}) prix: {type(exc).__name__}")
+        price = None
+    if do_learn and price:
+        try:
             learn(symbol, price, weights)
-        _record(symbol, votes, result, price)
-        result["price"] = price
-    except Exception:
-        pass
+        except Exception as exc:
+            print(f"brain learn({symbol}): {type(exc).__name__}: {exc}")
+    if price:
+        try:
+            _record(symbol, votes, result, price)
+            result["price"] = price
+        except Exception as exc:
+            print(f"brain record({symbol}): {type(exc).__name__}: {exc}")
     return _attach_cognition(result, votes, weights, _series(symbol))
 
 

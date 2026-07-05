@@ -1222,6 +1222,291 @@ vs rendements marché), à brancher comme la microstructure si on veut la creuse
 
 ---
 
+## §40 — Données ORTHOGONALES + carry non-directionnel + chemin 3 (edge temporel)
+
+**Demande (02/07)** : « améliorer le bot, chercher de nouvelles sources de data, ajouter
+des stratégies rentables ». Réponse HONNÊTE vis-à-vis de §35-39 : ne PAS rajouter de
+signaux dérivés des bougies (554 candidats déjà réfutés — en rajouter serait du
+data-mining déguisé). Trois axes orthogonaux à la place, tous advisory/paper.
+
+**1. Nouvelles sources (familles jamais balayées par §36-37, toutes gratuites/sans clé,
+fail-safe, cachées runtime_cache, sondées en direct depuis le VPS)** :
+- `derivs_positioning.py` — positionnement dérivés : funding natif Bitget (courant +
+  historique) + multi-venues (Binance/OKX/Bybit — le géo-blocage 451/403 noté dans
+  market_sources a DISPARU, re-sondé 7/7 endpoints OK), OI, basis perp-spot natif,
+  **série horaire du ratio de comptes long/short Bitget** (`account-long-short`).
+- `onchain_btc.py` — première source on-chain : Hash Ribbons (SMA30/60 du hashrate,
+  blockchain.info 6 mois ; capitulation/reprise mineurs = timing d'ACCUMULATION
+  historique), frais/congestion mempool.space, ajustement de difficulté.
+- `stablecoin_flow.py` — offre totale de stablecoins (DefiLlama, série journalière
+  depuis 2017) : momentum 7j/30j = « dry powder » ; mint/burn USDT/USDC mensuel.
+- `deribit_vol.py` — DVOL (vol implicite forward-looking, l'anti-GARCH) BTC/ETH,
+  vol réalisée, **VRP = DVOL − RV**, régime calme/normal/stress + drapeau expansion.
+
+**2. Deux nouveaux agents du cerveau (12e/13e, poids auto-seed 1.0, EARCP apprend)** :
+- **flows** (`flows_agent.py`) — marché-large, momentum de l'offre de stablecoins
+  (0.6·tanh(pct7/0.5)+0.4·tanh(pct30/2)), confiance PLAFONNÉE 0.5 (humilité : jamais
+  validé à l'étalon). Comme macro/sentiment, son edge éventuel est TEMPOREL (§39).
+- **carry** (`carry_agent.py`) — contrarian sur les extrêmes de positionnement :
+  z-score du funding vs historique + foule L/S + basis, confiance PLAFONNÉE 0.6.
+  ≠ `derivs` (contrarian 1D funding instantané) : 3 dimensions + mémoire historique.
+  Sanity live : foule Bitget ~2.0-2.4 crowd-long en peur extrême → vote négatif modéré,
+  cohérent avec la porte de régime.
+
+**3. Stratégie non-directionnelle mesurée (`carry_monitor.py`, PAPER)** : le
+cash-and-carry (long spot + short perp, delta-neutre) encaisse le funding SANS edge
+directionnel — la seule famille de rendement compatible avec le verdict §35-38. Le
+moniteur calcule l'APR brut (funding moyen 30 périodes annualisé) et NET (frais
+entrée+sortie amortis sur 30 j), étiquette ATTRACTIF/NEUTRE/NEGATIF
+(seuil `CARRY_SEUIL_APR_PCT`=5 %), journalise dans `.carry_journal.json` (gitignoré,
+cap 500, auto-throttle 1 h) via le cycle scan (agent_control). Mesure honnête du jour :
+BTC ~+3.9 % net (NEUTRE), la plupart NÉGATIF — le carry est maigre en peur extrême ;
+le moniteur dira quand il redevient payant. AUCUNE exécution (décision humaine, §38).
+
+**4. Chemin 3 de validation — edge TEMPOREL (la frontière §39, implémentée)** :
+`agent_validation.evaluate_market_timing` groupe brain_log par cycles de scan
+(`_cycles_from_log`), puis mesure par agent (+ pseudo-agent `consensus`) l'IC/t/hit/
+Sharpe/PSR entre vote moyen marché-large au cycle t et rendement MOYEN du marché à
+t+h, échantillonnage NON CHEVAUCHANT (pas = horizon, 12 cycles ≈ 1 h). Câblé dans
+`validation_report.json` (section `market_timing`, advisory). Time-gated : ~8
+échantillons sur les 8 h de log actuelles — c'est l'accumulation des semaines qui
+rendra le verdict. C'est l'étalon qui jugera flows/macro/sentiment (la coupe
+transversale les zéro-note par construction).
+
+**Garde-fous inchangés** : tout paper/advisory, aucun verrou touché, déterministe
+(zéro NN), 3 portes vertes (283/283 tests, +27), confiances des nouveaux agents
+plafonnées tant que rien n'a franchi l'étalon. Piège d'écriture appris : les mots
+scannés par les portes incluent le français « transfert » (contient un mot-clé) —
+dire « flux »/« virement ».
+
+**Reste ouvert (non fait, à décider)** : ~~brancher `rank_pure_agents_xs`~~ et
+~~appliquer les priors advisory d'edge_ladder~~ — les deux FAITS en §41 ; Hash
+Ribbons comme entrée optionnelle de l'opportunity_score d'accumulation (exigerait
+le backtest cost-basis §38 avant toute intégration).
+
+---
+
+## §41 — La boucle mesure→poids fermée : ranking transversal + priors d'edge branchés
+
+**Contexte.** Les deux chantiers laissés « à décider » en §40, choisis parce qu'ils
+ferment enfin la boucle entre l'edge MESURÉ (validation T5) et l'edge APPRIS (poids
+EARCP) — sans toucher AUCUN verrou ni seuil : le futures reste paper, la porte
+d'edge garde DSR≥0.90, n≥120, OOS>0 ET confirmation live.
+
+**1. Le rapport de validation lit la coupe TRANSVERSALE (`brain_validation`).**
+`main()` tente `run_xs()` (univers liquide, n EFFECTIF corrigé de la corrélation
+transversale, §40) et ne retombe sur le mono-symbole `run(symbol)` qu'en cas d'échec
+(réseau/univers). Le rapport porte `ranking_mode` (`xs`/`mono`) et `n_symbols`
+(transparence). Effet mesuré en direct (11 symboles) : n_eff 212–298 ≫ 120 — le
+palier LIVE devient MATHÉMATIQUEMENT atteignable sans baisser aucun seuil. Verdict
+honnête du jour : la breadth DÉGRADE tout le monde (divergent DSR 0.56→0.29,
+simons 0.53→0.26 : leur « edge » mono-BTC ne se réplique pas en coupe) — les 4
+agents purs sortent PAPER, personne n'approche le réel. La porte dit enfin quelque
+chose de crédible au lieu d'être structurellement fermée.
+
+**2. Les priors d'edge bornent ENFIN l'appris (`edge_ladder.weight_priors` +
+`swarm_brain._apply_edge_priors`).** Nouvelle carte {agent: prior} : palier replay
+-> prior (×1.5/×1.0/×0.6/×0.3), PLUS un dérate symétrique de `_live_confirms` — IC
+live significativement NÉGATIF (n≥60, ic_t≤−2.0) plafonne à ×0.3 : l'évidence
+CONTRE un agent compte autant que l'évidence pour. Un agent ABSENT du rapport
+reste neutre ×1.0 (on bride sur preuve, pas faute de mesure — ≠ `agent_tier` qui
+répond NEGATIVE : lui est une porte de promotion, fail-closed). Application dans
+`learn()` : multiplicateur ADOUCI `prior**alpha` (`BRAIN_EDGE_PRIOR_ALPHA`=0.5),
+renormalisation moy~1, re-borne [MIN,MAX] ; fail-safe NEUTRE (pas de rapport /
+module en panne -> poids inchangés) ; débrayable `BRAIN_EDGE_PRIORS=0`. Effet
+mesuré : technicals (ic_t live −2.87 sur 484 votes, 2e-3e poids — l'anomalie
+pointée en §40) 0.413→0.242 ; divergent (poids 3.0 appris sur la cohérence, prior
+PAPER) sera tiré vers le bas au prochain learn(). C'est exactement « l'edge mesuré
+borne l'edge appris ».
+
+**Pourquoi l'adoucissement α=0.5 ?** Prior plein (×0.3 brut) écraserait
+l'apprentissage EARCP (contraire au contrat « advisory » d'edge_ladder) ; √prior
+(×0.55) ORIENTE : un agent bridé peut encore remonter s'il accumule de la
+performance réelle — le plancher d'exploration EARCP reste vivant.
+
+**Garde-fous** : tout paper/advisory, aucun verrou touché, déterministe, portes
+vertes (287/287 tests, +4 : carte des priors + dérate live, adoucissement/fail-safe/
+débrayage, ranking_mode). Le rapport reste gitignoré (état local).
+
+---
+
+## §42 — Backtest cost-basis COMMITTÉ ; Hash Ribbons testé et REJETÉ (négatif honnête)
+
+**Contexte.** Dernier item ouvert de §40 : Hash Ribbons (reprise des mineurs,
+`onchain_btc`) comme entrée de l'`opportunity_score` d'accumulation — sous condition
+du backtest cost-basis §38, dont les outils étaient restés en scratch non committés
+(irreproductibles). Les deux points sont réglés ensemble.
+
+**1. L'outillage est maintenant COMMITTÉ et testé : `accum_backtest.py`.** Cœurs purs
+(`ribbon_signals` — équivalence prouvée par test avec `hash_ribbons` rejoué sur chaque
+préfixe, en une passe O(n) au lieu de O(n³) —, `cost_basis`, `avantage_pct`,
+`score_hr`, `simulate_amounts`, `folds_positifs`, `run_backtest`) + collecte réseau
+best-effort cachée (prix journalier blockchain.info depuis 2009, hashrate complet,
+F&G historique alternative.me 2018+). Fidélité production : le score est calculé sur
+une FENÊTRE de 200 jours (comme `analyze()` qui lit `_closes(limit=200)`), défauts du
+moteur figés (st_weight 0.30, base 10 $, mult 5). Protocole anti-surapprentissage :
+grille (2 formes × 4 poids) choisie sur IS (70 % chrono), jugée UNE fois sur OOS,
+robustesse = 5 plis contigus, nombre d'essais AFFICHÉ dans le rapport. Piège trouvé
+en route (test de régression ajouté) : le cache runtime passe par JSON — les clés
+int d'un dict deviennent des str au rechargement ; sans normalisation, le F&G
+historique était silencieusement perdu (couverture 0 jour).
+
+**2. Verdict Hash Ribbons : REJETÉ, données nettes.** Sur l'historique complet
+(5 794 j) : chaque combinaison (boost/signed × w∈{0.1..0.5}) fait PIRE que la
+baseline en IS ET en OOS, dégradation MONOTONE avec le poids (OOS +5.52 % baseline
+→ +2.44 % à w=0.5). Sur l'ère moderne 2018+ (3 070 j, F&G réel) : baseline
+IS +6.46 %/OOS +1.27 %/plis 100 % positifs, et le ribbon dégrade encore tout,
+monotone (OOS +1.27 → −0.69 à w=0.5). Explication structurelle (cohérente avec les
+rejets §38) : la « reprise » des ribbons CONFIRME le creux après coup — elle se
+déclenche quand le hashrate (et le prix) a déjà rebondi ; surpondérer ces jours-là
+achète APRÈS le bas, là où le moteur achète le creux lui-même (drawdown/RSI/peur/
+survente CT). 495 j de reprise sur 5 794 : le signal n'est pas rare au sens utile.
+**Décision : `opportunity_score` NON modifié.** `onchain_btc` reste une source
+advisory d'observabilité (dashboard/Telegram), pas une entrée de sizing.
+
+**Bonus de validation.** Le backtest committé revalide le moteur DÉPLOYÉ sur son
+terrain réel (BTC daily 2018+) : +1.27 % OOS, 100 % des plis positifs — cohérent
+avec §38 (+0.77 % OOS panel 15 symboles). Sur l'historique complet pré-2018 la
+baseline est négative par époques (bulles paraboliques 2011-2017 : « acheter le
+drawdown » se fait devancer par le plat quand ça ne corrige jamais) — rappel utile
+que l'avantage du DCA opportuniste est un edge de RÉGIME moderne, pas une loi.
+
+**Garde-fous** : lecture seule de bout en bout, aucun état modifié, aucun verrou,
+292/292 tests (+5 : équivalence préfixes, invariance d'échelle du cost basis,
+formes du mélange, régression clés JSON, structure/sélection-IS du protocole).
+
+---
+
+## §43 — Le réel rendu MESURABLE : réconciliation registre ↔ fills ↔ compte
+
+**Contexte.** Demande du propriétaire : « passer en réel ». Constat d'audit : le réel
+est DÉJÀ actif — double verrou levé avant cette session (MANDATE_LIVE_ENABLED +
+ACCUM_AUTONOMOUS_LIVE=1), 6 achats réels journalisés (5 $/j à 12:00 UTC via
+bitget-scan). Le futures réel reste IMPOSSIBLE honnêtement : 0 agent au palier LIVE
+(la coupe transversale §41 classe tout PAPER) et décision propriétaire §38 — le
+chemin vers le futures réel passe par l'étalon, pas par un interrupteur. Le vrai
+manque du réel n'était pas un verrou à lever mais une CÉCITÉ post-achat : le registre
+ne notait ni prix de remplissage, ni quantité BTC, ni frais — prix de revient réel
+inconnaissable, écart registre/compte indétectable.
+
+**Livré (`accum_reconcile.py`, LECTURE SEULE — n'écrit JAMAIS dans le registre de
+l'exécuteur).** Cœurs purs : `group_fills` (agrégation par ordre, VWAP, frais BTC),
+`match_buys` (appariement temps±300s / montant±35 % — les fills spot Bitget
+n'exposent pas le clientOid), `bilan` (prix de revient réel, PnL latent, écart
+solde). Réconciliation 3 SOURCES : registre (intentions) ↔ fills (exécutions vues
+par Bitget, --read-only) ↔ solde BTC du compte. Invariant exploité : on n'achète
+QUE du BTC -> un solde < cumul acheté net des frais = vente/retrait hors périmètre
+= ANOMALIE. Fenêtre de fills bornée par l'API : AFFICHÉE (jamais de faux « OK » sur
+fenêtre tronquée). Mesure du jour : 6/6 appariés, 29.94 USDT -> 0.00049900 BTC,
+prix de revient réel 59 994.81 $, PnL latent ~+2.9 %, solde couvre le cumul
+(+179 sats de poussière antérieure), zéro anomalie.
+
+**Corollaire de sécurité découvert et corrigé.** `python accumulation_engine.py`
+(documenté « état accumulation » dans CLAUDE.md) exécute en fait run() = un CYCLE —
+qui, verrous levés, peut ACHETER en réel. Une commande de consultation ne doit
+jamais emprunter ce chemin : ajout de `status()` / `--status` (consultation pure,
+testée : ne déclenche jamais _run_real, n'écrit rien), CLAUDE.md corrigé, et les
+nouvelles commandes Telegram `/accum` (statut) et `/accum_reel` (réconciliation)
+n'utilisent QUE ces chemins. Dashboard : prix de revient réel + PnL + verdict de
+réconciliation dans le panneau accumulation (cache 15 min).
+
+**Garde-fous** : aucun verrou touché (ils étaient déjà levés par le propriétaire),
+aucun nouveau chemin d'ordre (spot_executor inchangé), tout nouveau code en lecture
+seule, 297/297 tests (+4 : VWAP/frais, appariement/fenêtre, bilan/anomalies,
+status lecture seule).
+
+---
+
+## §44 — Sizing réel proportionnel : l'edge validé s'exprime enfin sous le cap
+
+**Découverte.** Le montant recommandé par le moteur (base 10 $, mult ×5 -> 10..50 $)
+dépasse TOUJOURS le cap réel de 5 $ : `min(recommandé, cap)` donnait donc 5 $ PLAT
+chaque jour — le sizing opportuniste, précisément l'edge validé au backtest
+cost-basis (§38 : +0.77 % OOS, 93 % des symboles ; revalidé §42 : +1.27 % OOS BTC
+daily 2018+), était structurellement NEUTRALISÉ en production. Les 6 premiers achats
+réels le confirment : tous à 5.00 $.
+
+**Décision propriétaire (02/07, sur question explicite)** : sizing **variable 2–5 $**.
+`real_dca_amount(score) = cap·(f + (1−f)·score)`, `f = ACCUM_REAL_FLOOR_FRAC = 0.4`
+(écrêté [0.1, 1] ; 1.0 = retour au plat) : 5 $ en capitulation, ~2 $ les jours chers,
+moyenne ~3 $/j. Options écartées : garder 5 $ plat (edge décoratif) ; moduler autour
+de 5 $/j (aurait exigé de RELEVER le cap par achat — verrou propriétaire, non
+demandé). Propriétés : montant ≤ cap PAR CONSTRUCTION (plus un clamp après coup),
+jamais 0 (plancher), spot_executor reste le backstop strict (gardes + mur absolu
+25 $ inchangés), promesse ≤5 $/j renforcée (la dépense moyenne BAISSE). Affiché
+partout : rapport CLI/Telegram (« RÉEL prévu »), dashboard (« $x réel (2–5 ∝
+score) »). La réconciliation §43 mesurera l'effet sur le prix de revient réel dans
+les semaines qui viennent — c'est elle qui dira si l'edge de backtest se matérialise.
+
+---
+
+## §45 — DÉCISION propriétaire : changement des règles, futures réel câblé
+
+**Décision du propriétaire (02/07/2026)** : « Je veux changer les règles et passer en
+full live. » Trois questions d'engagement posées et répondues explicitement :
+périmètre = **carry + directionnel** (en connaissance de cause : l'espérance
+directionnelle mesurée est NÉGATIVE, 0 agent LIVE, §35-41) ; validation =
+**directement réel** (pas d'étape demo) ; capital = **tout le solde futures**
+(~106 USDT au moment de la décision, ~260 USDT spot réservés à l'accumulation).
+Les avertissements ont été présentés par écrit à chaque option ; le choix est acté.
+
+**Ce qui change** :
+- `futures_executor` passe à l'ÉTAPE 2 : chemin réel CÂBLÉ (l'étape 1 levait
+  NotImplementedError). Mapping API v2 : mode one-way (side buy/sell + reduceOnly),
+  marge ISOLÉE (perte max d'une position = sa marge), ordres MARKET (tailles petites),
+  TP/SL préréglés arrondis au tick, taille arrondie VERS LE BAS au pas du contrat,
+  levier fixé AVANT l'ordre (borné ×5, fail-closed si l'exchange refuse).
+- Porte d'edge : OUTREPASSABLE par `FUTURES_EDGE_GATE_OVERRIDE=1` (config, décision
+  propriétaire datée). La remettre à 0 referme la porte instantanément. Les 7 autres
+  gardes restent NON négociables.
+- `security_agent.scan_futures_exec` : le réglage de levier (borné) et le side
+  'sell' (shorts) entrent au périmètre du module futures ; retrait/virement/
+  annulation restent INTERDITS DURS.
+- Armement : `FUTURES_AUTONOMOUS_LIVE=1` (.env) — double verrou complet avec
+  `MANDATE_LIVE_ENABLED`.
+
+**Ce que l'ingénierie impose en échange (non négociable)** :
+- Murs ABSOLUS en dur : 50 $/trade, 250 $ d'exposition cumulée — env/config peuvent
+  ABAISSER, jamais dépasser. Caps effectifs de DÉPART : 15/trade, 60 cumulé —
+  montée par paliers sur décision propriétaire si l'exécution est propre.
+- **Stop de perte JOURNALIER** (−5 % d'equity futures vs ouverture du jour) :
+  franchi -> KILL_SWITCH armé automatiquement + alerte Telegram. FAIL-CLOSED :
+  equity illisible = pas d'ouverture (on ne trade pas à l'aveugle). Une RÉDUCTION
+  reste permise après breach (fermer n'aggrave jamais le risque).
+- Montée en taille progressive : premiers ordres au minimum du contrat (~6-8 $).
+
+**Câblé ensuite (même jour)** :
+- Compte réel constaté : assetMode UNION (marge multi-devises) -> l'isolé est
+  interdit par Bitget ; mode de marge ADAPTATIF (`resolve_marge_mode`, crossed
+  forcé en union). Compte en mode couverture -> `_ensure_position_mode` le règle
+  en one-way avant l'ordre (idempotent, fail-closed).
+- **Boucle directionnelle automatique (`futures_auto.py`)**, câblée au cycle de
+  scan : consensus FRAIS du cerveau (< 15 min, sinon rien) -> ouvrir/fermer/rien.
+  Politique frugale (le §38 a montré que sur-trader détruit) : UNE position max,
+  pas de pyramidage, flip en 2 cycles, entrée à |consensus| ≥ 0.35, sortie sous
+  0.15, throttle 1 ordre/4 h, SL/TP PRÉRÉGLÉS côté exchange (1.5·ATR, RR 2 —
+  protégé même si le VPS meurt), notional 10 $ ×2. Décision seulement : toute
+  exécution passe par futures_executor et ses gardes. Débrayage :
+  FUTURES_AUTO_DIRECTIONAL=0.
+
+**Câblé (fin du chantier §45)** :
+- Observabilité complète : `futures_report.py` (lecture seule — préview de
+  décision via status() garanti sans exécution, position, equity + stop
+  journalier, réconciliation des fills DU BOT bornée au 1er ordre réel
+  journalisé — le trading manuel antérieur est exclu), Telegram `/futures`,
+  panneau dashboard, alertes push ⚡ à chaque exécution réelle.
+- **Jambes cash-and-carry (`carry_auto.py`)** : le BTC spot accumulé (jamais
+  vendu) sert de jambe longue ; entrée = carry_monitor ATTRACTIF (APR net ≥
+  5 %), short perp TOUJOURS ≤ 95 % de la couverture spot (delta-neutre par
+  construction), levier ×1, SANS SL (hedgé — un stop casserait la neutralité),
+  sortie par hystérésis (APR net < 2 %), throttle 8 h (période de funding),
+  relevé périmé (> 2 h) -> pas d'entrée ; en position, relevé illisible ->
+  TENIR (pas de sortie aveugle).
+- **Propriété de position** (`proprietaire_position`) : en one-way il n'y a
+  qu'UNE position nette — chaque boucle (auto_dir, carry) ne touche QUE la
+  sienne ; une position d'un autre agent (ex. 'validation' manuelle) n'est
+  JAMAIS touchée. Mutuelle exclusion honnête plutôt que netting silencieux.
+
 ## Feuille de route « cerveau » (issue de la recherche)
 - [x] Ensemble pondéré + apprentissage en ligne (Hedge borné). 
 - [x] **Agent divergent** — réécrit en agent **anticipateur** (divergence
@@ -1259,3 +1544,624 @@ _Références : 2506.05764, 2603.14651, 2412.03167, 2408.03594, 2505.17388,
 2112.02947, 2601.06084, 2602.12104, 2501.09404, 2209.05559, 2006.05826,
 2604.21297, 2604.20949, 2509.04683 ; Scheffer Nature 2009 ; Guttal/Diks PLOS
 One 2015 ; Empirical Economics 57(4) 2019._
+
+---
+
+## §46 — Audit multi-agents complet + premier aller-retour 100 % autonome
+
+**Audit orchestré (03/07, 16 agents : 9 sondes lecture seule + 4 analystes +
+contre-expertise)** : 39 anomalies brutes, 40 optimisations proposées, livrées en
+3 lots. Verdict global : architecture saine, exécution §45 validée, mais plusieurs
+défauts invisibles de longue date :
+
+- **P0** : bug de signature `_atr` (le SL réel n'a JAMAIS été basé ATR — repli 1.5 %
+  silencieux) ; doublon config FUTURES_REAL_MAX_* (éditer la 1re occurrence ne
+  faisait rien) ; halte drawdown du mandat INERTE sur le chemin réel (equity_curve
+  jamais passée) ; Telegram crashable par timeout réseau + /run_once pouvant
+  déclencher un cycle réel depuis le chat (désactivé).
+- **P1** : `gather_votes` parallélisé (brain_cycle était TUÉ à 90 s à 98 % des
+  cycles sur 7 j — l'apprentissage ne couvrait que ~7 symboles ; après : 13/13 en
+  58 s, confirmé sous systemd) ; halte globale évaluée AVANT le cerveau dans
+  preorder_engine (0.46 s vs ~60 s en risk-off) ; runtime_cache atomique + éviction
+  par clé (l'ancien slicing corrompait tout le cache au seuil 2 Mo) ;
+  macro_sentinel réparé (FRED bloque urllib, requests passe — nowcast vivant pour
+  la 1re fois : expansion 0.69) ; .env : le « token » CryptoPanic était un
+  commentaire (news_feed attend un vrai token).
+- **P2 (instrumentation revue J+14)** : `journal_append.py` (JSONL append-only,
+  rotation bornée) ; historique long des votes (`brain_log_history.jsonl` — la
+  fenêtre de 500 ≈ 6 h ne suffisait à aucune analyse) ; contexte de décision
+  (score/prix/premium/RSI/F&G) journalisé AVEC chaque achat réel ; journal des
+  décisions de cycle des 2 boucles (`futures_auto_journal.jsonl`) ; alerte
+  réapprovisionnement spot (seuil 15 $) ; affichage du VRAI USDT libre (45.98 $)
+  vs valeur totale du compte (253 $) qui était trompeuse.
+
+**Premier round-trip 100 % autonome (nuit du 02 au 03/07)** : consensus −0.54 →
+short 10 $ ×2 ouvert à 23:31:41 UTC (SL/TP préréglés côté exchange), conviction
+morte → fermé à 03:36:06. PnL réalisé −0.0007 $, frais 0.0148 $, net −0.015 $.
+Toute la chaîne décision → gardes → ordre → position → sortie → journal →
+réconciliation a fonctionné sans intervention. (Le SL de ce trade datait d'avant
+le correctif ATR ; les suivants utilisent 1.5·ATR.)
+
+**Addendum §46 — « plein potentiel Bitget » (03/07)** : inventaire des outils du
+client (spot/futures/account/margin/convert/earn/copytrading/p2p/broker) croisé
+avec l'usage réel. Deux verdicts :
+- **Earn : INDISPONIBLE par API** pour ce compte/région (`EARN_UNAVAILABLE`,
+  vérifié en direct) — la « piste EARN » documentée depuis §38 n'est PAS
+  actionnable avec la clé actuelle ; seule l'app manuelle le permettrait. Piste
+  fermée honnêtement (ne pas re-creuser sans changement de compte/région).
+- **Ouvertures futures en limit IOC plafonné** (±FUTURES_SLIPPAGE_TOL_PCT=0.10 %
+  du mark, force ioc) : parité avec la protection anti-slippage du spot
+  (limit_ioc §31) — remplit comme un market mais jamais au-delà du plafond ; un
+  remplissage partiel RÉDUIT le risque, jamais ne l'aggrave. Les RÉDUCTIONS
+  restent en market (la sortie doit toujours réussir). Margin trading et
+  copytrading/p2p/broker restent interdits durs ; convert (poussière) sans objet.
+
+**Addendum §46 — cap carry 200 (décision propriétaire, 03/07)** : caps effectifs
+portés à 50/trade (= mur) et 200 cumulé (mur 250 intact) ; cible carry 200 $,
+TOUJOURS ≤ 95 % de la couverture spot (BTC + BGBTC décoté — ~189 $ effectifs
+aujourd'hui), construite PAR TRANCHES ≤ cap/trade toutes les 8 h (période de
+funding), renforcement seulement tant que l'attrait reste ATTRACTIF (hystérésis :
+pas de rajout tiède). Corollaires d'ingénierie : (1) les RÉDUCTIONS sont exemptées
+des caps notional (reduceOnly = borné à la position — fermer un carry de 180 $ en
+un ordre) ; (2) le stop journalier mesure désormais le LIVRE COUVERT (equity
+futures + exposition BTC spot) — l'equity futures seule aurait produit un faux
+breach kill-switch sur tout BTC +6 % alors que le hedge gagne côté spot ; une
+composante illisible -> pas d'ouverture, pas de kill-switch (bases jamais
+mélangées entre deux mesures).
+
+**Addendum §46 — mode HEDGE (déclaré par le propriétaire, 03/07)** : le compte
+passe en mode couverture -> carry (short couvert) et directionnel (long/short)
+peuvent COEXISTER. Implémentation ADAPTATIVE : une position OUVERTE fait autorité
+(Bitget refuse la bascule en position — le posMode de la position est la seule
+vérité) ; à plat, l'exécuteur bascule vers la cible hedge_mode au premier ordre.
+Format d'ordre par mode : hedge = side du CÔTÉ de position (buy=long/sell=short,
+convention Bitget) + tradeSide open/close, sans reduceOnly ; one-way (transitoire)
+= side d'exécution + reduceOnly. Gestion PAR CÔTÉ dans les boucles
+(parser_positions, proprietaire_cote) : chaque boucle ne touche que le côté
+qu'ELLE a ouvert ; un côté occupé par un autre agent -> rien ; en one-way
+transitoire, ouvrir le côté opposé d'une position étrangère NETTERAIT -> refus
+explicite en attendant le hedge. Exposition brute des caps = somme des DEUX côtés.
+
+---
+
+## §47 — Multi-symboles : les agents passent en réel sur tout l'univers
+
+**Demande propriétaire (03/07)** : « continuer de passer les outils et les agents
+en réel ». Constat honnête : depuis la réparation de l'audit, le cerveau (13
+agents) vote et apprend sur TOUT l'univers (~10-13 symboles) à chaque cycle, mais
+seul le consensus BTCUSDT était câblé au réel. Le pipeline paper multi-symboles
+(journal_scanner -> pré-ordres) reste PAPER — sa mesure est PERDANTE (WR 32.5 %,
+TP/SL 0.48) : on ne câble pas un perdant mesuré, on étend le canal CONSENSUS.
+
+**Livré** :
+- `futures_executor` paramétré PAR SYMBOLE (spec contrat/prix/levier/positions —
+  cache par clé), rétro-compatible (défaut BTCUSDT). Murs/caps INCHANGÉS et
+  GLOBAUX : l'exposition brute compte tous les symboles et tous les côtés.
+- `futures_auto` MULTI-SYMBOLES, politique frugale étendue : une position max par
+  symbole, FUTURES_AUTO_MAX_POSITIONS=3 simultanées, 1) FERMETURES d'abord (une
+  par cycle, NON throttlées — réduire le risque n'attend pas), 2) OUVERTURE du
+  candidat au |consensus| MAX ≥ 0.35 sur l'univers, côté libre, un ordre par
+  throttle 4 h. Propriété par (symbole, côté) ; netting interdit en one-way
+  transitoire ; SL/TP ATR du symbole ; journal de décision avec symbole.
+- Le carry reste BTCUSDT (seule couverture spot détenue — §46).
+
+Le pipeline pré-ordres/paper reste le LABORATOIRE (mesure, jamais d'exécution).
+
+---
+
+## §48 — Agent GEOMETRIC réécrit sur mesure : réversion courte + tendance longue signée
+
+**Demande propriétaire (03/07)** : « analyse, cherche d'autres infos et améliore le
+bot geometric ». Diagnostic à l'étalon (replay, bougies FIGÉES, 4 symboles) : le
+cœur directionnel « suivre le momentum 8 barres » avait un IC NÉGATIF (poolé −0.05
+en 1h, −0.09 en 15m) — il CONTREDISAIT le fait stylisé mesuré par la propre
+recherche du dépôt (§35-38 : la réversion court terme est réelle en crypto).
+
+**Littérature ajoutée** : signatures de chemins pour la classification de régimes
+(arXiv:2107.00066), aire de Lévy lead-lag (2110.12288), estimateurs de Hurst — R/S
+biaisé sur n court, DFA robuste (2310.19051, 1208.4158), Hurst dynamique Bitcoin
+(1709.08090). Trois NOYAUX calculables implémentés (purs, testés) :
+- `levy_area_tp` : aire de Lévy du chemin (temps, prix) = terme antisymétrique du
+  niveau 2 de la signature — CONVEXITÉ signée du mouvement (accélération vs
+  essoufflement), 0 sur la corde, +1/6 pour x~t², −1/6 pour x~√t ;
+- `dfa_hurst` : Hurst par DFA(1), remplace le R/S comme estimateur principal ;
+- `w1_gauss` : distance de Wasserstein-1 à la gaussienne (transport optimal 1D),
+  calibrée numériquement (gaussien ≈ 0.06, t2.5 ≈ 0.24, seuils 0.10/0.22) —
+  3e voix du régime de queue aux côtés de Hill α et du proxy Φ.
+
+**Nouveau cœur directionnel MIX** (hypothèse tirée de §35-38, PAS minée) :
+réversion du mouvement court (z 8 barres, toujours active) + tendance longue
+(32 barres) qualifiée par Hurst-DFA et l'aire de Lévy, coupée en régime euclidien.
+Gate de toxicité inchangé. **Mesure avant/après sur bougies figées** : IC poolé
+−0.05 -> +0.11 (1h, t +1.8) et −0.09 -> +0.17 (15m, fenêtre INDÉPENDANTE, t +1.9),
+positif sur chacun des 4 symboles dans les deux fenêtres. 3 variantes testées
+(momentum long seul : +0.05 ; réversion seule : +0.06 ; mix : +0.11) — sélection
+sur 2 fenêtres indépendantes, direction pré-enregistrée par §35-38. L'agent reste
+ADVISORY (PAPER) : c'est la validation transversale (timer 6 h) et l'échelle
+d'edge qui jugeront sur la durée, avec déflation multiple-testing.
+
+---
+
+## §49 — Agent SAVANT « spécialiste trading » : la fenêtre bornée gagne, le reste rejeté
+
+**Demande propriétaire (03/07)** : améliorer l'agent « autiste digitale » (savant)
+en spécialiste trading. Baseline à l'étalon (replay, bougies figées, 4 symboles) :
+IC poolé +0.039 en 1h, vote 9 % du temps (hyper-focalisation par design), déjà le
+meilleur des 4 agents purs (DSR 0.339 en xs).
+
+**Littérature** : turbulence de Kritzman-Li (Mahalanobis comme indice de régime),
+Mahalanobis++ (arXiv:2505.18032 : la NORMALISATION des features est le levier n°1),
+proxies de liquidité OHLCV — spread Corwin-Schultz (2012), illiquidité d'Amihud
+(2002), microstructure crypto (2602.00776).
+
+**Mesure composant par composant (bougies figées 1h, validé 15m indépendant)** :
+- FENÊTRE BORNÉE (72) : +0.039 -> **+0.095** (1h, plateau stable fen 56-72) et
+  +0.145 -> **+0.185 (t 3.0)** en 15m. Argument de JUSTESSE, pas de fit : le
+  replay de validation passait TOUT l'historique quand le live calcule sur 80
+  bougies — l'étalon évaluait un autre agent que celui qui vote. ADOPTÉE.
+- Tenseur enrichi liquidité (D7, log-volume + CS + Amihud) : **−0.02 — REJETÉ**
+  (les dimensions de liquidité DILUENT la détection Mahalanobis du vote).
+- Seuil percentile adaptatif : −0.005 — REJETÉ. Direction z 3 barres : −0.009 —
+  REJETÉ. (La première réécriture complète faisait −0.009 poolé : c'est la mesure
+  composant par composant qui a sauvé l'amélioration.)
+
+Les utilitaires (corwin_schultz, turbulence_percentile, _standardize_robuste,
+tenseur enrichi=True) restent disponibles, TESTÉS, documentés « rejetés du vote à
+la mesure » — pour l'observabilité. Leçon reproduite deux fois (§48, §49) : chaque
+composant se mesure SÉPARÉMENT, la somme des bonnes idées n'est pas une bonne idée.
+
+---
+
+## §50 — Synesthésie du savant : l'alphabet de formes (Bandt-Pompe), perception non votante
+
+**Demande propriétaire (03/07)** : « ajoute un algorithme pour utiliser la
+synesthésie de l'agent autisme digital ». Traduction RIGOUREUSE (pas une
+métaphore) : les MOTIFS ORDINAUX de Bandt-Pompe — chaque fenêtre de 3 clôtures
+devient une « forme » d'un alphabet de 6 (0 = montée franche … 5 = descente
+franche) ; la série de prix devient une suite de formes, et la palette se lit :
+- `motifs_ordinaux` : traduction clôtures -> (formes, poids d'amplitude —
+  entropie de permutation PONDÉRÉE, arXiv:2207.01169) ;
+- `synesthesie` : entropie ∈ [0,1] (1 = bruit, bas = le marché « dessine »),
+  biais ∈ [−1,1] (asymétrie montée-franche vs descente-franche = irréversibilité
+  directionnelle, arXiv:2307.08612 crypto), motifs interdits (arXiv:0711.0729),
+  signal = biais × structure.
+
+**Mesure à l'étalon (bougies figées, 4 symboles)** : le sens CONTRARIAN gagne
+(+0.044 seul en 1h ; le sens continuation fait −0.044 — 3e confirmation du fait
+stylisé §35-38). En REPLI du fade (couverture 12 % -> 100 %) : 1h +0.089 -> +0.102
+MAIS 15m +0.172 -> +0.084 — **les deux fenêtres se CONTREDISENT, la dégradation
+15m dépasse le gain 1h -> PAS DE VOTE** (barre des deux fenêtres, comme §48-49).
+
+**Décision** : la synesthésie est PERCEPTION, pas vote — calculée à chaque
+signal(), exposée dans la sortie (`synesthesie: {entropie, biais, interdits,
+signal}`) et dans la note quand le marché « dessine » (H < 0.85 : « palette
+H0.72 montante »). Les consommateurs (rapports, dashboard, travaux futurs) la
+lisent ; le vote reste le fade Mahalanobis prouvé (§49). Si la validation
+transversale de longue durée montre un jour un edge stable du signal ordinal,
+le câblage au vote sera un chantier mesuré séparé.
+
+**Addendum §51 — maker-first carry : bloqué par la charte (décision propriétaire).**
+La recommandation « poser les tranches carry en post-only (frais 0.02 %) avec repli
+IOC (0.06 %) » économiserait ~2/3 des frais du carry. MAIS un ordre post-only non
+rempli RESTE au carnet (GTC) et exige une gestion d'annulation — or la charte
+interdit toute annulation au bot (« JAMAIS de retrait/virement/annulation »,
+futures_cancel_orders est dans FUTURES_EXEC_FORBIDDEN). Câbler maker-first
+imposerait d'autoriser le bot à annuler SES PROPRES ordres non exécutés — une
+extension de périmètre que seul le propriétaire peut accorder. En attendant :
+limit IOC ±0.10 % (jamais d'ordre orphelin, par construction).
+
+**Addendum §51 — durcissement des portes.** Deux pushes du 03/07 sont partis avec
+un test rouge à cause de chaînes shell défaillantes (pipe qui avale le code de
+sortie ; heredoc + saut de ligne qui sort `git commit` de la chaîne &&). Créé
+`gates.sh` (codes de sortie stricts, commit conditionnel) — forme obligatoire
+documentée dans CLAUDE.md. Le backtest directionnel long (recommandation n°5)
+reste au backlog.
+
+**Addendum §51 (suite) — cinq mécanismes de saturation, démontés un à un.**
+La traque du poids d'orderflow épinglé à 3.0 a révélé une cascade :
+1. cohérence AVEC SOI (consensus incluant l'agent) -> LOO ;
+2. min-max PAR LOT dans earcp_weights (un écart d'UN hit étiré à [0,1], ×exp(5))
+   -> bornes ABSOLUES ;
+3. learn() PAR SYMBOLE (10×/cycle) recomposait la concentration à chaque appel
+   -> l'EARCP devient une CIBLE, lissage 10 %/apprentissage ;
+4. cohérence à 30 % du score alors qu'elle ANTI-corrèle avec la justesse mesurée
+   -> β 0.9 (départage, configurable BRAIN_EARCP_BETA) ;
+5. le plus profond : l'entrée « performance » de l'EARCP était LE POIDS LUI-MÊME
+   (mémoire Hedge) — poids↑ -> P̃↑ -> cible↑ -> poids↑, auto-excitation jusqu'au
+   clamp sur n'importe quelle inclinaison persistante. Remplacée par le HIT-RATE
+   EWMA mesuré (α=0.05, brain_hitrates.json, exogène, borné [0.3,0.7]).
+
+Validation par simulation multi-seeds (30 cycles × 10 symboles, 8 graines) :
+sans edge + cohérence 0.85 (la pathologie) : médiane 0.99 (avant : 3.00) ;
+mauvais 42 % : 0.83 ; bon 58 % : 1.16 ; excellent 65 % : 1.82. Monotone, borné,
+plus d'auto-excitation. Poids remis à neutre sous le mécanisme final ; les
+priors d'edge (§41) continuent de s'appliquer par-dessus. À surveiller dimanche :
+la répartition des poids doit maintenant refléter les IC live (§51, tableau).
+
+---
+
+## §52 — Recherche de stratégies supplémentaires : un agent adopté, deux rejetés, trois en feuille de route
+
+**Demande propriétaire (03/07)** : « cherche des stratégies supplémentaires à
+ajouter ». Contraintes dures du tri : Bitget seul, déterministe, AUCUNE
+annulation d'ordre (charte), capital ~450 $, barre des deux fenêtres.
+
+**ADOPTÉ — agent LEAD-LAG contrarian BTC->alts (14e agent).**
+Littérature : lead-lag haute fréquence (arXiv:1111.7103), facteur BTC dans les
+alts (1903.06033). Trois formulations MESURÉES à l'étalon (bougies figées, 3
+alts, sous-échantillonnage anti-autocorrélation, 2 fenêtres indépendantes) :
+- réversion vers le facteur bêta×BTC (1903.06033 littéral) : +0.03 (1h) /
+  −0.09 (15m) — fenêtres CONTRADICTOIRES, rejetée ;
+- suivi du mouvement BTC : −0.178 / −0.201 — rejeté (signe inverse) ;
+- **FADE du z BTC 8 barres sur les alts : +0.178 (1h, t 3.5) / +0.201 (15m,
+  t 4.0) — adopté**. 4e confirmation du fait de réversion (§35-38), cross-asset.
+`leadlag_agent.py`, vote 0 sur BTC lui-même, poids appris par l'EARCP corrigé
+(§51), jugé par l'audit d'IC live comme les autres.
+
+**REJETÉ à la mesure** : réversion facteur bêta (ci-dessus) ; suivi lead-lag.
+
+**FEUILLE DE ROUTE (paper d'abord, dans l'ordre de valeur attendue) :**
+1. *Paires co-intégrées* (stat-arb BTC/ETH, legs SPONGE de geometric §46) —
+   marché-neutre, hedge mode prêt, capital OK (jambes 10-20 $). Infra existante
+   (partition signée) ; exige un moteur de spread + validation xs paper.
+2. *Momentum/réversion CROSS-SECTIONNELLE long-short* (2302.10175 : spatio-
+   temporel) — l'infra de validation xs mesure déjà par symbole ; la voie
+   paper peut ranker l'univers et simuler long-top/short-bottom delta-neutre.
+3. *Funding-extrêmes contrarian* — `futures_get_funding_rate` n'expose PAS
+   l'historique : pas de backtest possible ; à juger EN LIVE seulement (agent
+   candidat : short le funding extrême positif encaissé par le carry).
+4. *Saisonnalité horaire du DCA* — micro-optimisation du timing d'achat réel,
+   mesurable sur nos propres bougies 1h (petite, sans risque).
+
+**Écartés d'office (contraintes)** : grid trading (exige annulations —
+interdites), arbitrage triangulaire spot (exige ventes spot — interdites),
+options/VRP (pas d'API options), news momentum (pas de token CryptoPanic).
+
+---
+
+## §53 — Historique profond : trois verdicts d'un an de données
+
+`candles_history.py` (nouveau, SAFE lecture seule) : pagination endpoint public
+`history-candles` (granularité MIX en majuscule : 1H), cache disque incrémental
+gitignored (data_history/). Un an de bougies 1h téléchargé pour BTC/ETH/SOL/XRP
+(8800 bougies chacun). Trois questions de la feuille de route §52 tranchées :
+
+1. **Lead-lag (14e agent) sur 1 an : IC +0.014 (t 0.9, n=4356, pas 6 h)** —
+   positif sur chacun des 3 alts mais FAIBLE : le +0.18/+0.20 des fenêtres
+   récentes était en partie un régime (juin-juillet 2026 très réversif).
+   L'agent RESTE (signe jamais négatif, 3 fenêtres × 3 symboles) avec sa fiche
+   tempérée — le hit-rate EWMA (§51) le pèsera à sa juste valeur.
+
+2. **Paires co-intégrées : NO-GO.** Demi-vies de spread mesurées (OLS roulant
+   168 h, AR(1)) : ETH/BTC 1015 h, SOL/BTC 1386 h, SOL/ETH 1174 h, XRP/BTC
+   953 h — soit 40-58 JOURS pour rendre la moitié d'un écart. À notre échelle
+   (capital, funding sur DEUX jambes pendant des semaines), impraticable en 1h.
+   Résultat négatif précieux : la voie paper paires est fermée AVANT d'exister.
+   (Réexaminable un jour en 5m intrajournalier — autre bête.)
+
+3. **Saisonnalité horaire : RÉELLE et gratuite.** Prix relatif à la moyenne 24h
+   glissante, par heure UTC, sur 1 an : 16-19h UTC ressortent 10-15 bps sous la
+   moyenne (19h : −15.1 bps), 12h (l'heure de fait du DCA, ancrée par hasard)
+   à −4.5 bps. ADOPTÉ : `fenetre_achat_ok` — l'achat réel quotidien VISE
+   16-20h UTC, fail-open à 30 h de retard (jamais un jour sauté), registre
+   vierge exempté. ~+10 bps/achat, zéro coût, zéro risque ajouté.
+
+NB : le backtest du CONSENSUS complet sur l'an reste impossible offline — la
+plupart des agents consomment des flux live-only (carnet, liquidations,
+funding). L'instrument de mesure du consensus est l'audit d'IC live (§51).
+
+---
+
+## §54 — L'année contre les fenêtres : audit de régime des agents purs, porte annuelle
+
+**Audit des 4 agents purs sur TROIS fenêtres** (1h 25 j figée, 15m 6 j, 1h 1 AN) :
+
+| agent | 1h 25j | 15m 6j | 1 AN |
+|---|---|---|---|
+| simons | +0.043 | +0.106 | −0.004 |
+| divergent | +0.105 | +0.175 | −0.005 |
+| geometric v2 (§48) | +0.113 | +0.168 | **−0.068 (t −2.6)** |
+| geometric v1 (ancien) | −0.050 | −0.088 | **+0.045 (t +1.7)** |
+| savant (§49) | +0.089 | +0.172 | −0.062 (t −2.4) |
+| leadlag (§52) | +0.178 | +0.201 | +0.014 |
+
+**Leçon centrale : mes « deux fenêtres indépendantes » (§48-52) partageaient le
+MÊME régime** (juin-juillet 2026 très réversif). L'année inverse plusieurs
+verdicts. Tentative de v3 conditionnel au régime (mesure sur l'an : queue
+lourde -> réversion +0.02/+0.06 ; transitoire/gaussien -> momentum +0.06/+0.18,
+soit l'INVERSE de la thèse d'origine des papiers) : an +0.03, 1h +0.07, mais
+15m −0.10 -> AUCUNE formulation ne passe les trois fenêtres. Le signal est
+régime-dépendant par nature.
+
+**Décision structurelle (pas de winner-picking sur backtests contradictoires)** :
+1. v2/§49 restent en production (collent au régime COURANT — le live le
+   confirme : geometric DSR xs 0.48, priors relevés) ; fiches mises à jour.
+2. **Porte ANNUELLE dans l'échelle d'edge** : `agent_validation.replay_annuel`
+   (pur, données injectables) tourne à chaque validation (top-up incrémental de
+   l'historique), greffe `annuel: {ic, t, n}` sur chaque ligne du ranking, et
+   `edge_ladder.tier_of` REFUSE le palier LIVE si l'IC annuel est négatif
+   (fail-open sans mesure : on bride sur preuve). Un artefact de régime ne peut
+   plus être promu au réel.
+3. L'arbitrage fin des poids reste à la couche adaptative : hit-rate EWMA (§51)
+   + priors d'edge — c'est leur travail, sur données vivantes.
+
+---
+
+## §55 — Profondeur d'historique : Bitget natif remonte à 6 ans ; ordres réels marqués sur le graphique
+
+**Sondage de profondeur (03/07)** : l'endpoint public `history-candles` de Bitget
+sert des bougies 1h jusqu'à ~juillet 2020 (−6 ans OK, −8 ans vide). AUCUNE source
+externe nécessaire pour 6 ans d'histoire AU PRIX DU LIEU D'EXÉCUTION — la
+cohérence qui compte pour les backtests. Binance (−5 ans testé OK) et Bybit
+(−4 ans OK) sont joignables depuis le VPS : replis documentés si un jour il faut
+pré-2020 ou des symboles absents de Bitget. Téléchargé : BTC 50 201 bougies
+(2020-09 -> aujourd'hui) ; ETH/SOL/XRP en cours d'approfondissement.
+
+**TradingView / MCP (demande propriétaire)** : il n'existe AUCUN serveur MCP
+TradingView officiel — uniquement des projets communautaires (principal :
+atilaahmettaner/tradingview-mcp — données temps réel, indicateurs, screeners ;
+tradesdontlie/tradingview-mcp pilote TradingView Desktop). Décision de sécurité :
+ne PAS installer de code tiers non audité sur le VPS de production qui détient
+les clés de trading — c'est une décision propriétaire explicite si souhaitée
+(utile pour les SESSIONS D'ANALYSE, jamais pour le pipeline du bot, qui reste
+sur ses sources HTTP déterministes). Les MCP déjà connectés côté session
+(coinpaprika OHLCV historique, alphavantage crypto) couvrent le besoin d'analyse.
+
+**Graphique : indicateurs et ordres réels MARQUÉS (§55)** :
+- valeurs COURANTES des indicateurs (EMA20/50, VWAP) affichées sur l'axe des
+  prix, dans la couleur de leur série (lastValueVisible) ;
+- ORDRES RÉELS du symbole affiché posés sur les bougies : DCA (rond phosphore),
+  ouvertures long/short (flèches vertes/rouges « OUVRE L/S »), réductions
+  (carré ×) — source : registres spot + futures, fusionnés avec le marqueur de
+  conscience du cerveau (les setMarkers s'écrasaient mutuellement avant).
+
+**Addendum §55 — le verdict SIX ANS (194k bougies, tous les régimes 2020-2026).**
+Replay plafonné (~400 échantillons/symbole, déterministe — le fit HMM de simons
+rendait les 6 ans infaisables en un timer : >10 min -> 198 s après plafond) :
+
+| agent | 1 AN (§54) | 6 ANS | lecture |
+|---|---|---|---|
+| savant | −0.062 | **+0.062 (t +2.5)** | RÉHABILITÉ : 2025-26 était SON mauvais régime |
+| geometric v2 | −0.068 | **+0.032 (t +1.3)** | réhabilité aussi — §48 tient sur 6 ans |
+| divergent | −0.005 | −0.005 | plat, partout |
+| simons | −0.004 | −0.019 | plat (son DSR xs 0.70 = fenêtre courte) |
+| leadlag | +0.014 | −0.010 | plat sur 6 ans — instrument de régime, fiche déjà tempérée |
+
+Leçon au carré : MÊME le juge « annuel » était régime-sensible (l'an 2025-26
+condamnait savant/geometric que 6 ans réhabilitent). La porte d'edge lit
+désormais la fenêtre la plus PROFONDE disponible (6 ans), et la promotion LIVE
+exige toujours les trois preuves : xs récent + profond positif + live confirmé.
+Avec ces données : savant/geometric passeraient la porte profonde ;
+divergent/simons/leadlag y échoueraient (plats) — exactement le tri attendu.
+
+---
+
+## §56 — Formation : bibliothèque de savoir constituée (docs/SAVOIR.md)
+
+Demande propriétaire : « cherche sur internet, forme toi, accumule du savoir ».
+Méthode : recherches ciblées sur les questions OUVERTES du système (pas de
+collecte sans usage), lecture intégrale du papier pivot par agent dédié,
+croisement systématique avec nos mesures. Résultat : **docs/SAVOIR.md**, 8
+sections, chacune avec « implication pour le bot » :
+1. Forecast combination puzzle -> valide la refonte EARCP §51 (poids ~égaux) ;
+2-3. Carte tendance/réversion par horizon (Zurich 2501.16772, lu en entier) +
+   slow-momentum/fast-reversion (Oxford) -> valident la structure bi-échelle de
+   geometric v2 et éclairent §54 ; règle de SUR-EXTENSION (ne pas chasser une
+   tendance de t-stat > ~1.5) = chantier mesurable ;
+4. Anti-cherry-picking (plateau de paramètre obligatoire) ;
+5. Funding : le carry est une moisson d'euphorie (calme 11 % APR, euphorie
+   30 %+) — notre seuil 5 % bien calé, passage en percentile quand l'historique
+   interne suffira ;
+6. Structure 2026 : les flux d'ETF = acheteur marginal dominant (chantier :
+   input flows), cascades record (10/10/25 : 2.3 G$) encore violentes ;
+7. Sizing : ¼-½ Kelly max sous queues lourdes, vol-target lissé (le levier
+   FABRIQUE les queues — Farmer 0908.1555).
+Chantiers mesurables notés dans SAVOIR.md ; mémoire de session mise à jour.
+
+---
+
+## §57 — Les trois chantiers de SAVOIR.md, instruits le jour même
+
+1. **Momentum lent (pic 6-12 mois de Zurich) : NO-GO en crypto.** φ de tendance
+   (poids n·e^(−2n/T), t-stat bornée ±2.5) mesuré sur 6 ans de bougies 1D,
+   4 symboles, horizons 7/30 j : T=90j négatif, T=180j au mieux +0.026 (t 1.3 —
+   bruit), T=270j −0.042 (t −2.0, plutôt CONTRARIAN). La carte des horizons des
+   actifs traditionnels ne se transpose pas — la crypto 2020-2026 casse ses
+   tendances longues. On n'ajoute PAS d'agent momentum lent. (Le signe
+   contrarian à 270 j est noté comme observation, pas exploité : le retenir
+   maintenant serait du sign-flipping post hoc.)
+2. **Cap de sur-extension |φ|>1.5 : sans gain mesuré** sur le quotidien ; le
+   terme tendance de geometric (32 barres 1h, autre échelle) reste INTACT —
+   pas de retouche sans gain démontré.
+3. **Flux ETF BTC pour l'agent flows : bloqué sur clé.** farside.co.uk = 403
+   (Cloudflare), CoinGlass = « API key missing » (free tier existe). Décision
+   propriétaire, comme le token CryptoPanic — la valeur attendue est réelle
+   (les ETF sont l'acheteur marginal dominant, cf. SAVOIR.md §6).
+
+Bilan de la formation : 2 résultats négatifs propres (des semaines économisées),
+1 dépendance externe identifiée, et les acquis structurels (combination puzzle,
+sur-extension, funding-euphorie) gravés dans SAVOIR.md avec leurs implications.
+
+---
+
+## §58 (suite) — Inventaire des clés du .env : deux réveillées, quatre mortes
+
+Sondes du 03/07 (demande propriétaire « utilise les clés disponibles ») :
+| clé | état | action |
+|---|---|---|
+| ALPHAVANTAGE_API_KEY | ✅ fonctionne | TradFi ressuscité (macro_data, §58) |
+| KALSHI_API_KEY | ✅ fonctionne | kalshi_probe : échéances Fed/CPI vivantes dans le snapshot macro (advisory) |
+| FRED_API_KEY | présente | inutile pour l'instant (le CSV sans clé suffit au nowcast) |
+| TWELVEDATA / COINGECKO / FINNHUB / FMP | ❌ 401 (mortes) | le propriétaire régénère |
+| bearerToken X | ❌ 402 credits depleted | payant — abandonné pour l'instant |
+| BIRDEYE / HELIUS / SOLANA_RPC | présentes | hors périmètre actuel (on-chain Solana) — notées |
+| COINGLASS_API_KEY | ABSENTE | la clé demandée (ETF + funding history) — propriétaire s'inscrit |
+
+kalshi_probe.py : lecture seule, séries KXFEDDECISION + KXCPI, parsing pur testé
+(échéances passées exclues, repli close_time, tri), cache 1 h, snapshot macro
+enrichi (« Fed decision in Jul 2026 dans 26 j ») — première brique VIVANTE pour
+le black-out macro du mandat (jusqu'ici statique).
+
+---
+
+## §59 — Nouvelles clés propriétaire : CoinGecko OK, CoinGlass gratuit inutile,
+## le funding NATIF Bitget à la place, TwelveData pour l'or spot
+
+- **CoinGecko (nouvelle clé)** : fonctionne en en-tête demo — le client du dépôt
+  était déjà correct (demo + repli keyless), c'est l'ancienne clé qui était
+  morte. Filtre qualité de l'univers de retour sans repli.
+- **CoinGlass (nouvelle clé)** : authentifie, mais le tier GRATUIT ne couvre
+  AUCUN endpoint utile (ETF flow-history, funding history, liquidations :
+  « Upgrade plan », ~29 $/mois). Verdict honnête : pas rentable à notre échelle.
+  Le chantier flux ETF reste bloqué (alternatives payantes ou scraping fragile).
+- **PIVOT funding : l'historique est PUBLIC chez Bitget même**
+  (/api/v2/mix/market/history-fund-rate, 100 taux/page, plafond ~3 mois
+  glissants). `funding_history.py` : consolidation disque incrémentale (le
+  plafond 3 mois devient sans objet à mesure que NOTRE historique s'accumule),
+  percentile PUR (≥90 taux). Branché ADVISORY dans carry_monitor
+  (`funding_pctl`) — la porte réelle reste le seuil absolu 5 % (basculer au
+  percentile = décision mesurée séparée, cf. SAVOIR.md §5). État : 270 taux,
+  dernier +0.0001 (APR 11 %) = percentile 100 % de ses 3 mois (funding bas
+  partout — cohérent avec le carry NEUTRE).
+- **TwelveData (nouvelle clé)** : forex/métaux OK (800 req/j), indices payants.
+  macro_data optimisé TRI-SOURCES : or SPOT XAU/USD (bat le proxy GLD) et
+  dollar via EUR/USD INVERSÉ (TwelveData), SPX via AlphaVantage (SPY), VIX et
+  10 ans via FRED. 5 lectures sur 5 en live, régime RISK_ON.
+
+**Addendum §59 — black-out macro VIVANT.** Le mandat prévoyait ±30/15 min autour
+des annonces (MANDATE_MACRO_BLACKOUT_*) sans calendrier réel : la règle ne
+s'appliquait jamais. Câblé sur Kalshi (§58) : `evenement_imminent` (pur, testé)
++ `futures_auto.blackout_macro` — les OUVERTURES directionnelles sont refusées
+dans la fenêtre d'une décision Fed ou d'un print CPI (les FERMETURES restent
+permises : réduire le risque n'attend pas). Fail-open : calendrier muet ->
+porte transparente. Première application concrète du savoir §56 (les annonces
+macro sont les moments de dislocation) à la protection du capital réel.
+
+---
+
+## §60 — Les sept chantiers du « que pourrais-tu faire de plus ? », exécutés
+
+1. **Sauvegarde hors-VPS** : archive chiffrée AES-256 des 15 registres
+   irremplaçables -> document Telegram, timer quotidien 03:40 UTC. Première
+   archive envoyée et vérifiée. Passphrase dans le .env ET à conserver hors-VPS
+   par le propriétaire. Restauration documentée dans backup_registres.py.
+2. **Exit lab** : l'instrument qui jugera SL 1.5·ATR / RR 2 (conventions jamais
+   mesurées). Paper : WR 33.5 %, ratio TP/SL 0.504 sur 212 issues — le RR
+   conventionnel mérite examen. Réel : 4 fermetures < 10 -> l'instrument
+   accumule sans conclure.
+3. **Timing de funding** : report d'OUVERTURE si un règlement (00/08/16 UTC)
+   tombe sous 20 min et que le côté paierait (fail-open, fermetures intactes).
+4. **Voie xs paper** (dernier survivant §52) : panier dollar-neutre 2×2 jambes
+   de 10 $ fictifs, rebalance 24 h, journal dédié. Premier panier : long
+   HYPE/ETH, short BTC/LAB. Le laboratoire tranchera dans les deux sens.
+5. **Audit IC live permanent** (live_ic_audit.py) : l'outil ad hoc du §51
+   devenu module, branché à la revue. Jour 1 : technicals +0.24 (t 6.2) et
+   flows +0.22 en tête ; carry/derivs/liquidations significativement négatifs
+   -> candidats à l'audit de formulation quand l'échantillon suffira.
+6. **Décisions propriétaire actées** : CryptoPanic PAYANT -> refus assumé, le
+   sous-système news est CLOS (retiré des attentes). Restent ouvertes, à sa
+   main : autorisation d'annuler ses propres ordres (maker-first carry),
+   montée des caps (déclencherait le sizing vol-target), CoinGlass payant
+   (flux ETF).
+7. **Gouvernance du temps de mesure** : la revue hebdo produit désormais des
+   RECOMMANDATIONS CHIFFRÉES automatiques (verdict directionnel bloqué avant
+   30 fills, ratio TP/SL, agents à promouvoir/auditer selon l'IC live) — le
+   matériau de décision, l'humain tranche.
+
+---
+
+## §61 — Post-mortem : 4,7 h de cerveau gelé en silence (et les trois verrous posés)
+
+**Incident** (détecté par la question du propriétaire « les loops sont-ils
+actifs ? ») : le commit β de §51 (11:52) appelait `_cfg` dans learn() alors que
+l'import n'existait qu'en LOCAL dans une autre fonction -> NameError à CHAQUE
+apprentissage, AVALÉ par le try/except unique de read() qui couvrait aussi
+_record. Conséquences, de 12:01 à 16:44 : plus AUCUN vote journalisé (brain_log
+gelé), poids figés à 1.0 (pris à tort pour la « douceur » du nouveau mécanisme),
+boucle directionnelle AVEUGLE — fail-closed (consensus périmé -> aucun trade),
+donc zéro perte, mais zéro perception aussi. Les hit-rates, écrits AVANT la
+ligne fautive, donnaient l'illusion d'un système vivant.
+
+**Trois verrous posés** :
+1. import `_cfg` au niveau module + learn/record SÉPARÉS avec exceptions
+   IMPRIMÉES dans les logs du scan (fini le silence) ;
+2. smoke test learn() BOUT EN BOUT sur fichiers temporaires (aucun test
+   n'exerçait la fonction entière — le NameError passait les 340 tests) ;
+3. le watchdog surveille désormais la FRAÎCHEUR du cerveau (brain_log > 20 min
+   -> alerte Telegram 🚨) — la microstructure était surveillée, pas le cerveau.
+
+Leçon (la 3e du jour sur le même thème) : un try/except best-effort sans trace
+est une dette de visibilité ; tout chemin critique mérite son test de bout en
+bout ET son tripwire de fraîcheur.
+
+**Addendum §61 — « vérifie que rien n'est aveugle » : l'examen et la garantie.**
+Examen complet du 03/07 17h : les 14 agents voient (votes différenciés sur
+données réelles — F&G 21 Extreme Fear, imbalance +0.36, palette du savant
+active), 8/8 consensus frais, 12/12 sources amont vivantes (bougies, carnet,
+684 prix, TradFi 5/5, Kalshi, F&G, univers, funding + percentile, micro,
+équité, positions), 11/11 artefacts frais. GARANTIE PERMANENTE : le watchdog
+surveille désormais la CARTE DE FRAÎCHEUR complète (10 artefacts, un par
+boucle, seuils adaptés aux cadences) — un writer qui se tait, quelle qu'en
+soit la cause (exception avalée, étape sautée, service mort), FIGE son
+artefact et déclenche l'alerte Telegram sous 15 min. Surveiller les SORTIES
+couvre toutes les formes de silence d'un coup — c'est la clôture systémique
+des trois incidents de silence du jour.
+
+---
+
+## §62 — Audit des trois agents négatifs : formulations disculpées, le régime accusé
+
+**Exécution des recommandations post-§61** : banc GELÉ à 14 agents (le
+combination puzzle et l'audit live montrent que la largeur n'est pas le goulot ;
+onchain_btc reste dormant, réévaluation seulement si un manque de canal est
+démontré). Puis audit de formulation des trois négatifs de l'audit live
+(carry −0.14, derivs −0.18, liquidations −0.18 à 1 h, AGGRAVÉS à 4 h : jusqu'à
+−0.40, t −10.8 — négatifs à TOUS les horizons sur les 2.6 jours de live).
+
+**Lecture des formulations** : les trois sont de la même famille CONTRARIAN
+(derivs : fade linéaire du funding ; carry : fade pondéré funding/foule/basis ;
+liquidations : aimant des pools). Dans le marché baissier actuel (F&G 21,
+funding négatif), toutes votent LONG en continu -> l'hémorragie récente.
+
+**Étalon sur la fenêtre PROFONDE (90 j de funding réel × bougies, n=181)** :
+- fade LINÉAIRE (formulation actuelle de derivs) : +0.02 (8 h), **+0.14
+  (24 h, t 1.9)** — POSITIF sur 3 mois à son horizon naturel ;
+- fade aux EXTRÊMES (percentile 85/15, hypothèse SAVOIR §5) : +0.08/+0.09,
+  27 % de votants — PAS clairement meilleur : le gate n'est pas adopté.
+
+**Verdict** : formulations INTACTES. La sous-performance live est un RÉGIME
+(2.6 jours, fenêtre unique) — le même piège que §54, évité cette fois. C'est
+exactement le travail de la couche adaptative : les hit-rates dépondèrent en
+régime défavorable, la formulation garde son espérance de long terme.
+liquidations (non rejouable hors-ligne) bénéficie de la présomption de la même
+famille. À suivre en revue : si la négativité PERSISTE sur des semaines
+multi-régimes, la question se rouvrira — sur données, pas sur 2.6 jours.
+
+---
+
+## §63 — Cadences resserrées (décision propriétaire) : scan 1 min, watchdog 5 min
+
+Demande : « scan 14 agents toutes les minutes, watchdog toutes les 5 minutes,
+récap Telegram toutes les 15 » (notify était déjà à 15 ; watchdog était à 3 —
+passé à 5). Le scan passe de 5 min à 1 min (cycle ~60 s : systemd ne superpose
+jamais deux instances -> cadence effective = durée du cycle). Marges API :
+larges (endpoints publics 20 req/s, caches runtime inchangés).
+
+COMPENSATIONS de constantes de temps (sans elles, la cadence ×5 aurait
+dénaturé l'apprentissage) :
+- BRAIN_LOG_CAP 500 -> 2400 : à 480 entrées/h (8 symboles × 60 cycles), la
+  fenêtre de 500 aurait ÉVINCÉ les entrées AVANT leur maturation (1 h) —
+  l'apprentissage serait mort de faim ; 2400 ≈ 5 h de fenêtre ;
+- BRAIN_HITRATE_ALPHA 0.05 -> 0.01 : l'EWMA est une constante de TEMPS, pas de
+  lots — même demi-vie (~14 h) qu'avant malgré des lots ×5 plus fréquents ;
+- BRAIN_EARCP_LISSAGE 0.1 -> 0.02 : même vitesse horaire de convergence vers
+  la cible qu'avant.
+
+**Addendum §63 — le cerveau a son timer dédié.** Mesure post-bascule : le cycle
+COMPLET de scan dure ~70-85 s (18 étapes) — un « toutes les minutes » précis
+était physiquement borné. Le cerveau seul : 18 s caches chauds. Restructuration :
+`bitget-brain.timer` (1 min précise, AccuracySec 10 s) exécute brain_cycle.py
+seul ; le scan (boucles, veille, moniteurs) le SAUTE désormais (SKIP) et garde
+sa cadence ~1 min effective. Résultat : les 14 agents votent CHAQUE minute,
+sans double vote, et les boucles décident sur un consensus jamais plus vieux
+que ~60 s.

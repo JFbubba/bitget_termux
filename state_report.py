@@ -96,6 +96,10 @@ def print_open_report(open_rows):
 
             if entry and entry > 0:
                 pnl_percent = ((last - entry) / entry) * 100
+                # PnL SIGNÉ selon le sens (audit 03/07 : un SHORT gagnant s'affichait
+                # négatif ici mais positif dans compact_report — incohérence de signe)
+                if str(row.get("side", "")).upper() == "SHORT":
+                    pnl_percent = -pnl_percent
                 pnl_text = f"{pnl_percent:>7.3f}%"
             else:
                 pnl_text = "N/A"

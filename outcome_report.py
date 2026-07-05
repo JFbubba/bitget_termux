@@ -3,7 +3,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-OUTCOMES_FILE = Path("outcomes_journal.csv")
+# audit 03/07 : "outcomes_journal.csv" est un nom LEGACY qui n'existe plus ->
+# le rapport crashait (seul rapport CLI en échec). Source réelle via config.
+try:
+    from config_utils import cfg as _cfg
+    OUTCOMES_FILE = Path(_cfg("FINAL_OUTCOMES_FILE", "final_outcomes_journal.csv"))
+except Exception:
+    OUTCOMES_FILE = Path("final_outcomes_journal.csv")
 
 
 def load_outcomes():

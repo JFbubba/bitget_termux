@@ -1,0 +1,13 @@
+[Unit]
+Description=Bitget revue hebdomadaire automatique (dimanche 18h UTC)
+
+[Timer]
+# La revue compile les journaux de la semaine (§46) en un rapport de décision
+# poussé sur Telegram : avantage cost-basis réel, PnL net bot, distribution du
+# consensus, carry, poids, runway. L'humain décide — le bot mesure.
+OnCalendar=Sun *-*-* 18:00:00 UTC
+AccuracySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

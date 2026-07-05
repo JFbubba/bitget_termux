@@ -117,16 +117,106 @@ def tail_regime(returns, seed=12345):
     alpha, se, k = hill_tail_index(r)
     # HYBRIDE robuste : α (calibré crypto) tranche les cas DÉCISIFS ; sinon le proxy Φ
     # (stable sur fenêtre courte) décide — Hill est bruité sur < ~6 mois de données.
+    w1 = w1_gauss(r)                                # géométrie de la distribution ENTIÈRE
     if alpha is not None and alpha <= 2.2:
         regime = "non_euclidien"                   # queue très lourde (blow-up)
     elif alpha is not None and alpha >= 3.5:
         regime = "euclidien"                       # nettement gaussien
     else:
-        regime = "euclidien" if ratio < 1.3 else "transitoire" if ratio < 2.0 else "non_euclidien"
-    hurst = hurst_exponent(r)                       # >0.5 tendance / <0.5 réversion (2205.11122)
+        # DOUBLE voix (audit 03/07) : proxy de queue Φ ET distance W1 à la gaussienne
+        # (calibrée : gaussien ≈ 0.06, t2.5 ≈ 0.24) — l'une OU l'autre tranche le lourd.
+        lourd = (ratio >= 2.0) or (w1 is not None and w1 >= 0.22)
+        leger = (ratio < 1.3) and (w1 is None or w1 < 0.10)
+        regime = "non_euclidien" if lourd else ("euclidien" if leger else "transitoire")
+    # Hurst : DFA d'abord (robuste sur n court, arXiv:2310.19051), repli R/S (2205.11122)
+    hurst = dfa_hurst(r)
+    if hurst is None:
+        hurst = hurst_exponent(r)
     return {"phi": round(phi, 4), "phi_gauss": round(phi_g, 4), "ratio": round(ratio, 3),
             "alpha": round(alpha, 3) if alpha is not None else None,
+            "w1": round(w1, 4) if w1 is not None else None,
             "hurst": round(hurst, 3) if hurst is not None else None, "regime": regime}
+
+
+# ========== 6) SIGNATURE DE CHEMIN & GÉOMÉTRIE DE DISTRIBUTION (audit 03/07) ==========
+# Recherche complémentaire : signatures de chemins pour la classification de régimes
+# (arXiv:2107.00066), aire de Lévy signée en lead-lag (arXiv:2110.12288), robustesse
+# des estimateurs de Hurst (arXiv:2310.19051, 1208.4158 : R/S biaisé sur n court, le
+# DFA détrende), Hurst dynamique Bitcoin (arXiv:1709.08090).
+
+def levy_area_tp(closes, window=64):
+    """AIRE DE LÉVY du chemin (temps, prix) — terme ANTISYMÉTRIQUE du niveau 2 de la
+    signature (rough paths). PUR. A = ½Σ(t_i·ΔX_{i+1} − X_i·Δt_{i+1}), t∈[0,1],
+    X = log-prix ancré (X₀=0) et réduit par son écart-type.
+    Géométrie : 0 = le mouvement suit sa CORDE (ligne droite) ; > 0 = gain concentré
+    en FIN de fenêtre (ACCÉLÉRATION, x~t² -> +1/6) ; < 0 = mouvement essoufflé
+    (décélération, x~√t -> −1/6). Mesure la CONVEXITÉ du mouvement, pas sa direction.
+    Retourne tanh(6A) ∈ (−1,1) ; 0.0 si trop court."""
+    p = [float(c) for c in closes if c and c > 0]
+    if len(p) < 12:
+        return 0.0
+    p = p[-int(window):]
+    x = np.log(np.asarray(p, dtype=float))
+    x = x - x[0]
+    sd = float(x.std())
+    if sd < 1e-12:
+        return 0.0
+    x = x / sd
+    n = len(x)
+    t = np.linspace(0.0, 1.0, n)
+    a = 0.5 * float(np.sum(t[:-1] * np.diff(x) - x[:-1] * np.diff(t)))
+    return float(math.tanh(6.0 * a))
+
+
+def dfa_hurst(returns, min_win=8):
+    """Exposant de HURST par DFA(1) — plus ROBUSTE que R/S sur échantillon court
+    (arXiv:2310.19051, 1208.4158 : R/S sur-estime et biaise sous n≈500 ; le DFA
+    détrende chaque fenêtre avant de mesurer la fluctuation). PUR.
+    Y = cumsum(r − r̄) ; F(n) = RMS du résidu d'un ajustement LINÉAIRE par fenêtre ;
+    H = pente de log F(n) vs log n. None si trop court."""
+    r = np.asarray(returns, dtype=float)
+    N = len(r)
+    if N < 4 * min_win:
+        return None
+    Y = np.cumsum(r - r.mean())
+    tailles = []
+    n = int(min_win)
+    while n <= N // 4:
+        tailles.append(n)
+        n = int(round(n * 1.6)) if int(round(n * 1.6)) > n else n + 1
+    logn, logf = [], []
+    for n in tailles:
+        res = []
+        for b in range(N // n):
+            seg = Y[b * n:(b + 1) * n]
+            t = np.arange(n, dtype=float)
+            coef = np.polyfit(t, seg, 1)
+            res.append(float(np.mean((seg - np.polyval(coef, t)) ** 2)))
+        if res:
+            f = math.sqrt(max(float(np.mean(res)), 1e-24))
+            logn.append(math.log(n)); logf.append(math.log(f))
+    if len(logn) < 3:
+        return None
+    h = float(np.polyfit(logn, logf, 1)[0])
+    return h if 0.0 < h < 1.5 else None
+
+
+def w1_gauss(returns):
+    """Distance de WASSERSTEIN-1 des rendements STANDARDISÉS à la gaussienne (le
+    transport optimal en 1D = moyenne des |écarts de quantiles|). PUR. Géométrie de
+    la DISTRIBUTION ENTIÈRE (Hill ne voit que la queue ; Φ est un proxy) :
+    calibré numériquement n=160 : gaussien ≈ 0.06 (p90 0.08), t4 ≈ 0.15,
+    t2.5 (crypto) ≈ 0.24. None si trop court."""
+    from statistics import NormalDist
+    r = np.asarray(returns, dtype=float)
+    if len(r) < 32:
+        return None
+    x = _standardize(r)
+    xs = np.sort(x)
+    n = len(xs)
+    nd = NormalDist()
+    q = np.array([nd.inv_cdf((i + 0.5) / n) for i in range(n)])
+    return float(np.mean(np.abs(xs - q)))
 
 
 # ========== 4) TOXICITÉ D'ORDRE SUPÉRIEUR (Besov / Eldan-Gross) ==========
@@ -448,31 +538,48 @@ def signal(closes, order_flow=None, micro=None):
         tox = 1.0 - (1.0 - tox) * (1.0 - float(micro.get("toxicity", 0.0)))
 
     r = np.asarray(rets)
-    mom = math.tanh(float(r[-8:].sum()) / (r.std() + 1e-9) / 4.0)   # tendance récente normalisée
-    # Hurst (2205.11122) confirme/atténue le suivi de tendance : H>0.5 persistant
-    # -> renforce le momentum ; H<0.5 anti-persistant -> l'atténue. Facteur ∈ [0.5,1.5].
+    # ---- DIRECTION (réécrite à l'audit du 03/07, MESURÉE avant/après) ----
+    # L'ancien cœur « suivre le momentum 8 barres » CONTREDISAIT le fait stylisé
+    # mesuré par la recherche du dépôt (§35-38 : la réversion COURT TERME est réelle
+    # en crypto) : IC replay poolé −0.05 (1h) / −0.09 (15m) sur 4 symboles. Nouveau
+    # cœur MIX, hypothèse tirée de §35-38 + littérature signatures (2107.00066) :
+    #   • RÉVERSION du mouvement COURT (z 8 barres) — toujours active ;
+    #   • TENDANCE LONGUE (32 barres) qualifiée par Hurst (DFA, 2310.19051) et par
+    #     l'AIRE DE LÉVY (accélération dans le sens de la tendance), COUPÉE en
+    #     régime euclidien (gaussien : le suivi de tendance n'y a pas de support).
+    # Mesuré sur bougies FIGÉES (replay étalon, 4 symboles, 2 fenêtres
+    # indépendantes) : IC poolé −0.05 -> +0.11 (1h, t +1.8) et −0.09 -> +0.17
+    # (15m, t +1.9), positif sur chacun des 4 symboles.
+    # HONNÊTETÉ (§54, 1 AN d'historique) : sur 12 mois, ce cœur fait −0.07 (t −2.6)
+    # quand l'ancien faisait +0.045 — les « 2 fenêtres indépendantes » partageaient
+    # le MÊME régime réversif. Le split conditionnel mesuré sur l'an (queue lourde
+    # -> réversion ; transitoire/gaussien -> momentum) échoue lui aussi hors
+    # échantillon (15m −0.10). AUCUNE formulation ne passe les 3 fenêtres : le
+    # signal est RÉGIME-DÉPENDANT par nature. Décision : v2 reste (colle au régime
+    # courant), et c'est la couche adaptative qui arbitre — hit-rate EWMA (§51)
+    # côté poids, porte ANNUELLE (§54) côté promotion LIVE.
+    mom8 = math.tanh(float(r[-8:].sum()) / (r.std() * math.sqrt(8) + 1e-9) / 2.0)
+    mom32 = math.tanh(float(r[-32:].sum()) / (r.std() * math.sqrt(32) + 1e-9) / 2.0)
     h = tr.get("hurst")
     htrend = max(0.5, min(1.5, 1.0 + 2.0 * (h - 0.5))) if h is not None else 1.0
-
-    if tr["regime"] == "non_euclidien":
-        base = 0.45 * mom * htrend                 # crise = tendance : suivre, ne pas fader
-    elif tr["regime"] == "transitoire":
-        base = 0.2 * mom * htrend
-    else:  # euclidien : marché « gaussien » -> légère réversion
-        z = float(r[-1] / (r.std() + 1e-9))
-        base = -0.15 * math.tanh(z)
+    acc = levy_area_tp(closes)                     # convexité signée (signature niv. 2)
+    reversion = -0.35 * mom8
+    tendance = 0.2 * mom32 * htrend * (1.0 + 0.25 * acc * (1.0 if mom32 >= 0 else -1.0))
+    base = reversion + (tendance if tr["regime"] != "euclidien" else 0.0)
 
     # gate de toxicité : flux toxique -> on se retire (réduit vote ET confiance)
     vote = max(-1.0, min(1.0, base * (1.0 - tox)))
-    conf_base = 0.5 if tr["regime"] == "non_euclidien" else 0.25
+    conf_base = 0.45 if tr["regime"] == "non_euclidien" else 0.35
     conf = conf_base * (1.0 - 0.8 * tox)
 
     note = (f"régime {tr['regime']}"
             + (f" (α{tr['alpha']})" if tr.get("alpha") is not None else f" (×{tr['ratio']})")
+            + f" · rev{-mom8:+.2f} tend{mom32:+.2f} lévy{acc:+.2f}"
             + f" · toxicité {tox:.2f}" + (f" saut {jump:.2f}" if jump > 0.1 else "")
             + (" · RETRAIT" if tox > 0.6 else ""))
     out.update({"regime": tr["regime"], "tail_ratio": tr["ratio"], "alpha": tr.get("alpha"),
-                "toxicity": round(tox, 3), "jump": round(jump, 3), "momentum": round(mom, 3),
+                "w1": tr.get("w1"), "hurst": tr.get("hurst"), "levy": round(acc, 3),
+                "toxicity": round(tox, 3), "jump": round(jump, 3), "momentum": round(mom32, 3),
                 "vote": round(vote, 3), "confidence": round(max(0.0, conf), 3), "note": note})
     return out
 

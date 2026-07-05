@@ -1,0 +1,13 @@
+[Unit]
+Description=Bitget fail-safe : alerte immediate sur echec dur d'un service decisionnel (%i)
+# Declenche par OnFailure=bitget-failsafe@%n.service sur bitget-brain/bitget-scan.
+# Role : NOTIFIER vite (sans attendre le passage watchdog 5 min). L'escalade persistante
+# (rearmement des timers + kill-switch fail-safe) reste au watchdog --heal.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 failsafe_escalate.py %i
+User=root
+Nice=-5
+TimeoutStartSec=60

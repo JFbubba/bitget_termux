@@ -128,6 +128,40 @@ def dca_amount(score, base=None, max_mult=None):
     return round(float(base) * (1.0 + (float(max_mult) - 1.0) * _clamp01(score)), 2)
 
 
+def real_dca_amount(score, cap=None, floor_frac=None):
+    """Montant de l'achat RÉEL ∈ [floor_frac·cap, cap], proportionnel à l'opportunité.
+    PUR. montant = cap·(f + (1−f)·score), f = ACCUM_REAL_FLOOR_FRAC (défaut 0.4).
+
+    Pourquoi (décision propriétaire, §44) : le montant recommandé paper (base 10 $,
+    mult ×5 -> 10..50 $) dépasse TOUJOURS le cap réel 5 $ -> min() le clampait à
+    5 $ plat et NEUTRALISAIT le sizing opportuniste — précisément l'edge validé
+    au backtest cost-basis (§38, +0.77 % OOS). Cette échelle exprime le MÊME score
+    SOUS le cap : 5 $ les jours bon marché, ~2 $ les jours chers, moyenne ~3 $/j
+    (toujours ≤ promesse 5 $/j, aucun plafond touché). Jamais 0 : on accumule
+    toujours un plancher (f écrêté [0.1, 1])."""
+    cap = float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)) if cap is None else float(cap)
+    f = float(_cfg("ACCUM_REAL_FLOOR_FRAC", 0.4)) if floor_frac is None else float(floor_frac)
+    f = max(0.1, min(1.0, f))
+    return round(cap * (f + (1.0 - f) * _clamp01(float(score or 0.0))), 2)
+
+
+def fenetre_achat_ok(now, last_buy_ts, debut=None, fin=None, retard_h=30.0):
+    """PUR (§53). L'achat quotidien VISE la fenêtre horaire la moins chère, mesurée
+    sur UN AN de bougies 1h : 16-19h UTC ≈ 10 bps sous l'heure historique (12h).
+    Gratuit et cumulatif. FAIL-OPEN : si l'achat a > retard_h de retard (panne,
+    fenêtre manquée), on achète au premier cycle — jamais un jour de DCA sauté à
+    cause de l'horloge ; et un registre VIERGE achète sans attendre la fenêtre."""
+    from config_utils import cfg as _c
+    if last_buy_ts is None:
+        return True
+    if (float(now) - float(last_buy_ts)) > float(retard_h) * 3600.0:
+        return True
+    h = (int(now) % 86400) / 3600.0
+    debut = float(_c("ACCUM_FENETRE_DEBUT_H", 16.0) if debut is None else debut)
+    fin = float(_c("ACCUM_FENETRE_FIN_H", 20.0) if fin is None else fin)
+    return debut <= h < fin
+
+
 def should_buy(last_buy_ts, now, interval_h=None):
     """Throttle DCA : a-t-on attendu l'intervalle depuis le dernier achat ? PUR."""
     interval_h = _cfg("DCA_INTERVAL_H", DCA_INTERVAL_H) if interval_h is None else interval_h
@@ -289,10 +323,12 @@ def _run_real(a, now):
     import spot_executor as se
     buys = se._load_real().get("buys", [])
     last_real = buys[-1]["ts"] if buys else None
-    # Plafond/achat ALIGNÉ sur spot_executor (fallback 5 $, jamais 50) : on clampe le
-    # montant DCA au cap réel au lieu de proposer plus, ce que spot_executor rejetterait
-    # en bloc. spot_executor reste le backstop strict (mur absolu 25, _capped).
-    amount = min(float(a.get("amount_usd") or 0), float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0)))
+    # Sizing RÉEL proportionnel à l'opportunité SOUS le cap (§44) : l'ancien
+    # min(recommandé, cap) donnait 5 $ plat (recommandé toujours > cap) et
+    # neutralisait l'edge de sizing validé §38. spot_executor reste le backstop
+    # strict (gardes + mur absolu 25, _capped).
+    amount = real_dca_amount(a.get("score"))
+    a["real_amount_usd"] = amount
     a["mode"] = "RÉEL (auto)"
     # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
     # FAIL-CLOSED : si la garde premium est illisible (fair_price KO), on s'abstient
@@ -302,8 +338,15 @@ def _run_real(a, now):
         fair_ok = fp.is_fair_to_buy(a.get("premium_pct"), _cfg("ACCUM_MAX_PREMIUM_PCT", 0.30))
     except Exception:
         fair_ok = False
-    if a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now):
-        res = se.execute(amount, confirm=True, now=now)
+    if (a.get("price") and amount > 0 and fair_ok and should_buy(last_real, now)
+            and fenetre_achat_ok(now, last_real)):
+        # contexte de décision journalisé AVEC l'achat (audit P2) : la revue J+14
+        # relie chaque achat réel au score/prix/premium que le moteur voyait.
+        contexte = {"score": a.get("score"), "price": a.get("price"),
+                    "premium_pct": a.get("premium_pct"), "rsi": a.get("rsi"),
+                    "fear_greed": a.get("fear_greed")}
+        res = se.execute(amount, confirm=True, now=now,
+                         extra={k: v for k, v in contexte.items() if v is not None})
         a["bought"] = bool(res.get("executed"))
         a["real_exec"] = {"executed": res.get("executed"), "reasons": res.get("reasons")}
         buys = se._load_real().get("buys", [])
@@ -345,6 +388,46 @@ def run(symbol="BTCUSDT", now=None):
     return a
 
 
+def status(symbol="BTCUSDT"):
+    """État d'accumulation STRICTEMENT LECTURE SEULE : comme run() mais sans jamais
+    acheter ni écrire un registre. Pour Telegram/dashboard/CLI --status : avec le
+    double verrou armé, run() peut déclencher un achat réel (throttlé 1/j) — une
+    commande de consultation ne doit JAMAIS emprunter ce chemin."""
+    a = analyze(symbol)
+    a["live_armed"] = _live_armed()
+    a["spot_balance"] = real_spot_balance()
+    # USDT spot LIBRE (celui qui finance les achats — audit P2 : real_spot_balance
+    # rapporte la VALEUR TOTALE du compte spot, trompeuse comme « solde libre »).
+    try:
+        import spot_executor as se
+        a["spot_libre_usdt"] = se._spot_free_usdt()
+    except Exception:
+        a["spot_libre_usdt"] = None
+    a["gate"] = gate_advice(a.get("amount_usd"), a.get("spot_balance"))
+    a["bought"] = False
+    if _autonomous_live():
+        a["mode"] = "RÉEL (auto) — consultation"
+        a["real_amount_usd"] = real_dca_amount(a.get("score"))
+        real = _load_real_summary()
+        a["ledger"] = real
+    else:
+        a["mode"] = "paper — consultation"
+        led = load_ledger()
+        a["ledger"] = {k: led.get(k) for k in ("total_btc", "total_cost_usd", "avg_price", "n_buys")}
+    return a
+
+
+def _load_real_summary():
+    """Résumé du registre RÉEL (lecture seule). {} si absent/illisible."""
+    try:
+        import spot_executor as se
+        buys = se._load_real().get("buys", [])
+        return {"real_spent_usd": round(sum(float(b.get("amount_usdt", 0)) for b in buys), 2),
+                "n_buys": len(buys)}
+    except Exception:
+        return {}
+
+
 def build_report(a):
     led = a.get("ledger", {})
     mode = a.get("mode", "paper")
@@ -358,8 +441,13 @@ def build_report(a):
             advis = "bloqué par le mandat : " + " ; ".join(g.get("blocks", []))
     else:
         advis = "avis mandat indisponible"
-    bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
-                else "Solde spot libre : non lu\n")
+    libre = a.get("spot_libre_usdt")
+    if libre is not None:
+        bal_line = (f"USDT spot LIBRE : {round(libre, 2)} $ (finance les achats)"
+                    + (f" · valeur totale du compte spot ~{round(bal, 2)} $\n" if bal is not None else "\n"))
+    else:
+        bal_line = (f"Solde spot libre : {round(bal, 2)} USDT\n" if bal is not None
+                    else "Solde spot libre : non lu\n")
     p = a.get("premium_pct")
     prem_line = (f"Prix vs marché : Bitget {p:+.2f}% vs médiane cross-exchange\n"
                  if p is not None else "")
@@ -375,7 +463,9 @@ def build_report(a):
             + bal_line + prem_line + skip_line +
             f"Opportunité d'achat : {a.get('score', 0):.2f}  (RSI {a.get('rsi')} · "
             f"F&G {a.get('fear_greed')})\n"
-            f"DCA recommandé : {a.get('amount_usd')} $  ({advis})  "
+            f"DCA recommandé : {a.get('amount_usd')} $  ({advis})"
+            + (f"  · RÉEL prévu : {a.get('real_amount_usd')} $ (proportionnel au score, §44)"
+               if a.get("real_amount_usd") is not None else "") + "  "
             f"{('-> ACHAT ' + mode + ' journalisé') if a.get('bought') else '(intervalle non écoulé)'}\n"
             + cumul + "\n"
             "Spot, on ne vend jamais (hold). EARN: piste future. VERDICT: SAFE")
@@ -383,8 +473,13 @@ def build_report(a):
 
 def main():
     import sys
-    sym = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
-    print(build_report(run(sym)))
+    args = [x for x in sys.argv[1:]]
+    consult = "--status" in args
+    args = [x for x in args if x != "--status"]
+    sym = args[0] if args else "BTCUSDT"
+    # --status = consultation pure (jamais d'achat) ; sans flag = CYCLE (peut acheter
+    # en réel si le double verrou est armé — c'est le chemin du scheduler).
+    print(build_report(status(sym) if consult else run(sym)))
 
 
 if __name__ == "__main__":

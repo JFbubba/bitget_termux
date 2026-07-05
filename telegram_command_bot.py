@@ -114,6 +114,8 @@ def handle_command(text):
             "/agents - liste des agents\n"
             "/security - audit sécurité\n"
             "/getagent_audit - audit du skill GetAgent\n"
+            "/bord - journal de bord : derniers événements réels du bot (lecture seule)\n"
+            "/audit - audit live : IC par agent + MFE/MAE des trades réels (lecture seule)\n"
             "/git_version - version Git du dépôt (lecture seule)\n"
             "/system_health - bilan de santé du système (lecture seule)\n"
             "/watchdog - état de la boucle agent_loop (lecture seule)\n"
@@ -128,8 +130,13 @@ def handle_command(text):
             "/news [DEVISES] - dernières news crypto (ex. /news BTC,ETH)\n"
             "/deriv SYMBOL - funding & OI agrégés (Binance+Bybit+Bitget)\n"
             "/poly [RECHERCHE] - cotes Polymarket (prédiction/sentiment)\n"
-            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 6 agents\n"
+            "/brain [SYMBOL] - cerveau essaim : consensus pondéré des 13 agents\n"
             "/liq [SYMBOL] - carte de liquidations (clusters/aimants de liquidité)\n"
+            "/accum [SYMBOL] - état accumulation BTC (consultation, jamais d'achat)\n"
+            "/accum_reel - prix de revient RÉEL + réconciliation fills/compte (lecture seule)\n"
+            "/futures - boucle auto §45 : décision préview, position, PnL réalisé (lecture seule)\n"
+            "/revue - revue hebdo à la demande : cost-basis, PnL net, consensus, carry, runway\n"
+            "/portefeuille - inventaire spot valorisé + exposition BTC totale (lecture seule)\n"
             "/calendar [DEVISES] - calendrier éco à fort impact (ex. /calendar USD)\n"
             "/arb [SYMBOL] - détection d'écarts de prix (spot/base/funding)\n"
             "/tradfi - macro TradFi temps quasi-réel (VIX/DXY/SPX/10Y/or/pétrole)\n"
@@ -150,7 +157,7 @@ def handle_command(text):
             "/paper_positions - positions paper ouvertes\n"
             "/paper_journal - dernières fermetures paper TP/SL\n"
             "/guard_journal - derniers blocages pré-ordres OBSERVATION\n"
-            "/run_once - lancer un cycle maintenant\n"
+            "/run_once - désactivé (§45 : le scan réel tourne seul toutes les 5 min)\n"
             "/pause - mettre l’agent en pause\n"
             "/resume - relancer l’agent\n"
             "/pause_status - voir l’état pause\n"
@@ -167,6 +174,7 @@ def handle_command(text):
             "/agents - affiche le manifest des agents\n"
             "/security - lance le Security Agent\n"
             "/getagent_audit - audite le skill GetAgent\n"
+            "/bord - journal de bord (derniers événements réels) · /audit - IC live + MFE/MAE réels\n"
             "/git_version - affiche la version Git (commit, branche, tag, état)\n"
             "/system_health - affiche le bilan de santé (lecture seule)\n"
             "/watchdog - vérifie si agent_loop tourne (lecture seule)\n"
@@ -174,6 +182,7 @@ def handle_command(text):
             "/orderflow [SYMBOL] - carnet, CVD, open interest, funding (lecture seule)\n"
             "/macro - VIX / courbe des taux / DXY -> régime risk-on/off (lecture seule)\n"
             "/confluence SYMBOL SIDE - confluence signal + microstructure + macro\n"
+            "/accum [SYMBOL] - état accumulation (consultation) · /accum_reel - réconciliation réelle\n"
             "/ask QUESTION - assistant IA conversationnel (lecture seule)\n"
             "/price SYMBOLES · /news [DEVISES] - prix & news\n"
             "/feargreed - Fear & Greed · /defi - TVL DefiLlama\n"
@@ -392,6 +401,35 @@ def handle_command(text):
         result = subprocess.run(["python", "liquidations.py", sym], capture_output=True, text=True, timeout=40)
         return result.stdout if result.returncode == 0 else f"❌ liquidations.py\n{result.stderr[-1500:]}"
 
+    if text.startswith("/portefeuille") or text.startswith("/wallet"):
+        result = subprocess.run(["python", "portefeuille.py"], capture_output=True, text=True, timeout=120)
+        return result.stdout if result.returncode == 0 else f"❌ portefeuille.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/revue"):
+        # revue hebdomadaire à la demande (lecture seule, sans --send : la réponse
+        # part par le canal de commande, pas par le notifier)
+        result = subprocess.run(["python", "revue_hebdo.py"], capture_output=True, text=True, timeout=120)
+        return result.stdout if result.returncode == 0 else f"❌ revue_hebdo.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/futures"):
+        # rapport futures LECTURE SEULE (préview de décision, jamais d'exécution)
+        result = subprocess.run(["python", "futures_report.py"], capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ futures_report.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/accum_reel"):
+        # réconciliation registre ↔ fills ↔ compte (lecture seule, aucun ordre)
+        result = subprocess.run(["python", "accum_reconcile.py"], capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ accum_reconcile.py\n{result.stderr[-1500:]}"
+
+    if text.startswith("/accum"):
+        # --status OBLIGATOIRE : sans lui, le script exécute un CYCLE qui peut acheter
+        # en réel (double verrou armé) — une commande chat doit rester consultation.
+        parts = text.split()
+        sym = parts[1].upper() if len(parts) > 1 else "BTCUSDT"
+        result = subprocess.run(["python", "accumulation_engine.py", "--status", sym],
+                                capture_output=True, text=True, timeout=90)
+        return result.stdout if result.returncode == 0 else f"❌ accumulation_engine.py\n{result.stderr[-1500:]}"
+
     if text.startswith("/calendar") or text.startswith("/eco"):
         parts = text.split()
         result = subprocess.run(["python", "econ_calendar.py"] + [p.upper() for p in parts[1:]],
@@ -507,6 +545,38 @@ def handle_command(text):
         if result.returncode != 0:
             return (
                 "❌ Erreur getagent_audit.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/bord":
+        result = subprocess.run(
+            ["python", "journal_de_bord.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur journal_de_bord.py\n\n"
+                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
+                f"STDERR:\n{result.stderr[-2500:]}"
+            )
+
+        return result.stdout
+
+    if text == "/audit":
+        result = subprocess.run(
+            ["python", "live_ic_audit.py"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return (
+                "❌ Erreur live_ic_audit.py\n\n"
                 f"STDOUT:\n{result.stdout[-2500:]}\n\n"
                 f"STDERR:\n{result.stderr[-2500:]}"
             )
@@ -697,24 +767,14 @@ def handle_command(text):
         return "\n".join(output)
 
     if text == "/run_once":
-        reply_text("▶️ Cycle manuel lancé. Attends le rapport de fin.")
-        result = subprocess.run(
-            ["python", "agent_control.py"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            return (
-                "❌ Erreur pendant agent_control.py\n\n"
-                f"STDOUT:\n{result.stdout[-2500:]}\n\n"
-                f"STDERR:\n{result.stderr[-2500:]}"
-            )
-
-        return (
-            "✅ Cycle manuel terminé.\n"
-            "Le rapport compact a été envoyé séparément par agent_control.py."
-        )
+        # §45 (audit 03/07) : un cycle complet peut désormais passer des ordres RÉELS
+        # (accumulation spot, boucles futures). Une commande chat ne déclenche plus
+        # JAMAIS ce chemin — le scan systemd tourne déjà toutes les 5 min, et un
+        # run_once concurrent créait un risque de course sur les registres réels.
+        return ("⛔ /run_once désactivé depuis le passage en réel (§45) : le cycle "
+                "complet peut passer des ordres réels et tourne déjà tout seul toutes "
+                "les 5 min (bitget-scan). Consultation : /status /futures /accum. "
+                "Cycle manuel assumé : SSH → python agent_control.py.")
 
     if text == "/pause":
         PAUSE_FILE.write_text("paused\n")
@@ -797,7 +857,7 @@ def handle_photo(photo, caption):
 
 def main():
     print("=== TELEGRAM COMMAND BOT ===")
-    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
+    print("Commandes actives: /status /config /config_guard /hub /agents /security /getagent_audit /bord /audit /git_version /system_health /watchdog /stats /orderflow /macro /confluence /ask /forget /price /news /deriv /poly /brain /liq /accum /accum_reel /futures /calendar /arb /tradfi /cross /backtest /chart /feargreed /defi /rugcheck /dexsearch /envcheck /signals /preorders /approve_preorder /approval_journal /dry_run_order /execution_journal /paper_positions /paper_journal /guard_journal /run_once /pause /resume /pause_status /help")
     print("Sécurité: seul le chat_id configuré est autorisé.")
     print("Arrêt manuel: CTRL + C")
     print()
@@ -805,7 +865,15 @@ def main():
     offset = get_offset()
 
     while True:
-        updates = telegram_get_updates(offset=offset)
+        # POLLING INCASSABLE (audit 03/07) : un timeout réseau non attrapé crashait
+        # le process (32 redémarrages systemd cumulés, ~5 s de trou de polling à
+        # chaque fois). On journalise, on respire, on repart.
+        try:
+            updates = telegram_get_updates(offset=offset)
+        except Exception as exc:
+            print(f"getUpdates: {type(exc).__name__} — nouvel essai dans 5 s.")
+            time.sleep(5)
+            continue
 
         for update in updates:
             update_id = update["update_id"]

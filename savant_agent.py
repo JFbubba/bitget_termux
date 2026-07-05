@@ -48,21 +48,49 @@ def _row(c):
             float(c[5]) if len(c) > 5 else 0.0)
 
 
-def feature_matrix(candles):
-    """Construit le TENSEUR de features hétérogènes (T-1 × D). PUR. D=5 :
+def corwin_schultz(h1, l1, h2, l2):
+    """Estimateur de SPREAD bid-ask de Corwin-Schultz (2012) sur 2 barres haut/bas.
+    PUR. Proxy de liquidité calculable en OHLCV pur : le spread s'élargit quand la
+    liquidité se retire — confirmation de dislocation pour un trader. 0 si dégénéré."""
+    try:
+        if min(h1, l1, h2, l2) <= 0 or h1 < l1 or h2 < l2:
+            return 0.0
+        beta = math.log(h1 / l1) ** 2 + math.log(h2 / l2) ** 2
+        gamma = math.log(max(h1, h2) / min(l1, l2)) ** 2
+        k = 3.0 - 2.0 * math.sqrt(2.0)
+        alpha = (math.sqrt(2.0 * beta) - math.sqrt(beta)) / k - math.sqrt(gamma / k)
+        s = 2.0 * (math.exp(alpha) - 1.0) / (1.0 + math.exp(alpha))
+        return max(0.0, s)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def feature_matrix(candles, enrichi=False):
+    """Construit le TENSEUR de features hétérogènes (T-1 × D). PUR. D=5 par défaut :
       [ rendement, |rendement|, pression(CLV), amplitude relative, volume ].
-    Données fusionnées dans un même espace vectoriel (cf. « synesthésie matricielle »)."""
+    `enrichi=True` ajoute 2 proxies de liquidité OHLCV (audit 03/07) : spread de
+    Corwin-Schultz (2012) et illiquidité d'Amihud (2002, log-échelle), avec volume
+    en LOG. MESURE HONNÊTE : l'enrichissement a été testé dans le chemin du VOTE et
+    l'a DÉGRADÉ (IC replay poolé +0.09 -> −0.02 en D7 : les dimensions de liquidité
+    diluent la détection Mahalanobis) — il reste disponible pour l'observabilité,
+    PAS pour le vote."""
     rows = [_row(c) for c in candles]
     feats = []
     for i in range(1, len(rows)):
         o, h, l, c, v = rows[i]
-        pc = rows[i - 1][3]
+        po, ph, pl, pc, pv = rows[i - 1]
         if pc <= 0 or c <= 0:
             continue
         ret = math.log(c / pc)
         rng = h - l
         clv = (((c - l) - (h - c)) / rng) if rng > 0 else 0.0
-        feats.append([ret, abs(ret), clv, rng / pc, v])
+        base = [ret, abs(ret), clv, rng / pc, v]
+        if enrichi:
+            cs = corwin_schultz(ph, pl, h, l)
+            dollar_vol = c * v
+            amihud = math.log1p(abs(ret) / dollar_vol * 1e9) if dollar_vol > 0 else 0.0
+            base = [ret, abs(ret), clv, rng / pc, math.log1p(max(v, 0.0)), cs, amihud]
+        feats.append(base)
     return np.asarray(feats, dtype=float)
 
 
@@ -72,6 +100,41 @@ def _standardize(X):
     sd = X.std(0)
     sd = np.where(sd > 1e-12, sd, 1.0)
     return (X - mu) / sd
+
+
+def _standardize_robuste(X):
+    """Centre-réduit par MÉDIANE/MAD (×1.4826). PUR. Esprit Mahalanobis++
+    (arXiv:2505.18032) : avec moyenne/écart-type, les anomalies CONTAMINENT leur
+    propre baseline (la dislocation gonfle σ et se banalise) ; médiane/MAD sont
+    insensibles aux queues — la baseline reste « le normal »."""
+    med = np.median(X, axis=0)
+    mad = np.median(np.abs(X - med), axis=0) * 1.4826
+    mad = np.where(mad > 1e-12, mad, 1.0)
+    return (X - med) / mad
+
+
+def turbulence_series(X, ridge=1e-2):
+    """d² de Mahalanobis de CHAQUE point vs le nuage (μ, Σ robustes globaux). PUR.
+    C'est l'indice de TURBULENCE de Kritzman-Li (2010) appliqué au tenseur."""
+    Z = _standardize_robuste(np.asarray(X, dtype=float))
+    mu = Z.mean(0)
+    cov = np.cov(Z, rowvar=False) + ridge * np.eye(Z.shape[1])
+    inv = np.linalg.pinv(cov)
+    D = Z - mu
+    return np.einsum("ij,jk,ik->i", D, inv, D)
+
+
+def turbulence_percentile(X, min_n=20):
+    """(d² du dernier point, son PERCENTILE dans sa propre histoire). PUR. Le seuil
+    devient ADAPTATIF : « turbulent » = rare PAR RAPPORT À CE MARCHÉ-CI, pas un
+    seuil absolu arbitraire (pratique standard de l'indice de turbulence)."""
+    X = np.asarray(X, dtype=float)
+    if len(X) < max(min_n, X.shape[1] + 3):
+        return 0.0, 0.0
+    d = turbulence_series(X)
+    last = float(d[-1])
+    pct = float(np.mean(d[:-1] <= last))
+    return last, pct
 
 
 # ---------- rupture de symétrie : distance de Mahalanobis ----------
@@ -104,6 +167,69 @@ def symmetry_break(X):
     return 1.0 - math.exp(-score / 2.0)
 
 
+# ========== SYNESTHÉSIE : l'alphabet de FORMES (motifs ordinaux, Bandt-Pompe) ==========
+# La « synesthésie » du savant rendue RIGOUREUSE (audit 03/07) : les chiffres
+# deviennent des FORMES. Chaque fenêtre de `dim` clôtures est traduite en son motif
+# ordinal (le rang relatif des valeurs) — la série de prix devient une suite de
+# formes, et la PALETTE de formes du marché se lit statistiquement :
+#   • entropie de permutation PONDÉRÉE par l'amplitude (Bandt-Pompe 2002 ;
+#     arXiv:2207.01169) : 1 = bruit (toutes les formes équiprobables),
+#     bas = le marché « dessine » (structure exploitable) ;
+#   • asymétrie des formes MONOTONES (montée franche vs descente franche) =
+#     irréversibilité temporelle directionnelle (arXiv:2307.08612, crypto) ;
+#   • motifs INTERDITS (jamais tracés) = signature de déterminisme (arXiv:0711.0729).
+
+_MOTIFS3 = {(0, 1, 2): 0, (0, 2, 1): 1, (1, 0, 2): 2, (1, 2, 0): 3, (2, 0, 1): 4, (2, 1, 0): 5}
+
+
+def motifs_ordinaux(closes, dim=3):
+    """Traduit les clôtures en (motifs, poids). PUR. motif = rang ordinal de la
+    fenêtre (dim=3 -> 6 formes ; 0 = montée franche, 5 = descente franche) ;
+    poids = variance de la fenêtre (weighted PE : une forme tracée sur un mouvement
+    AMPLE compte plus qu'une forme dans le bruit de fond). ([], []) si trop court."""
+    p = [float(c) for c in closes if c and c > 0]
+    if len(p) < dim + 1:
+        return [], []
+    motifs, poids = [], []
+    for i in range(len(p) - dim + 1):
+        w = p[i:i + dim]
+        ordre = tuple(int(r) for r in np.argsort(np.argsort(w)))
+        m = _MOTIFS3.get(ordre)
+        if m is None:
+            continue
+        motifs.append(m)
+        mu = sum(w) / dim
+        poids.append(sum((x - mu) ** 2 for x in w) / dim)
+    return motifs, poids
+
+
+def synesthesie(closes, dim=3, window=72):
+    """Perception SYNESTHÉSIQUE du marché. PUR. Retourne :
+      entropie ∈ [0,1] (permutation pondérée, normalisée), biais ∈ [-1,1]
+      (asymétrie pondérée montée-franche vs descente-franche), interdits (nb de
+      formes jamais tracées), signal ∈ [-1,1] = biais × structure (1−entropie) —
+      le marché ne « dit » quelque chose que quand il dessine ET penche."""
+    out = {"entropie": 1.0, "biais": 0.0, "interdits": 0, "signal": 0.0}
+    p = [float(c) for c in closes if c and c > 0][-(int(window) + 1):]
+    motifs, poids = motifs_ordinaux(p, dim)
+    if len(motifs) < 24:
+        return out
+    n_formes = 6
+    w_tot = sum(poids) or 1e-12
+    freq = [0.0] * n_formes
+    for m, w in zip(motifs, poids):
+        freq[m] += w
+    freq = [f / w_tot for f in freq]
+    H = -sum(f * math.log(f) for f in freq if f > 0) / math.log(n_formes)
+    monte, descend = freq[0], freq[5]
+    biais = (monte - descend) / (monte + descend + 1e-12)
+    interdits = sum(1 for f in freq if f == 0.0)
+    signal = max(-1.0, min(1.0, biais * (1.0 - H) * 4.0))   # ×4 : (1−H)~0.05-0.2 typique
+    out.update({"entropie": round(H, 4), "biais": round(biais, 4),
+                "interdits": interdits, "signal": round(signal, 4)})
+    return out
+
+
 # ---------- Value-at-Risk (indicative) ----------
 
 def value_at_risk(returns, alpha=0.05):
@@ -132,17 +258,24 @@ def _erfinv(y):
 
 # ---------- signal du savant (pur) ----------
 
-def signal(candles, fear_greed=None, thresh=0.55):
-    """Cœur PUR : perçoit la rupture de symétrie du tenseur, en déduit un signal
-    À CONTRE-COURANT du dislocation (les manipulations/dislocations tendent à se
-    corriger), immunisé au bruit, avec VaR indicative. Déterministe, aucun NN.
+def signal(candles, fear_greed=None, thresh=0.55, window=72):
+    """Cœur PUR : perçoit la rupture de symétrie du tenseur (Mahalanobis), en déduit
+    un signal À CONTRE-COURANT de la dislocation, immunisé au bruit, VaR indicative.
+    Déterministe, aucun NN.
 
-    fear_greed : 0..100 (optionnel) — conservé pour compat ; n'influence PLUS le vote (le
-    contrarian Fear&Greed est l'affaire de l'agent `sentiment`, pour ne pas double-compter).
-    Retourne un dict complet."""
+    FENÊTRE BORNÉE (audit 03/07 — la SEULE amélioration survivante de la mesure) :
+    l'ancienne fenêtre non bornée faisait diverger le replay de validation (qui
+    passait tout l'historique) du live (80 bougies) ; borner à 72 aligne les deux
+    ET améliore : IC replay poolé +0.039 -> +0.095 (1h) et +0.145 -> +0.185
+    (15m, t 3.0), plateau stable fen ∈ [56,72]. Variantes REJETÉES à la mesure :
+    tenseur enrichi liquidité (−0.02), seuil percentile adaptatif (−0.005),
+    direction z 3 barres (−0.009) — cf. §49.
+
+    fear_greed : conservé pour compat ; n'influence PLUS le vote (délégué à
+    l'agent `sentiment`, cf. §39)."""
     out = {"anomaly": 0.0, "symmetry_break": 0.0, "direction": 0, "vote": 0.0,
            "confidence": 0.0, "var": {}, "note": "données insuffisantes"}
-    X = feature_matrix(candles)
+    X = feature_matrix(candles[-(int(window) + 1):])
     if len(X) < 12:
         return out
     d2, score = mahalanobis_anomaly(X)
@@ -157,20 +290,25 @@ def signal(candles, fear_greed=None, thresh=0.55):
     vote = 0.0
     if sb >= thresh and direction != 0:
         vote = direction * min((sb - thresh) / (1.0 - thresh), 1.0) * 0.6
-
-    # NB : le contrarian Fear&Greed est DÉLÉGUÉ à l'agent `sentiment` du swarm (qui fait déjà
-    # (50-FG)/50). L'ajouter ici figeait savant à une CONSTANTE marché-large ~83 % du temps et
-    # DOUBLE-COMPTAIT sentiment, détruisant sa spécificité PAR SYMBOLE. savant ne vote donc QUE
-    # sur sa rupture de symétrie Mahalanobis — son vrai domaine (RESEARCH_NOTES §39).
     vote = max(-1.0, min(1.0, vote))
     conf = min(sb, 1.0) * (0.7 if sb >= thresh else 0.2)
 
+    # SYNESTHÉSIE (audit 03/07) : perception de la PALETTE de formes du marché —
+    # calculée et EXPOSÉE, mais PAS votante : sa contribution au vote a échoué à la
+    # barre des deux fenêtres (1h : +0.089->+0.102 ; 15m : +0.172->+0.084 — la
+    # dégradation dépasse le gain, cf. §50). L'agent la « voit », la rapporte, et
+    # les consommateurs (rapports, futurs travaux) peuvent la lire.
+    closes = [_row(c)[3] for c in candles[-(int(window) + 1):]]
+    syn = synesthesie(closes)
     note = f"anomalie {sb:.2f}" + (
         f" · rupture {'baissière' if direction < 0 else 'haussière'} -> fade" if vote else " · sous seuil")
+    if syn["entropie"] < 0.85:
+        pente = "montante" if syn["biais"] > 0.15 else "descendante" if syn["biais"] < -0.15 else "plate"
+        note += f" · palette H{syn['entropie']:.2f} {pente}"
     out.update({"anomaly": round(sb, 3), "symmetry_break": round(sb, 3),
                 "mahalanobis": round(d2, 2), "direction": direction,
                 "vote": round(vote, 3), "confidence": round(conf, 3),
-                "var": var, "note": note})
+                "synesthesie": syn, "var": var, "note": note})
     return out
 
 

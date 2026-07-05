@@ -4,6 +4,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 from account_equity import get_account_equity_usdt
+from config_utils import cfg as _cfg
+import regime_gate
 from config import (
     SYMBOLS,
     PRODUCT_TYPE,
@@ -361,9 +363,31 @@ if __name__ == "__main__":
         scan_symbols = universe.symbols()            # univers dynamique top-N si activé
     except Exception:
         scan_symbols = SYMBOLS                        # repli : liste figée
+
+    # Porte directionnelle régime-aware : UN SEUL fetch par run (pas par symbole).
+    # Fail-safe : sur échec réseau, régime effectif = NEUTRE -> porte transparente.
+    gate_enabled = _cfg("REGIME_GATE_ENABLED", True)
+    eff_regime = "NEUTRE"
+    if gate_enabled:
+        snap = regime_gate.fetch_regime_snapshot()
+        fng = snap["fng"] if _cfg("REGIME_GATE_USE_SENTIMENT", True) else None
+        eff_regime = regime_gate.effective_regime(
+            snap["regime"], fng,
+            _cfg("REGIME_GATE_FNG_FEAR", 20), _cfg("REGIME_GATE_FNG_GREED", 80))
+        print(f"Régime macro: {snap['regime']} | F&G: {snap['fng']} | gate effectif: {eff_regime}")
+        print()
+
     for symbol in scan_symbols:
         try:
             analysis = analyze_symbol(symbol)
+
+            if gate_enabled:
+                original = analysis["decision"]
+                gated = regime_gate.gate_decision(original, eff_regime)
+                if gated != original:
+                    analysis["decision"] = gated
+                    analysis["reasons"].append(f"GATE {eff_regime}")
+
             plan = build_trade_plan(analysis)
 
             if plan is not None and (symbol, plan["side"]) in open_positions:

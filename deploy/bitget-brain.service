@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget cerveau : 14 agents votent + apprennent (lecture seule, aucun ordre)
+ConditionPathExists=!/root/bitget_termux_repo/KILL_SWITCH
+# Oneshot pilote par timer (1/min). StartLimitIntervalSec=0 DESARME le rate-limiter de
+# systemd : sinon ~60 demarrages/h depasseraient tout burst et systemd REFUSERAIT de
+# relancer un cerveau pourtant sain. Detection de crash-loop deportee au watchdog --heal
+# (compteur consecutif avec reset sur reprise). OnFailure : alerte IMMEDIATE sur echec dur.
+StartLimitIntervalSec=0
+OnFailure=bitget-failsafe@%n.service
+[Service]
+Type=oneshot
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 brain_cycle.py
+TimeoutStartSec=120
