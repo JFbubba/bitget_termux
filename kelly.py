@@ -114,12 +114,20 @@ def recommended_usdt(per_op_cap, W=None, R=None, capital=None, fraction=None, ca
     return round(min(raw, float(per_op_cap)), 2), k
 
 
-def snapshot(per_op_caps=None):
+def snapshot(per_op_caps=None, capital=None, W=None, R=None, n=None):
     """Vue complète pour le dashboard : W, R, Kelly, capital, et taille recommandée par
-    surface (rebornée par chaque cap/opération). LECTURE SEULE."""
-    W, R, n = measured_stats()
+    surface (rebornée par chaque cap/opération). LECTURE SEULE.
+
+    Optimisation : `capital`, `W`, `R` peuvent être INJECTÉS (le dashboard les a déjà —
+    real_positions/futures pour le capital, stats pour W/R) -> évite de re-fetcher (le
+    coût de kelly passait de ~4 s à ~0). Sinon calculés en interne (CLI)."""
+    if W is None or R is None:
+        mw, mr, mn = measured_stats()
+        W = mw if W is None else W
+        R = mr if R is None else R
+        n = mn if n is None else n
     k = kelly_fraction(W, R)
-    capital = account_capital()
+    capital = account_capital() if capital is None else float(capital)
     caps = per_op_caps or {"spot": 10.0, "margin": 10.0, "futures": 50.0}
     reco = {}
     for surface, c in caps.items():

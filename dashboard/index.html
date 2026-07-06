@@ -1218,7 +1218,14 @@ document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("cli
 initChart();
 
 setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
-tick();setInterval(tick,5000);
+// polling ADAPTATIF : actif seulement quand l'onglet est visible (économise VPS + navigateur).
+let _pollTimer=null;
+function _startPoll(){ if(!_pollTimer) _pollTimer=setInterval(tick,5000); }
+function _stopPoll(){ if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null; } }
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ _stopPoll(); } else { tick(); _startPoll(); }   // reprise -> refresh immédiat
+});
+tick(); _startPoll();
 
 // ===== journal de bord + rendez-vous (§63) =====
 const ICO={ordre:"⚡",dca:"🟠",sl_tp:"🎯",echec:"⚠️",blackout:"⏸"};

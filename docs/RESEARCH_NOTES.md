@@ -2381,3 +2381,20 @@ rester collé. Mesuré (poids persistés après) : simons 0.20 -> 0.92, savant 0
 tops sentiment/liquidations/derivs ~1.9 (PLUS de plafond) ; flows/divergent ~0.26 (IC
 négatif). AUCUN agent au plancher/plafond -> distribution IC-alignée saine. Réversible
 (BRAIN_IC_ALIGN_ALPHA plus bas = plus d'EARCP appris ; =1 = cible IC pure). 409/409, portes vertes.
+
+## §69 — Optimisation du dashboard : latence /api/state 22 s -> 5 s (froid), 2 s -> 0.01 s (chaud)
+
+Mesure : le build de l'état était une SOMME séquentielle d'appels réseau/signés (froid
+22.7 s). Deux corrections :
+  1. **kelly dédupliqué** (le pire, 4.13 s) : `kelly.snapshot()` re-fetchait real_positions
+     (4 GET signés) + futures_report via `account_capital` — DUPLIQUANT l'état déjà calculé.
+     Le dashboard lui INJECTE désormais capital (real_positions+futures_live) et W/R (stats)
+     -> kelly ne fetch plus rien (~4 s -> ~0).
+  2. **`_prewarm` parallèle** : tous les producteurs INDÉPENDANTS (brain, futures, liq,
+     orderflow, accum, realpos, smc, viz, macro, …) sont pré-calculés dans un
+     ThreadPoolExecutor (8 workers) avant l'assemblage -> latence = MAX au lieu de SOMME.
+     `_cached` rendu thread-safe (verrou, calcul HORS verrou). Les producteurs DÉPENDANTS
+     (projection/future/neural/kelly) restent séquentiels après (lisent brain/smc/…).
+Résultat : froid 22.7 s -> 5.5 s, chaud 2.0 s -> 0.01 s (mesuré live : 5.4 s / 0.04 s).
+Payload inchangé (37 Ko), données identiques. Front : polling ADAPTATIF (suspendu quand
+l'onglet est masqué, refresh immédiat au retour) -> économise VPS + navigateur. 409/409, portes vertes.

@@ -43,14 +43,37 @@ PORT = int(os.getenv("DASH_PORT", "8787"))
 _CACHE = {}
 
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+_CACHE_LOCK = threading.Lock()
+
+
 def _cached(key, ttl, producer):
     now = time.time()
-    hit = _CACHE.get(key)
-    if hit and now - hit[0] < ttl:
-        return hit[1]
-    value = producer()
-    _CACHE[key] = (now, value)
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+    value = producer()                       # HORS verrou : les producteurs sont lents (réseau)
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), value)
     return value
+
+
+def _prewarm(specs, workers=8):
+    """Pré-calcule EN PARALLÈLE une liste de producteurs INDÉPENDANTS (key, ttl, thunk) pour
+    peupler le cache : la construction de l'état passe d'une SOMME séquentielle de latences
+    réseau à leur MAX. Best-effort — une clé qui échoue est simplement recalculée en séquence
+    plus tard (aucune conséquence de correction). Ne prewarm QUE les producteurs sans
+    dépendance sur d'autres (les dépendants restent séquentiels après)."""
+    stale = [(k, ttl, thunk) for (k, ttl, thunk) in specs
+             if not (lambda h: h and time.time() - h[0] < ttl)(_CACHE.get(k))]
+    if not stale:
+        return
+    with ThreadPoolExecutor(max_workers=min(workers, len(stale))) as ex:
+        for k, ttl, thunk in stale:
+            ex.submit(_cached, k, ttl, thunk)
 
 
 def _safe(producer, default=None):
@@ -623,6 +646,41 @@ def build_state(symbol=None, tf="5m"):
             out["micro_age_s"] = None
         return out
 
+    # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
+    # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
+    # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
+    # séquentiels après. Clés/TTL identiques aux assignations ci-dessous (cache partagé).
+    _prewarm([
+        ("stats", 30, lambda: _safe(_stats, {})),
+        (f"of:{symbol}", 20, lambda: _safe(_orderflow, None)),
+        ("macro", 300, lambda: _safe(_macro, None)),
+        ("market", 600, lambda: _safe(_market, {})),
+        (f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, [])),
+        (f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []})),
+        (f"br:{symbol}", 45, lambda: _safe(_brain, {})),
+        (f"lq:{symbol}", 45, lambda: _safe(_liq, {})),
+        ("symbols", 300, lambda: _safe(_symbols, [symbol])),
+        ("positions", 15, lambda: _safe(_positions, [])),
+        ("prices", 10, lambda: _safe(_prices, {})),
+        ("accum", 60, lambda: _safe(_accumulation, {})),
+        ("mandate", 60, lambda: _safe(_mandate, {})),
+        ("edge", 60, lambda: _safe(_edge, {})),
+        ("micro", 120, lambda: _safe(_microstructure, {})),
+        ("mtiming", 300, lambda: _safe(_market_timing, {})),
+        ("caps", 60, lambda: _safe(_caps, {})),
+        (f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {})),
+        ("system", 20, lambda: _safe(_system, {})),
+        ("onchain", 3600, lambda: _safe(_onchain, {})),
+        ("flows", 3600, lambda: _safe(_flows, {})),
+        ("voliv", 1800, lambda: _safe(_vol_iv, {})),
+        ("carry", 1800, lambda: _safe(_carry, {})),
+        ("futlive", 60, lambda: _safe(_futures_live, {})),
+        (f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {})),
+        (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
+        ("realpos", 30, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
+        ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
+    ])
+
     # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
     stats = _cached("stats", 30, lambda: _safe(_stats, {}))
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
@@ -680,9 +738,16 @@ def build_state(symbol=None, tf="5m"):
                                         lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
     # Critère de Kelly (advisory, lecture seule) : W/R mesurés -> fraction bornée + taille
     # recommandée/surface. Edge négatif -> 0. Aucun ordre.
+    # capital & W/R RÉUTILISÉS de l'état déjà calculé (real_positions + futures_live + stats)
+    # -> kelly ne re-fetch RIEN (coût ~4 s -> ~0). Fail-safe si champs absents.
+    _rp = (state.get("real_positions") or {}).get("totals") or {}
+    _cap = (_rp.get("spot_usdt") or 0.0) + ((state.get("futures_live") or {}).get("equity") or 0.0)
+    _wr = state.get("stats") or {}
+    _W = (_wr.get("win_rate") / 100.0) if _wr.get("win_rate") is not None else None
     state["kelly"] = _cached("kelly", 60, lambda: _safe(lambda: __import__("kelly").snapshot(
         {s.get("surface"): s.get("per_op") for s in (state.get("trading_surfaces") or [])
-         if s.get("surface") in ("spot", "margin")} or None), {}))
+         if s.get("surface") in ("spot", "margin")} or None,
+        capital=(_cap or None), W=_W, R=_wr.get("tp_sl_ratio")), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:
