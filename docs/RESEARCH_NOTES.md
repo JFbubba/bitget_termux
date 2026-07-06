@@ -2398,3 +2398,16 @@ Mesure : le build de l'état était une SOMME séquentielle d'appels réseau/sig
 Résultat : froid 22.7 s -> 5.5 s, chaud 2.0 s -> 0.01 s (mesuré live : 5.4 s / 0.04 s).
 Payload inchangé (37 Ko), données identiques. Front : polling ADAPTATIF (suspendu quand
 l'onglet est masqué, refresh immédiat au retour) -> économise VPS + navigateur. 409/409, portes vertes.
+
+## §69 (suite) — /api/state INCRÉMENTAL : delta versionné (37 Ko -> ~0.5 Ko/poll)
+
+Le poll renvoyait les 37 Ko complets toutes les 5 s alors que la plupart des 39 clés ne
+changent pas. Modèle DELTA versionné : `build_delta(symbol, tf, since)` construit l'état
+complet (cache chaud ~0.04 s), verse une version MONOTONE à chaque clé qui change, et
+renvoie soit FULL {v, state} (curseur absent/invalide/postérieur -> client neuf, changement
+de symbole, redémarrage serveur), soit DELTA {v, changed} (uniquement les clés de version >
+since). Stateless & multi-clients : versions côté serveur par symbole:tf, le client ne porte
+qu'un curseur entier. Front : `_stateV` fusionne les deltas dans `window._ST` (reset -> full
+au changement de symbole/TF), rendu depuis l'état fusionné. Rétro-compatible (sans `since` =
+full). Mesuré live : full 38.7 Ko -> delta 583 o (juste timestamp + orderbook), jusqu'à ~400×
+en régime stable. 409/409, portes vertes.

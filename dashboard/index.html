@@ -545,8 +545,9 @@ function flashPrice(id,val){
 }
 let _candles=[],chart=null,series={};
 let TF="5m",SYMBOL="BTCUSDT",projLines=[],posLines=[],_drawnSym=null,_lastSymbols=[];
+let _stateV=null;   // curseur de version pour /api/state incrémental (null -> demande FULL)
 // bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
-function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;renderPicker(_lastSymbols);tick();}
+function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;_stateV=null;renderPicker(_lastSymbols);tick();}
 function renderPicker(symbols){
   const host=document.getElementById("sym-pick");if(!host)return;
   _lastSymbols=symbols||_lastSymbols;
@@ -1025,7 +1026,16 @@ function renderFuture(f){
 async function tick(){
   const t0=performance.now();
   try{
-    const st=await(await fetch("/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);window._ST=st;
+    // requête INCRÉMENTALE : envoie le curseur de version ; le serveur renvoie soit l'état
+    // complet (full), soit uniquement les clés changées (delta) -> fusion dans window._ST.
+    const _url="/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF)
+      +(_stateV!=null?("&since="+_stateV):"");
+    const _resp=await(await fetch(_url)).json();const lat=Math.round(performance.now()-t0);
+    if(_resp.full){ window._ST=_resp.state||{}; }
+    else { const _S=window._ST||{}; Object.assign(_S,_resp.changed||{});
+           (_resp.removed||[]).forEach(k=>delete _S[k]); window._ST=_S; }
+    if(_resp.v!=null)_stateV=_resp.v;
+    const st=window._ST||{};
     renderPicker(st.symbols);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
     $("mode-txt").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
@@ -1195,7 +1205,7 @@ document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
 
 // --- sélecteur de timeframe (5m / 15m / 1h) : change TF et rafraîchit ---
 document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("click",()=>{
-  TF=el.dataset.tf;
+  TF=el.dataset.tf;_stateV=null;   // changement de TF -> re-demande l'état complet
   document.querySelectorAll("#tf-bar .tfbtn").forEach(x=>x.classList.toggle("on",x===el));
   $("c-tf").textContent=TF.toUpperCase();
   tick();

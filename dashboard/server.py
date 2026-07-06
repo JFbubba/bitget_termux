@@ -764,6 +764,49 @@ def build_state(symbol=None, tf="5m"):
     return state
 
 
+# --------------------------------------------------------------------------- #
+#  Modèle INCRÉMENTAL : delta versionné (n'envoyer que les clés qui ont changé) #
+# --------------------------------------------------------------------------- #
+_VERSIONS = {}          # "symbol:tf" -> {clé: [version, hash]}
+_GLOBAL_V = [0]         # compteur de version MONOTONE global
+_VER_LOCK = threading.Lock()
+
+
+def _hash_val(v):
+    """Empreinte stable d'une valeur d'état (pour détecter un changement). PUR."""
+    import hashlib
+    return hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+
+
+def build_delta(symbol, tf, since):
+    """État INCRÉMENTAL. Construit l'état complet (rapide : cache chaud ~0.04 s), verse une
+    version MONOTONE à chaque clé qui change, et renvoie :
+      • FULL {v, full:true, state}       si `since` absent / invalide / postérieur au serveur
+                                          (client neuf, changement de symbole, redémarrage serveur) ;
+      • DELTA {v, full:false, changed}   sinon — uniquement les clés de version > `since`.
+    Stateless & multi-clients : les versions vivent côté serveur par symbole:tf, le client
+    ne porte qu'un curseur entier `since`."""
+    state = build_state(symbol, tf)
+    scope = f"{symbol}:{tf}"
+    with _VER_LOCK:
+        vers = _VERSIONS.setdefault(scope, {})
+        for k, v in state.items():
+            h = _hash_val(v)
+            rec = vers.get(k)
+            if not rec or rec[1] != h:
+                _GLOBAL_V[0] += 1
+                vers[k] = [_GLOBAL_V[0], h]
+        cur = _GLOBAL_V[0]
+        # clés du scope courant disparues de l'état (rare : clés stables) -> à retirer côté client
+        removed = [k for k in vers if k not in state]
+        for k in removed:
+            vers.pop(k, None)
+        if since is None or since < 0 or since > cur:
+            return {"v": cur, "full": True, "state": state}
+        changed = {k: state[k] for k, rec in vers.items() if rec[0] > since and k in state}
+        return {"v": cur, "full": False, "changed": changed, "removed": removed}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
         self.send_response(code)
@@ -786,7 +829,14 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
             tf = (qs.get("tf", ["5m"])[0] or "5m").lower()
-            body = json.dumps(build_state(symbol, tf)).encode("utf-8")
+            # modèle INCRÉMENTAL : `since` = curseur de version du client (absent -> FULL,
+            # rétro-compatible). Renvoie soit l'état complet, soit uniquement les clés changées.
+            since_raw = qs.get("since", [None])[0]
+            try:
+                since = int(since_raw) if since_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                since = None
+            body = json.dumps(build_delta(symbol, tf, since)).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
