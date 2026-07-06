@@ -529,6 +529,13 @@ def _run_cycle(now=None):
         d = decider(c, None)
         if d["action"] != "ouvrir":
             continue
+        try:                                          # véto annonces (delisting/suspension) — fail-open
+            import bitget_announcements as ba
+            if ba.symbol_blocked(sym):
+                out["annonce_veto"] = out.get("annonce_veto", 0) + 1
+                continue
+        except Exception:
+            pass
         cotes = par_sym.get(sym) or {}
         if cotes.get(d["side"]):
             continue                                  # côté occupé par un autre agent

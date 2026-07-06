@@ -234,6 +234,20 @@ LLM_AGENT_MODEL_LOCAL = "qwen2.5:7b"       # modèle Ollama local (localhost:114
 LLM_AGENT_MODEL_CLOUD = "openai/gpt-5-mini"  # modèle OpenRouter (OPENROUTER_API_KEY dans .env)
 LLM_AGENT_MODEL_GEMINI = "gemini-2.5-flash"  # modèle Google AI Studio direct (backend "gemini", GEMINI_API_KEY)
 LLM_AGENT_GEMINI_THINKING = 0              # budget raisonnement Gemini (0 = coupé -> vote rapide, tient dans max_tokens)
+
+# === Véto de contradiction du cerveau (cognition, idée NERVA) ===
+# Un bloc minoritaire FORT opposé au consensus -> escompte dur la conviction.
+BRAIN_CONTRADICTION_MIN = 2                 # nb d'agents forts opposés déclenchant le véto
+BRAIN_CONTRADICTION_CONF = 0.4             # confiance mini pour compter un opposant
+BRAIN_CONTRADICTION_VOTE = 0.5             # |vote| mini pour compter un opposant
+BRAIN_CONTRADICTION_PRUDENCE = 0.15        # facteur de prudence en cas de contradiction (0 = blocage net)
+
+# === Agent RISQUE annonces Bitget (bitget_announcements.py, idée repo Bitget/radar) ===
+# Véto SOUPLE à l'ouverture futures : on n'ouvre pas sur un symbole en delisting/suspension.
+ANNOUNCE_VETO_ENABLED = 1                   # 1 = véto actif ; 0 = désactivé
+ANNOUNCE_VETO_THRESHOLD = 70               # score d'impact 0..100 déclenchant le véto (delisting=80, suspension=75)
+ANNOUNCE_TTL_S = 1800                       # cache des annonces (30 min)
+ANNOUNCE_TIMEOUT_S = 6                      # timeout réseau par requête (fail-open au-delà)
 LLM_AGENT_TIMEOUT_S = 8.0                  # au-delà -> vote ignoré (ne ralentit pas le cerveau)
 LLM_AGENT_MAX_TOKENS = 800                 # budget sortie cloud (modèles thinking : marge de raisonnement)
 LLM_AGENT_CONF_CAP = 0.5                   # plafond de confiance (ne domine pas le banc)

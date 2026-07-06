@@ -454,9 +454,28 @@ def cognition(votes, weights, consensus):
     allv = [v.get("vote", 0) or 0 for v in votes.values()]
     dispersion = statistics.pstdev(allv) if len(allv) > 1 else 0.0
     groupthink = agreement >= 0.85 and abs(consensus) >= 0.4
+    # VÉTO DE CONTRADICTION (idée NERVA/contradiction_agent) : un bloc MINORITAIRE FORT
+    # qui contredit le consensus est un signal de danger — le consensus « décidé » masque
+    # un désaccord net. On compte les agents qui s'expriment FORT (conf & |vote| élevés)
+    # dans le sens OPPOSÉ au consensus ; au-delà d'un seuil -> on escompte DUR la conviction
+    # (véto souple : par défaut prudence 0.15 ; BRAIN_CONTRADICTION_PRUDENCE=0 = blocage net).
+    conf_min = float(_cfg("BRAIN_CONTRADICTION_CONF", 0.4))
+    vote_min = float(_cfg("BRAIN_CONTRADICTION_VOTE", 0.5))
+    n_min = int(_cfg("BRAIN_CONTRADICTION_MIN", 2))
+    against = 0
+    if consensus != 0:
+        for v in votes.values():
+            vote = v.get("vote", 0) or 0
+            conf = v.get("confidence", 0) or 0
+            if conf >= conf_min and abs(vote) >= vote_min and (vote > 0) != (consensus > 0):
+                against += 1
+    contradiction = against >= n_min
     prudence = 0.8 if groupthink else 1.0
+    if contradiction:
+        prudence = min(prudence, float(_cfg("BRAIN_CONTRADICTION_PRUDENCE", 0.15)))
     return {"weight_entropy": round(entropy, 3), "agreement": round(agreement, 3),
             "dispersion": round(dispersion, 3), "groupthink": groupthink,
+            "contradiction": contradiction, "n_contre": against,
             "prudence": prudence}
 
 

@@ -1413,6 +1413,56 @@ def test_brain_cognition_groupthink():
     cog2 = sb.cognition(mixed, {"a": 1.0, "b": 1.0}, 0.2)
     assert cog2["groupthink"] is False and cog2["prudence"] == 1.0
 
+
+def test_brain_cognition_contradiction_veto():
+    """Véto de contradiction (idée NERVA) : un bloc minoritaire FORT opposé au consensus
+    escompte DUR la conviction, même quand le consensus semble décidé."""
+    import swarm_brain as sb
+    # consensus LONG décidé, mais 2 agents FORTS votent short -> contradiction -> prudence basse
+    votes = {"a": {"vote": 0.9, "confidence": 0.9}, "b": {"vote": 0.8, "confidence": 0.9},
+             "c": {"vote": 0.85, "confidence": 0.9},
+             "x": {"vote": -0.7, "confidence": 0.6}, "y": {"vote": -0.8, "confidence": 0.7}}
+    cog = sb.cognition(votes, {}, 0.5)
+    assert cog["contradiction"] is True and cog["n_contre"] == 2 and cog["prudence"] <= 0.15
+    # un SEUL opposant fort -> pas de contradiction (seuil = 2)
+    cog2 = sb.cognition({"a": {"vote": 0.9, "confidence": 0.9}, "b": {"vote": 0.8, "confidence": 0.9},
+                         "x": {"vote": -0.7, "confidence": 0.6}}, {}, 0.5)
+    assert cog2["contradiction"] is False and cog2["prudence"] == 1.0
+    # opposants FAIBLES (conf/|vote| sous seuils) -> non comptés
+    cog3 = sb.cognition({"a": {"vote": 0.9, "confidence": 0.9},
+                         "x": {"vote": -0.3, "confidence": 0.3}, "y": {"vote": -0.2, "confidence": 0.2}}, {}, 0.5)
+    assert cog3["contradiction"] is False
+
+
+def test_bitget_announcements_scoring_and_veto():
+    """Agent annonces (idée repo Bitget) : barème déterministe + véto delisting/suspension.
+    FAIL-OPEN si l'API est injoignable. Fonctions pures testées, fetch mocké (hermétique)."""
+    import bitget_announcements as ba
+    # barème : delisting > suspension > listing ; ajustements par mots-clés
+    assert ba.score_announcement({"type": "delisting", "title": "x"}) == 80
+    assert ba.score_announcement({"type": "listing", "title": "x"}) == 30
+    assert ba.score_announcement({"type": "suspension", "title": "emergency halt"}) == min(100, 75 + 15 + 12 + 12)
+    assert ba.score_announcement("pas un dict") == 0
+    # classification depuis le titre
+    assert ba.classify("Bitget Will Delist XRPUSDT") == "delisting"
+    assert ba.classify("Suspension of ABC Trading") == "suspension"
+    assert ba.classify("System Maintenance Notice") == "maintenance"
+    # extraction de symboles
+    assert "XRPUSDT" in ba.symbols_in("Bitget Will Delist XRPUSDT on 2026")
+    # véto : annonce delisting sur XRP -> XRP bloqué, BTC non. Fetch mocké.
+    old = ba.fetch_announcements
+    try:
+        ba.fetch_announcements = lambda: [{"title": "Bitget Will Delist XRPUSDT", "type": "delisting"}]
+        assert ba.symbol_blocked("XRPUSDT") is True
+        assert ba.symbol_blocked("BTCUSDT") is False
+        # fail-open : fetch qui lève -> symbol_risk 0 -> pas de véto
+        def boom():
+            raise RuntimeError("API annonces down")
+        ba.fetch_announcements = boom
+        assert ba.symbol_risk("XRPUSDT") == 0 and ba.symbol_blocked("XRPUSDT") is False
+    finally:
+        ba.fetch_announcements = old
+
 def test_brain_read_attaches_cognition():
     import swarm_brain as sb
     # aggregate + cognition cohérents sur des votes synthétiques
