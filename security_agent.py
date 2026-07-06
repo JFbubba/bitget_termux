@@ -146,6 +146,7 @@ FILES_TO_SCAN = [
     "account_transfers.py",
     "earn_manager.py",
     "liquidity_manager.py",
+    "alt_carry.py",
     "trading_status.py",
     "account_equity.py",
     "git_version.py",

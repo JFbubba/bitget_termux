@@ -236,6 +236,8 @@
       <span id="rt-tot" style="float:right;letter-spacing:0" class="dim">—</span></h2>
     <div class="rt-h"><span>SYMBOLE</span><span>SENS</span><span class="r">TAILLE</span><span class="r">ENTRÉE</span><span class="r">MARK</span><span class="r">uPnL $</span><span class="r">uPnL %</span><span class="r">LEVIER</span><span class="r">MARGE</span><span class="r">NOTIONNEL</span></div>
     <div id="rt-rows"></div>
+    <div class="dim" style="margin-top:7px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-family:system-ui,sans-serif">Exécutions récentes <span style="text-transform:none;letter-spacing:0">— un trade clos quitte le tableau ci-dessus mais reste ici (heure UTC)</span></div>
+    <div id="rt-exec" style="font-size:10.5px;line-height:1.8;letter-spacing:0">—</div>
   </div>
 
   <div class="grid">
@@ -956,6 +958,21 @@ function renderTradingSurfaces(list){
 // --- fenêtre TRADES RÉELS en cours : PnL latent vivant (flash sur variation),
 //     alignement données/titres garanti par la grille partagée .rt-h/.rt-r ---
 const _rtPrev={};
+function renderExecs(list){
+  const el=$("rt-exec");if(!el)return;
+  list=(list||[]).slice().reverse();
+  if(!list.length){el.textContent="aucune exécution réelle récente";return;}
+  el.innerHTML=list.map(e=>{
+    const d=new Date((e.ts||0)*1000).toISOString().slice(5,16).replace("T"," ");
+    const long=e.side==="long";
+    if(e.action==="FUTURES_TP_PARTIAL")
+      return `<span class="dim">${d}</span> <span class="amber">TP1 partiel</span> ${(e.symbol||"").replace(/USDT$/,"")} ${e.notional||""}`;
+    if(e.action==="FUTURES_EQUITY_REBASE")
+      return `<span class="dim">${d}</span> <span class="amber">réancrage equity</span>`;
+    const tag=e.reduce?'<span class="dim">FERME</span>':(long?'<span class="green">OUVRE ▲</span>':'<span class="red">OUVRE ▼</span>');
+    return `<span class="dim">${d}</span> ${tag} ${long?"long":"short"} ${(e.symbol||"").replace(/USDT$/,"")} <span class="accent">$${(+e.notional||0).toFixed(0)}</span>`;
+  }).join("<br>");
+}
 function renderTrades(rp){
   const host=$("rt-rows");if(!host)return;
   const rows=(rp||{}).futures||[];
@@ -964,6 +981,7 @@ function renderTrades(rp){
   if(tot)tot.innerHTML=rows.length
     ?(rows.length+" position"+(rows.length>1?"s":"")+" · uPnL total <b class='"+(upnl>=0?"green":"red")+"'>"+(upnl>=0?"+":"")+upnl.toFixed(2)+" $</b>")
     :"flat";
+  renderExecs(((window._ST||{}).futures_live||{}).executions);
   if(!rows.length){host.innerHTML='<div class="rt-empty">FLAT — aucune position ouverte (la boucle directionnelle attend un consensus ≥ seuil)</div>';return;}
   host.innerHTML=rows.map(r=>{
     const long=r.side==="LONG";

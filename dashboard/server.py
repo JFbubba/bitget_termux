@@ -426,6 +426,7 @@ def build_state(symbol=None, tf="5m"):
                 "equity": s.get("equity_usdt"), "stop": s.get("stop_journalier"),
                 "stop_pct": s.get("stop_pct"), "fills_bot": s.get("fills_bot"),
                 "caps": s.get("caps"), "events": s.get("events"),
+                "executions": s.get("derniers_events"),
                 "carry": {"armed": c.get("armed"), "apr": c.get("apr_net_pct"),
                           "attrait": c.get("attrait"),
                           "couverture": c.get("couverture_usdt"),

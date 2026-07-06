@@ -365,6 +365,41 @@ def _notional_cfg():
         return float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
 
 
+def _tp_partiel_on():
+    import os
+    v = (os.getenv("FUTURES_TP_PARTIAL") or "").strip().lower()
+    if v in ("1", "true", "on", "yes"):
+        return True
+    if v in ("0", "false", "off", "no"):
+        return False
+    return bool(_cfg("FUTURES_TP_PARTIAL", False))
+
+
+def _poser_tp_partiel(fe, sym, side, prix, sl, now=None):
+    """TP PARTIEL (§82) : après une OUVERTURE réussie, pose un ordre limite GTC de
+    RÉDUCTION pour FUTURES_TP_PARTIAL_FRAC de la taille au premier objectif
+    (FUTURES_TP1_R × distance de stop). « Quand c'est possible » : seulement si la
+    tranche passe les minima du contrat — sinon rien, le préréglé RR plein reste seul.
+    Best-effort : un échec ne casse JAMAIS le cycle (le préréglé est le filet)."""
+    try:
+        if not _tp_partiel_on() or not prix or not sl:
+            return None
+        import os
+        frac = float(os.getenv("FUTURES_TP_PARTIAL_FRAC") or _cfg("FUTURES_TP_PARTIAL_FRAC", 0.5))
+        r1 = float(os.getenv("FUTURES_TP1_R") or _cfg("FUTURES_TP1_R", 1.0))
+        dist = abs(float(prix) - float(sl))
+        if dist <= 0:
+            return None
+        tp1 = float(prix) + dist * r1 if str(side) == "long" else float(prix) - dist * r1
+        taille = fe.size_for(_notional_cfg() * max(0.0, min(1.0, frac)), prix,
+                             fe._contract_spec(sym))
+        if not taille:
+            return None
+        return fe.place_partial_tp(sym, side, taille, tp1)
+    except Exception:
+        return None
+
+
 def _prix_entry(entries, sym):
     """Dernier prix journalisé du symbole (journal du cerveau). None sinon. PUR."""
     for e in reversed(entries or []):
@@ -635,6 +670,8 @@ def _run_cycle(now=None):
                      confirm=True, now=now, symbol=sym,
                      gross_open_usdt=gross,            # exposition TOUS symboles/côtés
                      equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
+    if res.get("executed"):
+        out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now))
     return _finaliser(out, out["decision"], res)
 
 

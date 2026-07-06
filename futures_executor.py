@@ -431,6 +431,56 @@ def journal_equity_point(now=None, min_interval_s=600, cap=2016):
     return True
 
 
+def place_partial_tp(symbol, side, size_btc, price, runner=None):
+    """TP PARTIEL (§82) : ordre LIMITE GTC de RÉDUCTION qui écrème une fraction de la
+    position au premier objectif (TP1) — le TP/SL PRÉRÉGLÉ à l'ouverture couvre le
+    reste (et si le SL ferme tout, l'ordre réduction devient caduc côté exchange).
+    RÉDUCTION pure : n'ouvre jamais d'exposition (même exemption de caps que les
+    reduce §45) ; kill-switch respecté ; sous les minima du contrat -> refus propre
+    (c'est le « quand c'est possible ») ; échec journalisé, JAMAIS bloquant — le
+    préréglé reste le filet."""
+    from numeric_utils import safe_float
+    symbol = str(symbol or SYMBOL).upper()
+    if (Path(__file__).resolve().parent / "KILL_SWITCH").exists():
+        return {"ok": False, "executed": False, "reasons": ["kill-switch actif"]}
+    spec = _contract_spec(symbol)
+    px = safe_float(price)
+    size = safe_float(size_btc)
+    if not spec or not px or px <= 0 or not size or size <= 0:
+        return {"ok": False, "executed": False, "reasons": ["spec/prix/taille illisibles"]}
+    step = safe_float(spec.get("step")) or 0.0001
+    mini = safe_float(spec.get("min_size")) or step
+    vol_place = int(safe_float(spec.get("vol_place")) or 4)
+    price_place = int(safe_float(spec.get("price_place")) or 1)
+    size = round(int(size / step) * step, vol_place)
+    if size < mini:
+        return {"ok": False, "executed": False,
+                "reasons": [f"tranche TP1 {size} sous le minimum {mini} (partiel impossible)"]}
+    marge_mode = _marge_mode()
+    pos_mode = resolve_pos_mode(positions_ouvertes(), _cfg("FUTURES_POSITION_MODE", "hedge_mode"))
+    long_ = str(side) == "long"
+    o = {"symbol": symbol, "productType": PRODUCT_TYPE, "marginCoin": MARGIN_COIN,
+         "marginMode": str(marge_mode or "isolated"),
+         "size": f"{size:.{vol_place}f}",
+         "orderType": "limit", "force": "gtc",
+         "price": f"{round(px, price_place):.{price_place}f}",
+         "clientOid": f"tp1{int(time.time() * 1000)}"}
+    if str(pos_mode) == "hedge_mode":
+        o["side"] = "buy" if long_ else "sell"        # côté de la POSITION à réduire
+        o["tradeSide"] = "close"
+    else:
+        o["side"] = "sell" if long_ else "buy"
+        o["reduceOnly"] = "YES"
+    out = _run(["futures", "futures_place_order", "--orders", json.dumps([o])], runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    ok = bool(out) and '"ok":false' not in compact and "error" not in compact
+    _journal({"ts": int(time.time()), "action": "FUTURES_TP_PARTIAL",
+              "order": {"symbol": symbol, "side": side, "size_btc": size,
+                        "price": round(px, price_place), "clientOid": o["clientOid"]},
+              "ok": ok, "response": str(out)[:300]})
+    return {"ok": ok, "executed": ok, "clientOid": o["clientOid"], "response": out}
+
+
 def drawdown_status():
     """État LECTURE SEULE de la halte drawdown (garde 6) : {halt, dd_pct, max_dd_pct,
     peak, equity, n_points}. Best-effort ({} si illisible) — consommé par

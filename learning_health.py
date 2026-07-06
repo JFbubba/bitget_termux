@@ -80,15 +80,32 @@ def snapshot():
     out["corr_weight_ic"] = rank_corr(weights, ic)
     out["corr_hitrate_ic"] = rank_corr(hr, ic) if hr else None
     out["n_agents"] = len(weights)
-    cw = out["corr_weight_ic"]
+    # §82 : quand la cible RIDGE (§78) est armée, les poids DIVERGENT de l'IC individuel
+    # PAR CONSTRUCTION (le ridge pénalise la redondance corrélée : sentiment/macro
+    # descendent malgré leur IC). L'alignement se juge alors contre la CIBLE ACTIVE
+    # (les mults ridge) — sinon le moniteur crie au décrochage précisément quand le
+    # mécanisme fonctionne. Repli : cible IC (comportement historique).
+    out["cible"] = "ic"
+    out["corr_weight_cible"] = out["corr_weight_ic"]
+    rv = (os.getenv("BRAIN_RIDGE_ALIGN") or "").strip().lower()
+    if rv in ("1", "true", "on", "yes"):
+        try:
+            import swarm_brain as sb2
+            mults = {k: v for k, v in (sb2._ridge_mults() or {}).items() if k in weights}
+            if len(mults) >= 3:
+                out["cible"] = "ridge"
+                out["corr_weight_cible"] = rank_corr(weights, mults)
+        except Exception:
+            pass
+    cw = out["corr_weight_cible"]
     out["healthy"] = (cw is not None and cw >= CORR_MIN)
     if cw is None:
         out["note"] = "corrélation non calculable (données insuffisantes)"
     elif out["healthy"]:
-        out["note"] = f"poids alignés sur l'IC (corr {cw:+.2f})"
+        out["note"] = f"poids alignés sur la cible {out['cible'].upper()} (corr {cw:+.2f})"
     else:
-        out["note"] = (f"ALERTE : poids DÉSALIGNÉS de l'IC (corr {cw:+.2f} < {CORR_MIN}) — "
-                       f"le correctif IC-align ne compense pas"
+        out["note"] = (f"ALERTE : poids DÉSALIGNÉS de la cible {out['cible'].upper()} "
+                       f"(corr {cw:+.2f} < {CORR_MIN}) — le correctif ne compense pas"
                        + ("" if out["ic_align"] else " (BRAIN_IC_ALIGN est OFF !)"))
     return out
 
@@ -109,7 +126,36 @@ def check_and_alert():
     return s
 
 
+def _check_xs_promotion(alert=False):
+    """§82 : alerte UNE fois quand le labo long-short neutre franchit sa barre de
+    promotion (la promotion effective reste une décision propriétaire)."""
+    from pathlib import Path as _P
+    flag = _P(__file__).resolve().parent / ".xs_promotion_alerted"
+    try:
+        import xs_paper
+        st = xs_paper.promotion_status()
+    except Exception:
+        return None
+    if st.get("qualifie") and alert and not flag.exists():
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram(f"🎓 Labo xs long-short QUALIFIÉ pour le réel borné : "
+                             f"{st['jours']} j · {st['rebalances']} rebal · PnL fictif "
+                             f"{st['pnl_usdt']} $. La promotion reste une décision "
+                             "propriétaire (rien ne s'arme tout seul).")
+            flag.touch()
+        except Exception:
+            pass
+    return st
+
+
 def main():
+    import sys
+    _xs = _check_xs_promotion(alert=("--alert" in sys.argv[1:]))
+    if _xs is not None:
+        q = "QUALIFIÉ" if _xs.get("qualifie") else "en cours"
+        print(f"labo xs : {q} — {_xs.get('jours')} j · {_xs.get('rebalances')} rebal · "
+              f"PnL {_xs.get('pnl_usdt')} $ (barre {_xs.get('barre')})")
     import sys
     s = check_and_alert() if "--alert" in sys.argv else snapshot()
     print("=== SANTÉ DE L'APPRENTISSAGE (§68, lecture seule) ===")

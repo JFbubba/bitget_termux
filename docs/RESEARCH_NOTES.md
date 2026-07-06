@@ -2949,3 +2949,51 @@ sur cassure (§80).
     mot qui existe dans un système à murs.
   • « levier moyen 10-20x de votre profil » — PAS le bot (murs ×5, boucle ×2) ;
     probable historique manuel du compte. Aucun changement.
+
+## §82 — Diversification des MÉTHODES : alt-carry (DRY), TP partiels, lab 3×/semaine, exécutions visibles, barre xs
+
+Mandat propriétaire (06/07 soir) : « suis tes recommandations » + lab immédiat +
+horaire 3×/semaine + TP partiels + enquête trades absents du dashboard.
+
+**Enquête (résolue)** : les « trades SOL 19:42 / ETH 23:52 » sont les heures LOCALES
+(UTC+2) de deux allers-retours RÉELS du bot — SOL short 45 $ 17:28->17:42 UTC, ETH
+short 45 $ 21:43->21:52 UTC (+ LAB long 25 $ 13:26, refermé). La fenêtre trades
+n'affichait que les positions OUVERTES : un aller-retour de 10 min disparaissait.
+FIX : bloc « Exécutions récentes » (8 derniers FUTURES_REAL/TP_PARTIAL/REBASE,
+serveur `executions` + rendu) — un trade clos reste visible.
+
+**TP PARTIELS (armés)** : `futures_executor.place_partial_tp` — limite GTC de
+RÉDUCTION (jamais d'exposition nouvelle, kill-switch, minima contrat respectés,
+échec journalisé jamais bloquant) posée par la boucle après CHAQUE ouverture
+réussie : FUTURES_TP_PARTIAL_FRAC (0.5) de la taille à FUTURES_TP1_R (1.0R) ; le
+préréglé SL/TP RR 1.5 couvre le reste (« quand c'est possible » = tranche ≥ minima).
+
+**LAB : lancé immédiatement + cadence mar/jeu/sam 05:00** (cron `0 5 * * 2,4,6`).
+Premier verdict avec PROMOTIONS : rsi_reversion_14, bollinger_20, evo_bollinger_32,
+vp_fade_60, wens_0/3/2.75/0/0 et **evo_grid_49_7** — le régime range favorise la
+famille reversion. La grille spot réelle bornée (recommandation n°3) attendra 2-3
+confirmations consécutives du lab (le rapport de promotion exige lui-même la
+re-validation avant capital) — désormais rapide à 3 runs/semaine.
+
+**ALT-CARRY multi-symboles (recommandation n°1) — construit, DRY par défaut** :
+`alt_carry.py`, module de DÉCISION audité (aucun vocabulaire d'écriture ; jambes
+DÉLÉGUÉES : spot via spot_trader §67, perp ×1 via futures_executor §45, chacune
+avec SES gardes). Scan horaire de l'univers (cron :35) : funding courant, percentile
+~90 j (§59), APR annualisé ; OUVRE seulement sur extrême POSITIF (pctl ≥ 90 ET
+APR ≥ 12 %), FERME quand ça ne paie plus (pctl < 50 ou APR < 5 %) ; funding négatif
+= HORS périmètre v1 (exigerait l'emprunt marge). ANTI-JAMBE-NUE testé : spot
+d'abord, échec perp -> compensation immédiate. 10 $/jambe (≤ cap spot/op). Bug
+corrigé au passage (percentile_taux attend les lignes brutes). Premier scan réel :
+funding de l'univers historiquement BAS (pctl ~1) -> RIEN, correct. **ALT_CARRY_LIVE
+reste OFF : observer les décisions DRY journalisées puis armer (décision
+propriétaire)** — même rampe que chaque surface.
+
+**Barre de promotion xs (recommandation n°2)** : `xs_paper.promotion_status` —
+qualifié si ≥ 30 j, ≥ 20 rebalancements, PnL fictif > 0 (état : 1.3 j · 112 rebal ·
++0.31 $ -> « en cours ») ; learning_health alerte UNE fois à la qualification. La
+promotion effective reste une décision propriétaire.
+
+**Moniteur réparé à temps** : la cible RIDGE (§78) diverge de l'IC individuel PAR
+CONSTRUCTION -> learning_health jugeait « désaligné » (corr 0.06) précisément parce
+que le mécanisme marche. Il juge désormais contre la CIBLE ACTIVE : corr poids ↔
+cible ridge = +0.83, SAIN — fausse alarme du cron de minuit évitée.

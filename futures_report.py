@@ -284,9 +284,14 @@ def snapshot():
         "derniers_events": [{"action": e.get("action"), "ts": e.get("ts"),
                              "agent": (e.get("order") or {}).get("agent"),
                              "side": (e.get("order") or {}).get("side"),
-                             "notional": (e.get("order") or {}).get("notional_usdt"),
+                             "symbol": (e.get("order") or {}).get("symbol"),
+                             "notional": (e.get("order") or {}).get("notional_usdt")
+                                          or (e.get("order") or {}).get("size_btc"),
+                             "reduce": bool((e.get("order") or {}).get("reduce")),
                              "reasons": e.get("reasons")}
-                            for e in (events or [])[-5:]],
+                            for e in (events or [])
+                            if e.get("action") in ("FUTURES_REAL", "FUTURES_TP_PARTIAL",
+                                                   "FUTURES_EQUITY_REBASE")][-8:],
         "fills_bot": resume_fills(fills, depuis_ts=debut) if debut else
                      {"n_fills": 0, "note": "aucun ordre réel du bot encore"},
         "payoff": payoff_profile(fills, depuis_ts=debut) if debut else {"n": 0, "shape": "n/a"},

@@ -82,3 +82,6 @@ neural_net_meta.json
 neural_net_pretrained.pt
 .liquidity_journal.jsonl
 .overlay_votes.jsonl
+.alt_carry_state.json
+.alt_carry_journal.jsonl
+.xs_promotion_alerted

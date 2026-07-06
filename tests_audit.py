@@ -6219,6 +6219,84 @@ def test_liquidity_manager_politique():
     assert lm.decider(60, 38, spot_min=15, spot_max=120, fut_min=40, cap_op=25)["action"] == "rien"
 
 
+def test_alt_carry_decideur_et_jambes():
+    """§82 : moisson de funding multi-symboles — n'ouvre que sur extrême POSITIF
+    (percentile + APR), ferme quand ça ne paie plus, tient en fail-safe si le funding
+    devient illisible ; à l'entrée le spot part D'ABORD et un échec de la jambe perp
+    déclenche la COMPENSATION (jamais de jambe nue)."""
+    import alt_carry as ac
+    # décideur PUR
+    cands = [{"symbol": "ETHUSDT", "taux": 3e-4, "pctl": 96.0, "apr_pct": 32.9},
+             {"symbol": "SOLUSDT", "taux": -9e-4, "pctl": 99.0, "apr_pct": -98.0}]
+    d = ac.decider({}, cands, pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5)
+    assert d["action"] == "ouvrir" and d["symbol"] == "ETHUSDT"      # négatif JAMAIS (v1)
+    d = ac.decider({}, [{"symbol": "ETHUSDT", "taux": 1e-4, "pctl": 40.0, "apr_pct": 10.9}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5)
+    assert d["action"] == "rien"                                      # pas extrême
+    etat = {"position": {"symbol": "ETHUSDT", "usdt": 10}}
+    d = ac.decider(etat, [{"symbol": "ETHUSDT", "taux": 1e-5, "pctl": 30.0, "apr_pct": 1.1}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5)
+    assert d["action"] == "fermer"                                    # ne paie plus
+    d = ac.decider(etat, [], pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5)
+    assert d["action"] == "rien" and "fail-safe" in d["raison"]       # illisible -> tenir
+    # anti-jambe-nue : perp échoue -> compensation vend le spot
+    import futures_auto as fa
+    import futures_executor as fe
+    import spot_trader as st
+    appels = []
+    orig = (st.execute, fe.execute, fa.gross_book_usdt, fe.equity_curve)
+    st.execute = lambda sym, side, usdt, confirm=False, **k: appels.append(("spot", side)) or         {"ok": True, "executed": confirm, "dry": not confirm}
+    fe.execute = lambda *a, **k: appels.append(("perp", k.get("reduce", False))) or         {"ok": False, "executed": False, "reasons": ["test"]}
+    fa.gross_book_usdt = lambda: 0.0
+    fe.equity_curve = lambda: []
+    try:
+        r = ac._ouvrir("ETHUSDT", 10.0, arme=True)
+        assert r["ok"] is False and r["etape"] == "perp"
+        assert appels == [("spot", "buy"), ("perp", False), ("spot", "sell")]   # compensation
+    finally:
+        st.execute, fe.execute, fa.gross_book_usdt, fe.equity_curve = orig
+
+
+def test_futures_tp_partiel():
+    """§82 : après ouverture, TP1 partiel = limite GTC reduce-only à FUTURES_TP1_R ×
+    distance de stop pour FRAC de la taille — seulement si la tranche passe les minima
+    (« quand c'est possible ») ; OFF par gate ; jamais bloquant."""
+    import os
+    import futures_auto as fa
+    import futures_executor as fe
+    poses = []
+    orig = (fe.place_partial_tp, fe._contract_spec, fe.size_for)
+    fe.place_partial_tp = lambda sym, side, size, price, runner=None: poses.append(
+        {"sym": sym, "side": side, "size": size, "price": price}) or {"ok": True, "executed": True}
+    fe._contract_spec = lambda s: {"min_size": 0.01, "step": 0.01, "min_usdt": 5.0, "vol_place": 2}
+    fe.size_for = lambda notional, price, spec: 0.02 if notional >= 10 else None
+    old_env = {k: os.environ.pop(k, None) for k in
+               ("FUTURES_TP_PARTIAL", "FUTURES_TP_PARTIAL_FRAC", "FUTURES_TP1_R",
+                "FUTURES_AUTO_NOTIONAL_USDT")}
+    try:
+        os.environ["FUTURES_TP_PARTIAL"] = "1"
+        os.environ["FUTURES_AUTO_NOTIONAL_USDT"] = "45"
+        # long : entrée 100, SL 98 (dist 2) -> TP1 à 102 (1R) pour la moitié
+        r = fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0)
+        assert r and poses[-1]["price"] == 102.0 and poses[-1]["size"] == 0.02
+        # short : entrée 100, SL 103 -> TP1 à 97
+        fa._poser_tp_partiel(fe, "ETHUSDT", "short", 100.0, 103.0)
+        assert poses[-1]["price"] == 97.0
+        # tranche sous les minima -> rien (le préréglé plein reste seul)
+        fe.size_for = lambda notional, price, spec: None
+        assert fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0) is None
+        # gate OFF -> rien
+        os.environ["FUTURES_TP_PARTIAL"] = "0"
+        fe.size_for = lambda notional, price, spec: 0.02
+        assert fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0) is None
+    finally:
+        fe.place_partial_tp, fe._contract_spec, fe.size_for = orig
+        for k, v in old_env.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 def test_futures_auto_taille_faisable():
     """§75 : un symbole dont les minima de contrat dépassent le notional configuré est
     écarté À LA DÉCISION (sinon : refus « taille infaisable » en boucle, jamais de

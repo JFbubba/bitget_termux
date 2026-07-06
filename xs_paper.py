@@ -182,3 +182,40 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ---------- §82 : BARRE DE PROMOTION (le labo se qualifie tout seul, sur chiffres) ----------
+
+def promotion_status(rows=None, min_jours=None, min_rebal=None):
+    """PUR si rows injecté. La méthode long-short neutre se qualifie pour un passage
+    réel BORNÉ quand : ≥ min_jours de journal, ≥ min_rebal rebalancements, PnL cumulé
+    fictif > 0. Retourne {qualifie, jours, rebalances, pnl_usdt, barre} — consommé par
+    learning_health (alerte Telegram à la qualification). La promotion effective reste
+    une DÉCISION PROPRIÉTAIRE (rien ne s'arme tout seul)."""
+    import json as _json
+    import os
+    from config_utils import cfg as _cfg
+    try:
+        min_jours = float(os.getenv("XS_PROMOTION_DAYS") or _cfg("XS_PROMOTION_DAYS", 30))
+        min_rebal = float(os.getenv("XS_PROMOTION_MIN_REBAL") or _cfg("XS_PROMOTION_MIN_REBAL", 20))
+    except (TypeError, ValueError):
+        min_jours, min_rebal = 30.0, 20.0
+    if rows is None:
+        rows = []
+        try:
+            with open(JOURNAL, "r", encoding="utf-8") as f:
+                for ligne in f:
+                    try:
+                        rows.append(_json.loads(ligne))
+                    except Exception:
+                        continue
+        except Exception:
+            rows = []
+    ts = [r.get("ts") for r in rows if isinstance(r, dict) and r.get("ts")]
+    pnls = [r.get("pnl_usdt") for r in rows if isinstance(r, dict) and r.get("pnl_usdt") is not None]
+    jours = round((max(ts) - min(ts)) / 86400.0, 1) if len(ts) >= 2 else 0.0
+    rebal = len(rows)
+    pnl = pnls[-1] if pnls else None
+    qualifie = bool(jours >= min_jours and rebal >= min_rebal and (pnl or 0) > 0)
+    return {"qualifie": qualifie, "jours": jours, "rebalances": rebal,
+            "pnl_usdt": pnl, "barre": {"jours": min_jours, "rebalances": min_rebal, "pnl": "> 0"}}
