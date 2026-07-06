@@ -195,6 +195,15 @@
       <span class="l"><span class="reel" id="v-carry-reel">·</span> CARRY</span>
       <span class="v" id="v-carry">—</span>
     </div>
+    <!-- HERO : verdict d'un coup d'œil (santé + biais) ; RISQUE toujours visible (murs argent) -->
+    <div class="voie">
+      <span class="l"><span id="v-verdict-dot" style="color:var(--dim)">●</span> VERDICT</span>
+      <span class="v" id="v-verdict" style="font-size:11px">—</span>
+    </div>
+    <div class="voie">
+      <span class="l"><span id="v-risk-dot" style="color:var(--dim)">●</span> RISQUE</span>
+      <span class="v" id="v-risk" style="font-size:11px">—</span>
+    </div>
     <div class="met voie" data-scope="paper">
       <span class="l">paper · win rate</span>
       <span class="v"><span class="green" id="t-win">—</span> <span class="dim" style="font-size:10px">/ <span id="t-final">—</span> finalisés</span></span>
@@ -371,18 +380,17 @@
   </div>
 
   <div class="panel full" style="position:relative;margin-top:8px">
-    <h2>MiroFish · Relationship Graph</h2>
+    <h2>MiroFish · Carte de consensus <span class="dim" style="letter-spacing:0">— univers §47 · centre = net marché · rayon ∝ |consensus| · anneau = franchit le seuil ±0.35 · données réelles</span></h2>
     <div class="legend" id="g-legend" title="clic = afficher/masquer · double-clic = isoler">
-      <span class="lg" data-cls="bear"><span class="dot" style="background:var(--red)"></span>bear</span>
-      <span class="lg" data-cls="bull"><span class="dot" style="background:var(--green)"></span>bull</span>
-      <span class="lg" data-cls="catalyst"><span class="dot" style="background:var(--amber)"></span>catalyst</span>
-      <span class="lg" data-cls="cluster"><span class="dot" style="background:var(--purple)"></span>cluster</span>
+      <span class="lg" data-cls="bull"><span class="dot" style="background:var(--green)"></span>haussier</span>
+      <span class="lg" data-cls="bear"><span class="dot" style="background:var(--red)"></span>baissier</span>
+      <span class="lg" data-cls="seuil"><span class="dot" style="background:var(--amber)"></span>≥ seuil (actionnable)</span>
     </div>
     <div class="gstats">
-      <div class="row"><span class="k">convergence&nbsp;</span><span class="green" id="g-conv">—</span></div>
-      <div class="row"><span class="k">P(up)&nbsp;</span><span class="green" id="g-up">—</span></div>
-      <div class="row"><span class="k">P(down)&nbsp;</span><span class="red" id="g-down">—</span></div>
-      <div class="row"><span class="k">nodes&nbsp;</span><span id="g-nodes">—</span></div>
+      <div class="row"><span class="k">net consensus&nbsp;</span><span id="g-conv">—</span></div>
+      <div class="row"><span class="k">haussiers&nbsp;</span><span class="green" id="g-up">—</span></div>
+      <div class="row"><span class="k">baissiers&nbsp;</span><span class="red" id="g-down">—</span></div>
+      <div class="row"><span class="k">symboles&nbsp;</span><span id="g-nodes">—</span></div>
     </div>
     <canvas id="graph" height="300"></canvas>
   </div>
@@ -410,7 +418,7 @@
       <div class="row"><span class="k">dashboard · bot</span><span id="sy-svc">—</span></div>
       <div class="row"><span class="k">kill-switch</span><span id="sy-kill">—</span></div>
     </div>
-    <div class="panel"><h2>Probability Lattice</h2><canvas id="lattice" height="150"></canvas></div>
+    <div class="panel"><h2>Issues des signaux <span class="dim" style="letter-spacing:0">— paper · comptes TP / SL / ambigu</span></h2><canvas id="lattice" height="150"></canvas></div>
     <div class="panel">
       <h2>Market · Sentiment</h2>
       <div class="row"><span class="k">Fear &amp; Greed</span><span id="m-fg">—</span></div>
@@ -588,7 +596,7 @@ function initChart(){
   series.candles=chart.addCandlestickSeries({upColor:"#3FBF7F",downColor:"#E5484D",borderVisible:false,wickUpColor:"#3FBF7F",wickDownColor:"#E5484D"});
   const lopt={lineWidth:1.4,priceLineVisible:false,lastValueVisible:true,crosshairMarkerVisible:false};
   series.ema20=chart.addLineSeries(Object.assign({color:"#5B9BD5"},lopt));
-  series.ema50=chart.addLineSeries(Object.assign({color:"#A98CD6"},lopt));
+  series.ema50=chart.addLineSeries(Object.assign({color:"#A98CD6",lineStyle:2},lopt));  // pointillé : distingue EMA50 d'EMA20 par un canal autre que la couleur (robuste daltonisme)
   series.vwap=chart.addLineSeries(Object.assign({color:"#E5A93D"},lopt));
   series.volume=chart.addHistogramSeries({priceScaleId:"vol",priceFormat:{type:"volume"}});
   series.volume.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
@@ -800,35 +808,54 @@ function drawBook(ob,mid){
   el.innerHTML=html;
 }
 
-let nodes=[],edges=[],gstarted=false;
-const CLS={bear:"#E5484D",bull:"#3FBF7F",catalyst:"#E5A93D",cluster:"#A98CD6"};
-const CLS_ON={bear:true,bull:true,catalyst:true,cluster:true};  // couches du graphe (toggle/isoler)
-function initGraph(symbols){
-  const c=$("graph"),w=c.clientWidth,h=c.height;nodes=[];edges=[];
-  const hubs=symbols.map((s,i)=>{const a=(i/symbols.length)*6.283;
-    return{label:s.replace("USDT",""),cls:"cluster",x:w/2+Math.cos(a)*w*0.25,y:h/2+Math.sin(a)*h*0.28,r:9};});
-  nodes.push(...hubs);
-  const types=["bear","bull","catalyst","bear","bull","bear","bull","catalyst"];
-  for(let i=0;i<46;i++){const cls=types[i%types.length],hub=hubs[i%hubs.length];
-    nodes.push({cls,x:hub.x+(Math.random()-.5)*220,y:hub.y+(Math.random()-.5)*200,r:3+Math.random()*2});
-    edges.push([nodes.indexOf(hub),nodes.length-1]);
-    if(Math.random()<.4)edges.push([nodes.length-1,Math.floor(Math.random()*nodes.length)]);
-  }
+// ===== Carte de consensus de l'univers (§47) — DONNÉES RÉELLES, plus de faux nœuds =====
+// Étoile radiale : centre = net marché ; satellite = symbole de l'univers ; rayon ∝ |consensus|,
+// couleur = signe (vert/rouge, sémantique directionnel), anneau ambre = franchit le seuil d'entrée.
+let _consNodes=[],_consNet=0,_gseuil=0.35,gstarted=false;
+const CLS_ON={bull:true,bear:true,seuil:true};   // couches (toggle/isoler depuis la légende)
+const _reduceMotion=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+function setConsensusGraph(cons,seuil){
+  _gseuil=seuil||0.35;
+  const rows=(cons||[]).filter(r=>r&&r.s);
+  const vals=rows.map(r=>r.c).filter(v=>v!=null);
+  _consNet=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
+  _consNodes=rows.map((r,i)=>({sym:(r.s||"").replace(/USDT$/,""),c:r.c,
+    ang:(i/Math.max(1,rows.length))*6.283-1.5708}));   // départ en haut, sens horaire
 }
 function drawGraph(){
-  const c=$("graph"),w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
-  ctx.clearRect(0,0,w,h);const t=Date.now()/1400;
-  ctx.strokeStyle="rgba(80,90,110,.18)";
-  edges.forEach(e=>{const na=nodes[e[0]],nb=nodes[e[1]];if(!na||!nb)return;
-    if(!CLS_ON[na.cls]||!CLS_ON[nb.cls])return;ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();});
-  nodes.forEach((n,i)=>{n.x+=Math.cos(t+i)*0.25;n.y+=Math.sin(t+i*1.3)*0.25;
-    if(!CLS_ON[n.cls])return;
-    const col=CLS[n.cls]||"#888";
-    if(n.cls==="cluster"){ctx.fillStyle=col+"22";ctx.beginPath();ctx.arc(n.x,n.y,n.r+10,0,6.283);ctx.fill();}
-    ctx.fillStyle=col;ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,6.283);ctx.fill();
-    if(n.label){ctx.fillStyle="#c5cdd6";ctx.font="9px monospace";ctx.textAlign="center";ctx.fillText(n.label,n.x,n.y-n.r-4);}
+  const c=$("graph");if(!c)return;
+  const w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
+  ctx.clearRect(0,0,w,h);
+  const cx=w/2,cy=h/2,R=Math.min(w/2,h/2)*0.66,t=Date.now()/1000;
+  const XY=n=>[cx+Math.cos(n.ang)*R,cy+Math.sin(n.ang)*R];
+  // arêtes centre -> symbole : opacité + épaisseur ∝ |consensus|, couleur = signe
+  _consNodes.forEach(n=>{
+    if(n.c==null)return;const cls=n.c>=0?"bull":"bear";if(!CLS_ON[cls])return;
+    const[x,y]=XY(n),mag=Math.min(1,Math.abs(n.c));
+    ctx.strokeStyle=(n.c>=0?"rgba(63,191,127,":"rgba(229,72,77,")+(0.10+0.55*mag).toFixed(3)+")";
+    ctx.lineWidth=0.6+2.6*mag;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x,y);ctx.stroke();
   });
-  requestAnimationFrame(drawGraph);
+  // nœud central = net marché
+  const netCol=_consNet>=0.05?"#3FBF7F":_consNet<=-0.05?"#E5484D":"#8E8574";
+  ctx.fillStyle=netCol+"22";ctx.beginPath();ctx.arc(cx,cy,19,0,6.283);ctx.fill();
+  ctx.fillStyle=netCol;ctx.beginPath();ctx.arc(cx,cy,7,0,6.283);ctx.fill();
+  ctx.fillStyle="#8E8574";ctx.font="8.5px system-ui,sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.fillText("MARCHÉ",cx,cy-15);
+  // satellites : symboles réels
+  _consNodes.forEach(n=>{
+    if(n.c==null)return;const cls=n.c>=0?"bull":"bear";if(!CLS_ON[cls])return;
+    const[x,y]=XY(n),mag=Math.min(1,Math.abs(n.c)),r=4+7*mag,col=n.c>=0?"#3FBF7F":"#E5484D";
+    if(Math.abs(n.c)>=_gseuil&&CLS_ON.seuil){        // anneau ambre = actionnable (≥ seuil ±0.35)
+      const pr=r+4+(_reduceMotion?0:1.4*(1+Math.sin(t*2)));
+      ctx.strokeStyle="#E5A93D";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,pr,0,6.283);ctx.stroke();
+    }
+    ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,6.283);ctx.fill();
+    ctx.fillStyle="#C9C4B8";ctx.font="9px ui-monospace,monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(n.sym,x,y-r-6);                       // ticker réel = identité (jamais couleur seule)
+    ctx.fillStyle=col==="#3FBF7F"?"#3FBF7F":"#E5484D";ctx.font="8px ui-monospace,monospace";
+    ctx.fillText((n.c>=0?"+":"")+n.c.toFixed(2),x,y+r+7);
+  });
+  if(!_reduceMotion)requestAnimationFrame(drawGraph);   // sinon : redessin sur maj de données
 }
 
 function drawLattice(s){
@@ -836,7 +863,10 @@ function drawLattice(s){
   const data=[["TP",s.tp||0,"#3FBF7F"],["SL",s.sl||0,"#E5484D"],["AMBIGU",s.ambigu||0,"#8E8574"]];
   const max=Math.max(1,...data.map(d=>d[1])),bw=w/(data.length*2),base=h-22;
   data.forEach((d,i)=>{const x=(i*2+0.5)*bw,bh=(d[1]/max)*(base-10);
-    ctx.fillStyle=d[2];ctx.fillRect(x,base-bh,bw,bh);
+    const rr=Math.min(4,bh);                 // extrémités arrondies ancrées à la ligne de base
+    ctx.fillStyle=d[2];ctx.beginPath();
+    if(ctx.roundRect){ctx.roundRect(x,base-bh,bw,bh,[rr,rr,0,0]);ctx.fill();}
+    else ctx.fillRect(x,base-bh,bw,bh);
     ctx.fillStyle="#c5cdd6";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(d[1],x+bw/2,base-bh-4);
     ctx.fillStyle="#8E8574";ctx.fillText(d[0],x+bw/2,h-6);});
 }
@@ -1074,11 +1104,17 @@ function renderState(){
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
     if(st.tf)$("c-tf").textContent=st.tf.toUpperCase();
-    const upP=Math.max(0,Math.min(1,0.5+imb*0.4));
-    $("g-up").textContent=(upP*100).toFixed(0)+"%";$("g-down").textContent=((1-upP)*100).toFixed(0)+"%";
-    $("g-conv").textContent=(60+Math.abs(imb)*40).toFixed(1)+"%";
-    if(!gstarted){initGraph((st.symbols&&st.symbols.length)?st.symbols:[st.symbol]);gstarted=true;drawGraph();}
-    $("g-nodes").textContent=nodes.length;
+    // carte de consensus (données réelles §47) : centre = net marché, satellites = symboles
+    const _cu=(st.viz||{}).consensus_univers||[], _seuil=(st.viz||{}).seuil||0.35;
+    setConsensusGraph(_cu,_seuil);
+    if(!gstarted){gstarted=true;drawGraph();} else if(_reduceMotion){drawGraph();}
+    const _nBull=_consNodes.filter(n=>n.c!=null&&n.c>=0).length;
+    const _nBear=_consNodes.filter(n=>n.c!=null&&n.c<0).length;
+    const _nAct=_consNodes.filter(n=>n.c!=null&&Math.abs(n.c)>=_seuil).length;
+    $("g-conv").textContent=(_consNet>=0?"+":"")+_consNet.toFixed(2);
+    $("g-conv").className=_consNet>=0.05?"green":_consNet<=-0.05?"red":"dim";
+    $("g-up").textContent=_nBull;$("g-down").textContent=_nBear;
+    $("g-nodes").textContent=_consNodes.length+(_nAct?(" · "+_nAct+" ≥seuil"):"");
     $("m-fg").textContent=fg?(fg.value+" · "+fg.classification):"—";if(fg)$("m-fg").className=fg.value<25?"red":fg.value>75?"green":"amber";
     const df=mk.defi;if(df){$("m-tvl").textContent="$"+human(df.total_tvl);$("m-chains").textContent=(df.top_chains||[]).map(c=>c.name+" $"+human(c.tvl)).join(" · ");}
     $("m-vix").textContent=fmt(m.vix);$("m-dxy").textContent=(m.dxy_change_pct==null)?"—":fmt(m.dxy_change_pct)+"%";
@@ -1197,6 +1233,33 @@ function renderState(){
       ((fu2.consensus!=null?((fu2.consensus>=0?"+":"")+(+fu2.consensus).toFixed(2)):"—")+((fu2.symbol&&fu2.symbol!=="BTCUSDT")?(" "+fu2.symbol.replace(/USDT$/,"")):"")+" / seuil .35"));
     $("v-carry-reel").textContent=(fcr.armed||fu2.armed)?"RÉEL":"off";
     $("v-carry").textContent=(fcr.apr!=null)?((fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% / seuil 5% · couv $"+(fcr.couverture!=null?Math.round(fcr.couverture):"—")):"—";
+    // --- HERO : verdict santé (à gauche) + RISQUE murs argent (toujours visible) ---
+    {
+      const kill=sysd.kill_switch, lpv=lp.verdict||"";
+      const bi=(st.brain||{}).bias||"—", cvn=(st.brain||{}).conviction, pu=pj.p_up;
+      const ve=$("v-verdict");
+      if(ve){ve.textContent=bi+(cvn!=null?(" · conv "+Math.round(cvn*100)+"%"):"")+(pu!=null?(" · P↑ "+Math.round(pu*100)+"%"):"");
+        ve.className="v "+(bi==="LONG"?"green":bi==="SHORT"?"red":"dim");}
+      let hcol="var(--dim)";
+      if(kill||lpv==="DOWN"||lpv==="STALE")hcol="var(--red)";
+      else if(lpv==="RUNNING"||lpv==="RUNNING?")hcol="var(--green)";
+      else if(lpv)hcol="var(--amber)";
+      const vdd=$("v-verdict-dot");if(vdd)vdd.style.color=hcol;
+      // RISQUE : kill-switch · dépense/cap du jour · distance au stop journalier futures
+      const parts=[];let worst="green";
+      if(kill){parts.push("KILL ARMÉ ⚠");worst="red";}else parts.push("kill off");
+      if(cp.spent_today!=null&&cp.daily_eff!=null){
+        parts.push("dép $"+(+cp.spent_today).toFixed(0)+"/"+(+cp.daily_eff).toFixed(0));
+        if(cp.breach)worst="red";else if(cp.spent_today>0&&worst!=="red")worst="amber";}
+      const fstp=fu2.stop||{};
+      if(fstp.open_equity&&fstp.last_equity!=null&&fu2.stop_pct!=null){
+        const trig=fstp.open_equity*(1-fu2.stop_pct/100);
+        const marge=(fstp.last_equity-trig)/fstp.open_equity*100;
+        parts.push("stop −"+fu2.stop_pct+"% (marge "+marge.toFixed(1)+"%)");
+        if(marge<1&&worst!=="red")worst="red";else if(marge<2.5&&worst==="green")worst="amber";}
+      const re=$("v-risk");if(re)re.textContent=parts.join(" · ");
+      const rdd=$("v-risk-dot");if(rdd)rdd.style.color=worst==="red"?"var(--red)":worst==="amber"?"var(--amber)":"var(--green)";
+    }
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+_lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";const ld=$("livedot");if(ld)ld.classList.add("stale");}
@@ -1364,7 +1427,10 @@ function dessineViz(viz){
   if(cv){
     const ctx=cv.getContext("2d");const W=cv.width=cv.clientWidth||300,H=cv.height;
     ctx.clearRect(0,0,W,H);
-    const S=[{d:viz.pnl_serie||[],col:"#5B9BD5"},{d:viz.funding_serie||[],col:"#A98CD6"}];
+    // deux séries, même axe USDT : PnL = série « argent » (ivoire, plein, épais) ; funding
+    // = secondaire (bleu, pointillé, fin). Couple séparable (ΔE≈50) + légende à swatch.
+    const S=[{d:viz.pnl_serie||[],col:"#EFE9DA",lbl:"PnL",dash:false,w:2},
+             {d:viz.funding_serie||[],col:"#5B9BD5",lbl:"fund",dash:true,w:1.4}];
     const pts=S.flatMap(s=>s.d);
     if(pts.length>=2){
       const t0=Math.min(...pts.map(p=>p[0])),t1=Math.max(...pts.map(p=>p[0]))||t0+1;
@@ -1375,11 +1441,21 @@ function dessineViz(viz){
       ctx.moveTo(0,Y(0));ctx.lineTo(W,Y(0));ctx.stroke();ctx.setLineDash([]);   // zéro
       for(const s of S){
         if(s.d.length<1)continue;
-        ctx.strokeStyle=s.col;ctx.lineWidth=2;ctx.beginPath();
+        ctx.strokeStyle=s.col;ctx.lineWidth=s.w;
+        ctx.setLineDash(s.dash?[4,3]:[]);ctx.beginPath();
         s.d.forEach((p,i)=>{const x=X(p[0]),y=Y(p[1]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
-        ctx.stroke();
+        ctx.stroke();ctx.setLineDash([]);
         const last=s.d[s.d.length-1];
         ctx.fillStyle=s.col;ctx.beginPath();ctx.arc(X(last[0]),Y(last[1]),2.5,0,7);ctx.fill();
+      }
+      // légende à swatch (identité par label + couleur, jamais par la couleur seule) :
+      // swatch coloré = série ; texte en encre muette (pas la couleur de série).
+      ctx.textAlign="left";ctx.textBaseline="top";ctx.font="9px ui-monospace,monospace";
+      let lx0=4;
+      for(const s of S){
+        ctx.fillStyle=s.col;ctx.fillRect(lx0,3,8,3);
+        ctx.fillStyle="#8E8574";ctx.fillText(s.lbl,lx0+11,1);
+        lx0+=11+ctx.measureText(s.lbl).width+10;
       }
       const lp=(viz.pnl_serie||[]).slice(-1)[0],lf=(viz.funding_serie||[]).slice(-1)[0];
       $("pf-last").textContent=(lp?("PnL "+(lp[1]>=0?"+":"")+lp[1].toFixed(3)+"$"):"")+
