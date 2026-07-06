@@ -101,7 +101,13 @@ def agent_technicals(symbol):
     if rsi is not None:
         vote += 0.3 if rsi < 35 else -0.3 if rsi > 65 else 0
     vote += _clamp(vb / 10.0) * 0.4
-    return {"vote": _clamp(vote), "confidence": 0.6, "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}"}
+    v = _clamp(vote)
+    out = {"vote": v, "confidence": 0.6,
+           "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}",
+           "evidence": [f"ema20={ema20}", f"ema50={ema50}", f"rsi14={rsi}"]}    # #8 auditabilité
+    if ema50 and v != 0:                                  # #8 invalidation : un long n'est valable
+        out["invalid_if"] = {"below": ema50} if v > 0 else {"above": ema50}   # qu'au-dessus de l'EMA50
+    return out
 
 
 def _fetch_macro_regime():
@@ -437,6 +443,36 @@ def _apply_watch(weights):
     return {k: (0.0 if k in names else v) for k, v in weights.items()}
 
 
+def _apply_invalidations(votes, price):
+    """#8 : contrat d'agent ENRICHI (idée NERVA `invalid_if`). Un agent peut émettre
+    invalid_if = {'below': X} et/ou {'above': Y} : un niveau de prix qui INVALIDE son vote
+    (ex. un long n'est valable qu'au-dessus de son support). Si le prix COURANT viole la
+    condition, on NEUTRALISE ce vote (confidence 0) -> « stop-out de signal » déterministe.
+    Le champ `evidence` est préservé pour l'auditabilité. Identité si prix illisible."""
+    try:
+        px = float(price)
+    except (TypeError, ValueError):
+        return votes
+    if px <= 0:
+        return votes
+    out = {}
+    for name, v in votes.items():
+        inv = v.get("invalid_if") if isinstance(v, dict) else None
+        void = False
+        if isinstance(inv, dict):
+            lo, hi = inv.get("below"), inv.get("above")
+            try:
+                if lo is not None and px < float(lo):
+                    void = True
+                if hi is not None and px > float(hi):
+                    void = True
+            except (TypeError, ValueError):
+                void = False
+        out[name] = {**v, "confidence": 0.0,
+                     "note": (str(v.get("note", "")) + " [invalidé]").strip()} if void else v
+    return out
+
+
 def cognition(votes, weights, consensus):
     """Méta-cognition du cerveau (« conscience » de son propre état). Pur.
 
@@ -751,6 +787,16 @@ def learn(symbol, price_now, weights):
             if vote == 0 or realized == 0:
                 continue
             correctness.setdefault(name, []).append((vote > 0) == (realized > 0))
+        if realized != 0:                            # RÉFLEXION post-trade (idée #6) : situation -> résultat
+            try:
+                import situation_memory as sm
+                cons = e.get("consensus", 0) or 0
+                sm.record({"symbol": symbol,
+                           "bias": "long" if cons > 0.2 else "short" if cons < -0.2 else "neutre",
+                           "force": "fort" if abs(cons) >= 0.5 else "modere"},
+                          realized, now=now)
+            except Exception:
+                pass
         e["evaluated"] = True
         changed = True
     if correctness:
@@ -832,6 +878,11 @@ def _attach_cognition(result, votes, weights, closes=None):
         scale = vr["scale"]
     result["adjusted_conviction"] = round(result.get("conviction", 0.0) * cog["prudence"] * scale, 3)
     result["notes"] = {n: v.get("note") for n, v in votes.items()}
+    # #8 : preuves par agent + agents dont le vote a été invalidé par le prix (auditabilité)
+    result["evidence"] = {n: v.get("evidence") for n, v in votes.items()
+                          if isinstance(v, dict) and v.get("evidence")}
+    result["invalidated"] = [n for n, v in votes.items()
+                             if isinstance(v, dict) and "[invalidé]" in str(v.get("note", ""))]
     return result
 
 
@@ -860,6 +911,10 @@ def peek(symbol="BTCUSDT"):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
+    try:
+        votes = _apply_invalidations(votes, _price(symbol))   # #8 : stop-out de signal
+    except Exception:
+        pass
     aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
@@ -871,10 +926,6 @@ def read(symbol="BTCUSDT", do_learn=True):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
-    result = aggregate(votes, aw)
-    result["symbol"] = symbol
-    result["weights"] = aw
     # §61 : learn et record SÉPARÉS, exceptions IMPRIMÉES. L'ancien try unique
     # muet a caché 4.7 h de NameError dans learn() (import _cfg manquant) : le
     # cerveau n'enregistrait plus AUCUN vote et personne ne le voyait — la
@@ -884,6 +935,11 @@ def read(symbol="BTCUSDT", do_learn=True):
     except Exception as exc:
         print(f"brain read({symbol}) prix: {type(exc).__name__}")
         price = None
+    votes = _apply_invalidations(votes, price)           # #8 : stop-out de signal (prix courant)
+    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
+    result = aggregate(votes, aw)
+    result["symbol"] = symbol
+    result["weights"] = aw
     if do_learn and price:
         try:
             learn(symbol, price, weights)

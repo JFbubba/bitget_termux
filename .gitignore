@@ -72,3 +72,6 @@ logs/
 
 # ledger de coût LLM (runtime, idée #3)
 .llm_cost_ledger.jsonl
+
+# mémoire de situations (runtime, idée #6)
+.situation_memory.jsonl

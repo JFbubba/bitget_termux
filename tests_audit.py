@@ -1529,6 +1529,47 @@ def test_data_guards_quality():
     assert dg.cap_by_liquidity(50, 100, 0.3) == 30.0
     assert dg.cap_by_liquidity(50, 100, 0) == 50.0  # size 0 -> cap (jamais d'infini)
 
+
+def test_situation_memory_recall_and_reflection():
+    """#6 (idée 111/TradingAgents) : mémoire de situations — similarité Jaccard, recall des
+    situations proches, expectancy_hint advisory (None si trop peu d'échantillons)."""
+    import json
+    import pathlib
+    import tempfile
+    import situation_memory as sm
+    assert sm.similarity({"a=1", "b=2"}, {"a=1", "b=2"}) == 1.0
+    assert round(sm.similarity({"a=1", "b=2"}, {"a=1", "c=3"}), 3) == round(1 / 3, 3)
+    lf = sorted(sm.tokens({"bias": "long", "force": "fort"}))
+    sf = sorted(sm.tokens({"bias": "short", "force": "fort"}))
+    store = [{"tokens": lf, "outcome": 1}, {"tokens": lf, "outcome": 1},
+             {"tokens": lf, "outcome": -1}, {"tokens": sf, "outcome": -1}]
+    rec = sm.recall({"bias": "long", "force": "fort"}, store=store)
+    assert len(rec) == 3 and all(r["sim"] == 1.0 for r in rec)   # 'short fort' (sim 1/3) exclu
+    hint = sm.expectancy_hint({"bias": "long", "force": "fort"}, store=store)
+    assert hint["n"] == 3 and round(hint["hint"], 3) == round((1 + 1 - 1) / 3, 3)
+    assert sm.expectancy_hint({"bias": "neutre"}, store=store) is None   # 0 proche -> prudence
+    p = pathlib.Path(tempfile.mkdtemp()) / "mem.jsonl"
+    sm.record({"bias": "long"}, 1.0, path=p)
+    assert json.loads(p.read_text().splitlines()[-1])["outcome"] == 1.0
+
+
+def test_brain_agent_invalidation_contract():
+    """#8 (idée NERVA) : contrat d'agent enrichi — un vote avec invalid_if est NEUTRALISÉ
+    (confidence 0) si le prix COURANT le viole (stop-out de signal) ; evidence préservé."""
+    import swarm_brain as sb
+    votes = {
+        "technicals": {"vote": 0.6, "confidence": 0.7, "note": "long",
+                       "invalid_if": {"below": 60000}, "evidence": ["ema50=60000"]},
+        "short_a": {"vote": -0.5, "confidence": 0.8, "note": "short", "invalid_if": {"above": 65000}},
+        "plain": {"vote": 0.3, "confidence": 0.5, "note": "x"},
+    }
+    out = sb._apply_invalidations(votes, 59000)      # 59000 < 60000 -> long invalidé
+    assert out["technicals"]["confidence"] == 0.0 and "[invalidé]" in out["technicals"]["note"]
+    assert out["technicals"]["evidence"] == ["ema50=60000"]   # preuve préservée
+    assert out["short_a"]["confidence"] == 0.8       # 59000 < 65000 -> short pas invalidé
+    assert out["plain"] == votes["plain"]            # pas d'invalid_if -> inchangé
+    assert sb._apply_invalidations(votes, None) == votes     # prix illisible -> identité (fail-safe)
+
 def test_brain_read_attaches_cognition():
     import swarm_brain as sb
     # aggregate + cognition cohérents sur des votes synthétiques
