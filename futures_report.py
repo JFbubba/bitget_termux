@@ -236,6 +236,10 @@ def snapshot():
                                      fe.FUT_ABS_MAX_GROSS_USDT),
                  "mur_per_trade": fe.FUT_ABS_MAX_PER_TRADE_USDT,
                  "mur_gross": fe.FUT_ABS_MAX_GROSS_USDT},
+        # Compte CLASSIQUE (wallets cloisonnés). assetMode = réglage « Mode Multi-Actifs »
+        # du wallet futures : 'union' (ON) force le crossed ; 'single' (OFF) permet l'isolé.
+        # Le crossed ne puise QUE dans le wallet futures, jamais dans spot/earn/bots.
+        "marge": {"asset_mode": fe._asset_mode(), "effectif": fe._marge_mode()},
     }
 
 
@@ -266,6 +270,11 @@ def build_report(s=None):
            if s.get("equity_7j_delta_pct") is not None else ""),
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "
         f"(murs {_n(caps.get('mur_per_trade'))}/{_n(caps.get('mur_gross'))})",
+        (lambda mg: (lambda am, eff:
+            f"Marge : {eff or '?'} — compte classique, Multi-Actifs "
+            f"{'ON (union) → crossed forcé' if am == 'union' else 'OFF (single) → isolé' if am == 'single' else am or '?'}"
+            f" · risque cloisonné au wallet futures (spot/earn/bots hors d'atteinte)"
+         )(mg.get("asset_mode"), mg.get("effectif")))(s.get("marge") or {}),
         f"Journal exécuteur : {s.get('events') or 'vide'}",
     ]
     if fb.get("n_fills"):
