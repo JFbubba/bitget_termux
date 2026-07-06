@@ -728,6 +728,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Charge le .env (gitignored) : le service systemd bitget-dashboard n'a pas
+    # d'EnvironmentFile, donc sans ceci les leviers .env (LLM_AGENT_ENABLED,
+    # NN_AGENT_ENABLED) ne seraient pas vus -> le dashboard afficherait les voix
+    # opt-in OFF alors qu'elles sont armées en prod. Best-effort, lecture seule.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(REPO_ROOT / ".env")
+    except Exception:
+        pass
     print(f"=== DASHBOARD (lecture seule) sur http://{HOST}:{PORT} ===")
     print("Mode: PAPER / DRY-RUN. Aucun ordre. VERDICT: SAFE")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
