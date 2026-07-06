@@ -813,6 +813,30 @@ def test_llm_agent_caches_per_symbol():
         (llm_agent.enabled, llm_agent._cfg, llm_agent._knob, llm_agent._produce_vote, rc.get) = old
 
 
+def test_llm_cost_budget_and_ledger():
+    """#3 : budget & ledger de coût LLM cloud. DEUX plafonds (coût $ ET nb d'appels/jour)."""
+    import json
+    import pathlib
+    import tempfile
+    import llm_cost as lc
+    day = lc._day()
+    rows = [{"day": day, "cost_usd": 0.02}, {"day": day, "cost_usd": 0.03},
+            {"day": day - 1, "cost_usd": 9.0}]                 # hier -> ignoré
+    cost, n = lc.today(ledger=rows)
+    assert round(cost, 4) == 0.05 and n == 2
+    assert lc.budget_ok(ledger=rows) is True                   # sous les défauts (0.50$ / 2000)
+    assert lc.budget_ok(ledger=[{"day": day, "cost_usd": 1.0}]) is False   # coût dépassé
+    assert lc.budget_ok(ledger=[{"day": day, "cost_usd": 0.0}] * 2001) is False  # nb appels dépassé
+    old = lc.LEDGER
+    try:
+        lc.LEDGER = pathlib.Path(tempfile.mkdtemp()) / "led.jsonl"
+        lc.record("gemini", "gemini-2.5-flash", tokens=120, cost_usd=0.0)
+        line = json.loads(lc.LEDGER.read_text().splitlines()[-1])
+        assert line["backend"] == "gemini" and line["tokens"] == 120 and line["day"] == day
+    finally:
+        lc.LEDGER = old
+
+
 def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():
     """Banc DÉTERMINISTE inchangé quand LLM OFF ; poids LLM fixe/borné + exclu de
     l'apprentissage quand ON (le banc 14 reste gelé, §62)."""

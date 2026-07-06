@@ -48,6 +48,32 @@ def enabled():
     return bool(_cfg("LLM_AGENT_ENABLED", False))
 
 
+def _budget_guard():
+    """Lève si le budget LLM cloud journalier est atteint (idée NERVA cost_control).
+    Ne bloque PAS si le module de coût est indisponible (défaut d'infra != dépassement)."""
+    try:
+        import llm_cost
+        over = not llm_cost.budget_ok()
+    except Exception:
+        return
+    if over:
+        raise RuntimeError("budget LLM cloud journalier atteint")
+
+
+def _record_cost(backend, model, data):
+    """Journalise le coût d'un appel cloud (best-effort) depuis la réponse brute."""
+    try:
+        import llm_cost
+        if backend == "gemini":
+            um = data.get("usageMetadata") or {}
+            llm_cost.record("gemini", model, tokens=um.get("totalTokenCount", 0), cost_usd=0.0)
+        else:
+            u = data.get("usage") or {}
+            llm_cost.record("cloud", model, tokens=u.get("total_tokens", 0), cost_usd=u.get("cost", 0.0))
+    except Exception:
+        pass
+
+
 def _symbol_allowed(symbol):
     """Liste blanche de symboles (LLM_AGENT_SYMBOLS='BTCUSDT,ETHUSDT'). Vide = tous.
     Sert à BORNER le coût : un backend local lent (~18 s/appel sur ce VPS CPU) ne peut
@@ -111,6 +137,7 @@ def _call_gemini(prompt, model, timeout):
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY absent")
+    _budget_guard()                                  # #3 : budget cloud journalier
     max_tokens = int(float(_cfg("LLM_AGENT_MAX_TOKENS", 800)))
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
            f":generateContent?key={key}")
@@ -128,6 +155,7 @@ def _call_gemini(prompt, model, timeout):
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read().decode())
+    _record_cost("gemini", model, data)              # #3 : journalise tokens/coût
     cands = data.get("candidates")
     if not cands:                                # quota/erreur -> pas de candidates
         raise RuntimeError((data.get("error") or {}).get("message", "réponse sans candidates"))
@@ -140,6 +168,7 @@ def _call_cloud(prompt, model, timeout):
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY absent")
+    _budget_guard()                                  # #3 : budget cloud journalier
     # Budget de sortie généreux : les modèles « thinking » (gpt-5*, o3, deepseek-r1)
     # dépensent des tokens de RAISONNEMENT avant le contenu — trop bas -> content vide
     # (finish_reason=length). 800 par défaut suffit pour un petit JSON après réflexion.
@@ -151,6 +180,7 @@ def _call_cloud(prompt, model, timeout):
                                           "Authorization": f"Bearer {key}"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read().decode())
+    _record_cost("cloud", model, data)               # #3 : journalise tokens/coût
     ch = data.get("choices")
     if not ch:                                   # 402/erreur OpenRouter -> pas de choices
         raise RuntimeError((data.get("error") or {}).get("message", "réponse sans choices"))

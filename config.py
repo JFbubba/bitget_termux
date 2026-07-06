@@ -255,3 +255,5 @@ LLM_AGENT_WEIGHT = 0.5                     # poids FIXE dans l'agrégation (non 
 LLM_AGENT_SYMBOLS = ""                      # liste blanche (ex. "BTCUSDT") ; vide = TOUS les tokens de l'univers
 LLM_AGENT_TTL_S = 900                       # vote LLM caché/symbole (15 min) : couvre tout l'univers sans exploser le quota
 LLM_AGENT_KEEPALIVE = "30m"                 # Ollama : garde qwen en mémoire entre cycles (évite le rechargement swap)
+LLM_AGENT_DAILY_BUDGET_USD = 0.50          # #3 : plafond $ / jour des appels LLM CLOUD (dépassé -> plus d'appel cloud du jour)
+LLM_AGENT_DAILY_MAX_CALLS = 2000           # #3 : plafond nb d'appels cloud / jour (borne les modèles gratuits type Gemini free-tier)

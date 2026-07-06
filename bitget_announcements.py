@@ -21,7 +21,7 @@ from config_utils import cfg as _cfg
 # Barème d'impact DÉTERMINISTE 0..100 (inspiré de Bitget/scoring/impact_score.py).
 BASE = {"delisting": 80, "suspension": 75, "maintenance": 45, "listing": 30, "other": 10}
 KW = [("emergency", 15), ("exploit", 15), ("hack", 15), ("halt", 12), ("suspen", 12),
-      ("delist", 12), ("withdraw", 10), ("deposit", 6), ("futures", 5), ("testnet", -25)]
+      ("delist", 12), ("frozen", 10), ("deposit", 6), ("futures", 5), ("testnet", -25)]
 
 
 def score_announcement(ann):
