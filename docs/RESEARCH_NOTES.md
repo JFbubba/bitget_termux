@@ -2367,3 +2367,17 @@ Activation : one-shot pour réaligner les poids persistés immédiatement (ferme
 faibles-IC simplement down-weightés (principiel) au lieu d'être zérotés. Réversible
 (BRAIN_IC_ALIGN=0). Banc gelé à 14 intact (§62) : on réaligne la pondération, pas la
 composition. 1 test (409/409 OK, 3 portes vertes).
+
+## §68 (addendum) — Plancher EARCP : mélange géométrique (fin de la saturation)
+
+Défaut détecté après le §68 : l'IC-align MULTIPLICATIF (poids × cible^α) SATURAIT — top
+agents collés au plafond 3.0, bas au plancher 0.2 (retour du §51). Et un agent à IC positif
+déjà au plancher (simons IC +0.031 votants 97.7 %, savant +0.029) NE remontait pas : la
+normalisation, dominée par les tops, le repoussait sous 0.2.
+
+Fix : **mélange GÉOMÉTRIQUE vers la cible IC** — `w^(1-α)·cible^α` (α=0.85 défaut, env-aware
+`BRAIN_IC_ALIGN_ALPHA`). Un agent planché est TIRÉ vers sa cible IC (w^0.15 ≈ 1) au lieu d'y
+rester collé. Mesuré (poids persistés après) : simons 0.20 -> 0.92, savant 0.20 -> 0.90 ;
+tops sentiment/liquidations/derivs ~1.9 (PLUS de plafond) ; flows/divergent ~0.26 (IC
+négatif). AUCUN agent au plancher/plafond -> distribution IC-alignée saine. Réversible
+(BRAIN_IC_ALIGN_ALPHA plus bas = plus d'EARCP appris ; =1 = cible IC pure). 409/409, portes vertes.

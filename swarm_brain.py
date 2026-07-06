@@ -644,8 +644,8 @@ def _ic_priors():
 
 
 def _apply_ic_alignment(weights):
-    """RÉALIGNE les poids EARCP sur l'IC LIVE mesuré (§68) : poids × mult**alpha, normalisé
-    à moyenne ~1, re-borné [MIN,MAX]. mult > 1 pour IC positif, < 1 pour IC négatif — la
+    """RÉALIGNE les poids EARCP sur l'IC LIVE mesuré (§68) : mélange géométrique w^(1-α)·cible^α,
+    normalisé à moyenne ~1, re-borné [MIN,MAX]. cible (mult) > 1 pour IC positif, < 1 négatif — la
     prédictivité MESURÉE pilote le poids (fin de la boucle §51 où flows pesait 1.33 pour un
     IC −0.03). Gated BRAIN_IC_ALIGN (env prioritaire, défaut OFF). Fail-safe NEUTRE : pas d'IC
     / module en panne -> poids inchangés. Rend le WATCH-list superflu (down-weight principiel
@@ -658,12 +658,17 @@ def _apply_ic_alignment(weights):
         if not on:
             return weights
         mult = _ic_priors()
-        alpha = max(0.0, min(1.0, float(_cfg("BRAIN_IC_ALIGN_ALPHA", 1.0))))
+        a = os.getenv("BRAIN_IC_ALIGN_ALPHA")
+        alpha = max(0.0, min(1.0, float(a) if a is not None else float(_cfg("BRAIN_IC_ALIGN_ALPHA", 0.85))))
     except Exception:
         return weights
     if not mult:
         return weights
-    w = {k: v * (max(float(mult.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
+    # MÉLANGE GÉOMÉTRIQUE vers la cible IC : w^(1-α)·cible^α (α=1 -> cible IC pure ; α=0 ->
+    # EARCP inchangé). Le multiplicatif pur SATURAIT (top au plafond, bas au plancher, §51) ;
+    # ici un agent planché (w petit) est TIRÉ vers sa cible IC (simons/savant 0.2 -> ~0.9).
+    w = {k: (max(v, 1e-9) ** (1.0 - alpha)) * (max(float(mult.get(k, 1.0)), 1e-9) ** alpha)
+         for k, v in weights.items()}
     avg = (sum(w.values()) / len(w)) if w else 1.0
     if avg > 0:
         w = {k: round(v / avg, 3) for k, v in w.items()}
