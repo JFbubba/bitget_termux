@@ -78,15 +78,28 @@ def execute(symbol, side, usdt, confirm=False, runner=None, live=None, kill=None
                   meta={"symbol": symbol, "side": side})
 
 
+def kelly_usdt():
+    """Taille recommandée par le critère de Kelly, rebornée par le cap/opération spot.
+    0 si edge négatif (cas actuel). Retourne (montant, détail_kelly)."""
+    import kelly
+    per_op = ex.capped("SPOT_TRADE_MAX_PER_OP_USDT", 10.0, ABS_PER_OP_USDT)
+    return kelly.recommended_usdt(per_op)
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Trading spot borné (achat/vente).")
     p.add_argument("--symbol", default="BTCUSDT")
     p.add_argument("--side", choices=["buy", "sell"], required=True)
-    p.add_argument("--usdt", type=float, required=True, help="notionnel USDT")
+    p.add_argument("--usdt", type=float, default=None, help="notionnel USDT (ou --kelly)")
+    p.add_argument("--kelly", action="store_true", help="dimensionne par le critère de Kelly (borné)")
     p.add_argument("--confirm", action="store_true", help="exécute le VRAI ordre (sinon DRY)")
     a = p.parse_args()
-    r = execute(a.symbol, a.side, a.usdt, confirm=a.confirm)
+    usdt = a.usdt
+    if a.kelly or usdt is None:
+        usdt, k = kelly_usdt()
+        print(f"[Kelly] f={k['f']} (complet {k['f_full']}) -> taille {usdt} USDT · {k['note']}")
+    r = execute(a.symbol, a.side, usdt, confirm=a.confirm)
     print("=== SPOT TRADER (borné) ===")
     print("Commande :", r.get("preview"))
     if not r.get("ok"):

@@ -279,6 +279,7 @@
 
   <div class="panel full" style="margin-top:8px">
     <h2>Surfaces de trading <span class="dim" style="letter-spacing:0">— §67 · bornées · gated (défaut OFF) · murs argent absolus · retraits interdits (clé Trade-only)</span></h2>
+    <div id="kelly" style="font-size:11px;line-height:1.6;margin-bottom:8px;letter-spacing:0"></div>
     <div id="tsurf" class="rp-grid"></div>
   </div>
 
@@ -889,6 +890,19 @@ function _rpFill(id,nid,rows){
     `<div class="rp-r"><span><span class="a ${r.cls||""}">${r.main}</span><br><span class="m">${r.meta}</span></span>`
     +`<span class="val a ${r.vcls||""}">${r.val}</span></div>`).join("");
 }
+// --- critère de Kelly (advisory) : W/R mesurés -> fraction bornée + taille recommandée ---
+function renderKelly(k){
+  const el=$("kelly");if(!el)return;k=k||{};
+  if(k.W==null){el.innerHTML='<span class="dim">Kelly indisponible</span>';return;}
+  const pos=k.edge_positive;
+  const col=pos?"green":"red";
+  const reco=k.recommended_usdt||{};
+  const recoStr=Object.keys(reco).map(s=>`${s} $${(+reco[s]).toFixed(2)}`).join(" · ");
+  el.innerHTML=`<b>Kelly</b> · W ${(100*k.W).toFixed(1)}% · R ${(+k.R).toFixed(2)} · `
+    +`f complet <span class="${col}">${k.f_full}</span> -> f appliqué (×${k.fraction}, cap ${k.cap}) `
+    +`<b class="${col}">${k.f}</b> · capital ≈ $${k.capital_usdt} · taille reco : ${recoStr}`
+    +(pos?"":` · <span class="red">edge NÉGATIF -> mise 0 (ne pas miser tant qu'un edge positif n'est pas démontré)</span>`);
+}
 // --- surfaces de trading bornées §67 : armé/OFF + caps + dépensé du jour ---
 function renderTradingSurfaces(list){
   const el=$("tsurf");if(!el)return;
@@ -1154,6 +1168,7 @@ async function tick(){
     try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
     try{ renderRealPositions(st.real_positions||{}); }catch(e){}
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
+    try{ renderKelly(st.kelly||{}); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");

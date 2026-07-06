@@ -91,14 +91,20 @@ def main():
     p = argparse.ArgumentParser(description="Trading marge borné (isolée/croisée).")
     sub = p.add_subparsers(dest="cmd", required=True)
     po = sub.add_parser("order"); po.add_argument("--type", default="crossed"); po.add_argument("--symbol", default="BTCUSDT")
-    po.add_argument("--side", choices=["buy", "sell"], required=True); po.add_argument("--usdt", type=float, required=True)
+    po.add_argument("--side", choices=["buy", "sell"], required=True); po.add_argument("--usdt", type=float, default=None)
+    po.add_argument("--kelly", action="store_true", help="dimensionne par Kelly (borné)")
     po.add_argument("--confirm", action="store_true")
     for name in ("borrow", "repay"):
         sp = sub.add_parser(name); sp.add_argument("--type", default="crossed"); sp.add_argument("--coin", default="USDT")
         sp.add_argument("--usdt", type=float, required=True); sp.add_argument("--confirm", action="store_true")
     a = p.parse_args()
     if a.cmd == "order":
-        r = order(a.symbol, a.side, a.usdt, margin_type=a.type, confirm=a.confirm)
+        usdt = a.usdt
+        if getattr(a, "kelly", False) or usdt is None:
+            import kelly
+            usdt, k = kelly.recommended_usdt(ex.capped("MARGIN_MAX_PER_OP_USDT", 10.0, ABS_PER_OP_USDT))
+            print(f"[Kelly] f={k['f']} -> taille {usdt} USDT · {k['note']}")
+        r = order(a.symbol, a.side, usdt, margin_type=a.type, confirm=a.confirm)
     else:
         r = (borrow if a.cmd == "borrow" else repay)(a.coin, a.usdt, margin_type=a.type, confirm=a.confirm)
     print("=== MARGIN TRADER (borné) ===")

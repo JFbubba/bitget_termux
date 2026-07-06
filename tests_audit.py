@@ -7449,6 +7449,40 @@ def test_trading_execs_never_withdraw_and_transfer_confined():
         assert "transfer" not in Path(f).read_text(encoding="utf-8").lower(), f"transfer dans {f}"
 
 
+# ---------- Critère de Kelly (§68) ----------
+
+def test_kelly_negative_edge_gives_zero():
+    import kelly
+    k = kelly.kelly_fraction(0.35, 0.55)           # stats mesurées réelles ~ edge négatif
+    assert k["f_full"] < 0 and k["f"] == 0.0 and k["edge_positive"] is False
+
+
+def test_kelly_positive_edge_half_and_cap():
+    import kelly
+    # W=0.6 R=2 -> f_full = 0.6 - 0.4/2 = 0.4 ; demi-Kelly -> 0.2 (sous cap 0.25)
+    k = kelly.kelly_fraction(0.6, 2.0, fraction=0.5, cap=0.25)
+    assert k["f_full"] == 0.4 and k["f"] == 0.2 and k["edge_positive"] is True
+    # plafond dur : Full-Kelly élevé rabattu au cap
+    k2 = kelly.kelly_fraction(0.9, 10.0, fraction=1.0, cap=0.25)
+    assert k2["f"] == 0.25
+
+
+def test_kelly_invalid_inputs_are_safe():
+    import kelly
+    assert kelly.kelly_fraction(None, 2.0)["f"] == 0.0
+    assert kelly.kelly_fraction(0.6, 0.0)["f"] == 0.0     # R <= 0 -> 0
+
+
+def test_kelly_recommended_usdt_bounded():
+    import kelly
+    # edge positif mais rebornage par le cap/opération
+    amt, k = kelly.recommended_usdt(10.0, W=0.6, R=2.0, capital=1000.0)
+    assert amt == 10.0 and k["f"] == 0.2               # f*capital=200 -> borné à 10
+    # edge négatif -> 0
+    amt2, _ = kelly.recommended_usdt(10.0, W=0.35, R=0.55, capital=1000.0)
+    assert amt2 == 0.0
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

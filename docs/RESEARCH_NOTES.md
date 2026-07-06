@@ -2304,3 +2304,27 @@ dépensé du jour), via `trading_status.snapshot()` -> `state["trading_surfaces"
 **Leviers (.env, défaut OFF)** : `SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`, `TRANSFER_LIVE`,
 `EARN_LIVE` ; caps `*_MAX_PER_OP_USDT` / `*_MAX_DAILY_USDT` (relèvent SOUS le mur absolu
 codé). Armer = décision propriétaire explicite, par paliers, sur exécution propre.
+
+## §68 — Sizing par le critère de Kelly + armement des surfaces §67
+
+Demande propriétaire : « arme tout ce qui est possible et utilise le critère de Kelly ».
+
+**`kelly.py` (SAFE, pur).** `f = W − (1−W)/R` avec garde-fous DURS : edge négatif (f ≤ 0)
+-> **mise 0** (jamais de pari à edge négatif ni de « pari inverse ») ; **demi-Kelly** par
+défaut (KELLY_FRACTION=0.5) ; **plafond dur** KELLY_MAX_FRACTION=0.25 ; le montant est
+ENSUITE reborné par le cap/opération de la surface (Kelly ne dimensionne qu'À LA BAISSE
+dans les murs). W/R lus des stats MESURÉES (stats_report). Câblé : `--kelly` dans
+spot_trader/margin_trader (source de taille), `state["kelly"]` + bandeau dashboard.
+
+**Résultat HONNÊTE sur les stats réelles** : W=35.9 %, R=0.56 -> **f complet = −0.79**
+-> f appliqué = **0** -> taille recommandée **$0 sur toutes les surfaces**. L'edge mesuré
+est décisivement négatif ; Kelly ordonne de NE RIEN MISER. C'est le garde-fou qui opère :
+« utiliser Kelly » ici = ne placer aucun pari tant qu'un edge positif n'est pas démontré.
+
+**Armement §67.** Les 4 verrous LIVE (`SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`,
+`TRANSFER_LIVE`, `EARN_LIVE`) sont ARMÉS (.env, décision propriétaire explicite). MAIS :
+(1) armer ≠ trading auto — les surfaces §67 sont CLI + `--confirm` uniquement, aucune
+boucle ne les déclenche ; (2) les deux autres verrous tiennent (kill-switch + `--confirm`
+par ordre) ; (3) Kelly dimensionne à 0 -> même armé, un ordre Kelly-sizé est REFUSÉ
+(montant ≤ 0). Vérifié : armé+Kelly -> refus ; armé+montant explicite sans confirm -> DRY.
+AUCUN ordre réel n'a été placé (edge négatif). 4 tests Kelly (406/406 OK, 3 portes vertes).

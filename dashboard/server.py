@@ -678,6 +678,11 @@ def build_state(symbol=None, tf="5m"):
     # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.
     state["trading_surfaces"] = _cached("tsurf", 20,
                                         lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
+    # Critère de Kelly (advisory, lecture seule) : W/R mesurés -> fraction bornée + taille
+    # recommandée/surface. Edge négatif -> 0. Aucun ordre.
+    state["kelly"] = _cached("kelly", 60, lambda: _safe(lambda: __import__("kelly").snapshot(
+        {s.get("surface"): s.get("per_op") for s in (state.get("trading_surfaces") or [])
+         if s.get("surface") in ("spot", "margin")} or None), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:
