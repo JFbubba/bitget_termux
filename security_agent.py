@@ -87,6 +87,19 @@ TRADING_EXEC_FORBIDDEN = [
 ]
 TRADING_EXEC_REQUIRED_GUARDS = ["bitget_execute", "confirm", "_live"]
 
+# Module de DÉCISION liquidité §76 : il DÉCIDE (une action par cycle) et DÉLÈGUE
+# toute exécution aux surfaces §67 (account_transfers/earn_manager — qui portent
+# verrous LIVE, kill-switch, caps). Il a le droit de NOMMER 'transfer' (délégation)
+# mais AUCUN vocabulaire d'écriture directe (ordre, levier, retrait, hub en écriture).
+LIQUIDITY_DECISION_FILE = "liquidity_manager.py"
+LIQUIDITY_FORBIDDEN = [
+    "withdraw", "place_order", "set_leverage", "change_leverage", "setleverage",
+    "margin_borrow", "margin_repay", "sub_account", "subaccount", "broker_",
+    "hub._write", "hub._exec", "_run_bgc", "order/place",
+]
+LIQUIDITY_REQUIRED = ["liquidity_auto", "account_transfers", "earn_manager",
+                      "confirm", "kill-switch", "fail-closed"]
+
 # Fichier de STATUT lecture seule §67 : agrège l'état des surfaces pour le dashboard.
 # Il référence les noms des exécuteurs (d'où 'transfer') mais ne doit contenir AUCUN
 # vocabulaire d'ÉCRITURE — on prouve ainsi qu'il ne peut QUE lire.
@@ -132,6 +145,7 @@ FILES_TO_SCAN = [
     "margin_trader.py",
     "account_transfers.py",
     "earn_manager.py",
+    "liquidity_manager.py",
     "trading_status.py",
     "account_equity.py",
     "git_version.py",
@@ -274,6 +288,21 @@ def scan_trading_exec(filename):
     return issues
 
 
+def scan_liquidity_decision(filename):
+    """Audit du module de DÉCISION liquidité (§76) : aucun vocabulaire d'écriture
+    directe (le module ne fait que déléguer aux surfaces §67 auditées) ; le gate
+    LIQUIDITY_AUTO, la délégation aux deux surfaces, confirm et la mention des
+    invariants (kill-switch, fail-closed) DOIVENT être présents."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = [f"interdit:{kw}" for kw in LIQUIDITY_FORBIDDEN if kw.lower() in text]
+    issues += [f"garde manquante:{req}" for req in LIQUIDITY_REQUIRED
+               if req.lower() not in text]
+    return issues
+
+
 def scan_status_readonly(filename):
     """Audit d'un fichier de STATUT lecture seule §67 : il peut référencer les noms
     d'exécuteurs, mais ne doit contenir AUCUN vocabulaire d'écriture (il ne fait que lire
@@ -341,6 +370,9 @@ def main():
         elif filename in TRADING_EXEC_FILES:
             hits = scan_trading_exec(filename)
             label = "exec surface non conforme"
+        elif filename == LIQUIDITY_DECISION_FILE:
+            hits = scan_liquidity_decision(filename)
+            label = "décision liquidité non conforme"
         elif filename in STATUS_READONLY_FILES:
             hits = scan_status_readonly(filename)
             label = "statut read-only non conforme"

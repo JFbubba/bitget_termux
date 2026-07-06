@@ -6102,6 +6102,37 @@ def test_futures_equity_intraday_journal_et_courbe():
         tmp.unlink(missing_ok=True)
 
 
+def test_liquidity_manager_politique():
+    """§76 : politique de liquidité PURE — une action par cycle, bornée [5, cap/op],
+    fail-closed sur soldes illisibles, gate OFF par défaut (armer = décision
+    propriétaire). L'exécution est déléguée aux surfaces §67 (leurs propres gardes)."""
+    import os
+    import liquidity_manager as lm
+    old = os.environ.pop("LIQUIDITY_AUTO", None)
+    try:
+        assert lm.enabled() is False                      # défaut OFF
+    finally:
+        if old is not None:
+            os.environ["LIQUIDITY_AUTO"] = old
+    assert lm.decider(None, 50)["action"] == "rien"       # fail-closed
+    assert lm.decider(50, None)["action"] == "rien"
+    # marge futures basse + spot riche -> virement, clampé au cap/op
+    d = lm.decider(100, 10, spot_min=15, spot_max=120, fut_min=40, cap_op=25)
+    assert d["action"] == "transfer_spot_futures" and d["usdt"] == 25
+    # marge basse + spot trop juste -> rachat Earn d'abord (virement au cycle suivant)
+    d = lm.decider(12, 10, spot_min=15, spot_max=120, fut_min=40, cap_op=25)
+    assert d["action"] == "redeem" and d["usdt"] == 25
+    # float spot sous le plancher -> rachat
+    d = lm.decider(8, 100, spot_min=15, spot_max=120, fut_min=40, cap_op=25)
+    assert d["action"] == "redeem" and 5 <= d["usdt"] <= 25
+    # surplus au-dessus du plafond -> souscription Earn (bornée)
+    d = lm.decider(160, 100, spot_min=15, spot_max=120, fut_min=40, cap_op=25)
+    assert d["action"] == "subscribe" and d["usdt"] == 25
+    # équilibré -> rien ; micro-besoin < 5 $ -> rien (pas de micro-mouvements)
+    assert lm.decider(60, 100, spot_min=15, spot_max=120, fut_min=40, cap_op=25)["action"] == "rien"
+    assert lm.decider(60, 38, spot_min=15, spot_max=120, fut_min=40, cap_op=25)["action"] == "rien"
+
+
 def test_futures_auto_taille_faisable():
     """§75 : un symbole dont les minima de contrat dépassent le notional configuré est
     écarté À LA DÉCISION (sinon : refus « taille infaisable » en boucle, jamais de

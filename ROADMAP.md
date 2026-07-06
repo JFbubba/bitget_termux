@@ -65,9 +65,10 @@ Ordres reels UNIQUEMENT via les modules autorises : spot_executor, futures_execu
 et les surfaces bornees §67 (spot_trader, margin_trader, account_transfers, earn_manager
 sur le noyau bitget_execute — CLI + --confirm uniquement, jamais de boucle auto).
 Jamais de RETRAIT nulle part (cle Trade-only, aucun code de retrait n'existe).
-Vente spot libre / marge / virements internes / earn : INTERDITS aux boucles autonomes —
-possibles UNIQUEMENT via les surfaces §67 (verrous LIVE armes par decision proprietaire
-du 06/07, caps durs par operation et par jour, kill-switch fail-closed, --confirm).
+Vente spot libre / marge : INTERDITES aux boucles autonomes — possibles UNIQUEMENT via
+les surfaces §67 en CLI + --confirm. Virements INTERNES et Earn USDT : autorises a la
+boucle de liquidite BORNEE liquidity_manager (§76, decision proprietaire du 06/07 —
+gated LIQUIDITY_AUTO, 1 action/heure max, caps §67 25$/op·100$/j, kill-switch).
 L'accumulation spot, elle, reste achat-seul (on ne vend jamais la poche d'accumulation).
 Pas de secrets dans Git.
 Pas dactivation can_trade=True sur les agents du cerveau (ils DECIDENT, les executeurs executent).

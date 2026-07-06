@@ -95,6 +95,9 @@ strategy-lab dimanche 05:00 (§68/§70).
 - **Instruments de mesure** : `live_ic_audit.py` (IC live par agent), `exit_lab.py`
   (sorties), `candles_history.py` + `funding_history.py` (profondeur 6 ans / 90 j),
   `agent_validation.replay_annuel` (porte profonde de l'échelle d'edge).
+- **Liquidité** : `liquidity_manager.py` (§76, décision — délègue aux surfaces §67 :
+  virement spot↔futures + Earn USDT flexible ; gated `LIQUIDITY_AUTO`, cron horaire,
+  1 action/cycle bornée [5 $, caps §67], jamais de retrait).
 - **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
   spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
   `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
@@ -114,6 +117,8 @@ NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §6
 NN_EDGE_GATE=prudent        # porte d'edge 16ᵉ voix (§71) : prudent (wf_edge − se) | brut (wf_edge seul)
 CLASSICS_AGENT_ENABLED=0    # 17ᵉ voix stratégies classiques du lab (opt-in, §72)
 ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
+FUTURES_AUTO_NOTIONAL_USDT=10  # taille/trade boucle directionnelle (env-aware ; MONTÉE à 25 le 06/07, §76)
+LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
 # Surfaces de trading bornées §67 — TOUTES défaut OFF (armer = décision propriétaire) :
 SPOT_TRADE_LIVE=0           # spot libre (achat/vente)   · caps SPOT_TRADE_MAX_PER_OP/DAILY_USDT
 MARGIN_TRADE_LIVE=0         # marge isolée/croisée        · caps MARGIN_MAX_PER_OP/DAILY_USDT

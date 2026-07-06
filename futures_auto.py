@@ -355,6 +355,16 @@ def run(now=None):
     return out
 
 
+def _notional_cfg():
+    """Notional par trade, ENV-AWARE (env prioritaire > config, comme FUTURES_AUTO_RR) :
+    monter/baisser la taille = décision propriétaire par levier env, effet immédiat."""
+    import os
+    try:
+        return float(os.getenv("FUTURES_AUTO_NOTIONAL_USDT") or _cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+    except (TypeError, ValueError):
+        return float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+
+
 def _prix_entry(entries, sym):
     """Dernier prix journalisé du symbole (journal du cerveau). None sinon. PUR."""
     for e in reversed(entries or []):
@@ -376,8 +386,7 @@ def _taille_faisable(sym, entries, notional=None):
     reste le juge final (fail-closed)."""
     try:
         import futures_executor as fe
-        notional = (float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
-                    if notional is None else float(notional))
+        notional = _notional_cfg() if notional is None else float(notional)
         spec = fe._contract_spec(sym)
         px = _prix_entry(entries, sym)
         if not spec or not px:
@@ -620,7 +629,7 @@ def _run_cycle(now=None):
                                      "ouverture refusée (invariant SL exchange)"}
         return out
     res = fe.execute("auto_dir", d["side"],
-                     float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0)),
+                     _notional_cfg(),
                      float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
                      entry=prix, stop_loss=sl, take_profit=tp,
                      confirm=True, now=now, symbol=sym,

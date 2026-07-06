@@ -2760,3 +2760,34 @@ Fine-tune de production v5 (25 features, prior v2) sur le journal live :
 Vérifications en production le même jour : achat 12:00 passé (8e, 3.21 $ ∝ score 0.403,
 multiplicateur coût-moyen ×1.0 en zone neutre — §70 et §72 exercés sans accroc) ;
 filtre d'infaisabilité actif (LAB écarté à la décision). 422/422, portes vertes.
+
+## §76 — Gestion autonome des outils Bitget : notional monté, liquidité automatisée
+
+Trois décisions propriétaires (06/07 après-midi), câblées DANS les murs :
+
+**1. FUTURES_AUTO_NOTIONAL_USDT : 10 -> 25 $** (env-aware désormais, comme
+FUTURES_AUTO_RR). Minima MESURÉS sur l'univers : ETH 17.37 · LAB 16.61 · XAUT 41.47,
+le reste ≤ 8 $. À 25 $ : tout faisable SAUF XAUT (écarté-mais-visible par le filtre
+§75 ; l'inclure demanderait ~45 $ — décision propriétaire future). Marge vs murs :
+3 positions × 25 = 75 $ brut ≤ cap 200 ; risque/trade au SL 1.5 % ≈ 0.38 $.
+Vérifié live : LAB redevenu candidat (« OUVRIR long LABUSDT »).
+
+**2. `liquidity_manager.py` (§76) — la liquidité s'auto-gère, BORNÉE.** Module de
+DÉCISION (classé à part par security_agent — scanner dédié : aucun vocabulaire
+d'écriture directe, délégation OBLIGATOIRE — et par safe_push_check) qui délègue
+TOUTE exécution aux surfaces §67 auditées (account_transfers, earn_manager : verrous
+LIVE, kill-switch fail-closed, caps 25 $/op · 100 $/j). Politique (PURE, testée) —
+UNE action par cycle, montants [5 $, cap/op] :
+  marge futures < 40 $ -> virement spot->futures (si le spot garde son plancher 15 $),
+    sinon rachat Earn d'abord ; float spot < 15 $ -> rachat Earn ; float spot > 120 $
+    -> souscription Earn du surplus (l'argent ne dort pas) ; sinon RIEN.
+  Fail-closed sur soldes illisibles ; pas de micro-mouvements (< 5 $) ; journal
+  .liquidity_journal.jsonl + Telegram sur action ; gate LIQUIDITY_AUTO (défaut OFF
+  dans le code, ARMÉ par le propriétaire) ; cron horaire (:15). Le RETRAIT externe
+  reste impossible partout (clé Trade-only). Seuils env : LIQ_SPOT_MIN/MAX_USDT,
+  LIQ_FUT_MIN_USDT. Premier statut live : spot 70.50 ∈ [15,120], futures 205.95 ≥ 40
+  -> RIEN (équilibré — aucun mouvement inutile).
+
+**3. Gouvernance** : ROADMAP mis à jour (virements internes + Earn autorisés à la
+boucle bornée ; vente spot libre/marge restent CLI+--confirm uniquement) ; CLAUDE.md
+(leviers + architecture). Chaque brique testée ; 423/423 attendu aux portes.
