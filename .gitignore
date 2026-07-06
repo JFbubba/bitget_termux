@@ -81,3 +81,4 @@ neural_net_weights.pt
 neural_net_meta.json
 neural_net_pretrained.pt
 .liquidity_journal.jsonl
+.overlay_votes.jsonl

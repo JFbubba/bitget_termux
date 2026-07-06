@@ -77,6 +77,17 @@ def ic_par_agent(entrees, horizon_s=3600):
     return out
 
 
+OVERLAY = Path(__file__).resolve().parent / ".overlay_votes.jsonl"
+
+
+def overlay_snapshot(horizon_s=3600):
+    """IC des VOIX OPT-IN (llm/nn/classics, §77) — même juge que les 14, journal
+    séparé (.overlay_votes.jsonl, écrit par _record quand une voix PARLE)."""
+    res = ic_par_agent(charger_entrees(OVERLAY), horizon_s)
+    tri = sorted(res.items(), key=lambda x: -(x[1]["ic"] if x[1]["ic"] is not None else -9))
+    return {"horizon_s": horizon_s, "agents": [{"agent": a, **m} for a, m in tri]}
+
+
 def snapshot(horizon_s=3600):
     """Audit à l'horizon de trading (1 h par défaut), trié IC décroissant."""
     res = ic_par_agent(charger_entrees(), horizon_s)
@@ -92,6 +103,13 @@ def build_report(s=None):
                       f"n {r['n']}, votants {r['pct_votants']}%)")
     if not s.get("agents"):
         lignes.append("  historique insuffisant (< 50 obs/agent)")
+    ov = overlay_snapshot(s["horizon_s"]).get("agents", [])
+    lignes.append("--- voix opt-in (llm/nn/classics, §77) ---")
+    if ov:
+        for r in ov:
+            lignes.append(f"  {r['agent']:<12} IC {r['ic']:+.4f} (t {r['ic_t']:+.2f}, n {r['n']})")
+    else:
+        lignes.append("  accumule… (< 50 votes parlés par voix)")
     lignes.append("Lecture seule — l'instrument de vérité des poids (§51). VERDICT: SAFE")
     return "\n".join(lignes)
 

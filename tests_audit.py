@@ -855,11 +855,19 @@ def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():
         tmp = Path(tempfile.mkdtemp())
         sb.LOG_FILE = tmp / "brain_log.json"
         sb.ROOT = tmp                                # append_jsonl best-effort -> tmp, pas le dépôt
-        votes = {"orderflow": {"vote": 0.5}, "llm": {"vote": 0.9}}
+        votes = {"orderflow": {"vote": 0.5},
+                 "llm": {"vote": 0.9, "confidence": 0.4},
+                 "nn": {"vote": 0, "confidence": 0}}          # voix MUETTE (porte fermée)
         sb._record("BTCUSDT", votes, {"consensus": 0.5}, 100.0)
         import json
         rec = json.loads(sb.LOG_FILE.read_text())[-1]["votes"]
         assert "orderflow" in rec and "llm" not in rec
+        # §77 : la voix qui PARLE est journalisée À PART (mesure IC), la muette non,
+        # et le journal d'apprentissage reste vierge de toute voix opt-in (§62)
+        ov = (sb.ROOT / ".overlay_votes.jsonl")
+        assert ov.exists()
+        derniere = json.loads(ov.read_text().strip().splitlines()[-1])
+        assert derniere["votes"] == {"llm": 0.9} and "nn" not in derniere["votes"]
     finally:
         (sb.LOG_FILE, sb.ROOT) = old
 
@@ -905,6 +913,23 @@ def test_classics_agent_17e_voix():
         os.environ.pop("CLASSICS_AGENT_ENABLED", None)
         if old_env is not None:
             os.environ["CLASSICS_AGENT_ENABLED"] = old_env
+
+
+def test_brain_edge_prior_cede_a_evidence_live():
+    """§77 : le prior ADVISORY de l'échelle d'edge cède face à un IC live
+    significativement positif (t ≥ 3) — fin du tir à la corde qui épinglait un agent
+    prédictif au plancher. Un agent à t < 3 garde son frein (le juge profond veille)."""
+    import edge_ladder
+    import swarm_brain as sb
+    orig_wp, orig_t = edge_ladder.weight_priors, sb._ic_tstats
+    edge_ladder.weight_priors = lambda rep=None: {"simons": 0.3, "divergent": 0.6}
+    sb._ic_tstats = lambda: {"simons": 9.7, "divergent": -1.3}
+    try:
+        out = sb._apply_edge_priors({"simons": 1.0, "divergent": 1.0, "macro": 1.0})
+        assert out["simons"] > out["divergent"]           # simons libéré, divergent freiné
+        assert abs(out["simons"] - out["macro"]) < 0.05   # même traitement qu'un prior neutre
+    finally:
+        edge_ladder.weight_priors, sb._ic_tstats = orig_wp, orig_t
 
 
 def test_brain_market_ctx_journalise():

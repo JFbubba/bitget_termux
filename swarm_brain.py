@@ -628,11 +628,40 @@ def _apply_edge_priors(weights):
         return weights
     if not priors:
         return weights
+    # §77 : le prior ADVISORY cède face à l'ÉVIDENCE LIVE — un agent dont l'IC live est
+    # significativement POSITIF (t ≥ seuil, défaut 3.0) ne subit plus le frein du juge
+    # profond POUR LE CONSENSUS (le tir à la corde prior×0.3 vs cible IC ~1.0 épinglait
+    # simons/geometric au plancher malgré t +9.8/+6.3 sur 35k votes). L'échelle d'edge
+    # garde intacte sa vraie porte : la promotion au trading LIVE. Débrayable :
+    # BRAIN_EDGE_PRIOR_IC_T très grand (jamais d'override).
+    try:
+        t_min = float(_cfg("BRAIN_EDGE_PRIOR_IC_T", 3.0))
+        tstats = _ic_tstats()
+        priors = {k: (1.0 if tstats.get(k, 0.0) >= t_min else v) for k, v in priors.items()}
+    except Exception:
+        pass
     w = {k: v * (max(float(priors.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
     avg = (sum(w.values()) / len(w)) if w else 1.0
     if avg > 0:
         w = {k: round(v / avg, 3) for k, v in w.items()}
     return _clamp_weights(w)
+
+
+def _ic_tstats():
+    """t-stats de l'IC LIVE par agent (même snapshot que _ic_priors, cache 1 h).
+    {} si indisponible (fail-safe neutre)."""
+    from config_utils import cfg as _cfg
+    try:
+        import runtime_cache as rc
+        horizon = int(_cfg("BRAIN_IC_ALIGN_HORIZON_S", 3600))
+
+        def _compute():
+            import live_ic_audit as lia
+            return {r["agent"]: float(r["ic_t"]) for r in lia.snapshot(horizon).get("agents", [])
+                    if r.get("ic_t") is not None}
+        return rc.get("ic_tstats", float(_cfg("BRAIN_IC_ALIGN_TTL_S", 3600)), _compute, fallback={})
+    except Exception:
+        return {}
 
 
 def _ic_priors():
@@ -842,6 +871,21 @@ def _record(symbol, votes, result, price):
     ctx = _market_ctx(symbol)
     if ctx:
         entry["ctx"] = ctx
+    # §77 : les VOIX OPT-IN (llm/nn/classics) influencent le consensus quand elles
+    # parlent mais étaient EXCLUES du journal d'apprentissage (§62) -> AUCUN IC mesuré
+    # (angle mort « rien d'aveugle »). Journal SÉPARÉ — jamais lu par learn() ni par
+    # l'entraînement du NN — pour que live_ic_audit les note comme les 14.
+    overlays = {n: round(v.get("vote", 0), 3) for n, v in votes.items()
+                if n not in AGENT_FUNCS and isinstance(v, dict)
+                and (v.get("confidence") or 0) > 0}
+    if overlays:
+        try:
+            import journal_append as ja
+            ja.append_jsonl(ROOT / ".overlay_votes.jsonl",
+                            {"ts": entry["ts"], "symbol": symbol, "price": price,
+                             "votes": overlays})
+        except Exception:
+            pass
     log = _read_log()
     log.append(entry)
     _write_log(log)

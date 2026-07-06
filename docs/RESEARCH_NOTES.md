@@ -2803,3 +2803,31 @@ travail — c'est la protection prévue, pas un trou. Le plancher de marge du ge
 de liquidité suit le sizing : LIQ_FUT_MIN_USDT = 75 (3 × ~22.5 $ de marge à ×2 +
 coussin) — vérifié : futures 205.95 ≥ 75, équilibré. Si l'or monte de ~8 %, le minimum
 XAUT repassera au-dessus de 45 et le filtre §75 l'écartera de nouveau, visiblement.
+
+## §77 — Optimisation des agents : le prior d'edge cède à l'évidence live, les voix opt-in enfin mesurées
+
+Mesures fraîches (live_ic_audit, 34 990 votes, horizon 60 min) : macro +0.148 ·
+sentiment +0.084 · leadlag +0.065 · **simons +0.052 (t +9.8)** · liquidations +0.044 ·
+derivs +0.043 · **geometric +0.034 (t +6.3)** · … · flows −0.028. Santé : corr
+poids↔IC +0.60 (SAIN) mais DEUX anomalies :
+
+**1. simons et geometric épinglés au plancher 0.2 malgré leur IC.** Diagnostic : pas un
+bug, un TIR À LA CORDE entre deux contrôleurs — l'IC-align (§68) tire leur cible vers
+~1.0 à chaque learn(), et le prior ADVISORY de l'échelle d'edge (tier NEGATIVE au rejeu
+6 ans : geometric −0.07 SUR L'ANNÉE, artefact de régime §54) les re-multiplie par
+0.3^0.5 juste après. Équilibre : le plancher. FIX (§77) : le prior CÈDE quand l'IC live
+est significativement positif (t ≥ BRAIN_EDGE_PRIOR_IC_T, défaut 3.0 — simons +9.8 et
+geometric +6.0 passent, savant +2.1 et divergent −1.3 gardent leur frein). L'échelle
+d'edge conserve intacte sa vraie porte : la promotion au trading LIVE. Le juge profond
+protège toujours contre les artefacts — mais 35 000 votes réels à +9.8σ SONT l'évidence
+courante pour la pondération du CONSENSUS (qui se réadapte en heures si le régime
+tourne). Vérifié live : cibles simons 1.06 / geometric 1.02, convergence entamée
+(0.20 -> 0.24 en quelques cycles). Débrayage : seuil très grand.
+
+**2. Les voix opt-in (llm/nn/classics) influençaient le consensus SANS être mesurées**
+(exclues du journal d'apprentissage §62 -> aucun IC : angle mort « rien d'aveugle »).
+FIX : journal SÉPARÉ `.overlay_votes.jsonl` (écrit par _record quand une voix PARLE,
+conf > 0 ; jamais lu par learn() ni par l'entraînement du NN -> §62 intact) + bloc
+« voix opt-in » dans live_ic_audit (même juge ic_par_agent que les 14). La 17e voix
+armée y accumule dès maintenant ; le NN muet n'y écrit rien (par construction : on ne
+mesure que ce qui parle). À ≥ 50 votes parlés, l'IC de chaque voix devient un fait.
