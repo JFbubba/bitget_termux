@@ -1418,6 +1418,10 @@ def test_strategy_lab():
     assert len(dv) == len(candles) and set(dv) <= {-1, 0, 1}
     dn = L.build_named("donchian_20", candles)
     assert sum(1 for s in dv if s) <= sum(1 for s in dn if s)   # le filtre volume ÉLAGUE
+    # §81 : pullback CONFIRMÉ — reconstructible, causal, bien plus sélectif que l'EMA-cross
+    pc = L.build_named("pullbackc_20_50", candles)
+    assert len(pc) == len(candles) and set(pc) <= {-1, 0, 1}
+    assert sum(1 for s in pc if s) < sum(1 for s in L.build_named("ema_cross_20_50", candles) if s)
     # croisement funding × range (§75) : inerte sans funding/ts ; fade aux bords sinon
     assert L.strat_funding_fade(candles, funding=[]) == [0] * len(candles)
     cts = [dict(c, ts=1_700_000_000_000 + i * 3_600_000) for i, c in enumerate(candles)]

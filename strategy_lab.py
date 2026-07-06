@@ -86,6 +86,26 @@ def strat_donchian_breakout(candles, n=20):
     return sig
 
 
+def strat_pullback_confirm(candles, fast=20, slow=50, tol=0.006):
+    """Pullback CONFIRMÉ (§81) : tendance EMA + repli ayant touché l'EMA rapide + BOUGIE
+    DE REPRISE (clôture au-delà de l'extrême de la bougie précédente). La version sans
+    confirmation avait été REJETÉE (§80, 2/4) ; celle-ci améliore 3/4 symboles sur
+    6 ans (SOL positif) avec 6× moins de trades — au lab, la barre PBO tranchera."""
+    cl = [float(c["close"]) for c in candles]
+    hi = [float(c["high"]) for c in candles]
+    lo = [float(c["low"]) for c in candles]
+    ef, es = _ema_series(cl, fast), _ema_series(cl, slow)
+    sig = [0] * len(cl)
+    for i in range(slow + 1, len(cl)):
+        if ef[i] > es[i]:
+            if lo[i - 1] <= ef[i - 1] * (1 + tol) and cl[i] > hi[i - 1]:
+                sig[i] = 1
+        elif ef[i] < es[i]:
+            if hi[i - 1] >= ef[i - 1] * (1 - tol) and cl[i] < lo[i - 1]:
+                sig[i] = -1
+    return sig
+
+
 def strat_donchian_vol(candles, n=20, vol_k=1.3, vol_win=20):
     """Donchian confirmé par le VOLUME (§80) : la cassure ne compte que si le volume de
     la barre dépasse vol_k × sa moyenne vol_win — « un breakout sans volume est
@@ -407,7 +427,7 @@ def base_registry(candles, symbol=None):
     absente (le lab classe ce qui existe)."""
     names = ["ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
              "structure_bos", "macd_12_26_9", "bollinger_20",
-             "vwap_24", "grid_60_8", "rf_25", "donchianvol_20_13"]
+             "vwap_24", "grid_60_8", "rf_25", "donchianvol_20_13", "pullbackc_20_50"]
     ref = "ETHUSDT" if str(symbol or "").upper() == "BTCUSDT" else "BTCUSDT"
     names.append(f"pairs_{ref}_20")
     if symbol:
@@ -458,6 +478,9 @@ def build_named(name, candles):
     if name.startswith("donchianvol_"):
         _, n, k10 = name.split("_")
         return strat_donchian_vol(candles, n=int(n), vol_k=int(k10) / 10.0)
+    if name.startswith("pullbackc_"):
+        _, f, s = name.split("_")
+        return strat_pullback_confirm(candles, fast=int(f), slow=int(s))
     if name.startswith("rf_"):
         return strat_random_forest(candles, stride=int(name.split("_")[1]))
     if name.endswith("+regime"):

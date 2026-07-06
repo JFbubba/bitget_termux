@@ -2917,3 +2917,35 @@ s'arrête là où la mesure commence.
 Nota : sur 6 ans de barres 1h à frais réels, TOUTES les stratégies « toujours en
 mouvement » perdent en absolu vs hold — l'intérêt du banc est la comparaison
 RELATIVE intra-famille ; le juge absolu reste le lab en fenêtre nominale.
+
+## §81 — Suite Bitget-AI : la bougie de reprise repêche le pullback, le reste trié
+
+Deuxième fournée de conseils de l'assistant Bitget, même traitement (§80 : mesurer,
+adopter ou refuser sur chiffres) :
+
+**ADOPTÉ (au lab)** : le pullback avec BOUGIE DE REPRISE (clôture au-delà de l'extrême
+de la bougie précédente après repli sur l'EMA20). La version SANS confirmation avait
+été rejetée §80 (2/4) ; la confirmation améliore 3/4 symboles sur 6 ans (BTC −4.3 vs
+−9.2, ETH −2.1 vs −5.4, SOL +0.48 — POSITIF ; XRP légèrement pire) avec 6× moins de
+trades. Entrée au REGISTRE (`pullbackc_20_50`) sans famille CMA-ES (discipline de
+multiplicité PBO) — le pipeline du dimanche tranchera.
+
+**DÉJÀ EN PLACE** : stop défini à l'entrée (SL/TP préréglés côté exchange, invariant
+Couche 1) · sortie sur perte d'efficacité (seuil de sortie consensus + invalid_if) ·
+« risque monté avant l'ordre » (c'est littéralement guards()) · couche de régime
+(mesurée §78 : n'ajoute rien aux poids ; regime_gated existe au lab) · filtre volume
+sur cassure (§80).
+
+**REFUSÉ, avec motifs** :
+  • règles numériques de scalping 1-5 min (stop 0.35 %, TP 0.5/0.8 %) — hors domaine :
+    le bot décide au consensus ~1 h, pas à la bougie de 1 min ; nos SL/TP sont
+    CALIBRÉS sur nos données (exit_calibration §68, RR 1.5), pas importés ;
+  • « martingale / CTA inversé short : très fortes perfs simulées 30 j » — 30 jours
+    simulés = artefact de régime type §54 ; la martingale est structurellement
+    incompatible avec des caps durs. Non.
+  • bot de « grid infinie » (JSON/Python fournis, appels API SIMULÉS à statuts
+    aléatoires) — notre grille §72 est BORNÉE, mesurée, se coupe en tendance, et
+    l'exécution ne passe que par les exécuteurs audités. « Infini » n'est pas un
+    mot qui existe dans un système à murs.
+  • « levier moyen 10-20x de votre profil » — PAS le bot (murs ×5, boucle ×2) ;
+    probable historique manuel du compte. Aucun changement.
