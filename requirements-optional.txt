@@ -15,3 +15,10 @@ ccxt
 # Bitget (canaux books15 + trade). OPTIONNEL : sans lui, le REST-poll de
 # microstructure.py reste disponible. Flux public, lecture seule, aucune clé.
 websocket-client>=1.6.0
+
+# scikit-learn : strategy_lab.strat_random_forest (§72, algo classique n°10) —
+#                stratégie ML causale du laboratoire (refit périodique sur le seul
+#                passé). Sans lui : la stratégie est INERTE ([0]), rien ne casse.
+#                (installé sur le VPS le 06/07 via pip --break-system-packages,
+#                comme torch §65)
+scikit-learn

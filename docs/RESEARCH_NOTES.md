@@ -2568,3 +2568,51 @@ critère CONFIGURÉ (prudent/brut — elle annonce l'état de la porte qui gouve
 réellement la voix), et la CLI charge dotenv (comme brain_cycle) pour que le cron
 04:20 voie les leviers env. Repasser en `prudent` = une ligne du levier env, effet au
 cycle suivant. Les murs argent restent hors d'atteinte de la voix (guards() absolu).
+
+## §72 — Les 10 algorithmes classiques : intégrés là où ils manquent, sans toucher au banc gelé
+
+Demande propriétaire : intégrer les 10 algos classiques (MA cross, RSI, Bollinger,
+MACD, grille, DCA dynamique, VWAP, pairs z-score, Donchian, Random Forest) aux
+stratégies/agents appropriés. Inventaire préalable EXHAUSTIF (agent d'exploration) :
+
+  DÉJÀ LIVE : n°1 EMA-cross (agent technicals, EMA20/50 ±0.5) · n°2 RSI (agent
+  technicals, 35/65 ±0.3) · n°6 DCA opportuniste §44 · n°8 cousins z-score
+  (simons/carry/leadlag). DÉJÀ AU LAB : n°1-4, n°9 (strat_ema_cross, strat_rsi_
+  reversion, strat_bollinger, strat_macd, strat_donchian + familles CMA-ES).
+  MANQUAIENT : n°5 grille (nulle part), n°7 VWAP (calculé, jamais voté), n°8 vrai
+  pairs 2-actifs, n°10 RF (sklearn absent), n°6 modulation par coût moyen.
+
+Intégrations (chaque ajout dans le style causal du lab, signal[i] = passé seul) :
+  • **Laboratoire** (`strategy_lab.py`) : + `strat_vwap` (VWAP roulant, bande morte
+    0.2 %), + `strat_grid` (grille de range CAUSALE : barreaux bas/hauts, se COUPE
+    en tendance drift>0.35), + `strat_pairs` (z-score du spread LOG vs référence
+    corrélée, alignement par ts ou index, inerte sans référence), + `strat_random_
+    forest` (RF scikit-learn, refit périodique sur le SEUL passé — le « fit puis
+    predict sur le même X » du folklore est du surapprentissage, pas ici ;
+    déterministe, inerte sans sklearn). Familles CMA-ES `vwap`/`grid` ajoutées ;
+    registre + build_named + run() étendus ; pairs choisit sa référence par symbole
+    (ETH pour BTC, BTC pour le reste). scikit-learn installé (requirements-optional).
+    Le cron dimanche 05:00 mesure tout ça (Sharpe/edge/PBO/promotion) — inchangé.
+  • **Agent technicals (banc, n°7)** : terme VWAP ±0.2 (bande morte 0.2 %) — le champ
+    `vwap` était déjà calculé par technicals.technicals(), coût zéro, EMA-cross ±0.5
+    reste dominant. L'IC live de l'agent (live_ic_audit) jugera l'apport.
+  • **17ᵉ voix `classics_agent.py` (opt-in, DÉFAUT OFF)** : fusion AU DERNIER PAS des
+    6 classiques que le banc ne vote pas (MACD, Bollinger, Donchian, VWAP, grille,
+    pairs) — moyenne des signaux {-1,0,1} (l'accord porte la conviction), confiance
+    plafonnée CLASSICS_AGENT_CONF_CAP 0.5, poids fixe borné CLASSICS_AGENT_WEIGHT 0.5
+    (jamais persisté, exclu du journal d'apprentissage comme llm/nn -> banc gelé §62
+    intact), cache 60 s/symbole, fail-safe total. Câblée dans gather_votes +
+    _with_classics_weight (peek/read), motif STRICTEMENT identique aux voix 15/16.
+    Smoke réel ETHUSDT : vote 0.333 (macd+ grid+), note lisible.
+  • **DCA dynamique (n°6, opt-in ACCUM_DCA_COSTBASIS, DÉFAUT OFF)** :
+    `costbasis_multiplier` (≤−20 % -> ×2.5 · ≤−10 % -> ×1.5 · ≥+10 % -> ×0.5,
+    fail-safe ×1) sur l'écart au PRIX DE REVIENT RÉEL (accum_reconcile : VWAP des
+    fills appariés, caché 15 min) en réel, au avg_price du registre en paper. Le
+    montant re-CLAMPE toujours au cap réel (ACCUM_REAL_MAX_PER_BUY_USDT) : le
+    multiplicateur ne perce JAMAIS un plafond — en pratique il RÉDUIT en profit
+    (×0.5) et sature au cap en drawdown. Armer = décision propriétaire.
+
+Rien n'est armé par cette passe : les leviers CLASSICS_AGENT_ENABLED et
+ACCUM_DCA_COSTBASIS restent OFF (les armer = une ligne du levier env chacun).
+Le n°10 (RF) reste un instrument de MESURE au lab — pas de voix live (coût par
+cycle prohibitif et philosophie : promotion sur chiffres uniquement).

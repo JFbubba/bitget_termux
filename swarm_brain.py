@@ -101,10 +101,19 @@ def agent_technicals(symbol):
     if rsi is not None:
         vote += 0.3 if rsi < 35 else -0.3 if rsi > 65 else 0
     vote += _clamp(vb / 10.0) * 0.4
+    # VWAP (§72, algo classique n°7) : sous le prix moyen pondéré volume = sous-évalué
+    # vs le flux échangé -> léger biais mean-reversion. Bande morte 0.2 % (micro-écart
+    # ignoré), terme borné ±0.2 (l'EMA-cross ±0.5 reste dominant). Déjà calculé par
+    # technicals.technicals() — coût nul.
+    vwap, price = t.get("vwap"), t.get("last_close")
+    if vwap and price:
+        ecart_vwap = (float(price) - float(vwap)) / float(vwap)
+        vote += 0.2 if ecart_vwap < -0.002 else -0.2 if ecart_vwap > 0.002 else 0
     v = _clamp(vote)
     out = {"vote": v, "confidence": 0.6,
            "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}",
-           "evidence": [f"ema20={ema20}", f"ema50={ema50}", f"rsi14={rsi}"]}    # #8 auditabilité
+           "evidence": [f"ema20={ema20}", f"ema50={ema50}", f"rsi14={rsi}",
+                        f"vwap={vwap}"]}                                        # #8 auditabilité
     if ema50 and v != 0:                                  # #8 invalidation : un long n'est valable
         out["invalid_if"] = {"below": ema50} if v > 0 else {"above": ema50}   # qu'au-dessus de l'EMA50
     return out
@@ -438,6 +447,16 @@ def _with_nn_weight(weights, votes):
         return weights
     w = float(_cfg("NN_AGENT_WEIGHT", 0.5))
     return {**weights, "nn": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
+
+
+def _with_classics_weight(weights, votes):
+    """Poids d'agrégation avec le poids FIXE et BORNÉ de la 17ᵉ voix (stratégies
+    classiques du laboratoire, §72) — SANS jamais le persister ni le soumettre à
+    l'apprentissage EARCP (banc gelé à 14 intact, §62). Identité quand OFF."""
+    if "classics" not in votes:
+        return weights
+    w = float(_cfg("CLASSICS_AGENT_WEIGHT", 0.5))
+    return {**weights, "classics": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
 
 
 def _apply_watch(weights):
@@ -949,6 +968,16 @@ def gather_votes(symbol):
             votes["nn"] = nn_agent.agent(symbol, context={"votes": votes})
     except Exception:                            # fail-safe : le NN ne casse jamais la collecte
         pass
+    # 17ᵉ voix : stratégies CLASSIQUES du laboratoire (OPT-IN, §72) — MACD, Bollinger,
+    # Donchian, VWAP, grille, pairs (celles que le banc ne vote pas en live ; EMA/RSI
+    # votent déjà via technicals). Additive, fail-safe, bornée, jamais persistée ->
+    # banc 14 inchangé. Absente tant que CLASSICS_AGENT_ENABLED est OFF.
+    try:
+        import classics_agent
+        if classics_agent.enabled():
+            votes["classics"] = classics_agent.agent(symbol)
+    except Exception:                            # fail-safe : jamais de casse de collecte
+        pass
     return votes
 
 
@@ -1001,7 +1030,7 @@ def peek(symbol="BTCUSDT"):
         votes = _apply_invalidations(votes, _price(symbol))   # #8 : stop-out de signal
     except Exception:
         pass
-    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
+    aw = _apply_watch(_with_classics_weight(_with_nn_weight(_with_llm_weight(weights, votes), votes), votes))   # LLM + NN + classics bornés + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw
@@ -1022,7 +1051,7 @@ def read(symbol="BTCUSDT", do_learn=True):
         print(f"brain read({symbol}) prix: {type(exc).__name__}")
         price = None
     votes = _apply_invalidations(votes, price)           # #8 : stop-out de signal (prix courant)
-    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
+    aw = _apply_watch(_with_classics_weight(_with_nn_weight(_with_llm_weight(weights, votes), votes), votes))   # LLM + NN + classics bornés + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw

@@ -7,7 +7,9 @@ AUTORISÉS depuis le 06/07/2026** (décision propriétaire — l'ancienne contra
 réseau de neurones » du §1 est LEVÉE). Ils sont branchés en **surcouches opt-in** (agent
 LLM 15ᵉ, `llm_agent.py`, gated `LLM_AGENT_ENABLED`, défaut OFF ; **réseau neuronal de
 fusion 16ᵉ voix, `nn_agent.py`/`neural_net.py` — MLP PyTorch entraîné sur les votes du
-banc, gated `NN_AGENT_ENABLED`, défaut OFF, §65**) : **déterministe d'abord**
+banc, gated `NN_AGENT_ENABLED`, défaut OFF, §65 ; stratégies classiques 17ᵉ voix,
+`classics_agent.py` — MACD/Bollinger/Donchian/VWAP/grille/pairs du laboratoire, gated
+`CLASSICS_AGENT_ENABLED`, défaut OFF, §72**) : **déterministe d'abord**
 (le banc 14 reste le socle), **fail-safe** (LLM/NN indispo/lent/incohérent → vote ignoré,
 jamais de crash ni de blocage), et surtout **les murs argent de `guards()` restent ABSOLUS
 et déterministes** — un LLM peut influencer la direction/le sizing suggéré, jamais desserrer
@@ -110,6 +112,8 @@ EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
 LLM_AGENT_ENABLED=0         # 15ᵉ voix LLM (opt-in, surcouche fail-safe)
 NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65 — ARMÉ le 06/07)
 NN_EDGE_GATE=prudent        # porte d'edge 16ᵉ voix (§71) : prudent (wf_edge − se) | brut (wf_edge seul)
+CLASSICS_AGENT_ENABLED=0    # 17ᵉ voix stratégies classiques du lab (opt-in, §72)
+ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
 # Surfaces de trading bornées §67 — TOUTES défaut OFF (armer = décision propriétaire) :
 SPOT_TRADE_LIVE=0           # spot libre (achat/vente)   · caps SPOT_TRADE_MAX_PER_OP/DAILY_USDT
 MARGIN_TRADE_LIVE=0         # marge isolée/croisée        · caps MARGIN_MAX_PER_OP/DAILY_USDT

@@ -145,6 +145,57 @@ def real_dca_amount(score, cap=None, floor_frac=None):
     return round(cap * (f + (1.0 - f) * _clamp01(float(score or 0.0))), 2)
 
 
+def costbasis_multiplier(price, avg_cost):
+    """DCA DYNAMIQUE (§72, algo classique n°6) : module le montant d'achat par l'écart
+    du prix courant au COÛT MOYEN d'achat. PUR. drop = (prix − coût)/coût :
+      ≤ −20 % -> ×2.5 (renforcer fort sous le coût moyen)
+      ≤ −10 % -> ×1.5
+      ≥ +10 % -> ×0.5 (en profit, ne pas diluer le prix de revient)
+      sinon   -> ×1.0
+    Fail-safe ×1.0 si le coût moyen est inconnu/invalide. Le multiplicateur ne perce
+    JAMAIS un plafond : l'appelant re-clampe au cap réel (murs inchangés)."""
+    try:
+        price, avg_cost = float(price), float(avg_cost)
+    except (TypeError, ValueError):
+        return 1.0
+    if price <= 0 or avg_cost <= 0:
+        return 1.0
+    drop = (price - avg_cost) / avg_cost
+    if drop <= -0.20:
+        return 2.5
+    if drop <= -0.10:
+        return 1.5
+    if drop >= 0.10:
+        return 0.5
+    return 1.0
+
+
+def _dca_costbasis_enabled():
+    """Levier du DCA dynamique (§72) — défaut OFF (armer = décision propriétaire).
+    Env prioritaire (ACCUM_DCA_COSTBASIS=1), sinon config."""
+    import os
+    v = os.getenv("ACCUM_DCA_COSTBASIS", "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
+    return bool(_cfg("ACCUM_DCA_COSTBASIS", False))
+
+
+def _real_cost_basis():
+    """Prix de revient moyen RÉEL : VWAP des fills appariés (accum_reconcile — la
+    vérité du compte, fills cachés 15 min). Best-effort : None si indisponible
+    (le multiplicateur restera ×1.0)."""
+    try:
+        import accum_reconcile as ar
+        import spot_executor as se
+        groups = ar.group_fills(ar.fetch_fills())
+        paires, ao, fo = ar.match_buys(se._load_real().get("buys", []), groups)
+        return ar.bilan(paires, ao, fo).get("cost_basis")
+    except Exception:
+        return None
+
+
 def fenetre_achat_ok(now, last_buy_ts, debut=None, fin=None, retard_h=30.0):
     """PUR (§53). L'achat quotidien VISE la fenêtre horaire la moins chère, mesurée
     sur UN AN de bougies 1h : 16-19h UTC ≈ 10 bps sous l'heure historique (12h).
@@ -335,6 +386,14 @@ def _run_real(a, now):
     # neutralisait l'edge de sizing validé §38. spot_executor reste le backstop
     # strict (gardes + mur absolu 25, _capped).
     amount = real_dca_amount(a.get("score"))
+    # DCA DYNAMIQUE §72 (opt-in) : module par l'écart au prix de revient RÉEL, puis
+    # RE-CLAMPE au cap — le multiplicateur ne perce jamais le plafond (murs intacts).
+    if _dca_costbasis_enabled():
+        cb = _real_cost_basis()
+        mult = costbasis_multiplier(a.get("price"), cb)
+        cap = float(_cfg("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0))
+        amount = round(min(amount * mult, cap), 2)
+        a["dca_costbasis"] = {"avg_cost": cb, "mult": mult}
     a["real_amount_usd"] = amount
     a["mode"] = "RÉEL (auto)"
     # garde MEILLEUR PRIX : pas d'achat si Bitget cote en premium vs la médiane marché.
@@ -386,7 +445,14 @@ def run(symbol="BTCUSDT", now=None):
     led = load_ledger()
     a["mode"] = "paper"
     if a.get("price") and should_buy(led.get("last_buy_ts"), now):
-        led = apply_buy(led, a["amount_usd"], a["price"], ts=now, score=a["score"])
+        montant = a["amount_usd"]
+        # DCA DYNAMIQUE §72 (même levier qu'en réel) : le paper mesure le comportement
+        # avec le prix de revient PAPER du registre (avg_price).
+        if _dca_costbasis_enabled():
+            mult = costbasis_multiplier(a["price"], led.get("avg_price"))
+            montant = round(montant * mult, 2)
+            a["dca_costbasis"] = {"avg_cost": led.get("avg_price"), "mult": mult}
+        led = apply_buy(led, montant, a["price"], ts=now, score=a["score"])
         save_ledger(led)
         a["bought"] = True
     else:

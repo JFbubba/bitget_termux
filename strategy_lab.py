@@ -109,6 +109,149 @@ def strat_bollinger(candles, n=20, k=2.0):
     return out
 
 
+def strat_vwap(candles, window=24, band=0.002):
+    """VWAP roulant (§72, algo classique n°7) : achat sous le VWAP (sous-évalué vs le
+    volume échangé), vente au-dessus. Bande morte (0.2 %) pour ne pas trader le
+    micro-écart — la version « toujours en position » brûlerait les frais. Causal."""
+    sig = [0] * len(candles)
+    for i in range(window, len(candles)):
+        num = den = 0.0
+        for c in candles[i - window:i + 1]:
+            tp = (float(c["high"]) + float(c["low"]) + float(c["close"])) / 3.0
+            v = float(c.get("volume") or 0.0)
+            num += tp * v
+            den += v
+        if den <= 0:
+            continue
+        ecart = (float(candles[i]["close"]) - num / den) / (num / den)
+        sig[i] = 1 if ecart < -band else -1 if ecart > band else 0
+    return sig
+
+
+def strat_grid(candles, window=60, levels=8):
+    """Grille (§72, n°5) : market-making directionnel simplifié et CAUSAL — dans un
+    range ÉTABLI, acheter les barreaux bas, vendre les barreaux hauts (2 barreaux de
+    chaque bord). La grille n'agit que si le marché est « plat » : dérive du range
+    faible vs son amplitude (une grille se fait laminer en tendance)."""
+    sig = [0] * len(candles)
+    for i in range(window, len(candles)):
+        w = candles[i - window:i]
+        hi = max(float(c["high"]) for c in w)
+        lo = min(float(c["low"]) for c in w)
+        if hi <= lo:
+            continue
+        drift = abs(float(w[-1]["close"]) - float(w[0]["close"])) / (hi - lo)
+        if drift > 0.35:                               # marché en tendance -> grille OFF
+            continue
+        pos = (float(candles[i]["close"]) - lo) / (hi - lo)   # position dans le range [0,1]
+        step = 1.0 / max(4, int(levels))
+        if pos <= 2 * step:
+            sig[i] = 1
+        elif pos >= 1 - 2 * step:
+            sig[i] = -1
+    return sig
+
+
+_GRANU_MS = {60_000: "1m", 300_000: "5m", 900_000: "15m", 1_800_000: "30m",
+             3_600_000: "1H", 14_400_000: "4H", 86_400_000: "1D"}
+
+
+def strat_pairs(candles, ref_symbol="BTCUSDT", window=20, z_entry=2.0, ref_candles=None):
+    """Arbitrage statistique (§72, n°8) : z-score du spread LOG entre le symbole testé
+    et une référence corrélée (le spread en prix bruts n'a pas de sens entre échelles
+    différentes). |z| > z_entry -> pari sur le retour à la normale : long le symbole
+    « trop bas » vs la référence, short l'inverse. Causal ; séries alignées par
+    timestamp ; INERTE ([0]) si la référence est indisponible (fail-safe)."""
+    import math
+    if not candles or len(candles) < window + 2:
+        return [0] * len(candles)
+    if ref_candles is None:
+        try:
+            import technicals as tk
+            deltas = sorted(candles[i + 1]["ts"] - candles[i]["ts"] for i in range(len(candles) - 1))
+            granu = _GRANU_MS.get(int(deltas[len(deltas) // 2]))
+            if not granu:
+                return [0] * len(candles)
+            ref_candles = tk.fetch_candles(ref_symbol, granu, len(candles) + 10)
+        except Exception:
+            return [0] * len(candles)
+    if not ref_candles:
+        return [0] * len(candles)
+    # alignement : par TIMESTAMP quand les deux séries en ont, sinon par INDEX de fin
+    # (séries synthétiques/tests sans ts) — jamais d'exception, zéros si inalignable.
+    spread = [None] * len(candles)
+    try:
+        if all(c.get("ts") for c in candles) and all(c.get("ts") for c in ref_candles):
+            ref_by_ts = {c["ts"]: float(c["close"]) for c in ref_candles if c.get("close")}
+            for i, c in enumerate(candles):
+                r = ref_by_ts.get(c["ts"])
+                if r and c.get("close"):
+                    spread[i] = math.log(float(c["close"]) / r)
+        else:
+            k = min(len(candles), len(ref_candles))
+            for j in range(k):
+                c = candles[len(candles) - k + j]
+                r = ref_candles[len(ref_candles) - k + j].get("close")
+                if r and c.get("close"):
+                    spread[len(candles) - k + j] = math.log(float(c["close"]) / float(r))
+    except Exception:
+        return [0] * len(candles)
+    import statistics
+    sig = [0] * len(candles)
+    for i in range(window, len(candles)):
+        w = [s for s in spread[i - window:i + 1] if s is not None]
+        if len(w) < window // 2 or spread[i] is None:
+            continue
+        m = sum(w) / len(w)
+        sd = statistics.pstdev(w)
+        if sd <= 1e-12:
+            continue
+        z = (spread[i] - m) / sd
+        sig[i] = 1 if z < -z_entry else -1 if z > z_entry else 0
+    return sig
+
+
+def strat_random_forest(candles, stride=25, train_min=120):
+    """Random Forest prédictif (§72, n°10) : features CAUSALES (rendement, volatilité
+    5 barres, variation de volume), cible = signe de la bougie suivante. Refit
+    périodique (tous les `stride` pas) sur le SEUL passé — la version « fit puis
+    predict sur le même X » du folklore est du surapprentissage pur, ici chaque
+    prédiction vient d'un modèle qui n'a JAMAIS vu la barre prédite ni son futur.
+    Déterministe (random_state fixe). INERTE ([0]) si scikit-learn absent."""
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+    except Exception:
+        return [0] * len(candles)
+    import statistics
+    cl = _closes(candles)
+    vol = [float(c.get("volume") or 0.0) for c in candles]
+    n = len(cl)
+    if n < train_min + 5:
+        return [0] * n
+    rets = [0.0] + [(cl[i] - cl[i - 1]) / cl[i - 1] if cl[i - 1] else 0.0 for i in range(1, n)]
+    feats = []
+    for i in range(n):
+        w = rets[max(0, i - 4):i + 1]
+        v5 = statistics.pstdev(w) if len(w) >= 2 else 0.0
+        dv = (vol[i] - vol[i - 1]) / vol[i - 1] if i and vol[i - 1] else 0.0
+        feats.append([rets[i], v5, max(-5.0, min(5.0, dv))])
+    sig = [0] * n
+    model = None
+    for i in range(train_min, n):
+        if model is None or (i - train_min) % max(1, int(stride)) == 0:
+            X = feats[1:i - 1]                          # barres 1..i-2 : cible (barre+1) ≤ i-1, connue
+            y = [1 if cl[j + 1] > cl[j] else 0 for j in range(1, i - 1)]
+            if len(set(y)) < 2:
+                model = None
+                continue
+            model = RandomForestClassifier(n_estimators=60, min_samples_leaf=5,
+                                           random_state=42, n_jobs=1)
+            model.fit(X, y)
+        if model is not None:
+            sig[i] = 1 if int(model.predict([feats[i]])[0]) == 1 else -1
+    return sig
+
+
 def strat_vp_fade(candles, window=60):
     import pro_indicators as pi
     sig = [0] * len(candles)
@@ -193,10 +336,23 @@ def _passes(r, pbo_val):
 
 # ---------- registre + amélioration ----------
 
-def base_registry(candles):
-    return {n: build_named(n, candles) for n in
-            ("ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
-             "structure_bos", "macd_12_26_9", "bollinger_20")}
+def base_registry(candles, symbol=None):
+    """Registre des stratégies de base (§72 : + vwap, grid, pairs, rf). `symbol`
+    (optionnel) choisit la référence du pairs-trading : BTC pour tout le monde,
+    ETH quand on teste BTC lui-même. Une stratégie qui échoue est simplement
+    absente (le lab classe ce qui existe)."""
+    names = ["ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
+             "structure_bos", "macd_12_26_9", "bollinger_20",
+             "vwap_24", "grid_60_8", "rf_25"]
+    ref = "ETHUSDT" if str(symbol or "").upper() == "BTCUSDT" else "BTCUSDT"
+    names.append(f"pairs_{ref}_20")
+    out = {}
+    for n in names:
+        try:
+            out[n] = build_named(n, candles)
+        except Exception:
+            pass
+    return out
 
 
 def build_named(name, candles):
@@ -222,6 +378,16 @@ def build_named(name, candles):
         return strat_macd(candles, int(f), int(s), int(g))
     if name.startswith("bollinger_"):
         return strat_bollinger(candles, int(name.split("_")[1]))
+    if name.startswith("vwap_"):
+        return strat_vwap(candles, int(name.split("_")[1]))
+    if name.startswith("grid_"):
+        _, w, l = name.split("_")
+        return strat_grid(candles, int(w), int(l))
+    if name.startswith("pairs_"):
+        _, ref, w = name.split("_")
+        return strat_pairs(candles, ref_symbol=ref, window=int(w))
+    if name.startswith("rf_"):
+        return strat_random_forest(candles, stride=int(name.split("_")[1]))
     if name.endswith("+regime"):
         return regime_gated(build_named(name[:-len("+regime")], candles), candles)
     if name == "ensemble_trend_rev_struct":
@@ -285,6 +451,10 @@ _FAMILIES = {
                       name=lambda p: f"bollinger_{_clampi(p[0], 8)}"),
     "macd": dict(x0=[12.0, 26.0, 9.0], bounds=([5, 15, 4], [20, 45, 16]),
                  name=lambda p: f"macd_{_clampi(p[0], 5)}_{max(_clampi(p[0], 5) + 1, _clampi(p[1], 15))}_{_clampi(p[2], 3)}"),
+    "vwap": dict(x0=[24.0], bounds=([6], [96]),
+                 name=lambda p: f"vwap_{_clampi(p[0], 6)}"),
+    "grid": dict(x0=[60.0, 8.0], bounds=([30, 4], [120, 16]),
+                 name=lambda p: f"grid_{_clampi(p[0], 30)}_{_clampi(p[1], 4)}"),
 }
 
 
@@ -445,10 +615,11 @@ def run(symbol="BTCUSDT", timeframe="1H", limit=500):
     if len(candles) < 120:
         return {"error": "pas assez de bougies"}
 
-    registry = base_registry(candles)
+    registry = base_registry(candles, symbol=symbol)
     # AMÉLIORATION : sep-CMA-ES (TRINITY) optimise chaque famille sur le TRAIN
     # (anti-fuite), puis on évolue les POIDS de l'ensemble (« coordinateur évolué »).
-    for fam in ("ema_cross", "rsi_reversion", "donchian", "bollinger", "macd"):
+    for fam in ("ema_cross", "rsi_reversion", "donchian", "bollinger", "macd",
+                "vwap", "grid"):
         try:
             en, esig = evolve(fam, candles)
             registry["evo_" + en] = esig

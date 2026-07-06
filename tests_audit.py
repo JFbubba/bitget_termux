@@ -864,6 +864,78 @@ def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():
         (sb.LOG_FILE, sb.ROOT) = old
 
 
+def test_classics_agent_17e_voix():
+    """17ᵉ voix « classiques » (§72) : OFF par défaut (neutre), fusion bornée quand ON,
+    fail-safe si données indisponibles, poids fixe borné jamais persisté (banc gelé)."""
+    import os
+    import classics_agent as ca
+    import swarm_brain as sb
+    old_env = os.environ.pop("CLASSICS_AGENT_ENABLED", None)
+    try:
+        # défaut OFF -> neutre conf 0 (ignoré par l'agrégation), jamais d'erreur
+        assert ca.enabled() is False
+        r = ca.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0
+        # fusion : 6 signaux -> moyenne bornée, confiance plafonnée, note lisible
+        orig = ca._signals
+        ca._signals = lambda s: {"macd": 1, "bollinger": 1, "donchian": 1,
+                                 "vwap": 0, "grid": 0, "pairs": -1}
+        try:
+            v = ca._produce_vote("BTCUSDT")
+            assert v["vote"] == round(2 / 6, 3) and 0 < v["confidence"] <= 0.5
+            assert "classics" in v["note"] and len(v["evidence"]) == 6
+        finally:
+            ca._signals = orig
+        # fail-safe : bougies indisponibles -> _produce_vote lève, agent() reste neutre
+        import technicals as tk
+        ofc = tk.fetch_candles
+        tk.fetch_candles = lambda *a, **k: []
+        os.environ["CLASSICS_AGENT_ENABLED"] = "1"
+        try:
+            r2 = ca.agent("ZZZTESTUSDT")
+            assert r2["vote"] == 0 and r2["confidence"] == 0
+        finally:
+            tk.fetch_candles = ofc
+        # poids : identité quand absent, injecté/borné quand présent, jamais persisté
+        w = {"orderflow": 1.0}
+        assert sb._with_classics_weight(w, {"orderflow": {}}) == w
+        aw = sb._with_classics_weight(w, {"classics": {"vote": 0.3, "confidence": 0.2}})
+        assert 0 <= aw["classics"] <= sb.BRAIN_WEIGHT_MAX and "classics" not in w
+    finally:
+        os.environ.pop("CLASSICS_AGENT_ENABLED", None)
+        if old_env is not None:
+            os.environ["CLASSICS_AGENT_ENABLED"] = old_env
+
+
+def test_accum_dca_costbasis_multiplier():
+    """DCA dynamique §72 : paliers du multiplicateur, fail-safe, et levier OFF par défaut."""
+    import os
+    import accumulation_engine as ae
+    # paliers (spécification n°6) : renforce sous le coût moyen, réduit en profit
+    assert ae.costbasis_multiplier(79, 100) == 2.5      # −21 %
+    assert ae.costbasis_multiplier(85, 100) == 1.5      # −15 %
+    assert ae.costbasis_multiplier(100, 100) == 1.0
+    assert ae.costbasis_multiplier(111, 100) == 0.5     # +11 %
+    # bords exacts
+    assert ae.costbasis_multiplier(80, 100) == 2.5
+    assert ae.costbasis_multiplier(90, 100) == 1.5
+    assert ae.costbasis_multiplier(110, 100) == 0.5
+    # fail-safe : coût moyen inconnu/invalide -> ×1
+    assert ae.costbasis_multiplier(100, None) == 1.0
+    assert ae.costbasis_multiplier(100, 0) == 1.0
+    assert ae.costbasis_multiplier(None, 100) == 1.0
+    # levier OFF par défaut (armer = décision propriétaire)
+    old = os.environ.pop("ACCUM_DCA_COSTBASIS", None)
+    try:
+        assert ae._dca_costbasis_enabled() is False
+        os.environ["ACCUM_DCA_COSTBASIS"] = "1"
+        assert ae._dca_costbasis_enabled() is True
+    finally:
+        os.environ.pop("ACCUM_DCA_COSTBASIS", None)
+        if old is not None:
+            os.environ["ACCUM_DCA_COSTBASIS"] = old
+
+
 # ---------- cerveau (essaim d'agents) ----------
 
 def test_brain_aggregate_bias_and_consensus():
@@ -1201,6 +1273,36 @@ def test_strategy_lab():
     for name in ("macd_12_26_9", "bollinger_20"):
         s = L.build_named(name, candles)
         assert len(s) == len(candles) and set(s) <= {-1, 0, 1}
+    # briques classiques §72 : VWAP (reversion volume), grille (range), RF (ML causal)
+    for name in ("vwap_24", "grid_60_8"):
+        s = L.build_named(name, candles)
+        assert len(s) == len(candles) and set(s) <= {-1, 0, 1}
+    try:
+        import sklearn  # noqa: F401
+        s = L.build_named("rf_25", candles)
+        assert len(s) == len(candles) and set(s) <= {-1, 0, 1}
+        assert all(x == 0 for x in s[:120])       # rien avant train_min (causal)
+    except ImportError:
+        assert L.strat_random_forest(candles) == [0] * len(candles)   # inerte sans sklearn
+    # pairs : z-score du spread log, aligné par ts ; inerte sans référence (fail-safe)
+    ref = [dict(c, close=c["close"] * 1.001) for c in candles]
+    sp = L.strat_pairs(candles, ref_candles=ref, window=20)
+    assert len(sp) == len(candles) and set(sp) <= {-1, 0, 1}
+    import technicals as _tk
+    _orig_fc = _tk.fetch_candles
+    _tk.fetch_candles = lambda *a, **k: []
+    try:
+        assert all(x == 0 for x in L.strat_pairs(candles, window=20))
+    finally:
+        _tk.fetch_candles = _orig_fc
+    # le registre inclut les nouvelles familles et choisit la référence pairs par symbole
+    reg = L.base_registry(candles, symbol="BTCUSDT")
+    assert "vwap_24" in reg and "grid_60_8" in reg and "pairs_ETHUSDT_20" in reg
+    # la grille se COUPE en tendance (drift > 0.35 du range) : queue de tendance -> 0
+    trend = [dict(c, close=100.0 * (1.01 ** i), high=100.0 * (1.01 ** i) * 1.002,
+                  low=100.0 * (1.01 ** i) * 0.998) for i, c in enumerate(candles)]
+    gtrend = L.strat_grid(trend, 60, 8)
+    assert all(x == 0 for x in gtrend[-30:])
     # optimiseur évolutionnaire (sep-CMA-ES) -> stratégie ema valide & reconstructible
     ename, esig, _ = L.improve_ema(candles, max_gen=4)
     assert ename.startswith("ema_cross_") and L.build_named(ename, candles) == esig
