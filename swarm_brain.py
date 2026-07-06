@@ -445,8 +445,11 @@ def _apply_watch(weights):
     voter et s'AFFICHER, mais son poids est mis à ZÉRO dans l'agrégation LIVE — il ne peut
     donc JAMAIS influencer un ordre réel tant qu'il n'est pas validé (backtest/edge). C'est
     une rampe d'accès SÛRE pour un expert expérimental, sans toucher le consensus des 14
-    validés. Identité quand la liste est vide (défaut)."""
-    watch = str(_cfg("BRAIN_WATCH_AGENTS", "")).strip()
+    validés. Identité quand la liste est vide (défaut).
+
+    Levier env-aware (env PRIORITAIRE > config, comme les autres verrous .env) : sert aussi
+    à ÉLAGUER en live les agents à IC négatif/nul (§68, contrefactuel mesuré)."""
+    watch = str(os.getenv("BRAIN_WATCH_AGENTS") or _cfg("BRAIN_WATCH_AGENTS", "")).strip()
     if not watch:
         return weights
     names = {s.strip() for s in watch.split(",") if s.strip()}

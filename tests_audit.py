@@ -1491,18 +1491,29 @@ def test_bitget_announcements_scoring_and_veto():
 def test_brain_watch_governance():
     """#4 (idée NERVA) : un expert en WATCH vote/s'affiche mais son poids est ZÉRO en LIVE
     -> ne peut pas influencer un ordre réel tant qu'il n'est pas validé."""
+    import os
     import swarm_brain as sb
     old = sb._cfg
+    had = "BRAIN_WATCH_AGENTS" in os.environ
+    saved = os.environ.pop("BRAIN_WATCH_AGENTS", None)          # hermétique : l'env est prioritaire
     try:
-        sb._cfg = lambda n, d: "macro,simons" if n == "BRAIN_WATCH_AGENTS" else d
         w = {"orderflow": 1.0, "macro": 1.2, "simons": 0.8, "trend": 1.0}
+        # chemin CONFIG (env absent) : _cfg fournit la liste
+        sb._cfg = lambda n, d: "macro,simons" if n == "BRAIN_WATCH_AGENTS" else d
         aw = sb._apply_watch(w)
         assert aw["macro"] == 0.0 and aw["simons"] == 0.0        # WATCH -> poids 0
         assert aw["orderflow"] == 1.0 and aw["trend"] == 1.0     # validés inchangés
         sb._cfg = lambda n, d: d                                 # liste vide -> identité
         assert sb._apply_watch(w) == w
+        # chemin ENV (prioritaire sur config) : §68 élagage live
+        os.environ["BRAIN_WATCH_AGENTS"] = "orderflow"
+        aw2 = sb._apply_watch(w)
+        assert aw2["orderflow"] == 0.0 and aw2["macro"] == 1.2   # env gagne
     finally:
         sb._cfg = old
+        os.environ.pop("BRAIN_WATCH_AGENTS", None)
+        if had:
+            os.environ["BRAIN_WATCH_AGENTS"] = saved
 
 
 def test_futures_report_stress_book():
