@@ -21,15 +21,23 @@ revue hebdo dimanche 18:00 (recommandations chiffrées automatiques §60).
 
 ## ⚠️ RÈGLES D'ENGAGEMENT (révisées le 02/07/2026 — décision propriétaire, §45)
 
-1. **Argent réel en jeu.** Deux modules — et SEULEMENT eux — passent des ordres réels :
+1. **Argent réel en jeu.** Seuls des modules d'exécution AUTORISÉS et audités passent des
+   ordres réels ; chacun est classé à part par `security_agent` + `safe_push_check` :
    - `spot_executor.py` : achat spot BTC d'accumulation, ≤5 $/j, jamais de vente/retrait ;
    - `futures_executor.py` : futures BORNÉ (§45) — marge ISOLÉE, levier ≤×5, murs en dur
      50 $/trade et 250 $ cumulé (env/config peuvent abaisser, JAMAIS dépasser), stop de
-     perte journalier (−5 % -> kill-switch), jamais de retrait/virement/annulation.
+     perte journalier (−5 % -> kill-switch), jamais de retrait/virement/annulation ;
+   - surfaces bornées §67 (`spot_trader`, `margin_trader`, `account_transfers`,
+     `earn_manager`) sur le noyau `bitget_execute` : **toutes défaut OFF**, DRY par défaut,
+     caps durs, kill-switch fail-closed. RETRAIT interdit partout (clé Trade-only).
    Le cerveau/scan/pré-ordres restent paper tant qu'ils ne passent pas par ces modules.
 2. **Ne JAMAIS lever un verrou sans instruction explicite du propriétaire** :
    `MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`, `FUTURES_AUTONOMOUS_LIVE`,
-   les plafonds (`ACCUM_REAL_MAX_*`, `FUTURES_REAL_MAX_*`), `FUTURES_EDGE_GATE_OVERRIDE`.
+   les plafonds (`ACCUM_REAL_MAX_*`, `FUTURES_REAL_MAX_*`), `FUTURES_EDGE_GATE_OVERRIDE`,
+   et les verrous des surfaces bornées §67 (`SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`,
+   `TRANSFER_LIVE`, `EARN_LIVE` — tous défaut OFF ; ils s'appuient sur le noyau
+   `bitget_execute` : verrou LIVE + kill-switch fail-closed + caps durs + `--confirm`).
+   RETRAITS interdits partout (clé Trade-only, aucun code de retrait n'existe).
    §45 (02/07/2026) : le propriétaire a ARMÉ le futures réel et OUTREPASSÉ la porte
    d'edge en connaissance de cause (0 agent LIVE, espérance directionnelle mesurée
    négative — trois questions d'engagement répondues). `FUTURES_EDGE_GATE_OVERRIDE=0`
@@ -98,6 +106,11 @@ ACCUM_AUTONOMOUS_LIVE=1     # accumulation auto réelle (sinon manuelle)
 EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
 LLM_AGENT_ENABLED=0         # 15ᵉ voix LLM (opt-in, surcouche fail-safe)
 NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65)
+# Surfaces de trading bornées §67 — TOUTES défaut OFF (armer = décision propriétaire) :
+SPOT_TRADE_LIVE=0           # spot libre (achat/vente)   · caps SPOT_TRADE_MAX_PER_OP/DAILY_USDT
+MARGIN_TRADE_LIVE=0         # marge isolée/croisée        · caps MARGIN_MAX_PER_OP/DAILY_USDT
+TRANSFER_LIVE=0             # virements internes           · caps TRANSFER_MAX_PER_OP/DAILY_USDT
+EARN_LIVE=0                 # earn souscrire/racheter      · caps EARN_MAX_PER_OP/DAILY_USDT
 ```
 
 ## Déploiement / cycle

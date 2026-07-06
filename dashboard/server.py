@@ -674,6 +674,10 @@ def build_state(symbol=None, tf="5m"):
     # 4 GET signés best-effort -> cache 30 s (indépendant du symbole affiché).
     state["real_positions"] = _cached("realpos", 30,
                                       lambda: _safe(lambda: __import__("real_positions").snapshot(), {}))
+    # Surfaces de trading bornées §67 : état armé/OFF + caps effectifs + dépensé du jour.
+    # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.
+    state["trading_surfaces"] = _cached("tsurf", 20,
+                                        lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:

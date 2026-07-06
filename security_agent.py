@@ -65,6 +65,38 @@ FUTURES_EXEC_REQUIRED_GUARDS = [
     "kill_switch", "confirm",
 ]
 
+# ---------------------------------------------------------------------------
+# Exécuteurs de surface BORNÉS §67 (spot libre, marge iso/cross, virements
+# internes, earn). Ils s'appuient sur le NOYAU audité bitget_execute.py (gating
+# LIVE défaut OFF + kill-switch fail-closed + caps durs + DRY par défaut). Audit :
+#   • RETRAIT (withdraw) interdit PARTOUT (clé Trade-only) — invariant dur ;
+#   • le VIREMENT (transfer) n'est autorisé QUE dans account_transfers.py ;
+#   • le réglage de levier futures n'a rien à y faire ;
+#   • chaque exécuteur DOIT déléguer au noyau (import bitget_execute), avoir un
+#     verrou LIVE (_LIVE) et le mode confirm (DRY par défaut).
+KERNEL_EXEC_FILE = "bitget_execute.py"
+KERNEL_FORBIDDEN = ["withdraw", "transfer", "place_order", "set_leverage", "margin_place_order"]
+KERNEL_REQUIRED_GUARDS = ["kill_active", "gate", "capped", "confirm"]
+
+TRADING_EXEC_FILES = ["spot_trader.py", "margin_trader.py", "account_transfers.py", "earn_manager.py"]
+TRANSFER_ALLOWED_FILE = "account_transfers.py"   # SEUL fichier autorisé à contenir 'transfer'
+TRADING_EXEC_FORBIDDEN = [
+    "withdraw", "account withdraw", "withdraw(", "/spot/wallet/withdrawal",
+    "set_leverage", "change_leverage", "setleverage",
+    "copy_place_order", "broker_", "sub_account", "subaccount",
+]
+TRADING_EXEC_REQUIRED_GUARDS = ["bitget_execute", "confirm", "_live"]
+
+# Fichier de STATUT lecture seule §67 : agrège l'état des surfaces pour le dashboard.
+# Il référence les noms des exécuteurs (d'où 'transfer') mais ne doit contenir AUCUN
+# vocabulaire d'ÉCRITURE — on prouve ainsi qu'il ne peut QUE lire.
+STATUS_READONLY_FILES = ["trading_status.py"]
+STATUS_FORBIDDEN = [
+    "withdraw", "spot_place_order", "margin_place_order", "earn_subscribe_redeem",
+    "margin_borrow", "margin_repay", "_run_bgc", "account transfer",
+    ".execute(", ".order(", ".borrow(", ".repay(", "confirm=true",
+]
+
 FILES_TO_SCAN = [
     "config.py",
     "journal_scanner.py",
@@ -95,6 +127,12 @@ FILES_TO_SCAN = [
     "accumulation_engine.py",
     "spot_executor.py",
     "futures_executor.py",
+    "bitget_execute.py",
+    "spot_trader.py",
+    "margin_trader.py",
+    "account_transfers.py",
+    "earn_manager.py",
+    "trading_status.py",
     "account_equity.py",
     "git_version.py",
     "system_health.py",
@@ -197,6 +235,56 @@ def scan_futures_exec(filename):
     return issues
 
 
+def scan_kernel_exec(filename):
+    """Audit du NOYAU d'exécution partagé (bitget_execute.py) : générique et NEUTRE — il
+    ne doit contenir AUCUN mot-clé d'ordre/virement/retrait/levier, et DOIT porter la
+    logique de sûreté (kill fail-closed, gating, caps, confirm)."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = []
+    for kw in KERNEL_FORBIDDEN:
+        if kw.lower() in text:
+            issues.append(f"interdit:{kw}")
+    for guard in KERNEL_REQUIRED_GUARDS:
+        if guard.lower() not in text:
+            issues.append(f"garde manquante:{guard}")
+    return issues
+
+
+def scan_trading_exec(filename):
+    """Audit d'un exécuteur de surface borné §67. RETRAIT interdit PARTOUT ; VIREMENT
+    autorisé UNIQUEMENT dans account_transfers.py ; délégation au noyau + verrou LIVE +
+    confirm EXIGÉS. Retourne la liste des soucis."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = []
+    forbidden = list(TRADING_EXEC_FORBIDDEN)
+    if filename != TRANSFER_ALLOWED_FILE:
+        forbidden.append("transfer")            # seul account_transfers peut virer
+    for kw in forbidden:
+        if kw.lower() in text:
+            issues.append(f"interdit:{kw}")
+    for guard in TRADING_EXEC_REQUIRED_GUARDS:
+        if guard.lower() not in text:
+            issues.append(f"garde manquante:{guard}")
+    return issues
+
+
+def scan_status_readonly(filename):
+    """Audit d'un fichier de STATUT lecture seule §67 : il peut référencer les noms
+    d'exécuteurs, mais ne doit contenir AUCUN vocabulaire d'écriture (il ne fait que lire
+    l'état armé/caps/dépensé). Retourne la liste des soucis."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    return [f"interdit:{kw}" for kw in STATUS_FORBIDDEN if kw.lower() in text]
+
+
 def telegram_auth_is_present(text):
     import re
 
@@ -247,6 +335,15 @@ def main():
         elif filename in AUTHORIZED_EXEC_FILES:
             hits = scan_authorized_exec(filename)
             label = "exec autorisé non conforme"
+        elif filename == KERNEL_EXEC_FILE:
+            hits = scan_kernel_exec(filename)
+            label = "noyau exec non conforme"
+        elif filename in TRADING_EXEC_FILES:
+            hits = scan_trading_exec(filename)
+            label = "exec surface non conforme"
+        elif filename in STATUS_READONLY_FILES:
+            hits = scan_status_readonly(filename)
+            label = "statut read-only non conforme"
         else:
             hits = scan_file_for_keywords(filename)
             label = "mots-clés suspects"

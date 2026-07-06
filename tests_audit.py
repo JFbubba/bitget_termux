@@ -7350,6 +7350,105 @@ def test_real_positions_snapshot_failsafe():
         rp._signed_get, rp._prices = orig_get, orig_px
 
 
+# ---------- Exécuteurs bornés §67 (spot libre · marge · virements · earn) ----------
+
+def test_execute_guard_gating_and_caps():
+    import bitget_execute as ex
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=False, kill=False, spent=0)
+    assert not ok and any("SPOT_TRADE_LIVE=False" in x for x in r)          # OFF -> refus
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=False, spent=0)
+    assert ok, r                                                            # armé + dans caps -> OK
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 20, 10, 50, live=True, kill=False, spent=0)
+    assert not ok and any("plafond/opération" in x for x in r)             # cap/op
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=False, spent=48)
+    assert not ok and any("journalier" in x for x in r)                    # cap journalier
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=True, spent=0)
+    assert not ok and any("kill" in x for x in r)                          # kill-switch
+
+
+def test_execute_capped_absolute_ceiling():
+    import bitget_execute as ex
+    import os
+    os.environ["TEST_CAP_X"] = "9999"
+    try:
+        assert ex.capped("TEST_CAP_X", 10.0, 200.0) == 200.0   # env ne DÉPASSE jamais l'absolu
+    finally:
+        os.environ.pop("TEST_CAP_X", None)
+
+
+def test_execute_kill_failclosed():
+    import bitget_execute as ex
+    assert ex.kill_active(True) is True and ex.kill_active(False) is False
+
+
+def test_execute_dry_default_no_runner_call():
+    import bitget_execute as ex
+    called = []
+    r = ex.run(["spot", "x"], True, [], "spot", 5, "oid1", confirm=False, runner=lambda a: called.append(a))
+    assert r["executed"] is False and r["dry"] is True and called == []     # DRY : runner JAMAIS appelé
+
+
+def test_execute_confirm_records_to_ledger():
+    import bitget_execute as ex
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    old = ex.LEDGER
+    ex.LEDGER = Path(path)
+    try:
+        r = ex.run(["spot", "x"], True, [], "spot", 5, "oidZ", confirm=True,
+                   runner=lambda a: '{"code":"00000","data":{"orderId":"1"}}')
+        assert r["executed"] is True
+        led = json.loads(ex.LEDGER.read_text())
+        assert led["ops"][-1]["clientOid"] == "oidZ" and led["ops"][-1]["surface"] == "spot"
+    finally:
+        ex.LEDGER = old
+        os.remove(path)
+
+
+def test_spot_trader_off_by_default_and_args():
+    import spot_trader as st
+    r = st.execute("BTCUSDT", "buy", 5, confirm=False, live=False, kill=False, spent=0)
+    assert r["ok"] is False and any("SPOT_TRADE_LIVE" in x for x in r["reasons"])
+    args = st.build_args("BTCUSDT", "buy", 5, "oid", price=60000)
+    assert args[:2] == ["spot", "spot_place_order"]
+
+
+def test_margin_trader_rejects_bad_type():
+    import margin_trader as mt
+    r = mt.order("BTCUSDT", "buy", 5, margin_type="bogus", confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("marginType invalide" in x for x in r["reasons"])
+
+
+def test_account_transfers_allowlist_blocks_external():
+    import account_transfers as at
+    r = at.execute("spot", "EXTERNAL_WALLET", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("hors allowlist" in x for x in r["reasons"])
+    r2 = at.execute("spot", "spot", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r2["ok"] is False and any("source = destination" in x for x in r2["reasons"])
+
+
+def test_earn_manager_action_validation():
+    import earn_manager as em
+    r = em.execute("bogus", "PID", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("action invalide" in x for x in r["reasons"])
+
+
+def test_trading_execs_never_withdraw_and_transfer_confined():
+    """Invariant DUR : aucun exécuteur ne contient 'withdraw' (clé Trade-only) ; seul
+    account_transfers.py contient 'transfer'."""
+    from pathlib import Path
+    execs = ["bitget_execute.py", "spot_trader.py", "margin_trader.py",
+             "account_transfers.py", "earn_manager.py"]
+    for f in execs:
+        assert "withdraw" not in Path(f).read_text(encoding="utf-8").lower(), f"withdraw dans {f}"
+    for f in ["bitget_execute.py", "spot_trader.py", "margin_trader.py", "earn_manager.py"]:
+        assert "transfer" not in Path(f).read_text(encoding="utf-8").lower(), f"transfer dans {f}"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

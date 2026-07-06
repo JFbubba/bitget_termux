@@ -2268,3 +2268,39 @@ paper §65b). 3 tests (filtre poussière, parse futures, fail-safe snapshot) —
 (bouton « Paper » ; `data-scope="paper"` + `body.hide-paper`), dynamisation (flash de
 prix, point LIVE battant, transitions). `dashboard/server.py` charge le fichier
 d'environnement (`load_dotenv`) pour refléter les voix opt-in LLM/NN armées en prod.
+
+## §67 — Surfaces de trading bornées : spot libre · marge · virements · earn
+
+Demande propriétaire : « active et utilise l'entièreté des fonctionnalités Bitget ».
+Périmètre confirmé (AskUserQuestion) : toutes les surfaces, **caps relevés par paliers**
+(architecture gardée), **retraits HORS-JEU** (clé Trade-only). Livraison : les briques
+sont CONSTRUITES, **défaut OFF**, jamais armées de moi-même (l'armement de chaque verrou
+reste une décision propriétaire explicite, comme §45).
+
+**Noyau `bitget_execute.py` (SAFE, neutre).** Aucun mot-clé d'ordre (runner générique).
+Centralise la sûreté : `gate()` (verrou LIVE env>config, défaut OFF), `kill_active()`
+**fail-CLOSED** (état inconnu -> on bloque), `capped()` (cap effectif = min(env, mur
+ABSOLU en dur)), `guard()` (verrou+kill+cap/op+cap/jour+solde), `run()` **DRY par défaut**
+(confirm=True requis pour le réel), journal partagé `trading_real_ledger.json`.
+
+**4 exécuteurs de surface** (chacun délègue au noyau) : `spot_trader.py` (achat/vente
+spot libre), `margin_trader.py` (ordre + borrow/repay, isolée/croisée), `account_transfers.py`
+(virements INTERNES, allowlist de comptes, aucune destination externe), `earn_manager.py`
+(souscription/rachat). Trois verrous indépendants requis pour tout ordre réel : **verrou
+LIVE armé + kill-switch absent + `--confirm`**. Vérifié : OFF -> refus ; armé sans confirm
+-> DRY (aucun ordre) ; kill-switch -> refus ; cap dépassé -> refus.
+
+**Sécurité préservée (invariant DUR).** `security_agent` audite les nouveaux fichiers :
+`withdraw` INTERDIT partout (clé Trade-only), `transfer` autorisé UNIQUEMENT dans
+account_transfers, délégation au noyau + confirm + gate LIVE EXIGÉS ; le noyau reste
+neutre ; `trading_status.py` (statut dashboard) prouvé lecture seule (aucun verbe
+d'écriture). `safe_push_check` autorise ces exécuteurs (comme spot/futures_executor). Un
+test de régression bloque toute réapparition de `withdraw` dans un exécuteur. 11 tests
+ajoutés (402/402 OK, 3 portes vertes).
+
+**Dashboard.** Panneau « Surfaces de trading » (armé/OFF + caps effectifs vs absolus +
+dépensé du jour), via `trading_status.snapshot()` -> `state["trading_surfaces"]`.
+
+**Leviers (.env, défaut OFF)** : `SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`, `TRANSFER_LIVE`,
+`EARN_LIVE` ; caps `*_MAX_PER_OP_USDT` / `*_MAX_DAILY_USDT` (relèvent SOUS le mur absolu
+codé). Armer = décision propriétaire explicite, par paliers, sur exécution propre.

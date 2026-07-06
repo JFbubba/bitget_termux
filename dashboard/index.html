@@ -277,6 +277,11 @@
     </div>
   </div>
 
+  <div class="panel full" style="margin-top:8px">
+    <h2>Surfaces de trading <span class="dim" style="letter-spacing:0">— §67 · bornées · gated (défaut OFF) · murs argent absolus · retraits interdits (clé Trade-only)</span></h2>
+    <div id="tsurf" class="rp-grid"></div>
+  </div>
+
   <div class="panel full" style="margin-top:8px" data-scope="paper">
     <h2>Positions en cours <span class="dim" style="letter-spacing:0">— paper (signaux suivis) · PnL live · clic = afficher l'actif sur le graphique</span>
       <span class="dim" id="pos-count" style="float:right;letter-spacing:0">—</span></h2>
@@ -884,6 +889,23 @@ function _rpFill(id,nid,rows){
     `<div class="rp-r"><span><span class="a ${r.cls||""}">${r.main}</span><br><span class="m">${r.meta}</span></span>`
     +`<span class="val a ${r.vcls||""}">${r.val}</span></div>`).join("");
 }
+// --- surfaces de trading bornées §67 : armé/OFF + caps + dépensé du jour ---
+function renderTradingSurfaces(list){
+  const el=$("tsurf");if(!el)return;
+  list=list||[];
+  if(!list.length){el.innerHTML='<div class="rp-empty">indisponible</div>';return;}
+  el.innerHTML=list.map(s=>{
+    const on=s.armed;
+    return `<div class="rp-col"><div class="rp-h"><span>${s.label}</span>`
+      +`<span class="${on?'green':'dim'}" style="font-weight:600">${on?'ARMÉE':'OFF'}</span></div>`
+      +`<div class="rp-r"><span class="m">cap / opération</span><span class="val a">$${(+s.per_op).toFixed(0)}`
+      +`<span class="m"> / abs $${(+s.per_op_abs).toFixed(0)}</span></span></div>`
+      +`<div class="rp-r"><span class="m">cap / jour</span><span class="val a">$${(+s.daily).toFixed(0)}`
+      +`<span class="m"> / abs $${(+s.daily_abs).toFixed(0)}</span></span></div>`
+      +`<div class="rp-r"><span class="m">dépensé aujourd'hui</span><span class="val ${s.spent_today>0?'amber':'dim'}">$${(+s.spent_today).toFixed(2)}</span></div>`
+      +`</div>`;
+  }).join("");
+}
 function renderRealPositions(rp){
   rp=rp||{};const t=rp.totals||{};
   const tot=$("rp-tot");
@@ -1131,6 +1153,7 @@ async function tick(){
     try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
     try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
     try{ renderRealPositions(st.real_positions||{}); }catch(e){}
+    try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");

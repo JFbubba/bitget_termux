@@ -60,6 +60,7 @@ DANGER_HITS=$(
   git grep -nE 'place_order|open_long|open_short|close_position|cancel_order|change_leverage|transfer|withdraw|send_order|create_order|submit_order|set_leverage|market_order|limit_order|order/place|batch-place-order|place-order|close-positions' \
     -- '*.py' \
     ':!security_agent.py' ':!getagent_audit.py' ':!tests_audit.py' ':!spot_executor.py' ':!futures_executor.py' \
+    ':!spot_trader.py' ':!margin_trader.py' ':!account_transfers.py' ':!earn_manager.py' ':!trading_status.py' \
   || true
 )
 
