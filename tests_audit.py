@@ -7483,6 +7483,23 @@ def test_kelly_recommended_usdt_bounded():
     assert amt2 == 0.0
 
 
+def test_counterfactual_directional_and_pairs():
+    import counterfactual_prune as cp
+    # W et R directionnels : 2 gagnants (+0.2) et 2 perdants (−0.1) au-dessus du seuil
+    d = cp._directional([0.5, 0.5, 0.5, 0.5], [0.2, 0.2, -0.1, -0.1], threshold=0.2)
+    assert d["W"] == 0.5 and d["R"] == 2.0 and d["kelly_f"] == 0.25 and d["n"] == 4
+    # sous le seuil -> ignoré
+    d2 = cp._directional([0.05], [0.1], threshold=0.2)
+    assert d2["n"] == 0
+    # _pairs : consensus pondéré + exclusion d'un agent (poids -> 0)
+    entrees = [
+        {"symbol": "T", "ts": 0, "price": 100, "votes": {"a": 1.0, "b": -1.0}},
+        {"symbol": "T", "ts": 4000, "price": 110, "votes": {"a": 0.0, "b": 0.0}},
+    ]
+    cons, fwd = cp._pairs(entrees, {"a": 1.0, "b": 1.0}, exclude=["b"], horizon_s=3600)
+    assert cons == [1.0] and len(fwd) == 1                # b exclu -> consensus = vote de a
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
