@@ -62,13 +62,22 @@ def analyze(symbol="ETHUSDT", ttl=45):
                 "note": "BTC est la référence (pas de self lead-lag)"}
 
     def fetch():
+        # §79 : paramètres OPTIMISÉS sur le rejeu 6 ans avec validation hors échantillon
+        # (train 2020-24 : IC +0.054 vs +0.030 pour (8,64) ; test 2025-26 : +0.020 vs
+        # +0.003). Domaine = bougies 1H (celui du réglage — transposition exacte) au lieu
+        # des 90 closes 15m. Env-réglable (LEADLAG_K/LEADLAG_W), fail-safe neutre.
         try:
-            import market_sources as ms
-            alt = ms.closes(symbol, 90)
-            btc = ms.closes(SYMBOL_REF, 90)
+            import os
+            import technicals as tk
+            from config_utils import cfg as _cfg
+            k = int(os.getenv("LEADLAG_K") or _cfg("LEADLAG_K", 4))
+            w = int(os.getenv("LEADLAG_W") or _cfg("LEADLAG_W", 128))
+            n = w + k + 10
+            alt = [c["close"] for c in tk.fetch_candles(symbol, "1H", n)]
+            btc = [c["close"] for c in tk.fetch_candles(SYMBOL_REF, "1H", n)]
         except Exception:
             return {"vote": 0.0, "confidence": 0.0, "note": "n/a"}
-        v = signal(alt, btc)
+        v = signal(alt, btc, k=k, w=w)
         conf = round(0.45 * abs(v), 3)
         note = (f"fade BTC {'-' if v < 0 else '+'}{abs(v):.2f}"
                 if v else "BTC calme — rien à fader")

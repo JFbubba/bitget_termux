@@ -81,8 +81,23 @@ def _lag1_autocorr(x):
 # ---------- agents (symbol -> {vote[-1..1], confidence[0..1], note}) ----------
 
 def agent_orderflow(symbol):
-    import bitget_market_data as bmd
     import runtime_cache as rc
+    # §79 : le TRADE-SIGN du collecteur microstructure 24/7 (agressivité de la bande,
+    # moyennée) est MESURÉ à IC +0.016 (t +3.2, 38 412 obs, 60 min) là où le carnet
+    # instantané 10 s faisait −0.014 (mauvais horizon). Symbole hors collecteur
+    # (BTC/ETH/SOL couverts) ou buffer périmé -> REPLI sur la formule historique
+    # carnet+CVD (fail-safe : summary() rend n=0 sur données périmées).
+    try:
+        import microstructure as msm
+        ms = rc.get(f"micsum:{symbol}", 30, lambda: msm.summary(symbol) or {}, fallback={})
+        if (ms or {}).get("n"):
+            tsg = float(ms.get("trade_sign") or 0.0)
+            return {"vote": round(_clamp(tsg * 2.5), 3),
+                    "confidence": min(abs(tsg) * 2.0, 1.0),
+                    "note": f"tape {tsg:+.3f} (micro n={ms['n']})"}
+    except Exception:
+        pass
+    import bitget_market_data as bmd
     s = rc.get(f"book:{symbol}", 10, lambda: bmd.market_snapshot(symbol) or {}, fallback={})
     imb = s.get("book_imbalance") or 0.0
     cvd = s.get("cvd") or 0.0

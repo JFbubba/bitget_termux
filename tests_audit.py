@@ -915,6 +915,34 @@ def test_classics_agent_17e_voix():
             os.environ["CLASSICS_AGENT_ENABLED"] = old_env
 
 
+def test_brain_orderflow_tape_et_repli():
+    """§79 : orderflow vote le TRADE-SIGN du collecteur quand il est frais (mesuré
+    IC +0.016 vs −0.014 pour le carnet 10 s), et REPLIE sur la formule historique
+    carnet+CVD quand le collecteur est muet/périmé (summary -> n=0)."""
+    import microstructure as msm
+    import runtime_cache as rc
+    import swarm_brain as sb
+    orig_sum, orig_get = msm.summary, rc.get
+    rc.get = lambda key, ttl, fetch, fallback=None, now=None: fetch()   # cache transparent
+    try:
+        msm.summary = lambda symbol, **k: {"n": 60, "trade_sign": 0.2}
+        r = sb.agent_orderflow("BTCUSDT")
+        assert r["vote"] == 0.5 and abs(r["confidence"] - 0.4) < 1e-9   # 0.2×2.5 · 0.2×2
+        assert "tape" in r["note"]
+        # collecteur périmé (n=0) -> repli carnet+CVD (jamais un vote sur du périmé)
+        msm.summary = lambda symbol, **k: {"n": 0, "trade_sign": 0.9}
+        import bitget_market_data as bmd
+        orig_snap = bmd.market_snapshot
+        bmd.market_snapshot = lambda s: {"book_imbalance": 0.1, "cvd": -5.0}
+        try:
+            r2 = sb.agent_orderflow("BTCUSDT")
+            assert "imbalance" in r2["note"] and abs(r2["vote"] - (-0.1)) < 1e-9  # 0.2−0.3
+        finally:
+            bmd.market_snapshot = orig_snap
+    finally:
+        msm.summary, rc.get = orig_sum, orig_get
+
+
 def test_brain_ridge_solve_correlation_conscient():
     """§78 : le ridge Σ⁻¹·IC partage le poids d'un pari REDONDANT (deux agents copies
     l'un de l'autre) au lieu de le compter deux fois, écrase le bruit, ne flippe

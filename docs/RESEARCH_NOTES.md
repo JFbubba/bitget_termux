@@ -2861,3 +2861,33 @@ propriétaire (mandat « qualité de pondération ») ; réversible en une ligne
 (BRAIN_RIDGE_ALIGN=0). Cible live constatée : structure/simons/leadlag ~2.9,
 famille corrélée ~0.4. La cible se recalcule chaque heure sur un journal qui grandit —
 si la structure de corrélation tourne, les poids suivront, mesurés.
+
+## §79 — Réglage des agents sur le rejeu 6 ans : leadlag optimisé, orderflow recâblé, structure disculpé
+
+Le ridge (§78) a promu leadlag/simons/structure en tête des poids — leurs paramètres
+méritaient donc l'optimisation MESURÉE (train 2020-2024 / test 2025-2026, IC de rang
+à 1 barre 1h, 3 alts vs BTC, stride 4) :
+
+**leadlag : (k=8, w=64) -> (k=4, w=128), ADOPTÉ.** Train : IC +0.054 vs +0.030 ;
+TEST hors échantillon : **+0.020 vs +0.003 (7×)**. k=4 domine pour TOUT w (le fade
+rapide du mouvement BTC gagne dans tous les régimes). L'agent passe au DOMAINE DU
+RÉGLAGE (bougies 1H — transfert exact) au lieu des 90 closes 15m ; env-réglable
+(LEADLAG_K/W), fail-safe neutre. L'IC-audit live le re-jugera en continu.
+
+**orderflow : carnet 10 s -> TRADE-SIGN du collecteur, ADOPTÉ.** Le carnet instantané
+(IC live −0.014) est un signal de secondes voté pour un horizon d'une heure. Mesure des
+features du collecteur 24/7 à 60 min (38 412 obs) : ofi −0.003 · queue −0.009 ·
+**trade_sign +0.016 (t +3.2)**. L'agent vote désormais tape×2.5 (gain calibré sur la
+distribution : p90 -> vote 0.67, saturation seulement au-delà du p98) quand le
+collecteur est FRAIS (summary garde anti-péremption), et REPLIE sur carnet+CVD sinon
+(symboles hors BTC/ETH/SOL, buffer mort). Testé (chemin tape + repli).
+
+**structure : AUCUN changement (disculpé par le domaine).** Le rejeu 1h ne voit
+aucun edge pour aucune fenêtre (60/120/180 : −0.03..+0.01) alors que l'IC LIVE sur
+bougies 15m est +0.031 — le signal BOS/Value-Area vit à la granularité 15 min, le
+rejeu 1h y est aveugle. On garde la formulation live, jugée par l'instrument live
+(même leçon que §62 : ne pas condamner sur le mauvais étalon).
+
+Balayage d'erreurs (mandat « corriger les erreurs ») : ZÉRO erreur sur 6 h de journaux,
+cron liquidité :15 passé (équilibré, plancher 75), journal des voix : 389 votes parlés
+déjà accumulés (IC de la 17e voix mesurable sous ~2 jours).
