@@ -310,6 +310,15 @@
   </div>
 
   <div class="panel full" style="margin-top:8px">
+    <h2>Méthodes autonomes <span class="dim" style="letter-spacing:0">— §76-83 · flux de rendement orthogonaux · chaque jambe passe par un exécuteur audité</span></h2>
+    <div class="rp-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="rp-col"><div class="rp-h"><span>🌾 Alt-carry (funding)</span><span id="mc-ac-arm" class="dim">—</span></div><div id="mc-ac" style="font-size:11px;line-height:1.7">—</div></div>
+      <div class="rp-col"><div class="rp-h"><span>💧 Liquidité</span><span id="mc-liq-arm" class="dim">—</span></div><div id="mc-liq" style="font-size:11px;line-height:1.7">—</div></div>
+      <div class="rp-col"><div class="rp-h"><span>🧪 Labo stratégies</span><span id="mc-lab-next" class="dim">—</span></div><div id="mc-lab" style="font-size:11px;line-height:1.7">—</div></div>
+    </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
     <h2>Réseau neuronal — carte de connectivité <span class="dim" style="letter-spacing:0">— fusion des 14 agents (16ᵉ voix, §65) · lecture seule · les murs restent absolus</span>
       <span id="nn-badge" style="float:right;letter-spacing:0">—</span></h2>
     <canvas id="nn-map" style="width:100%;height:260px;display:block"></canvas>
@@ -1002,6 +1011,50 @@ function renderTrades(rp){
       +'</div>';
   }).join("");
 }
+// --- méthodes autonomes §76-83 : alt-carry, liquidité, labo + barre xs ---
+function renderMethodes(m, ov){
+  const ac=m.alt_carry||{},liq=m.liquidite||{},lab=m.lab||{},xs=m.xs||{};
+  const arm=(el,on,neg)=>{const e=$(el);if(e){e.textContent=on?("ARMÉ"+(neg?" ±":"")):"OFF";e.className=on?"green":"dim";}};
+  arm("mc-ac-arm",ac.armed,ac.neg);
+  arm("mc-liq-arm",liq.armed);
+  const hhmm=ts=>ts?new Date(ts*1000).toISOString().slice(5,16).replace("T"," "):"—";
+  {const el=$("mc-ac");if(el){
+    const d=(ac.dernier||{}).decision||{};
+    const pos=ac.position;
+    const cands=((ac.dernier||{}).cands||[]).slice(0,3)
+      .map(c=>`${(c.symbol||"").replace(/USDT$/,"")} ${c.apr_pct>=0?"+":""}${c.apr_pct}% (p${c.pctl})`).join(" · ");
+    el.innerHTML=(pos?`position <b class="accent">${pos.mode||"classic"} ${(pos.symbol||"").replace(/USDT$/,"")}</b> ${pos.usdt}$/jambe`
+                     :'<span class="dim">aucune position</span>')
+      +`<br>dernier cycle ${hhmm((ac.dernier||{}).ts)} : <span class="${d.action==="ouvrir"?"green":d.action==="fermer"?"amber":"dim"}">${(d.action||"—").toUpperCase()}</span> ${d.symbol?(d.symbol||"").replace(/USDT$/,""):""}`
+      +`<br><span class="dim">${d.raison||""}</span>`
+      +(cands?`<br><span class="dim">scan :</span> ${cands}`:"");
+  }}
+  {const el=$("mc-liq");if(el){
+    const dd=(liq.dernier||{});const d=dd.decision||{};
+    el.innerHTML=`spot <b class="accent">$${dd.spot_usdt!=null?(+dd.spot_usdt).toFixed(2):"—"}</b> · futures <b class="accent">$${dd.fut_usdt!=null?(+dd.fut_usdt).toFixed(2):"—"}</b>`
+      +`<br>dernier cycle ${hhmm(dd.ts)} : <span class="${dd.executed?"green":"dim"}">${(d.action||"—").toUpperCase()}</span> ${d.usdt?("$"+d.usdt):""}`
+      +`<br><span class="dim">${d.raison||""}</span>`;
+  }}
+  {const el=$("mc-lab");if(el){
+    const promus=(lab.promus||[]).map(p=>p.nom).join(" · ");
+    const q=xs.qualifie;
+    el.innerHTML=`<span class="dim">dernier run :</span> ${hhmm(lab.dernier_run)} <span class="dim">(mar·jeu·sam 05:00)</span>`
+      +`<br><span class="dim">promues :</span> ${promus?`<span class="green">${promus}</span>`:"aucune"}`
+      +`<br><span class="dim">labo xs :</span> <span class="${q?"green":"amber"}">${q?"QUALIFIÉ":"en cours"}</span> `
+      +`${xs.jours!=null?xs.jours:"—"} j/${(xs.barre||{}).jours||30} · ${xs.rebalances||0} rebal · PnL ${xs.pnl_usdt!=null?(+xs.pnl_usdt).toFixed(2):"—"} $`;
+    const nx=$("mc-lab-next");if(nx){nx.textContent=promus?((lab.promus||[]).length+" promues"):"";nx.className="green";}
+  }}
+  // voix opt-in (§77) : IC quand mesurable, sinon compte de votes parlés
+  const al=$("audit-live");
+  if(al&&(ov.agents||ov.comptes)){
+    const seen=new Set((ov.agents||[]).map(a=>a.agent));
+    let extra=(ov.agents||[]).map(a=>`${a.agent} ic${a.ic>=0?"+":""}${(+a.ic).toFixed(2)} (n${a.n})`);
+    Object.entries(ov.comptes||{}).forEach(([k,n])=>{if(!seen.has(k))extra.push(`${k} ${n} votes parlés (ic à ≥50)`);});
+    if(extra.length&&!al.dataset.ovDone){al.innerHTML+=`<br><span class="amber">voix opt-in :</span> ${extra.join(" · ")}`;al.dataset.ovDone="1";}
+    else if(extra.length){const parts=al.innerHTML.split("<br>");al.innerHTML=parts.filter(x=>!x.includes("voix opt-in")).join("<br>")+`<br><span class="amber">voix opt-in :</span> ${extra.join(" · ")}`;}
+  }
+}
+
 function renderRealPositions(rp){
   rp=rp||{};const t=rp.totals||{};
   const tot=$("rp-tot");
@@ -1250,6 +1303,7 @@ function renderState(){
     try{ renderRealPositions(st.real_positions||{}); }catch(e){}
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
     try{ renderKelly(st.kelly||{}); }catch(e){}
+    try{ renderMethodes(st.methodes||{}, st.overlay_ic||{}); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");

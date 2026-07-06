@@ -3026,3 +3026,18 @@ par jour, murs futures). État live à l'armement : aucun extrême exploitable
 (funding univers à des plus-bas historiques, tous positifs) — la machine attend
 proprement des deux côtés désormais. Tests décideur v2 (net d'emprunt, gate NEG,
 fermeture sur normalisation) ajoutés.
+
+## §84 — Dashboard : panneau « Méthodes autonomes » + voix opt-in visibles
+
+Mise à jour du dashboard sur la machinerie §76-83 (fichiers locaux uniquement,
+zéro appel réseau ajouté) : panneau pleine largeur à 3 colonnes —
+  • 🌾 ALT-CARRY : armé (± = reverse autorisé), position en cours (mode/symbole/
+    taille), décision et top-3 candidats du dernier cycle journalisé ;
+  • 💧 LIQUIDITÉ : floats spot/futures, dernière décision/action du cron :15 ;
+  • 🧪 LABO : dernier run, stratégies PROMUES (6 au premier run — affichées),
+    cadence mar·jeu·sam, BARRE XS en direct (jours/rebal/PnL vs barre — le paper
+    long-short est repassé NÉGATIF (−1.49 $) : la barre juge, c'est son rôle).
+Le bloc « Audit IC live » gagne les VOIX OPT-IN (§77) : IC dès ≥ 50 votes, sinon
+compte de votes parlés (constaté : classics 2 593, llm 671 — mesure imminente).
+Les exécutions TP partiels étaient déjà visibles (§82). Serveur : blocs `methodes`
+et `overlay_ic` cachés 60/300 s.

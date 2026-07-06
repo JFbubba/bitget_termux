@@ -737,6 +737,66 @@ def build_state(symbol=None, tf="5m"):
     # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.
     state["trading_surfaces"] = _cached("tsurf", 20,
                                         lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
+
+    # --- MÉTHODES AUTONOMES §76-83 (fichiers locaux uniquement — zéro appel réseau) ---
+    def _tail_jsonl(path, n=1):
+        try:
+            lines = [l for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
+            return [json.loads(l) for l in lines[-n:]]
+        except Exception:
+            return []
+
+    def _methodes():
+        out = {}
+        try:                                          # alt-carry : état + dernier cycle journalisé
+            import alt_carry as ac
+            st_ac = ac._etat()
+            dern = _tail_jsonl(REPO_ROOT / ".alt_carry_journal.jsonl", 1)
+            out["alt_carry"] = {"armed": ac.enabled(), "neg": ac._neg_on(),
+                                "position": st_ac.get("position"),
+                                "dernier": dern[0] if dern else None}
+        except Exception:
+            out["alt_carry"] = {}
+        try:                                          # liquidité : dernier cycle journalisé
+            import liquidity_manager as lm
+            dern = _tail_jsonl(REPO_ROOT / ".liquidity_journal.jsonl", 1)
+            out["liquidite"] = {"armed": lm.enabled(), "dernier": dern[0] if dern else None}
+        except Exception:
+            out["liquidite"] = {}
+        try:                                          # labo : promotions récentes (strategies_out)
+            outdir = REPO_ROOT / "strategies_out"
+            mds = sorted(outdir.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+            promus, vus = [], set()
+            for f in mds[:24]:
+                nom = f.stem.rsplit("_", 2)[0]
+                if nom not in vus:
+                    vus.add(nom)
+                    promus.append({"nom": nom, "ts": int(f.stat().st_mtime)})
+            out["lab"] = {"promus": promus[:8],
+                          "dernier_run": int(mds[0].stat().st_mtime) if mds else None}
+        except Exception:
+            out["lab"] = {}
+        try:                                          # barre de promotion xs
+            import xs_paper
+            out["xs"] = xs_paper.promotion_status()
+        except Exception:
+            out["xs"] = {}
+        return out
+    state["methodes"] = _cached("methodes", 60, lambda: _safe(_methodes, {}))
+
+    def _overlay_ic():
+        """IC des voix opt-in (§77) + compte de votes parlés (même sous la barre des 50)."""
+        try:
+            import live_ic_audit as lia
+            snap = lia.overlay_snapshot(3600)
+            comptes = {}
+            for e in lia.charger_entrees(lia.OVERLAY, max_lignes=50_000):
+                for k in (e.get("votes") or {}):
+                    comptes[k] = comptes.get(k, 0) + 1
+            return {"agents": snap.get("agents", []), "comptes": comptes}
+        except Exception:
+            return {}
+    state["overlay_ic"] = _cached("overlay_ic", 300, lambda: _safe(_overlay_ic, {}))
     # Critère de Kelly (advisory, lecture seule) : W/R mesurés -> fraction bornée + taille
     # recommandée/surface. Edge négatif -> 0. Aucun ordre.
     # capital & W/R RÉUTILISÉS de l'état déjà calculé (real_positions + futures_live + stats)
