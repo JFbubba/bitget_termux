@@ -797,6 +797,41 @@ def _price(symbol):
     return bmd.market_snapshot(symbol).get("mid_price")
 
 
+def _peek_cache(key):
+    """Lecture SANS ÉCRITURE du runtime_cache : un fetch qui lève déclenche le
+    stale-while-error (dernière valeur connue servie, RIEN n'est stocké) — on ne
+    peut pas empoisonner le cache des agents. Best-effort : None."""
+    try:
+        import runtime_cache as rc
+
+        def _raise():
+            raise RuntimeError("peek")
+        return rc.get(key, 0, _raise, fallback=None)
+    except Exception:
+        return None
+
+
+def _market_ctx(symbol):
+    """Contexte de marché COMPACT journalisé avec les votes (§75 : croisement de
+    données pour la fusion NN — niveau de funding OI-pondéré + Fear&Greed). Repris
+    des caches déjà peuplés par les agents du MÊME cycle : zéro appel réseau ajouté.
+    Best-effort : {} (les entrées anciennes n'ont pas de ctx, le NN met 0)."""
+    ctx = {}
+    agg = _peek_cache(f"derivs:{symbol}") or {}
+    try:
+        if agg.get("oi_weighted_funding") is not None:
+            ctx["fund"] = round(float(agg["oi_weighted_funding"]), 8)
+    except (TypeError, ValueError):
+        pass
+    fg = _peek_cache("fear_greed") or {}
+    try:
+        if fg.get("value") is not None:
+            ctx["fg"] = int(fg["value"])
+    except (TypeError, ValueError):
+        pass
+    return ctx
+
+
 def _record(symbol, votes, result, price):
     entry = {
         "ts": int(time.time()), "symbol": symbol, "price": price,
@@ -804,6 +839,9 @@ def _record(symbol, votes, result, price):
         "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items() if n in AGENT_FUNCS},
         "consensus": result["consensus"], "evaluated": False,
     }
+    ctx = _market_ctx(symbol)
+    if ctx:
+        entry["ctx"] = ctx
     log = _read_log()
     log.append(entry)
     _write_log(log)

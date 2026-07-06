@@ -355,6 +355,38 @@ def run(now=None):
     return out
 
 
+def _prix_entry(entries, sym):
+    """Dernier prix journalisé du symbole (journal du cerveau). None sinon. PUR."""
+    for e in reversed(entries or []):
+        if e.get("symbol") == sym and e.get("price"):
+            try:
+                return float(e["price"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _taille_faisable(sym, entries, notional=None):
+    """Le notional CONFIGURÉ passe-t-il les MINIMA du contrat ? (§75) Sans ce filtre,
+    la boucle choisissait un candidat infaisable, l'exécuteur refusait « taille
+    infaisable » et la boucle restait FLAT en boucle (3 refus réels journalisés :
+    ETH ×2 le 05/07, LAB le 06/07). On écarte le symbole À LA DÉCISION — la place
+    revient au candidat suivant. MONTER le notional reste une décision propriétaire
+    (FUTURES_AUTO_NOTIONAL_USDT). Fail-open si spec/prix illisibles : l'exécuteur
+    reste le juge final (fail-closed)."""
+    try:
+        import futures_executor as fe
+        notional = (float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+                    if notional is None else float(notional))
+        spec = fe._contract_spec(sym)
+        px = _prix_entry(entries, sym)
+        if not spec or not px:
+            return True
+        return fe.size_for(notional, px, spec) is not None
+    except Exception:
+        return True
+
+
 def _universe():
     """Symboles surveillés par la boucle (univers dynamique, repli BTCUSDT)."""
     try:
@@ -543,6 +575,9 @@ def _run_cycle(now=None):
             continue                                  # côté occupé par un autre agent
         if mode == "one_way_mode" and (cotes.get("long") or cotes.get("short")):
             continue                                  # netting interdit en one-way
+        if not _taille_faisable(sym, entries):
+            out.setdefault("infaisables", []).append(sym)   # minima contrat > notional §75
+            continue
         candidats.append((abs(c), sym, c, d))
     out["n_candidats"] = len(candidats)
     out["consensus"] = consensus_frais(entries, now=now, symbol=SYMBOL)
@@ -639,6 +674,9 @@ def status(now=None):
             continue
         if (par_sym.get(sym) or {}).get(d["side"]):
             continue
+        if not _taille_faisable(sym, entries):
+            out.setdefault("infaisables", []).append(sym)   # minima contrat > notional §75
+            continue
         if best is None or abs(c) > best[0]:
             best = (abs(c), sym, c, d)
     if best:
@@ -661,6 +699,10 @@ def build_report(r=None):
                   f"position {r.get('position') or 'flat'}")
     lignes.append(f"Décision : {d.get('action', 'rien').upper()} "
                   f"{d.get('side') or ''} {d.get('symbol') or ''} — {d.get('raison', '')}")
+    inf = r.get("infaisables") or []
+    if inf:
+        lignes.append(f"Écartés (minima contrat > notional configuré) : {', '.join(inf)} — "
+                      "monter FUTURES_AUTO_NOTIONAL_USDT = décision propriétaire")
     dd = r.get("drawdown") or {}
     if dd.get("halt"):
         lignes.append(f"🛑 HALTE DRAWDOWN ACTIVE ({dd.get('dd_pct')} % ≥ {dd.get('max_dd_pct')} %) : "

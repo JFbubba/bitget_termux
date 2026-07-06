@@ -327,8 +327,8 @@ def build_report(s=None):
                        f"{c.get('apr_net_pct')} % ({c.get('attrait')}) · couverture "
                        f"{c.get('couverture_usdt')} $ -> {str(cd.get('action', 'rien')).upper()}"
          )(s.get("carry") or {}, (s.get("carry") or {}).get("decision") or {}),
-        f"Equity : {_n(s.get('equity_usdt'))} USDT · stop journalier −{s.get('stop_pct')} % "
-        f"(ouverture du jour : {_n(stj.get('open_equity'))})"
+        f"Equity wallet futures : {_n(s.get('equity_usdt'))} USDT · stop journalier −{s.get('stop_pct')} % "
+        f"sur le LIVRE COUVERT (ouverture du jour : {_n(stj.get('open_equity'))} = futures + expo BTC carry)"
         + (f" · 7 j : {_n(s.get('equity_7j_delta_pct'), '{:+.2f}')} %"
            if s.get("equity_7j_delta_pct") is not None else ""),
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "

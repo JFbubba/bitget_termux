@@ -2687,3 +2687,76 @@ comportement voulu : elle parle sur chiffres, se tait sur chiffres. Haute-convic
 52 prédictions à 0.596 vs base 0.565. Le cron 04:20 fine-tune désormais chaque jour
 depuis le prior 6 ans sur un journal live qui grandit. (Re-pré-entraîner de temps en
 temps : `python neural_net.py --pretrain`, ~35 min offline.)
+
+## §75 — Croisement de données : funding + sentiment dans le rejeu, ctx journalisé, stratégie croisée
+
+Demande propriétaire (06/07 soir) : ajouter funding et sentiment à l'historique rejoué,
+chercher d'autres edges, améliorer le croisement de données.
+
+**1. Profondeur de données.** Fear&Greed COMPLET (alternative.me limit=0) : 3 074 points
+quotidiens 2018-02 -> aujourd'hui (`sentiment_index.download_history/load_history`,
+data_history/FEAR_GREED.json, gitignored). Funding Bitget : l'API publique ne sert que
+~90 jours (270 taux/symbole, testé pageNo>3 vide) — téléchargé pour BTC/ETH/SOL/XRP ;
+le cron peut le consolider dans le temps (download déduplique).
+
+**2. Rejeu v2 : 6 -> 10 voix sur 14.** Ajoutés au corpus de pré-entraînement :
+  • sentiment — (50−F&G)/50 par jour, couverture TOTALE du corpus 6 ans ;
+  • structure — réplique EXACTE d'agent_structure (BOS/CHoCH+piège, Value Area,
+    chandeliers ; 0.1 ms/barre, aucun stride nécessaire) ;
+  • derivs — −funding×2000 (funding Bitget du symbole ; 0 avant avril 2026) ;
+  • carry — signal pur (composante funding-z, poids renormalisés — la dégradation
+    propre du module fait le travail).
+  Restent à 0 : orderflow, macro, liquidations, flows (aucune donnée historique de
+  carnet/OI/macro). Coût mesuré : 5.1 ms/barre (corpus complet ~16 min).
+
+**3. Croisement journalisé (le cœur de la demande).** `swarm_brain._record` ajoute
+`ctx = {fund, fg}` à CHAQUE entrée du journal — repris des caches du MÊME cycle via
+`_peek_cache` (un fetch qui lève -> stale-while-error : lecture SANS écriture, aucun
+risque d'empoisonner le cache des agents, testé) : zéro appel réseau ajouté. Le NN
+gagne 2 features de croisement (23 -> 25) : `funding_lvl` (funding×2000 clampé) et
+`fg_dev` ((50−F&G)/50), DIRECTIONNELLES sous l'antisymétrie. Les votes derivs/sentiment
+portent déjà le SIGNE contrarian ; le ctx donne l'AMPLEUR BRUTE — c'est l'interaction
+votes × niveaux que le méta-modèle peut exploiter. Rétro-compatible : entrées
+anciennes sans ctx -> 0 (fail-safe). Vérifié live : 30/30 dernières entrées avec ctx.
+
+**4. Stratégie CROISÉE au lab + 17e voix.** `strat_funding_fade` (fundfade_{SYM}_60) :
+foule très longue (z-funding ≥ 1.5) ET prix au plafond du range -> short le crowding ;
+symétrique au plancher. Causal (pointeur funding par ts), inerte sans données. Ajoutée
+au registre du lab (mesure dimanche : Sharpe/edge/PBO) ET comme 7e composant de la
+voix classics armée (fail-safe 0 sur les symboles sans funding local).
+
+## §75 (suite) — Revue de santé + fix : candidats infaisables écartés à la décision
+
+Revue 12 h (agent d'exploration) : ZÉRO erreur sur les 6 services, 11/11 artefacts
+frais, 5/5 registres intègres, halte MDD non, reconcile accumulation ok. Deux
+trouvailles actionnables :
+  • **Boucle directionnelle flat en boucle sur « taille infaisable »** : 3 refus réels
+    journalisés (ETH ×2 le 05/07, LAB le 06/07) — la boucle choisissait le candidat au
+    meilleur consensus SANS vérifier les minima du contrat (minTradeNum × prix >
+    notional configuré 10 $), l'exécuteur refusait (fail-closed correct), et la place
+    n'allait jamais au candidat suivant. FIX : `_taille_faisable` (juge = le même
+    `size_for` que l'exécuteur, spec cachée 24 h, prix du journal du cerveau) filtre
+    À LA DÉCISION dans le cycle ET le statut ; les écartés sont VISIBLES (rapport +
+    clé `infaisables`) avec le remède : monter FUTURES_AUTO_NOTIONAL_USDT = décision
+    propriétaire. Fail-open si spec/prix illisibles (l'exécuteur reste le juge final).
+    Vérifié live : LABUSDT écarté, affiché.
+  • **Libellé equity clarifié** dans futures_report (wallet futures vs livre couvert :
+    l'écart ~34 $ = l'expo BTC spot du carry, pas une anomalie).
+Le run d'accumulation de 12:00 est le premier à exercer la tolérance de gigue (§70)
+et le DCA dynamique (§72) en production — vérifié à chaud (voir addendum).
+
+## §75 (fin) — Mesures : rejeu v2, fine-tune v5, et la première empreinte du croisement
+
+Corpus rejoué v2 (10 voix + ctx, 118 309 exemples) : edge −0.0052 (v1 6 voix : −0.0063)
+— toujours ≈ 0 à l'heure, le prior reste un régularisateur de géométrie, pas un oracle.
+Fine-tune de production v5 (25 features, prior v2) sur le journal live :
+  wf_edge −0.0139 (v4 : −0.0079 — même bruit ±0.026, fenêtres légèrement décalées,
+  le pli 2 reste imprévisible : −0.127) ; MAIS la POCHE HAUTE-CONVICTION fait un bond :
+  **193 prédictions à 0.642 vs base 0.548 (≈ +2.6σ)** — c'était 52 à 0.596 avant le
+  croisement funding/F&G. Première empreinte mesurable du ctx : le modèle ose plus
+  souvent ET plus juste quand les niveaux de marché confirment les votes. À suivre
+  jour après jour (le ctx ne couvre que ~1 h de journal au moment de la mesure — il
+  s'épaissit à chaque cycle). La 16e voix reste MUETTE (porte brut : −0.014 ≤ 0).
+Vérifications en production le même jour : achat 12:00 passé (8e, 3.21 $ ∝ score 0.403,
+multiplicateur coût-moyen ×1.0 en zone neutre — §70 et §72 exercés sans accroc) ;
+filtre d'infaisabilité actif (LAB écarté à la décision). 422/422, portes vertes.

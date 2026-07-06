@@ -51,11 +51,17 @@ FEATURES = ["orderflow", "technicals", "macro", "sentiment", "derivs", "liquidat
 #   • dynamique du symbole : rendement 15/60 min et volatilité 60 min (échelles fixes) ;
 #   • saisonnalité intra-jour : heure UTC en sin/cos.
 EXTRA_FEATURES = ["consensus_mean", "consensus_disp", "sign_agree", "consensus_delta",
-                  "ret_15m", "ret_60m", "vol_60m", "hour_sin", "hour_cos"]
+                  "ret_15m", "ret_60m", "vol_60m", "hour_sin", "hour_cos",
+                  "funding_lvl", "fg_dev"]
+# funding_lvl / fg_dev (§75) : NIVEAUX de marché journalisés par le cerveau
+# (entry["ctx"] : funding OI-pondéré, Fear&Greed) — le CROISEMENT votes × contexte
+# est exactement ce qu'un méta-modèle peut exploiter (les votes derivs/sentiment
+# portent le signe ; le contexte porte l'AMPLEUR brute). 0 si absent (fail-safe).
 # Partition pour l'ANTISYMÉTRIE : les features DIRECTIONNELLES changent de signe quand
 # le marché « se retourne » (votes, rendements, deltas) ; le CONTEXTE (vol, dispersion,
 # heure) est invariant. Le réseau antisymétrique garantit f(-dir, ctx) = -f(dir, ctx).
-DIR_EXTRAS = {"consensus_mean", "sign_agree", "consensus_delta", "ret_15m", "ret_60m"}
+DIR_EXTRAS = {"consensus_mean", "sign_agree", "consensus_delta", "ret_15m", "ret_60m",
+              "funding_lvl", "fg_dev"}
 IN_DIM = len(FEATURES) + len(EXTRA_FEATURES)
 RET_SCALE = 0.005                 # 0.5 % -> 1.0 (rendements 15/60 min, clampés)
 VOL_SCALE = 0.002                 # 0.2 %/pas -> 1.0 (volatilité 1 min, clampée)
@@ -166,7 +172,16 @@ def extras_from_seq(past, entry):
     except (TypeError, ValueError):
         cd = 0.0
     h = ((ts % 86400) / 86400.0) * 2.0 * math.pi
-    return [mean, disp, agree, cd, r15, r60, vol, math.sin(h), math.cos(h)]
+    ctx = entry.get("ctx") or {}
+    try:
+        f_lvl = max(-1.0, min(1.0, float(ctx["fund"]) * 2000.0)) if ctx.get("fund") is not None else 0.0
+    except (TypeError, ValueError):
+        f_lvl = 0.0
+    try:
+        fg_dev = max(-1.0, min(1.0, (50.0 - float(ctx["fg"])) / 50.0)) if ctx.get("fg") is not None else 0.0
+    except (TypeError, ValueError):
+        fg_dev = 0.0
+    return [mean, disp, agree, cd, r15, r60, vol, math.sin(h), math.cos(h), f_lvl, fg_dev]
 
 
 def _recent_entries(symbol, max_n=PAST_WINDOW):
@@ -651,21 +666,29 @@ def _load_pretrained_states(torch, n, hidden=None, antisym=None):
         return []
 
 
-def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
-    """Votes REJOUÉS barre par barre pour les agents à forme PURE canonique (celles
-    que la validation §54 rejoue déjà) : technicals (formule EXACTE d'agent_technicals
-    sur la fenêtre 200 — EMA20/50, RSI 35/65, volume_bias, VWAP §72), divergent,
-    simons/savant/geometric (stride + tenue, à l'image de leur lenteur live), leadlag
-    (fade BTC — 0 pour BTC lui-même). Les 8 autres voix restent à 0.0 (fail-safe,
-    cohérent avec vector_from_votes : agent manquant = 0). `candles` au format
-    historique [ts_ms, o, h, l, c, v]. Renvoie [dict votes | None] par barre."""
+def _replay_votes_series(sym, candles, btc_by_ts=None, fng=None, funding=None, verbose=False):
+    """Votes REJOUÉS barre par barre pour les agents à forme PURE canonique (§73/§75) :
+      • technicals — formule EXACTE d'agent_technicals (fenêtre 200, VWAP §72 compris) ;
+      • structure — formule EXACTE d'agent_structure (BOS/CHoCH piège, Value Area,
+        chandeliers ; fenêtre 120) ;
+      • divergent, simons/savant/geometric (stride + tenue), leadlag (fade BTC) ;
+      • sentiment — (50 − F&G)/50 sur l'HISTORIQUE COMPLET alternative.me (2018->) ;
+      • derivs — −funding×2000 (funding Bitget du symbole, ~90 j d'API) ;
+      • carry — signal pur (composante funding-z seule, poids renormalisés).
+    Les 4 voix restantes (orderflow, macro, liquidations, flows) restent à 0.0
+    (fail-safe : aucune donnée historique de carnet/OI/macro). `fng`/`funding` :
+    listes [(ts_ms, valeur)] triées croissant — vote 0 hors couverture.
+    Renvoie [ (votes, ctx) | None ] par barre (ctx = {fund, fg} pour le croisement §75)."""
     import indicators
+    import price_action as pa
+    import pro_indicators as pi
     import swarm_brain as sb
     import technicals as tkm
     from simons_agent import signal as sig_simons
     from savant_agent import signal as sig_savant
     from geometric_agent import signal as sig_geometric
     from leadlag_agent import signal as sig_leadlag
+    from carry_agent import signal as sig_carry
 
     n = len(candles)
     dicts = [{"ts": int(c[0]), "open": float(c[1]), "high": float(c[2]),
@@ -674,12 +697,21 @@ def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
     closes = [d["close"] for d in dicts]
     is_btc = str(sym).upper() == "BTCUSDT"
     held = {"simons": 0.0, "savant": 0.0, "geometric": 0.0}
+    fng = fng or []
+    funding = funding or []
+    i_fng = -1
+    i_fund = -1
+    rates = []                                        # taux de funding déjà réalisés
     out = [None] * n
 
     def _last(v):
         return v[-1] if isinstance(v, list) and v else v
 
+    def _clampv(x):
+        return max(-1.0, min(1.0, x))
+
     for t in range(_REPLAY_WIN, n):
+        bar_ts = dicts[t]["ts"]
         w_closes = closes[t - _REPLAY_WIN + 1:t + 1]
         w_dicts = dicts[t - _REPLAY_WIN + 1:t + 1]
         votes = {}
@@ -694,16 +726,53 @@ def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
                 v += 0.5 if ema20 > ema50 else -0.5
             if rsi is not None:
                 v += 0.3 if rsi < 35 else -0.3 if rsi > 65 else 0
-            v += max(-1.0, min(1.0, vb / 10.0)) * 0.4
+            v += _clampv(vb / 10.0) * 0.4
             vw = tkm.vwap(w_dicts)
             px = w_closes[-1]
             if vw and px:
                 ecart = (px - vw) / vw
                 v += 0.2 if ecart < -0.002 else -0.2 if ecart > 0.002 else 0
-            votes["technicals"] = max(-1.0, min(1.0, v))
+            votes["technicals"] = _clampv(v)
         except Exception:
             votes["technicals"] = 0.0
-        # -- divergent (z-score de sur-extension, forme canonique §54) --
+        # -- structure : réplique EXACTE de swarm_brain.agent_structure (fenêtre 120) --
+        try:
+            w120 = dicts[max(0, t - 119):t + 1]
+            highs = [c["high"] for c in w120]
+            lows = [c["low"] for c in w120]
+            cls = [c["close"] for c in w120]
+            v = 0.0
+            try:
+                ms = pa.market_structure(highs, lows, cls)
+                broken = ms["last_swing_high"] if ms["event_dir"] > 0 else ms["last_swing_low"]
+                trap = pa.is_likely_trap(w120, broken, ms["event_dir"]) if ms["event"] == "BOS" else False
+                if ms["event"] == "BOS":
+                    v += (0.2 if trap else 0.5) * ms["event_dir"]
+                elif ms["event"] == "CHoCH":
+                    v += 0.4 * ms["event_dir"]
+                elif ms["bias"]:
+                    v += 0.2 * ms["bias"]
+            except Exception:
+                pass
+            try:
+                vp = pi.volume_profile(w120)
+                if cls[-1] > vp["value_area_high"]:
+                    v -= 0.3
+                elif cls[-1] < vp["value_area_low"]:
+                    v += 0.3
+            except Exception:
+                pass
+            try:
+                pats = pa.candlestick_patterns(w120)
+                d = sum(pp["dir"] for pp in pats)
+                if d:
+                    v += 0.1 * _clampv(d)
+            except Exception:
+                pass
+            votes["structure"] = _clampv(v)
+        except Exception:
+            votes["structure"] = 0.0
+        # -- divergent --
         try:
             votes["divergent"] = float(sb.divergent_score(w_closes) or 0.0)
         except Exception:
@@ -731,7 +800,36 @@ def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
                                     else float(sig_leadlag(closes[max(0, t - 89):t + 1], btc_w) or 0.0))
             except Exception:
                 votes["leadlag"] = 0.0
-        out[t] = votes
+        # -- sentiment : Fear&Greed du JOUR (historique complet, pointeur causal) --
+        fg_val = None
+        try:
+            while i_fng + 1 < len(fng) and fng[i_fng + 1][0] <= bar_ts:
+                i_fng += 1
+            if i_fng >= 0:
+                fg_val = float(fng[i_fng][1])
+                votes["sentiment"] = _clampv((50.0 - fg_val) / 50.0)
+        except Exception:
+            pass
+        # -- derivs + carry : funding du symbole (pointeur causal, ~90 j d'API) --
+        rate_now = None
+        try:
+            while i_fund + 1 < len(funding) and funding[i_fund + 1][0] <= bar_ts:
+                i_fund += 1
+                rates.append(float(funding[i_fund][1]))
+            if rates:
+                rate_now = rates[-1]
+                votes["derivs"] = _clampv(-rate_now * 2000.0)
+                if len(rates) >= 10:
+                    r = sig_carry(rates[-90:], rate_now, None, None)
+                    votes["carry"] = float((r or {}).get("vote", 0.0) or 0.0)
+        except Exception:
+            pass
+        ctx = {}
+        if rate_now is not None:
+            ctx["fund"] = round(rate_now, 8)
+        if fg_val is not None:
+            ctx["fg"] = int(fg_val)
+        out[t] = (votes, ctx)
         if verbose and (t - _REPLAY_WIN) % 5000 == 0:
             print(f"  {sym}: barre {t}/{n}")
     return out
@@ -739,11 +837,18 @@ def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
 
 def build_replay_rows(symbols=None, tf="1h", verbose=True):
     """Corpus de PRÉ-ENTRAÎNEMENT : lignes au format brain-log ({ts s, symbol, price,
-    votes, consensus:None}) reconstruites depuis l'historique profond (§54,
-    candles_history) — des ANNÉES de régimes là où le journal live n'a que des jours.
-    Les votes rejoués couvrent 6 des 14 voix (formes pures) ; le reste à 0."""
+    votes, ctx, consensus:None}) reconstruites depuis l'historique profond (§54) +
+    Fear&Greed complet (2018->) + funding Bitget (~90 j). 10 des 14 voix rejouées
+    (formes pures) ; le reste à 0. `ctx` alimente les extras de croisement §75."""
     import candles_history as ch
+    import funding_history as fh
+    import sentiment_index as si
     symbols = list(symbols or _REPLAY_SYMBOLS)
+    fng = []
+    try:
+        fng = si.load_history()
+    except Exception:
+        pass
     btc_by_ts = None
     try:
         btc = ch.load("BTCUSDT", tf)
@@ -758,15 +863,23 @@ def build_replay_rows(symbols=None, tf="1h", verbose=True):
             continue
         if not candles or len(candles) < _REPLAY_WIN + 50:
             continue
+        try:
+            funding = fh.load(sym)
+        except Exception:
+            funding = []
         if verbose:
-            print(f"rejeu {sym} : {len(candles)} bougies {tf}")
-        series = _replay_votes_series(sym, candles, btc_by_ts=btc_by_ts, verbose=verbose)
-        for t, votes in enumerate(series):
-            if votes is None:
+            print(f"rejeu {sym} : {len(candles)} bougies {tf} · funding {len(funding)} · F&G {len(fng)}")
+        series = _replay_votes_series(sym, candles, btc_by_ts=btc_by_ts,
+                                      fng=fng, funding=funding, verbose=verbose)
+        for t, item in enumerate(series):
+            if item is None:
                 continue
-            rows.append({"ts": int(candles[t][0] // 1000), "symbol": sym,
-                         "price": float(candles[t][4]), "votes": votes,
-                         "consensus": None})
+            votes, ctx = item
+            row = {"ts": int(candles[t][0] // 1000), "symbol": sym,
+                   "price": float(candles[t][4]), "votes": votes, "consensus": None}
+            if ctx:
+                row["ctx"] = ctx
+            rows.append(row)
     return rows
 
 

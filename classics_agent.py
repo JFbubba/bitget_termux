@@ -50,10 +50,11 @@ def _signals(symbol):
     candles = tk.fetch_candles(symbol, tf, 240)
     if not candles or len(candles) < 80:
         raise RuntimeError("classics:données insuffisantes")
-    ref = "ETHUSDT" if str(symbol).upper() == "BTCUSDT" else "BTCUSDT"
+    sym = str(symbol).upper()
+    ref = "ETHUSDT" if sym == "BTCUSDT" else "BTCUSDT"
     out = {}
     for name in ("macd_12_26_9", "bollinger_20", "donchian_20", "vwap_24",
-                 "grid_60_8", f"pairs_{ref}_20"):
+                 "grid_60_8", f"pairs_{ref}_20", f"fundfade_{sym}_60"):
         try:
             sig = L.build_named(name, candles)
             out[name.split("_")[0]] = int(sig[-1]) if sig else 0

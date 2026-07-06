@@ -252,6 +252,50 @@ def strat_random_forest(candles, stride=25, train_min=120):
     return sig
 
 
+def strat_funding_fade(candles, symbol="BTCUSDT", window=60, z_win=30, z_entry=1.5,
+                       funding=None):
+    """CROISEMENT §75 : FUNDING (positionnement de la foule) × POSITION DANS LE RANGE
+    (prix). Le niveau de funding seul est déjà exploité (agents carry/derivs) ; le
+    croisement n'agit qu'aux BORDS : foule très longue (z ≥ z_entry) ET prix au
+    plafond du range -> short le squeeze de crowding ; foule très short ET prix au
+    plancher -> long. Causal (pointeur funding par ts, z sur les seuls taux réalisés).
+    INERTE ([0]) sans historique de funding ou sans timestamps (fail-safe)."""
+    import statistics
+    if funding is None:
+        try:
+            import funding_history as fh
+            funding = fh.load(symbol)
+        except Exception:
+            return [0] * len(candles)
+    if not funding or not candles or not candles[0].get("ts"):
+        return [0] * len(candles)
+    sig = [0] * len(candles)
+    i_f, rates = -1, []
+    for i in range(len(candles)):
+        bar_ts = candles[i]["ts"]
+        while i_f + 1 < len(funding) and funding[i_f + 1][0] <= bar_ts:
+            i_f += 1
+            rates.append(float(funding[i_f][1]))
+        if i < window or len(rates) < max(10, z_win // 2):
+            continue
+        w = rates[-z_win:]
+        mu = sum(w) / len(w)
+        sd = statistics.pstdev(w)
+        if sd <= 1e-12:
+            continue
+        z = (rates[-1] - mu) / sd
+        hi = max(float(c["high"]) for c in candles[i - window:i])
+        lo = min(float(c["low"]) for c in candles[i - window:i])
+        if hi <= lo:
+            continue
+        pos = (float(candles[i]["close"]) - lo) / (hi - lo)
+        if z >= z_entry and pos >= 0.75:
+            sig[i] = -1
+        elif z <= -z_entry and pos <= 0.25:
+            sig[i] = 1
+    return sig
+
+
 def strat_vp_fade(candles, window=60):
     import pro_indicators as pi
     sig = [0] * len(candles)
@@ -346,6 +390,8 @@ def base_registry(candles, symbol=None):
              "vwap_24", "grid_60_8", "rf_25"]
     ref = "ETHUSDT" if str(symbol or "").upper() == "BTCUSDT" else "BTCUSDT"
     names.append(f"pairs_{ref}_20")
+    if symbol:
+        names.append(f"fundfade_{str(symbol).upper()}_60")   # croisement funding × range §75
     out = {}
     for n in names:
         try:
@@ -386,6 +432,9 @@ def build_named(name, candles):
     if name.startswith("pairs_"):
         _, ref, w = name.split("_")
         return strat_pairs(candles, ref_symbol=ref, window=int(w))
+    if name.startswith("fundfade_"):
+        _, sym, w = name.split("_")
+        return strat_funding_fade(candles, symbol=sym, window=int(w))
     if name.startswith("rf_"):
         return strat_random_forest(candles, stride=int(name.split("_")[1]))
     if name.endswith("+regime"):

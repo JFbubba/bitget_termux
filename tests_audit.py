@@ -879,11 +879,11 @@ def test_classics_agent_17e_voix():
         # fusion : 6 signaux -> moyenne bornée, confiance plafonnée, note lisible
         orig = ca._signals
         ca._signals = lambda s: {"macd": 1, "bollinger": 1, "donchian": 1,
-                                 "vwap": 0, "grid": 0, "pairs": -1}
+                                 "vwap": 0, "grid": 0, "pairs": -1, "fundfade": 1}
         try:
             v = ca._produce_vote("BTCUSDT")
-            assert v["vote"] == round(2 / 6, 3) and 0 < v["confidence"] <= 0.5
-            assert "classics" in v["note"] and len(v["evidence"]) == 6
+            assert v["vote"] == round(3 / 7, 3) and 0 < v["confidence"] <= 0.5
+            assert "classics" in v["note"] and len(v["evidence"]) == 7
         finally:
             ca._signals = orig
         # fail-safe : bougies indisponibles -> _produce_vote lève, agent() reste neutre
@@ -905,6 +905,43 @@ def test_classics_agent_17e_voix():
         os.environ.pop("CLASSICS_AGENT_ENABLED", None)
         if old_env is not None:
             os.environ["CLASSICS_AGENT_ENABLED"] = old_env
+
+
+def test_brain_market_ctx_journalise():
+    """§75 : le cerveau journalise un ctx {fund, fg} compact repris des caches du
+    cycle (peek SANS écriture) ; _record l'inclut ; ancien format sans ctx accepté."""
+    import swarm_brain as sb
+    # peek d'une clé absente -> None, et RIEN n'est stocké (fetch lève -> stale/fallback)
+    import runtime_cache as rc
+    cle = "test_ctx_cle_inexistante_zz"
+    assert sb._peek_cache(cle) is None
+    assert cle not in rc._MEM                          # pas d'empoisonnement
+    # ctx construit depuis les caches (monkeypatch)
+    orig = sb._peek_cache
+    sb._peek_cache = lambda k: ({"oi_weighted_funding": 1.2e-4} if k.startswith("derivs:")
+                                else {"value": 24} if k == "fear_greed" else None)
+    try:
+        ctx = sb._market_ctx("BTCUSDT")
+        assert ctx == {"fund": 0.00012, "fg": 24}
+    finally:
+        sb._peek_cache = orig
+    # _record inclut le ctx (journal temporaire, banc 14 seul dans votes)
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+    old = (sb.LOG_FILE, sb.ROOT)
+    orig_ctx = sb._market_ctx
+    sb._market_ctx = lambda s: {"fund": 1e-4, "fg": 30}
+    try:
+        tmp = _Path(tempfile.mkdtemp())
+        sb.LOG_FILE = tmp / "brain_log.json"
+        sb.ROOT = tmp
+        sb._record("BTCUSDT", {"orderflow": {"vote": 0.5}}, {"consensus": 0.5}, 100.0)
+        rec = _json.loads(sb.LOG_FILE.read_text())[-1]
+        assert rec["ctx"] == {"fund": 1e-4, "fg": 30} and "orderflow" in rec["votes"]
+    finally:
+        (sb.LOG_FILE, sb.ROOT) = old
+        sb._market_ctx = orig_ctx
 
 
 def test_accum_dca_costbasis_multiplier():
@@ -1298,6 +1335,16 @@ def test_strategy_lab():
     # le registre inclut les nouvelles familles et choisit la référence pairs par symbole
     reg = L.base_registry(candles, symbol="BTCUSDT")
     assert "vwap_24" in reg and "grid_60_8" in reg and "pairs_ETHUSDT_20" in reg
+    assert "fundfade_BTCUSDT_60" in reg
+    # croisement funding × range (§75) : inerte sans funding/ts ; fade aux bords sinon
+    assert L.strat_funding_fade(candles, funding=[]) == [0] * len(candles)
+    cts = [dict(c, ts=1_700_000_000_000 + i * 3_600_000) for i, c in enumerate(candles)]
+    # foule très longue tout du long -> z>0 quand le taux saute ; on force un extrême
+    fnd = [[1_700_000_000_000 + i * 8 * 3_600_000, (0.0001 if i < 15 else 0.0008)]
+           for i in range(20)]
+    sf = L.strat_funding_fade(cts, funding=fnd, window=30, z_win=12, z_entry=1.2)
+    assert len(sf) == len(cts) and set(sf) <= {-1, 0, 1}
+    assert all(s == 0 for s in sf[:30])                # causal : rien avant la fenêtre
     # la grille se COUPE en tendance (drift > 0.35 du range) : queue de tendance -> 0
     trend = [dict(c, close=100.0 * (1.01 ** i), high=100.0 * (1.01 ** i) * 1.002,
                   low=100.0 * (1.01 ** i) * 0.998) for i, c in enumerate(candles)]
@@ -6055,6 +6102,32 @@ def test_futures_equity_intraday_journal_et_courbe():
         tmp.unlink(missing_ok=True)
 
 
+def test_futures_auto_taille_faisable():
+    """§75 : un symbole dont les minima de contrat dépassent le notional configuré est
+    écarté À LA DÉCISION (sinon : refus « taille infaisable » en boucle, jamais de
+    position — 3 refus réels journalisés les 05-06/07). Fail-open si spec illisible."""
+    import futures_auto as fa
+    import futures_executor as fe
+    entries = [{"symbol": "ETHUSDT", "ts": 1, "price": 3000.0},
+               {"symbol": "SOLUSDT", "ts": 1, "price": 500.0}]
+    assert fa._prix_entry(entries, "ETHUSDT") == 3000.0
+    assert fa._prix_entry(entries, "ZZZUSDT") is None
+    orig = fe._contract_spec
+    fe._contract_spec = lambda s: {"min_size": 0.01, "step": 0.01, "min_usdt": 5.0,
+                                   "vol_place": 2, "price_place": 1}
+    try:
+        # 10 $ à 3000 $ -> taille 0.0033 < min 0.01 : INFAISABLE, écarté
+        assert fa._taille_faisable("ETHUSDT", entries, notional=10.0) is False
+        # 10 $ à 500 $ -> taille 0.02 ≥ 0.01 et 10 $ ≥ min_usdt : faisable
+        assert fa._taille_faisable("SOLUSDT", entries, notional=10.0) is True
+        # spec/prix illisibles -> fail-open (l'exécuteur reste le juge fail-closed)
+        fe._contract_spec = lambda s: None
+        assert fa._taille_faisable("ETHUSDT", entries, notional=10.0) is True
+        assert fa._taille_faisable("ZZZUSDT", entries, notional=10.0) is True
+    finally:
+        fe._contract_spec = orig
+
+
 def test_futures_rebase_equity_proprietaire():
     # réancrage propriétaire (halte MDD fantôme après mouvement de capital) :
     # fail-closed si equity illisible, DRY sans écriture, --confirm réancre + journalise.
@@ -7524,6 +7597,12 @@ def test_nn_extras_causales_failsafe_et_bornees():
     assert abs(v2[idx["ret_15m"]] - 1.0) < 1e-9
     assert abs(v2[idx["consensus_delta"]] - 0.4) < 1e-9
     assert all(-1.0 <= x <= 1.0 for x in v2)          # tout est borné
+    # croisement §75 : niveaux funding/F&G lus du ctx journalisé par le cerveau
+    v3 = nn.extras_from_seq([], {"ts": 0, "price": 100, "votes": {},
+                                 "ctx": {"fund": 1e-4, "fg": 20}})
+    assert abs(v3[idx["funding_lvl"]] - 0.2) < 1e-9   # 1e-4 × 2000
+    assert abs(v3[idx["fg_dev"]] - 0.6) < 1e-9        # (50−20)/50
+    assert v[idx["funding_lvl"]] == 0.0               # pas de ctx -> 0 (fail-safe)
     # l'ENTRÉE elle-même ne fuit jamais le futur : seul `past` (antérieur) est consulté
     assert nn.IN_DIM == len(nn.FEATURES) + len(nn.EXTRA_FEATURES)
 
@@ -7547,6 +7626,8 @@ def test_nn_antisymetrie_exacte():
     assert fl[:len(nn.FEATURES)] == [-1.0] * len(nn.FEATURES)
     assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("vol_60m")] == 1.0
     assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("ret_15m")] == -1.0
+    assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("funding_lvl")] == -1.0
+    assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("fg_dev")] == -1.0
 
 
 def test_nn_calibration_et_pretrain_failsafe():
