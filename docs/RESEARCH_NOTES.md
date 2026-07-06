@@ -2891,3 +2891,29 @@ rejeu 1h y est aveugle. On garde la formulation live, jugée par l'instrument li
 Balayage d'erreurs (mandat « corriger les erreurs ») : ZÉRO erreur sur 6 h de journaux,
 cron liquidité :15 passé (équilibré, plancher 75), journal des voix : 389 votes parlés
 déjà accumulés (IC de la 17e voix mesurable sous ~2 jours).
+
+## §80 — Conseils de l'IA Bitget passés au banc d'essai : un adopté, un rejeté, le reste déjà en place
+
+Le propriétaire a partagé les recommandations de l'assistant IA de Bitget (indicateurs
+« les plus performants », signaux d'entrée/sortie). Confrontation aux faits du dépôt :
+
+**Déjà implémenté et MESURÉ chez nous** : MA/MACD/Bollinger/RSI (lab §72, familles
+CMA-ES, promotion PBO) · structure de prix + volume (agent structure : BOS/CHoCH +
+Value Area + anti-piège) · confluence (le consensus pondéré EST la confluence — et sa
+pondération vient d'être optimisée §78) · sorties sur perte de momentum (seuil de
+sortie consensus), objectif (TP RR 1.5 calibré §68) et invalidation de structure
+(invalid_if par agent) · « adapter les indicateurs au régime » : TESTÉ §78 — les poids
+par régime NE battent PAS le ridge global (buckets trop minces). Le conseil générique
+s'arrête là où la mesure commence.
+
+**Deux idées concrètes restaient non testées — verdict sur 6 ans × 4 symboles :**
+  • Cassure CONFIRMÉE PAR LE VOLUME : le filtre (volume barre > 1.3 × moyenne 20)
+    améliore le Donchian nu sur 4/4 symboles (Sharpe relatif ~×2 moins mauvais,
+    ~30 % de trades en moins). ADOPTÉ au lab : `strat_donchian_vol`
+    (donchianvol_20_13, famille CMA-ES n∈[5,80], k∈[1.0,3.0]) — le pipeline du
+    dimanche le jugera dans son régime nominal (500 barres, PBO).
+  • Entrée sur PULLBACK (retour à l'EMA20 en tendance) : mieux sur BTC, PIRE sur
+    SOL/XRP — pas de gain systématique. REJETÉ par la mesure, non shippé.
+Nota : sur 6 ans de barres 1h à frais réels, TOUTES les stratégies « toujours en
+mouvement » perdent en absolu vs hold — l'intérêt du banc est la comparaison
+RELATIVE intra-famille ; le juge absolu reste le lab en fenêtre nominale.

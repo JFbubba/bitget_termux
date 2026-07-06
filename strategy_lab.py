@@ -86,6 +86,26 @@ def strat_donchian_breakout(candles, n=20):
     return sig
 
 
+def strat_donchian_vol(candles, n=20, vol_k=1.3, vol_win=20):
+    """Donchian confirmé par le VOLUME (§80) : la cassure ne compte que si le volume de
+    la barre dépasse vol_k × sa moyenne vol_win — « un breakout sans volume est
+    fragile ». MESURÉ sur 6 ans × 4 symboles : meilleur que le Donchian nu sur 4/4
+    (Sharpe relatif ~×2, ~30 % de trades en moins). Causal."""
+    sig = [0] * len(candles)
+    for i in range(max(n, vol_win), len(candles)):
+        hh = max(float(c["high"]) for c in candles[i - n:i])
+        ll = min(float(c["low"]) for c in candles[i - n:i])
+        c = float(candles[i]["close"])
+        base = 1 if c > hh else -1 if c < ll else 0
+        if not base:
+            continue
+        vols = [float(x.get("volume") or 0.0) for x in candles[i - vol_win:i]]
+        vmoy = sum(vols) / len(vols) if vols else 0.0
+        if vmoy > 0 and float(candles[i].get("volume") or 0.0) > vol_k * vmoy:
+            sig[i] = base
+    return sig
+
+
 def strat_macd(candles, fast=12, slow=26, sig=9):
     """MACD : ligne (EMA_fast − EMA_slow) vs sa ligne signal. Causal. Tendance."""
     cl = _closes(candles)
@@ -387,7 +407,7 @@ def base_registry(candles, symbol=None):
     absente (le lab classe ce qui existe)."""
     names = ["ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
              "structure_bos", "macd_12_26_9", "bollinger_20",
-             "vwap_24", "grid_60_8", "rf_25"]
+             "vwap_24", "grid_60_8", "rf_25", "donchianvol_20_13"]
     ref = "ETHUSDT" if str(symbol or "").upper() == "BTCUSDT" else "BTCUSDT"
     names.append(f"pairs_{ref}_20")
     if symbol:
@@ -435,6 +455,9 @@ def build_named(name, candles):
     if name.startswith("fundfade_"):
         _, sym, w = name.split("_")
         return strat_funding_fade(candles, symbol=sym, window=int(w))
+    if name.startswith("donchianvol_"):
+        _, n, k10 = name.split("_")
+        return strat_donchian_vol(candles, n=int(n), vol_k=int(k10) / 10.0)
     if name.startswith("rf_"):
         return strat_random_forest(candles, stride=int(name.split("_")[1]))
     if name.endswith("+regime"):
@@ -504,6 +527,8 @@ _FAMILIES = {
                  name=lambda p: f"vwap_{_clampi(p[0], 6)}"),
     "grid": dict(x0=[60.0, 8.0], bounds=([30, 4], [120, 16]),
                  name=lambda p: f"grid_{_clampi(p[0], 30)}_{_clampi(p[1], 4)}"),
+    "donchianvol": dict(x0=[20.0, 13.0], bounds=([5, 10], [80, 30]),
+                        name=lambda p: f"donchianvol_{_clampi(p[0], 5)}_{_clampi(p[1], 10)}"),
 }
 
 
@@ -668,7 +693,7 @@ def run(symbol="BTCUSDT", timeframe="1H", limit=500):
     # AMÉLIORATION : sep-CMA-ES (TRINITY) optimise chaque famille sur le TRAIN
     # (anti-fuite), puis on évolue les POIDS de l'ensemble (« coordinateur évolué »).
     for fam in ("ema_cross", "rsi_reversion", "donchian", "bollinger", "macd",
-                "vwap", "grid"):
+                "vwap", "grid", "donchianvol"):
         try:
             en, esig = evolve(fam, candles)
             registry["evo_" + en] = esig

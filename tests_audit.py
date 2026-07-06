@@ -1413,6 +1413,11 @@ def test_strategy_lab():
     reg = L.base_registry(candles, symbol="BTCUSDT")
     assert "vwap_24" in reg and "grid_60_8" in reg and "pairs_ETHUSDT_20" in reg
     assert "fundfade_BTCUSDT_60" in reg
+    # §80 : Donchian confirmé volume — reconstructible, causal, moins de trades que le nu
+    dv = L.build_named("donchianvol_20_13", candles)
+    assert len(dv) == len(candles) and set(dv) <= {-1, 0, 1}
+    dn = L.build_named("donchian_20", candles)
+    assert sum(1 for s in dv if s) <= sum(1 for s in dn if s)   # le filtre volume ÉLAGUE
     # croisement funding × range (§75) : inerte sans funding/ts ; fade aux bords sinon
     assert L.strat_funding_fade(candles, funding=[]) == [0] * len(candles)
     cts = [dict(c, ts=1_700_000_000_000 + i * 3_600_000) for i, c in enumerate(candles)]
