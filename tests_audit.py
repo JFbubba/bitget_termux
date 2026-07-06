@@ -7331,7 +7331,7 @@ def test_nn_dataset_and_forward_when_torch_present():
         with os.fdopen(fd, "w") as f:
             json.dump(log, f)
         X, y = nn._dataset(path)
-        assert len(X) == len(y) and all(len(x) == len(nn.FEATURES) for x in X)
+        assert len(X) == len(y) and all(len(x) == nn.IN_DIM for x in X)
         assert set(y) <= {0, 1}
         # forward direct d'un réseau neuf (aucune écriture disque)
         from torch import nn as tnn
@@ -7393,6 +7393,46 @@ def test_nn_agent_sans_edge_reste_muet():
         assert r2["vote"] == 0.8 and 0 < r2["confidence"] <= 0.5
     finally:
         neural_net.predict = orig
+
+
+def test_nn_extras_causales_failsafe_et_bornees():
+    import neural_net as nn
+    # passé vide -> tout à zéro sauf l'heure (fail-safe, jamais d'exception)
+    v = nn.extras_from_seq([], {"ts": 0, "price": 100, "votes": {}})
+    assert len(v) == len(nn.EXTRA_FEATURES)
+    idx = {name: i for i, name in enumerate(nn.EXTRA_FEATURES)}
+    assert v[idx["ret_15m"]] == 0.0 and v[idx["vol_60m"]] == 0.0
+    assert v[idx["hour_cos"]] == 1.0                  # ts=0 -> minuit UTC
+    # rendement 15 min : +0.5 % avec RET_SCALE=0.005 -> exactement 1.0 (clamp au bord)
+    past = [{"ts": 0, "price": 100.0, "votes": {}, "consensus": 0.0}]
+    e = {"ts": 900, "price": 100.5, "votes": {"orderflow": 1.0}, "consensus": 0.4}
+    v2 = nn.extras_from_seq(past, e)
+    assert abs(v2[idx["ret_15m"]] - 1.0) < 1e-9
+    assert abs(v2[idx["consensus_delta"]] - 0.4) < 1e-9
+    assert all(-1.0 <= x <= 1.0 for x in v2)          # tout est borné
+    # l'ENTRÉE elle-même ne fuit jamais le futur : seul `past` (antérieur) est consulté
+    assert nn.IN_DIM == len(nn.FEATURES) + len(nn.EXTRA_FEATURES)
+
+
+def test_nn_antisymetrie_exacte():
+    import neural_net as nn
+    try:
+        import torch
+    except Exception:
+        return  # torch absent (autre machine) : test sauté proprement
+    from torch import nn as tnn
+    net = nn._build_net(torch, tnn, nn.IN_DIM, antisym=True)
+    net.eval()                                        # dropout OFF -> propriété exacte
+    torch.manual_seed(7)
+    x = torch.rand((5, nn.IN_DIM)) * 2 - 1
+    x_flip = x * net.flip                             # renverse les features directionnelles
+    with torch.no_grad():
+        assert torch.allclose(net(x_flip), -net(x), atol=1e-6)   # f(-d,c) = -f(d,c)
+    # le vecteur de retournement : votes/rendements/deltas à -1, contexte à +1
+    fl = nn._flip_vector(nn.IN_DIM)
+    assert fl[:len(nn.FEATURES)] == [-1.0] * len(nn.FEATURES)
+    assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("vol_60m")] == 1.0
+    assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("ret_15m")] == -1.0
 
 
 # ---------- Positions réelles (spot · marge iso/cross · futures) ----------

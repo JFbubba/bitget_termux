@@ -2499,3 +2499,42 @@ earn possibles UNIQUEMENT via CLI --confirm avec caps, jamais en boucle auto ; R
 interdit partout). Vérifié : les boucles §68 sont planifiées via CRONTAB (installé 08:13)
 — neural-train 04:20, strategy-lab dim 05:00, learning-health 6 h — premières échéances à
 venir ; ne PAS doubler avec les timers systemd de `deploy/install_learning_timers.sh`.
+
+## §71 — Réseau de fusion v3 : features contextuelles causales, antisymétrie, ensemble, walk-forward
+
+Amélioration du méta-modèle (§65/§70) sur quatre axes, avec verdict MESURÉ à chaque pas.
+
+**1. Features (14 -> 23).** Les 14 votes seuls ne suffisaient pas (edge −0.07 au §70).
+Ajout de 9 contextuelles STRICTEMENT CAUSALES (`EXTRA_FEATURES`, calculées à l'identique
+à l'entraînement — fenêtre passée du dataset — et à l'inférence — queue de brain_log.json,
+fail-safe zéros) : agrégats du banc (moyenne, dispersion, accord de signe, delta de
+consensus 15 min), dynamique du symbole (rendement 15/60 min et vol 60 min, échelles
+fixes RET_SCALE/VOL_SCALE), saisonnalité intra-jour (heure UTC sin/cos). `feature_hash`
+couvre désormais banc + contextuelles.
+
+**2. Prior d'antisymétrie.** Le logit est g(x) − g(x·flip) où flip renverse les features
+DIRECTIONNELLES (votes, rendements, deltas) et préserve le CONTEXTE (vol, dispersion,
+heure) : renverser tous les signaux directionnels renverse EXACTEMENT la prédiction
+(propriété testée à 1e-6). Divise l'espace à apprendre par deux. Mesuré meilleur que le
+MLP simple à hidden=32 (wf_edge +0.004 vs −0.010).
+
+**3. Ensemble de graines (×3).** Trois réseaux (SEED, +1, +2), sigmoïdes MOYENNÉES.
+Première conséquence visible : le modèle ose enfin des prédictions à haute conviction
+(212 sur la fenêtre finale, précision 0.604) là où v2 n'en produisait AUCUNE.
+
+**4. Walk-forward (4 plis) = l'edge qu'on gate.** Un split unique dépend du hasard de SA
+fenêtre (base 0.57-0.71 selon la fenêtre, §70). Désormais : 4 fenêtres de validation
+consécutives, chacune prédite par un modèle entraîné sur son seul passé (purge anti-fuite
+par pli). La 16e voix gate la BORNE PRUDENTE wf_edge − se (erreur-type inter-plis) —
+un +0.004 moyen sur des plis à ±0.08 est du bruit, pas un edge.
+
+**Verdict v3 (23 674 exemples, 3 j) : MIEUX mais toujours PAS d'edge démontré.**
+wf_acc 0.548 vs base 0.547 (edge moyen +0.0015, se 0.035 -> borne prudente −0.033) ;
+plis : +0.022, +0.006, +0.085, −0.107. Le pli 2 montre une vraie poche de prédictibilité
+(+0.08-0.09 sur TOUTES les configs) ; le pli 3 (marché en tendance, base 0.59) reste
+imprévisible pour le modèle. La 16e voix reste donc MUETTE (note `nn:sans-edge(-0.033)`),
+par construction, jusqu'à ce que le journal accumule assez de profondeur pour que la
+borne prudente passe positive. Le cron 04:20 réentraîne chaque jour sur un journal qui
+grandit (~13 k lignes/j) — la décision se prendra sur les chiffres, pas sur l'espoir.
+Sérialisation : {models: [state_dicts]} + méta enrichie (arch_v=3, in_dim, antisym,
+n_models, wf complet) ; garde arch_v au chargement (poids v2 -> None, fail-safe).
