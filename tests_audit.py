@@ -5780,6 +5780,25 @@ def test_futures_equity_intraday_journal_et_courbe():
         tmp.unlink(missing_ok=True)
 
 
+def test_futures_report_payoff_profile():
+    """#3 : la FORME de l'edge (pas que le PnL). Fragile = gros win-rate, gains
+    minuscules (une perte efface tout) -> ne pas scaler ; perdant = espérance ≤ 0."""
+    import futures_report as fr
+    assert fr.payoff_profile([])["shape"] == "n/a"
+    # 8 gains de +0.1, 2 pertes de −1.0 : win 80% mais payoff 0.1 -> FRAGILE, espérance négative
+    fragile = [{"cTime": 1000, "profit": "0.1"} for _ in range(8)] + \
+              [{"cTime": 1000, "profit": "-1.0"} for _ in range(2)]
+    r = fr.payoff_profile(fragile)
+    assert r["win_rate"] == 0.8 and r["expectancy"] < 0 and r["shape"] == "perdant"
+    # 6 gains +2, 4 pertes −0.5 : équilibré, espérance positive -> ROBUSTE
+    robuste = [{"cTime": 1000, "profit": "2"} for _ in range(6)] + \
+              [{"cTime": 1000, "profit": "-0.5"} for _ in range(4)]
+    r2 = fr.payoff_profile(robuste)
+    assert r2["expectancy"] > 0 and r2["payoff"] == 4.0 and r2["shape"] == "robuste"
+    # borne temporelle respectée (comme resume_fills)
+    assert fr.payoff_profile([{"cTime": 1000, "profit": "5"}], depuis_ts=3_000)["n"] == 0
+
+
 def test_futures_report_somme_funding():
     import futures_report as fr
     rows = [{"businessType": "contract_settle_fee", "cTime": 2_000_000, "amount": "0.0005"},
