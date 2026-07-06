@@ -75,3 +75,7 @@ logs/
 
 # mémoire de situations (runtime, idée #6)
 .situation_memory.jsonl
+
+# poids du réseau neuronal de fusion (runtime binaire, §65) — entraînés sur le VPS
+neural_net_weights.pt
+neural_net_meta.json

@@ -430,6 +430,16 @@ def _with_llm_weight(weights, votes):
     return {**weights, "llm": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
 
 
+def _with_nn_weight(weights, votes):
+    """Poids d'agrégation avec le poids FIXE et BORNÉ de la 16ᵉ voix (réseau de fusion,
+    §65) — SANS jamais le persister ni le soumettre à l'apprentissage EARCP (le banc
+    gelé à 14 reste intact, §62). Identité quand le NN est absent (OFF)."""
+    if "nn" not in votes:
+        return weights
+    w = float(_cfg("NN_AGENT_WEIGHT", 0.5))
+    return {**weights, "nn": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
+
+
 def _apply_watch(weights):
     """Gouvernance « WATCH » (idée NERVA) : un expert listé dans BRAIN_WATCH_AGENTS peut
     voter et s'AFFICHER, mais son poids est mis à ZÉRO dans l'agrégation LIVE — il ne peut
@@ -863,6 +873,15 @@ def gather_votes(symbol):
             votes["llm"] = llm_agent.agent(symbol)
     except Exception:                            # fail-safe : le LLM ne casse jamais la collecte
         pass
+    # 16ᵉ voix : réseau neuronal de FUSION (OPT-IN, §65). Fusionne non-linéairement les
+    # votes DÉJÀ calculés (passés en context -> pas de recalcul/récursion). Additif,
+    # fail-safe, borné, jamais persisté -> banc 14 inchangé. Absent tant que NN OFF.
+    try:
+        import nn_agent
+        if nn_agent.enabled():
+            votes["nn"] = nn_agent.agent(symbol, context={"votes": votes})
+    except Exception:                            # fail-safe : le NN ne casse jamais la collecte
+        pass
     return votes
 
 
@@ -915,7 +934,7 @@ def peek(symbol="BTCUSDT"):
         votes = _apply_invalidations(votes, _price(symbol))   # #8 : stop-out de signal
     except Exception:
         pass
-    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
+    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw
@@ -936,7 +955,7 @@ def read(symbol="BTCUSDT", do_learn=True):
         print(f"brain read({symbol}) prix: {type(exc).__name__}")
         price = None
     votes = _apply_invalidations(votes, price)           # #8 : stop-out de signal (prix courant)
-    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
+    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw

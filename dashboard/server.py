@@ -665,6 +665,11 @@ def build_state(symbol=None, tf="5m"):
     state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
     # Smart Money Concepts §64 (lecture seule) : setup PAPER + overlay graphique
     state["smc"] = _cached(f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {}))
+    # Réseau neuronal de fusion §65 (lecture seule) : carte de connectivité + prédiction.
+    # Réutilise le `brain` déjà calculé (pas de recalcul) ; fail-safe {} si torch/poids absents.
+    state["neural"] = _cached(f"neural:{symbol}", 60,
+                              lambda: _safe(lambda: __import__("neural_net").connectivity_map(
+                                  symbol, brain=brain, smc=state.get("smc") or {}), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:

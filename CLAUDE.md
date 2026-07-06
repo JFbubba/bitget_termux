@@ -4,9 +4,11 @@ Bot de trading Bitget avec un **cerveau en mixture-of-experts** (14 agents déte
 pondération adaptative EARCP assainie §51 : hit-rates EWMA exogènes, cohérence
 leave-one-out, lissage — banc déterministe GELÉ à 14, §62). **LLM/réseaux de neurones
 AUTORISÉS depuis le 06/07/2026** (décision propriétaire — l'ancienne contrainte « aucun
-réseau de neurones » du §1 est LEVÉE). Ils sont branchés en **surcouche opt-in** (agent
-LLM 15ᵉ, `llm_agent.py`, gated `LLM_AGENT_ENABLED`, défaut OFF) : **déterministe d'abord**
-(le banc 14 reste le socle), **fail-safe** (LLM indispo/lent/incohérent → vote ignoré,
+réseau de neurones » du §1 est LEVÉE). Ils sont branchés en **surcouches opt-in** (agent
+LLM 15ᵉ, `llm_agent.py`, gated `LLM_AGENT_ENABLED`, défaut OFF ; **réseau neuronal de
+fusion 16ᵉ voix, `nn_agent.py`/`neural_net.py` — MLP PyTorch entraîné sur les votes du
+banc, gated `NN_AGENT_ENABLED`, défaut OFF, §65**) : **déterministe d'abord**
+(le banc 14 reste le socle), **fail-safe** (LLM/NN indispo/lent/incohérent → vote ignoré,
 jamais de crash ni de blocage), et surtout **les murs argent de `guards()` restent ABSOLUS
 et déterministes** — un LLM peut influencer la direction/le sizing suggéré, jamais desserrer
 les caps 50/250, le levier ×5, le stop journalier, le kill-switch ou la porte d'edge.
@@ -83,7 +85,10 @@ revue hebdo dimanche 18:00 (recommandations chiffrées automatiques §60).
 - **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
   spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
   `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
-- Détails & historique des décisions : `docs/RESEARCH_NOTES.md` (§1–63).
+- **Fusion neuronale** : `neural_net.py` (MLP PyTorch, méta-modèle + carte de
+  connectivité), `nn_agent.py` (16ᵉ voix opt-in). `python neural_net.py --train`
+  (réentraîne sur `brain_log.json`) · `--predict SYMBOL` · `--map SYMBOL`.
+- Détails & historique des décisions : `docs/RESEARCH_NOTES.md` (§1–65).
 
 ## Leviers `.env` (jamais committés)
 
@@ -91,6 +96,8 @@ revue hebdo dimanche 18:00 (recommandations chiffrées automatiques §60).
 DYNAMIC_UNIVERSE=1          # univers dynamique top-N
 ACCUM_AUTONOMOUS_LIVE=1     # accumulation auto réelle (sinon manuelle)
 EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
+LLM_AGENT_ENABLED=0         # 15ᵉ voix LLM (opt-in, surcouche fail-safe)
+NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65)
 ```
 
 ## Déploiement / cycle

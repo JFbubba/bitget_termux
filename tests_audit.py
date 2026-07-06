@@ -7203,6 +7203,97 @@ def test_smc_smt_divergence():
     assert smc.smt_divergence(a, b)["signal"] == "bearish"
 
 
+# ---------- Réseau neuronal de fusion (§65) ----------
+
+def test_nn_vector_from_votes():
+    import neural_net as nn
+    # scalaire, dict {vote,confidence}, et agent manquant -> longueur fixe, borné, fail-safe
+    votes = {"orderflow": 0.5, "technicals": {"vote": 1.0, "confidence": 0.4},
+             "macro": "pas un nombre", "sentiment": 5.0}  # 5.0 doit être clampé à 1.0
+    v = nn.vector_from_votes(votes)
+    assert len(v) == len(nn.FEATURES)
+    assert v[nn.FEATURES.index("orderflow")] == 0.5
+    assert abs(v[nn.FEATURES.index("technicals")] - 0.4) < 1e-9   # 1.0 * 0.4
+    assert v[nn.FEATURES.index("macro")] == 0.0                   # illisible -> 0
+    assert v[nn.FEATURES.index("sentiment")] == 1.0               # clampé
+    assert v[nn.FEATURES.index("carry")] == 0.0                   # absent -> 0
+    assert all(-1.0 <= x <= 1.0 for x in v)
+
+
+def test_nn_feature_hash_matches_bench():
+    import neural_net as nn
+    import swarm_brain as sb
+    # le schéma de features DOIT rester aligné sur le banc gelé des 14 agents
+    assert nn.FEATURES == sb.AGENTS
+    assert len(nn.feature_hash()) == 12
+
+
+def test_nn_agent_disabled_is_neutral():
+    import nn_agent
+    import os
+    # défaut OFF -> vote neutre de confiance nulle (ignoré par l'agrégation), jamais d'erreur
+    old = os.environ.pop("NN_AGENT_ENABLED", None)
+    try:
+        assert nn_agent.enabled() is False
+        r = nn_agent.agent("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        if old is not None:
+            os.environ["NN_AGENT_ENABLED"] = old
+
+
+def test_nn_connectivity_map_structure():
+    import neural_net as nn
+    # entièrement hors-ligne (votes/brain/prediction/smc fournis) : structure + murs absolus
+    m = nn.connectivity_map("BTCUSDT", votes={"orderflow": 0.3}, prediction={}, brain={"consensus": 0.1}, smc={})
+    ids = {n["id"] for n in m["nodes"]}
+    for required in ("brain", "nn", "consensus", "guards", "exec"):
+        assert required in ids
+    guard = next(n for n in m["nodes"] if n["id"] == "guards")
+    assert guard.get("absolute") is True             # les murs sont marqués absolus
+    assert len(m["edges"]) >= 5
+    import json
+    json.dumps(m)                                    # sérialisable pour le dashboard
+
+
+def test_nn_predict_failsafe_returns_dict_or_none():
+    import neural_net as nn
+    # predict ne lève JAMAIS : dict (si poids présents) ou None (fail-safe)
+    r = nn.predict("BTCUSDT", votes={"orderflow": 0.2})
+    assert r is None or (set(("p_up", "vote", "confidence")) <= set(r))
+
+
+def test_nn_dataset_and_forward_when_torch_present():
+    import neural_net as nn
+    try:
+        import torch  # noqa: F401
+    except Exception:
+        return  # torch absent (autre machine) : test sauté proprement, pas d'échec
+    import json
+    import os
+    import tempfile
+    # mini-log synthétique -> (X, y) SANS toucher les poids réels
+    log = [
+        {"symbol": "T", "ts": 0, "price": 100, "votes": {"orderflow": 0.5}},
+        {"symbol": "T", "ts": nn.HORIZON_S, "price": 101, "votes": {"orderflow": -0.5}},
+        {"symbol": "T", "ts": 2 * nn.HORIZON_S, "price": 99, "votes": {"technicals": 0.3}},
+    ]
+    fd, path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(log, f)
+        X, y = nn._dataset(path)
+        assert len(X) == len(y) and all(len(x) == len(nn.FEATURES) for x in X)
+        assert set(y) <= {0, 1}
+        # forward direct d'un réseau neuf (aucune écriture disque)
+        from torch import nn as tnn
+        net = nn._build_net(torch, tnn, len(nn.FEATURES))
+        out = net(torch.zeros((1, len(nn.FEATURES))))
+        assert tuple(out.shape) == (1, 1)
+    finally:
+        os.remove(path)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

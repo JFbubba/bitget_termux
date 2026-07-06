@@ -2200,3 +2200,50 @@ paire SMT corrélée, caché 60 s, best-effort). `index.html` ajoute une couche
 de lignes, niveaux de référence (Asian H/L, PDH/PDL, Midnight Open), marqueurs
 SWEEP (rond) et ChoCh (carré) ancrés à la bougie de l'event, plus une bande texte
 sous le graphe (kill zone NY, checklist de confluence, phase PO3, ligne de setup).
+
+## §65 — Réseau neuronal de FUSION : 16ᵉ voix opt-in + carte de connectivité
+
+Demande propriétaire : « crée un réseau neuronal complet et pertinent entre tous
+les éléments du bot ». Choix explicites : **voix bornée DANS les murs** · **méta-modèle
+de fusion ET carte de connectivité** · **PyTorch**.
+
+**`neural_net.py` (SAFE, PyTorch).** MLP `[14 → 24 → 24 → 1]` (sigmoïde) qui FUSIONNE
+non-linéairement les votes des 14 agents (ordre canonique = `swarm_brain.AGENTS`, gardé
+par un `feature_hash` qui refuse un modèle désaligné). `vector_from_votes` est le point
+où tous les éléments décisionnels convergent en une entrée. Entraîné OFFLINE sur
+`brain_log.json` : étiquette = signe du rendement forward à ~15 min ; split temporel,
+seed fixe (repro), early-stopping sur la validation, `BCEWithLogitsLoss` rééquilibré.
+Poids sérialisés HORS git (`neural_net_weights.pt` / `_meta.json`, gitignored) — entraînés
+sur le VPS. `predict()` et `connectivity_map()` sont FAIL-SAFE (torch/poids absents →
+None / carte inerte, jamais d'exception).
+
+**Honnêteté sur l'edge.** Premier entraînement : 2271 exemples, val_acc ≈ 0.51 (≈ hasard) —
+5 h de données d'un seul régime pour prédire la direction à 15 min, c'est structurellement
+dur et le train (0.59) > val montre le surapprentissage. **C'est exactement pourquoi la
+voix ship OFF et bornée** : son edge live doit être PROUVÉ (audit IC / paper) avant tout
+armement, comme tout expérimental (rampe WATCH, échelle d'edge). Le réseau se réentraîne
+quand `brain_log` s'étoffe (`python neural_net.py --train`).
+
+**`nn_agent.py` — 16ᵉ voix (strictement symétrique au LLM 15ᵉ).** Interface
+`{vote, confidence, note}`, gated `NN_AGENT_ENABLED` (défaut OFF), poids fixe borné
+`NN_AGENT_WEIGHT` (cap `BRAIN_WEIGHT_MAX`), confiance plafonnée `NN_AGENT_CONF_CAP`,
+cachée `NN_AGENT_TTL_S`. Elle LIT les votes déjà calculés (passés en `context` par
+`gather_votes` → pas de recalcul ni de récursion) et les fusionne.
+
+**Banc gelé & murs intacts.** Câblage dans `swarm_brain` : `gather_votes` ajoute
+`votes["nn"]` après le LLM (fail-safe) ; `_with_nn_weight` injecte le poids borné dans
+l'agrégation SANS jamais le persister ni le soumettre à l'EARCP — `learn()` n'itère que
+sur les 14 (`for k in cible`). OFF → dict à 14 voix identique à avant. La voix influence
+le consensus/sizing suggéré ; elle ne touche JAMAIS `guards()` (50/250, ×5, stop,
+kill-switch, porte d'edge), qui restent absolus et déterministes.
+
+**Carte de connectivité (dashboard).** `connectivity_map()` renvoie nœuds + arêtes +
+activation LIVE : les 14 agents (groupés flux/prix-structure/quant/contexte) + surcouches
+(SMC §64, LLM) → cerveau → réseau de fusion → consensus → **MURS ABSOLUS** → exécution.
+`state["neural"]` (réutilise le `brain` et le `smc` déjà calculés) alimente un canvas
+`dessineReseau` : nœuds teintés par le vote live, le nœud « murs » distinct et verrouillé,
+la voix NN cerclée selon ARMÉE/OFF, badge P(hausse) + val_acc.
+
+**Dépendance.** PyTorch CPU installé dans le python système du bot (`pip
+--break-system-packages`, wheel cpu ~2.12). Réversible (`pip uninstall torch`). Le code
+dégrade fail-safe si torch venait à manquer.
