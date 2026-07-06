@@ -2791,3 +2791,15 @@ UNE action par cycle, montants [5 $, cap/op] :
 **3. Gouvernance** : ROADMAP mis à jour (virements internes + Earn autorisés à la
 boucle bornée ; vente spot libre/marge restent CLI+--confirm uniquement) ; CLAUDE.md
 (leviers + architecture). Chaque brique testée ; 423/423 attendu aux portes.
+
+## §76 (addendum) — Notional 25 -> 45 $ : XAUT inclus (décision propriétaire)
+
+Le propriétaire monte FUTURES_AUTO_NOTIONAL_USDT à 45 $ (levier env, effet immédiat) :
+XAUT (min ~41.5 $, seul écarté à 25) redevient tradable — vérifié : tout l'univers
+faisable à 45. Marges vs murs : 45 ≤ cap/trade 50 ; 3 positions × 45 = 135 ≤ cap 200 ;
+risque/trade au SL 1.5 % ≈ 0.68 $. Nota : un choc adverse de −10 % sur un livre plein
+(135 $) ≈ 13.5 $ > stop journalier 5 % (~12 $ sur 240) -> le kill-switch ferait son
+travail — c'est la protection prévue, pas un trou. Le plancher de marge du gestionnaire
+de liquidité suit le sizing : LIQ_FUT_MIN_USDT = 75 (3 × ~22.5 $ de marge à ×2 +
+coussin) — vérifié : futures 205.95 ≥ 75, équilibré. Si l'or monte de ~8 %, le minimum
+XAUT repassera au-dessus de 45 et le filtre §75 l'écartera de nouveau, visiblement.
