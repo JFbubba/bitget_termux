@@ -2997,3 +2997,32 @@ promotion effective reste une décision propriétaire.
 CONSTRUCTION -> learning_health jugeait « désaligné » (corr 0.06) précisément parce
 que le mécanisme marche. Il juge désormais contre la CIBLE ACTIVE : corr poids ↔
 cible ridge = +0.83, SAIN — fausse alarme du cron de minuit évitée.
+
+## §83 — Alt-carry ARMÉ + périmètre REVERSE (emprunt marge autorisé, « bonne gestion »)
+
+Décisions propriétaires (06/07 nuit) : « arme le alt-carry » + « j'autorise les
+emprunts marge si bonne gestion et tentative de booster les résultats ».
+
+**Armement** : ALT_CARRY_LIVE=1 (cron :35 exécute désormais réellement) — v1 classic
+inchangée (funding positif : spot acheté + perp short ×1).
+
+**v2 REVERSE (le booster)** : funding NÉGATIF extrême (pctl ≤ 10 sur ~90 j) ->
+perp LONG + vente du coin EMPRUNTÉ en marge — les shorts paient. La « bonne
+gestion » exigée, câblée :
+  • le COÛT D'EMPRUNT estimé (ALT_CARRY_BORROW_APR, défaut 15 %/an, réglable) est
+    DÉDUIT de l'APR avant toute entrée (net ≥ ALT_CARRY_MIN_APR sinon rien) ;
+  • CORRECTION D'UNITÉS dans margin_trader._loan : le notionnel USDT borne les caps,
+    la quantité COIN (usdt/prix) part à l'API — sans quoi « 10 » aurait borné 10 USDT
+    au garde mais emprunté 10 COINS (~166 $ sur LAB) à l'API ;
+  • COLLATÉRAL géré : virement interne spot->marge (surface §67, caps 25/op) AVANT
+    l'emprunt, rendu au spot à la fermeture ; échec -> abandon avant toute jambe ;
+  • COMPENSATIONS ÉTAGÉES testées : perp raté -> collatéral rendu ; emprunt raté ->
+    perp réduit ; vente ratée -> remboursé + perp réduit + rien d'orphelin ;
+  • sortie : rachat marge (coussin 2 % ≤ cap), remboursement, perp réduit,
+    collatéral rendu ; ferme aussi si le funding repasse ≥ 0 ou net < seuil ;
+  • gate dédié ALT_CARRY_NEG (armé) — refermable seul sans couper le classic.
+Chaque jambe garde SES gardes §67/§45 (verrous LIVE, kill-switch, caps par op et
+par jour, murs futures). État live à l'armement : aucun extrême exploitable
+(funding univers à des plus-bas historiques, tous positifs) — la machine attend
+proprement des deux côtés désormais. Tests décideur v2 (net d'emprunt, gate NEG,
+fermeture sur normalisation) ajoutés.

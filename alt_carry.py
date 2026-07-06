@@ -12,8 +12,11 @@ est un revenu CONTRACTUEL versé toutes les 8 h — pas une prédiction. Quand l
 funding d'un alt est EXTRÊME (percentile ≥ ALT_CARRY_PCTL sur l'historique local
 ~90 j ET APR annualisé ≥ ALT_CARRY_MIN_APR), on l'encaisse SANS direction :
 funding POSITIF -> acheter X $ de spot + vendre X $ de perp (delta ≈ 0, les longs
-paient les shorts). Le cas funding NÉGATIF exigerait un emprunt marge : HORS
-périmètre v1 (volontairement réduit).
+paient les shorts). Funding NÉGATIF (v2, AUTORISÉ par décision propriétaire du
+06/07 « j'autorise les emprunts marge si bonne gestion ») : perp LONG + vente du
+coin EMPRUNTÉ en marge (delta ≈ 0, les shorts paient) — le COÛT D'EMPRUNT estimé
+(ALT_CARRY_BORROW_APR) est DÉDUIT de l'APR avant toute entrée, et chaque étage a
+sa compensation (jamais de jambe nue, jamais d'emprunt orphelin).
 
 Sortie : percentile < ALT_CARRY_EXIT_PCTL ou APR < ALT_CARRY_EXIT_APR -> fermer.
 Anti-jambe-nue : à l'ENTRÉE le spot s'achète D'ABORD ; si la jambe perp échoue,
@@ -125,31 +128,146 @@ def scan(universe=None):
     return out
 
 
-def decider(etat, cands, pctl_min=None, apr_min=None, pctl_exit=None, apr_exit=None):
-    """PUR. UNE action par cycle : fermer si la position ne paie plus (percentile ou
-    APR retombés), sinon ouvrir le meilleur candidat EXTRÊME (funding POSITIF
-    uniquement, v1 sans emprunt). {"action": "ouvrir"|"fermer"|"rien", ...}."""
+def _neg_on():
+    v = (os.getenv("ALT_CARRY_NEG") or "").strip().lower()
+    if v in ("1", "true", "on", "yes"):
+        return True
+    if v in ("0", "false", "off", "no"):
+        return False
+    return bool(_cfg("ALT_CARRY_NEG", False))
+
+
+def decider(etat, cands, pctl_min=None, apr_min=None, pctl_exit=None, apr_exit=None,
+            borrow_apr=None, neg=None):
+    """PUR. UNE action par cycle : fermer si la position ne paie plus, sinon ouvrir
+    le meilleur EXTRÊME. Deux modes :
+      • classic (funding POSITIF, pctl ≥ pctl_min, APR ≥ apr_min) ;
+      • reverse (funding NÉGATIF, pctl ≤ 100−pctl_min, APR NET d'emprunt ≥ apr_min —
+        gated ALT_CARRY_NEG, décision propriétaire).
+    {"action": "ouvrir"|"fermer"|"rien", "mode": "classic"|"reverse", ...}."""
     pctl_min = _flt("ALT_CARRY_PCTL", 90.0) if pctl_min is None else float(pctl_min)
     apr_min = _flt("ALT_CARRY_MIN_APR", 12.0) if apr_min is None else float(apr_min)
     pctl_exit = _flt("ALT_CARRY_EXIT_PCTL", 50.0) if pctl_exit is None else float(pctl_exit)
     apr_exit = _flt("ALT_CARRY_EXIT_APR", 5.0) if apr_exit is None else float(apr_exit)
+    borrow_apr = _flt("ALT_CARRY_BORROW_APR", 15.0) if borrow_apr is None else float(borrow_apr)
+    neg = _neg_on() if neg is None else bool(neg)
     pos = (etat or {}).get("position")
     par_sym = {c["symbol"]: c for c in cands or []}
     if pos:
         c = par_sym.get(pos.get("symbol"))
+        mode = pos.get("mode", "classic")
         if not c:
             return {"action": "rien", "raison": f"{pos.get('symbol')} : funding illisible — on tient (fail-safe)"}
+        if mode == "reverse":
+            net = abs(c.get("apr_pct") or 0) - borrow_apr
+            if (c.get("taux") or 0) >= 0 or (c.get("pctl") is not None and c["pctl"] > 100 - pctl_exit) \
+                    or net < apr_exit:
+                return {"action": "fermer", "symbol": pos["symbol"], "mode": mode,
+                        "raison": f"funding normalisé (pctl {c.get('pctl')}, net {round(net, 1)} %)"}
+            return {"action": "rien", "raison": f"jambe reverse {pos['symbol']} paie encore "
+                                                f"(net {round(net, 1)} % après emprunt)"}
         if (c.get("pctl") is not None and c["pctl"] < pctl_exit) or (c.get("apr_pct") or 0) < apr_exit:
-            return {"action": "fermer", "symbol": pos["symbol"],
+            return {"action": "fermer", "symbol": pos["symbol"], "mode": mode,
                     "raison": f"funding retombé (pctl {c.get('pctl')}, APR {c.get('apr_pct')} %)"}
         return {"action": "rien", "raison": f"jambe {pos['symbol']} paie encore "
                                             f"(pctl {c.get('pctl')}, APR {c.get('apr_pct')} %)"}
     for c in cands or []:
-        if (c.get("taux") or 0) > 0 and (c.get("pctl") or 0) >= pctl_min \
-                and (c.get("apr_pct") or 0) >= apr_min:
-            return {"action": "ouvrir", "symbol": c["symbol"],
-                    "raison": f"funding extrême (pctl {c['pctl']}, APR {c['apr_pct']} %)"}
-    return {"action": "rien", "raison": "aucun funding extrême positif sur l'univers"}
+        taux, pctl, apr = c.get("taux") or 0, c.get("pctl") or 50, c.get("apr_pct") or 0
+        if taux > 0 and pctl >= pctl_min and apr >= apr_min:
+            return {"action": "ouvrir", "symbol": c["symbol"], "mode": "classic",
+                    "raison": f"funding extrême (pctl {pctl}, APR {apr} %)"}
+        if neg and taux < 0 and pctl <= (100 - pctl_min) and (abs(apr) - borrow_apr) >= apr_min:
+            return {"action": "ouvrir", "symbol": c["symbol"], "mode": "reverse",
+                    "raison": (f"funding extrême NÉGATIF (pctl {pctl}, APR {apr} % ; "
+                               f"net ~{round(abs(apr) - borrow_apr, 1)} % après emprunt "
+                               f"{borrow_apr} %)")}
+    return {"action": "rien", "raison": "aucun funding extrême exploitable sur l'univers"}
+
+
+def _prix(sym):
+    try:
+        import bitget_market_data as bmd
+        return (bmd.mark_prices() or {}).get(str(sym).upper())
+    except Exception:
+        return None
+
+
+def _coin(sym):
+    return str(sym).upper().replace("USDT", "")
+
+
+def _ouvrir_reverse(sym, usdt, arme):
+    """Entrée REVERSE (funding négatif, §83) : perp LONG d'abord (jambe la plus fiable,
+    compensable d'un reduce), puis EMPRUNT du coin (quantité = usdt/prix — le notionnel
+    USDT borne les caps, la quantité coin part à l'API), puis VENTE marge. Compensations
+    étagées : emprunt raté -> reduce du perp ; vente ratée -> remboursement + reduce.
+    Jamais de jambe nue, jamais d'emprunt orphelin."""
+    import futures_auto as fa
+    import futures_executor as fe
+    import margin_trader as mt
+    prix = _prix(sym)
+    if not prix or prix <= 0:
+        return {"ok": False, "etape": "prix", "raison": "prix illisible (fail-closed)"}
+    mtype = str(os.getenv("ALT_CARRY_MARGIN_TYPE") or _cfg("ALT_CARRY_MARGIN_TYPE", "crossed")).lower()
+    coin_qte = round(float(usdt) / float(prix), 6)
+    # étape 0 — COLLATÉRAL : l'emprunt exige des fonds dans le wallet marge (vide par
+    # défaut). Virement INTERNE spot -> marge (surface §67 : caps, kill-switch),
+    # rendu à la fermeture. Échec -> abandon AVANT toute jambe (rien à compenser).
+    import account_transfers as at
+    collat = round(min(float(usdt) * 1.2, 25.0), 2)
+    depot = at.execute("spot", "crossed_margin", "USDT", collat, confirm=arme)
+    if arme and not depot.get("executed"):
+        return {"ok": False, "etape": "collateral", "depot": depot}
+    jambe_perp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, confirm=arme,
+                            gross_open_usdt=fa.gross_book_usdt(),
+                            equity_curve=fe.equity_curve())
+    if arme and not jambe_perp.get("executed"):
+        at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)   # rend le collatéral
+        return {"ok": False, "etape": "perp", "perp": jambe_perp}
+    emprunt = mt.borrow(_coin(sym), usdt, amount=coin_qte, margin_type=mtype, confirm=arme)
+    if arme and not emprunt.get("executed"):
+        comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
+                          confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
+                          equity_curve=fe.equity_curve())
+        return {"ok": False, "etape": "emprunt", "perp": jambe_perp,
+                "emprunt": emprunt, "compensation": comp}
+    vente = mt.order(sym, "sell", usdt, margin_type=mtype, confirm=arme)
+    if arme and not vente.get("executed"):
+        remb = mt.repay(_coin(sym), usdt, amount=coin_qte, margin_type=mtype, confirm=arme)
+        comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
+                          confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
+                          equity_curve=fe.equity_curve())
+        return {"ok": False, "etape": "vente", "perp": jambe_perp, "emprunt": emprunt,
+                "vente": vente, "remboursement": remb, "compensation": comp}
+    return {"ok": (not arme) or vente.get("executed"), "perp": jambe_perp,
+            "emprunt": emprunt, "vente": vente, "coin_qte": coin_qte, "prix": prix,
+            "margin_type": mtype, "collateral": collat}
+
+
+def _fermer_reverse(sym, pos, arme):
+    """Sortie REVERSE : rachat marge (avec petit coussin ≤ cap pour couvrir les
+    intérêts), remboursement de l'emprunt, puis fermeture du perp long."""
+    import futures_auto as fa
+    import futures_executor as fe
+    import margin_trader as mt
+    usdt = float(pos.get("usdt") or _flt("ALT_CARRY_PER_LEG_USDT", 10.0))
+    mtype = str(pos.get("margin_type") or "crossed")
+    coin_qte = float(pos.get("coin_qte") or 0) or None
+    cap_op = mt._caps()[0]
+    rachat = mt.order(sym, "buy", min(round(usdt * 1.02, 2), cap_op), margin_type=mtype, confirm=arme)
+    if arme and not rachat.get("executed"):
+        return {"ok": False, "etape": "rachat", "rachat": rachat}
+    remb = mt.repay(_coin(sym), usdt, amount=coin_qte, margin_type=mtype, confirm=arme)
+    perp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
+                      confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
+                      equity_curve=fe.equity_curve())
+    retour = None
+    if pos.get("collateral"):                     # rend le collatéral au spot
+        import account_transfers as at
+        retour = at.execute("crossed_margin", "spot", "USDT", float(pos["collateral"]),
+                            confirm=arme)
+    return {"ok": (not arme) or (remb.get("executed") and perp.get("executed")),
+            "rachat": rachat, "remboursement": remb, "perp": perp, "retour": retour}
 
 
 def _ouvrir(sym, usdt, arme):
@@ -199,19 +317,25 @@ def cycle(now=None):
            "executed": False}
     usdt = _flt("ALT_CARRY_PER_LEG_USDT", 10.0)
     if d["action"] == "ouvrir":
-        res = _ouvrir(d["symbol"], usdt, arme)
+        res = (_ouvrir_reverse(d["symbol"], usdt, arme) if d.get("mode") == "reverse"
+               else _ouvrir(d["symbol"], usdt, arme))
         out["resultat"] = {k: (v if k in ("ok", "etape") else
                                {kk: v.get(kk) for kk in ("ok", "dry", "executed", "reasons")})
                            for k, v in res.items() if v is not None}
         if arme and res.get("ok"):
-            etat["position"] = {"symbol": d["symbol"], "usdt": usdt, "ts": int(now)}
+            etat["position"] = {"symbol": d["symbol"], "usdt": usdt, "ts": int(now),
+                                "mode": d.get("mode", "classic"),
+                                "coin_qte": res.get("coin_qte"),
+                                "margin_type": res.get("margin_type"),
+                                "collateral": res.get("collateral")}
             _sauve_etat(etat)
             out["executed"] = True
-            _notifie(f"🌾 Alt-carry OUVERT : {d['symbol']} {usdt} $/jambe — {d['raison']} "
-                     "(delta-neutre, funding encaissé toutes les 8 h).")
+            _notifie(f"🌾 Alt-carry OUVERT ({d.get('mode', 'classic')}) : {d['symbol']} "
+                     f"{usdt} $/jambe — {d['raison']} (delta-neutre, funding 8 h).")
     elif d["action"] == "fermer":
         pos = etat.get("position") or {}
-        res = _fermer(d["symbol"], pos.get("usdt", usdt), arme)
+        res = (_fermer_reverse(d["symbol"], pos, arme) if pos.get("mode") == "reverse"
+               else _fermer(d["symbol"], pos.get("usdt", usdt), arme))
         out["resultat"] = {k: (v if k in ("ok", "etape") else
                                {kk: v.get(kk) for kk in ("ok", "dry", "executed", "reasons")})
                            for k, v in res.items() if v is not None}
@@ -240,8 +364,9 @@ def build_report(s=None):
               f"Décision : {str(d.get('action', 'rien')).upper()} {d.get('symbol') or ''} — {d.get('raison', '')}"]
     for c in s.get("cands") or []:
         lignes.append(f"  {c['symbol']:10s} taux {c['taux']:+.6f} · pctl {c['pctl']} · APR {c['apr_pct']:+.1f} %")
-    lignes.append("Décision seule ici — jambes via spot_trader (§67) et futures_executor (§45), "
-                  "chacune avec SES gardes. Funding négatif (emprunt) : hors périmètre v1. VERDICT: SAFE")
+    lignes.append("Décision seule ici — jambes via spot_trader/margin_trader (§67) et "
+                  "futures_executor (§45), chacune avec SES gardes. Funding négatif : REVERSE "
+                  "autorisé (§83, emprunt marge net d'intérêts, collatéral géré). VERDICT: SAFE")
     return "\n".join(lignes)
 
 

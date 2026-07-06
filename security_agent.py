@@ -100,6 +100,18 @@ LIQUIDITY_FORBIDDEN = [
 LIQUIDITY_REQUIRED = ["liquidity_auto", "account_transfers", "earn_manager",
                       "confirm", "kill-switch", "fail-closed"]
 
+# Module de DÉCISION carry §82-83 : même classe que la liquidité — il NOMME ses
+# délégués (spot_trader/margin_trader/futures_executor/account_transfers, d'où le
+# mot 'transfer') mais ne doit contenir AUCUN vocabulaire d'écriture directe.
+CARRY_DECISION_FILE = "alt_carry.py"
+CARRY_FORBIDDEN = [
+    "withdraw", "place_order", "set_leverage", "change_leverage", "setleverage",
+    "margin_borrow", "margin_repay", "sub_account", "subaccount", "broker_",
+    "hub._write", "hub._exec", "_run_bgc", "order/place",
+]
+CARRY_REQUIRED = ["alt_carry_live", "spot_trader", "margin_trader", "futures_executor",
+                  "account_transfers", "confirm", "compensation", "fail-closed"]
+
 # Fichier de STATUT lecture seule §67 : agrège l'état des surfaces pour le dashboard.
 # Il référence les noms des exécuteurs (d'où 'transfer') mais ne doit contenir AUCUN
 # vocabulaire d'ÉCRITURE — on prouve ainsi qu'il ne peut QUE lire.
@@ -304,6 +316,19 @@ def scan_liquidity_decision(filename):
     return issues
 
 
+def scan_carry_decision(filename):
+    """Audit du module de DÉCISION alt-carry (§83) : délégation obligatoire, aucun
+    vocabulaire d'écriture directe, compensations et gates présents."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = [f"interdit:{kw}" for kw in CARRY_FORBIDDEN if kw.lower() in text]
+    issues += [f"garde manquante:{req}" for req in CARRY_REQUIRED
+               if req.lower() not in text]
+    return issues
+
+
 def scan_status_readonly(filename):
     """Audit d'un fichier de STATUT lecture seule §67 : il peut référencer les noms
     d'exécuteurs, mais ne doit contenir AUCUN vocabulaire d'écriture (il ne fait que lire
@@ -374,6 +399,9 @@ def main():
         elif filename == LIQUIDITY_DECISION_FILE:
             hits = scan_liquidity_decision(filename)
             label = "décision liquidité non conforme"
+        elif filename == CARRY_DECISION_FILE:
+            hits = scan_carry_decision(filename)
+            label = "décision carry non conforme"
         elif filename in STATUS_READONLY_FILES:
             hits = scan_status_readonly(filename)
             label = "statut read-only non conforme"

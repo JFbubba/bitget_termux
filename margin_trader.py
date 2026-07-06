@@ -64,8 +64,13 @@ def order(symbol, side, usdt, margin_type="crossed", confirm=False, runner=None,
                   meta={"symbol": symbol, "side": side, "margin_type": margin_type})
 
 
-def _loan(action, margin_type, coin, usdt, confirm=False, runner=None, live=None, kill=None, spent=None):
-    """Emprunt (borrow) ou remboursement (repay) borné par les mêmes caps notionnels."""
+def _loan(action, margin_type, coin, usdt, amount=None, confirm=False, runner=None,
+          live=None, kill=None, spent=None):
+    """Emprunt (borrow) ou remboursement (repay) borné par les caps NOTIONNELS.
+    §83 (correction d'unités) : `usdt` = NOTIONNEL en USDT (ce que les caps bornent) ;
+    `amount` = quantité en UNITÉS DE COIN envoyée à l'API (défaut : usdt, correct
+    pour coin=USDT ; pour un alt, l'appelant DOIT passer amount=usdt/prix — sinon
+    « 10 » aurait borné 10 USDT au garde mais emprunté 10 COINS à l'API)."""
     margin_type = str(margin_type).lower()
     extra = _check_type(margin_type)
     per_op, daily = _caps()
@@ -73,9 +78,11 @@ def _loan(action, margin_type, coin, usdt, confirm=False, runner=None, live=None
                            live=live, kill=kill, spent=spent, extra_reasons=extra)
     oid = ex.new_oid("mgl")
     tool = "margin_borrow" if action == "borrow" else "margin_repay"
-    args = ["margin", tool, "--marginType", margin_type, "--coin", coin.upper(), "--amount", str(usdt)]
+    envoi = amount if amount is not None else usdt
+    args = ["margin", tool, "--marginType", margin_type, "--coin", coin.upper(), "--amount", str(envoi)]
     return ex.run(args, ok, reasons, SURFACE, usdt, oid, confirm=confirm, runner=runner,
-                  meta={"coin": coin.upper(), "action": action, "margin_type": margin_type})
+                  meta={"coin": coin.upper(), "action": action, "margin_type": margin_type,
+                        "amount_coin": envoi})
 
 
 def borrow(coin, usdt, margin_type="crossed", **kw):

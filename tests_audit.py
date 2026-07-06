@@ -6239,6 +6239,24 @@ def test_alt_carry_decideur_et_jambes():
     assert d["action"] == "fermer"                                    # ne paie plus
     d = ac.decider(etat, [], pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5)
     assert d["action"] == "rien" and "fail-safe" in d["raison"]       # illisible -> tenir
+    # v2 REVERSE (§83) : funding NÉGATIF extrême -> ouvrir reverse SI net d'emprunt ≥ seuil
+    cneg = [{"symbol": "LABUSDT", "taux": -8e-4, "pctl": 2.0, "apr_pct": -87.6}]
+    d = ac.decider({}, cneg, pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5,
+                   borrow_apr=15, neg=True)
+    assert d["action"] == "ouvrir" and d["mode"] == "reverse" and "net" in d["raison"]
+    # net insuffisant après emprunt -> rien
+    d = ac.decider({}, [{"symbol": "LABUSDT", "taux": -2e-4, "pctl": 2.0, "apr_pct": -21.9}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5, borrow_apr=15, neg=True)
+    assert d["action"] == "rien"
+    # gate NEG coupé -> jamais de reverse (même extrême)
+    d = ac.decider({}, cneg, pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5,
+                   borrow_apr=15, neg=False)
+    assert d["action"] == "rien"
+    # position reverse : funding repassé positif -> fermer
+    etat_r = {"position": {"symbol": "LABUSDT", "usdt": 10, "mode": "reverse"}}
+    d = ac.decider(etat_r, [{"symbol": "LABUSDT", "taux": 1e-5, "pctl": 60.0, "apr_pct": 1.1}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5, borrow_apr=15, neg=True)
+    assert d["action"] == "fermer" and d["mode"] == "reverse"
     # anti-jambe-nue : perp échoue -> compensation vend le spot
     import futures_auto as fa
     import futures_executor as fe
