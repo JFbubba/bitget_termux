@@ -414,6 +414,16 @@ def aggregate(votes, weights):
     return {"consensus": round(consensus, 3), "bias": bias, "conviction": round(abs(consensus), 3), "agents": contrib}
 
 
+def _with_llm_weight(weights, votes):
+    """Poids d'agrégation avec le poids FIXE et BORNÉ de l'agent LLM (opt-in) — SANS
+    jamais le persister ni le soumettre à l'apprentissage EARCP (le banc déterministe
+    gelé à 14 reste intact, §62). Identité quand le LLM est absent (OFF)."""
+    if "llm" not in votes:
+        return weights
+    w = float(_cfg("LLM_AGENT_WEIGHT", 0.5))
+    return {**weights, "llm": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
+
+
 def cognition(votes, weights, consensus):
     """Méta-cognition du cerveau (« conscience » de son propre état). Pur.
 
@@ -631,7 +641,8 @@ def _price(symbol):
 def _record(symbol, votes, result, price):
     entry = {
         "ts": int(time.time()), "symbol": symbol, "price": price,
-        "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items()},
+        # LLM exclu du journal d'apprentissage : le banc déterministe 14 apprend seul (§62).
+        "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items() if n in AGENT_FUNCS},
         "consensus": result["consensus"], "evaluated": False,
     }
     log = _read_log()
@@ -765,7 +776,16 @@ def gather_votes(symbol):
 
     workers = max(1, int(_cfg("BRAIN_VOTES_WORKERS", 8)))
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        return dict(ex.map(_vote, AGENTS))
+        votes = dict(ex.map(_vote, AGENTS))
+    # 15ᵉ agent LLM (OPT-IN, surcouche non-déterministe, §06/07) : additif, fail-safe,
+    # borné. Absent du dict tant que LLM_AGENT_ENABLED est OFF -> banc 14 inchangé.
+    try:
+        import llm_agent
+        if llm_agent.enabled():
+            votes["llm"] = llm_agent.agent(symbol)
+    except Exception:                            # fail-safe : le LLM ne casse jamais la collecte
+        pass
+    return votes
 
 
 def _attach_cognition(result, votes, weights, closes=None):
@@ -800,19 +820,21 @@ def peek(symbol="BTCUSDT"):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    result = aggregate(votes, weights)
+    aw = _with_llm_weight(weights, votes)        # poids LLM fixe/borné, non persisté
+    result = aggregate(votes, aw)
     result["symbol"] = symbol
-    result["weights"] = weights
-    return _attach_cognition(result, votes, weights, _series(symbol))
+    result["weights"] = aw
+    return _attach_cognition(result, votes, aw, _series(symbol))
 
 
 def read(symbol="BTCUSDT", do_learn=True):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    result = aggregate(votes, weights)
+    aw = _with_llm_weight(weights, votes)        # LLM dans l'agrégation live seulement
+    result = aggregate(votes, aw)
     result["symbol"] = symbol
-    result["weights"] = weights
+    result["weights"] = aw
     # §61 : learn et record SÉPARÉS, exceptions IMPRIMÉES. L'ancien try unique
     # muet a caché 4.7 h de NameError dans learn() (import _cfg manquant) : le
     # cerveau n'enregistrait plus AUCUN vote et personne ne le voyait — la
@@ -833,7 +855,7 @@ def read(symbol="BTCUSDT", do_learn=True):
             result["price"] = price
         except Exception as exc:
             print(f"brain record({symbol}): {type(exc).__name__}: {exc}")
-    return _attach_cognition(result, votes, weights, _series(symbol))
+    return _attach_cognition(result, votes, aw, _series(symbol))
 
 
 def build_report(r):

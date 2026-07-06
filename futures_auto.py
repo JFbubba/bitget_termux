@@ -145,6 +145,21 @@ def positions_par_symbole():
         return {"erreur": "positions illisibles"}
 
 
+def gross_book_usdt(par_sym=None):
+    """Notional total ouvert sur TOUT le livre futures (tous symboles ET côtés).
+    Sert de gross_open_usdt CROSS-LIVRE pour la garde de cap cumulé (§45) : un
+    appelant ne doit jamais présenter sa seule jambe, sinon le mur 250 $ est aveugle
+    au reste du livre. Retourne None si le livre est illisible -> l'appelant DOIT
+    fail-closed (ne pas ouvrir à l'aveugle), jamais retomber sur 0."""
+    if par_sym is None:
+        par_sym = positions_par_symbole()
+    if not isinstance(par_sym, dict) or par_sym.get("erreur"):
+        return None
+    return round(sum((cotes.get(k) or {}).get("notional_usdt") or 0.0
+                     for cotes in par_sym.values() if isinstance(cotes, dict)
+                     for k in ("long", "short")), 2)
+
+
 def proprietaire_cote(events, cote, symbol=None):
     """PUR. Agent PROPRIÉTAIRE d'un (SYMBOLE, CÔTÉ) : l'agent du dernier ordre RÉEL
     d'OUVERTURE sur ce côté de ce symbole. En mode hedge chaque côté a son
@@ -478,9 +493,7 @@ def _run_cycle(now=None):
     miennes = _mes_positions(par_sym, events)
     out["positions"] = [{"symbol": s, **pos} for s, pos in miennes]
     out["position"] = ({"symbol": miennes[0][0], **miennes[0][1]} if miennes else None)
-    gross = sum((cotes.get(k) or {}).get("notional_usdt") or 0.0
-                for cotes in par_sym.values() if isinstance(cotes, dict)
-                for k in ("long", "short"))
+    gross = gross_book_usdt(par_sym) or 0.0
     out["gross_usdt"] = round(gross, 2)
     import futures_executor as fe
 

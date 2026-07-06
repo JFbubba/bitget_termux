@@ -218,3 +218,20 @@ LOOP_INTERVAL_SECONDS = 15 * 60
 SIGNALS_JOURNAL_FILE = "signals_journal.csv"
 OPEN_STATE_FILE = "open_outcomes_state.csv"
 FINAL_OUTCOMES_FILE = "final_outcomes_journal.csv"
+
+# === Agent LLM (15ᵉ agent, OPT-IN) — llm_agent.py, décision propriétaire 06/07/2026 ===
+# Surcouche non-déterministe au banc gelé à 14 (§62). DÉFAUT OFF : tant que
+# LLM_AGENT_ENABLED est False, le cerveau se comporte à l'identique. FAIL-SAFE (LLM
+# indispo/lent/incohérent -> vote ignoré). N'a AUCUN pouvoir sur les murs de guards().
+LLM_AGENT_ENABLED = False                  # interrupteur maître (armer via .env aussi)
+LLM_AGENT_BACKEND = "local"                # "local" = Ollama VPS (rien ne sort) ; "cloud" = OpenRouter
+LLM_AGENT_MODEL_LOCAL = "qwen2.5:7b"       # modèle Ollama local (localhost:11434)
+LLM_AGENT_MODEL_CLOUD = "openai/gpt-5-mini"  # modèle OpenRouter (OPENROUTER_API_KEY dans .env)
+LLM_AGENT_MODEL_GEMINI = "gemini-2.5-flash"  # modèle Google AI Studio direct (backend "gemini", GEMINI_API_KEY)
+LLM_AGENT_GEMINI_THINKING = 0              # budget raisonnement Gemini (0 = coupé -> vote rapide, tient dans max_tokens)
+LLM_AGENT_TIMEOUT_S = 8.0                  # au-delà -> vote ignoré (ne ralentit pas le cerveau)
+LLM_AGENT_MAX_TOKENS = 800                 # budget sortie cloud (modèles thinking : marge de raisonnement)
+LLM_AGENT_CONF_CAP = 0.5                   # plafond de confiance (ne domine pas le banc)
+LLM_AGENT_WEIGHT = 0.5                     # poids FIXE dans l'agrégation (non appris, non persisté)
+LLM_AGENT_SYMBOLS = ""                      # liste blanche (ex. "BTCUSDT") ; vide = tous. Borne le coût du local lent
+LLM_AGENT_KEEPALIVE = "30m"                 # Ollama : garde qwen en mémoire entre cycles (évite le rechargement swap)

@@ -677,6 +677,136 @@ def test_risk_caps_dust_stop():
     assert "x" in extra
 
 
+def test_futures_leverage_hard_wall_uncrossable():
+    """Mur DUR levier ×5 : ni .env ni config ne peuvent le DÉPASSER (l'ABAISSER, oui).
+    Régression du finding #1 : le levier utilisait _limit (sans plafond absolu) au
+    lieu de _capped, donc MANDATE_MAX_LEVERAGE=20 poussait le mur effectif à ×20."""
+    import os
+    import futures_executor as fe
+    old = os.environ.get("MANDATE_MAX_LEVERAGE")
+    try:
+        # 1) env tente ×20 -> plafonné au mur absolu ×5
+        os.environ["MANDATE_MAX_LEVERAGE"] = "20"
+        assert fe._capped("MANDATE_MAX_LEVERAGE", 5.0, fe.FUT_ABS_MAX_LEVERAGE) == 5.0
+        assert fe.build_futures_order("t", "long", 50, 20)["leverage"] == 5.0
+        ok, reasons = fe.guards("t", 50, 20, live=True, autonomous=True,
+                                futures_live=True, kill=False, edge_override=1)
+        assert any("levier" in r and "mur dur" in r for r in reasons)  # ×20 rejeté
+        # 2) abaissement TOUJOURS permis : env ×3 -> mur effectif ×3
+        os.environ["MANDATE_MAX_LEVERAGE"] = "3"
+        assert fe._capped("MANDATE_MAX_LEVERAGE", 5.0, fe.FUT_ABS_MAX_LEVERAGE) == 3.0
+        assert fe.build_futures_order("t", "long", 50, 5)["leverage"] == 3.0
+    finally:
+        if old is None:
+            os.environ.pop("MANDATE_MAX_LEVERAGE", None)
+        else:
+            os.environ["MANDATE_MAX_LEVERAGE"] = old
+
+
+# ---------- agent LLM (15ᵉ agent OPT-IN, §06/07) : opt-in, fail-safe, borné ----------
+
+def test_llm_agent_off_is_neutral():
+    """OFF (défaut) -> vote neutre de confiance NULLE, ignoré par aggregate."""
+    import llm_agent
+    old = llm_agent.enabled
+    try:
+        llm_agent.enabled = lambda: False
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        llm_agent.enabled = old
+
+
+def test_llm_agent_failsafe_on_backend_error():
+    """Backend qui lève -> NEUTRE, jamais d'exception propagée (fail-safe total)."""
+    import llm_agent
+    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._snapshot = lambda s: {"symbol": s, "last": 1.0}
+        llm_agent._cfg = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        def boom(*a, **k):
+            raise RuntimeError("ollama down (simulé)")
+        llm_agent._call_local = boom
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0 and "err" in r["note"]
+    finally:
+        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg) = old
+
+
+def test_llm_agent_parse_and_conf_cap():
+    """Réponse valide -> parsée ; confiance PLAFONNÉE (ne domine pas le banc).
+    Réponses hors-bornes / bruit -> rejetées (None)."""
+    import llm_agent
+    assert llm_agent._parse('{"vote": 0.8, "confidence": 0.9, "why": "momentum"}') == (0.8, 0.9, "momentum")
+    assert llm_agent._parse('bla {"vote": -0.5, "confidence": 0.3} fin')[:2] == (-0.5, 0.3)
+    assert llm_agent._parse('{"vote": 2, "confidence": 0.5}') is None       # vote hors [-1,1]
+    assert llm_agent._parse('{"vote": 0.5, "confidence": 9}') is None       # conf hors [0,1]
+    assert llm_agent._parse("pas de json") is None
+    # plafond de confiance appliqué dans agent()
+    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._snapshot = lambda s: {"symbol": s}
+        llm_agent._cfg = lambda n, d: {"LLM_AGENT_BACKEND": "local", "LLM_AGENT_CONF_CAP": 0.5}.get(n, d)
+        llm_agent._call_local = lambda *a, **k: '{"vote": 1.0, "confidence": 1.0, "why": "x"}'
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == 1.0 and r["confidence"] == 0.5                  # 1.0 plafonné à 0.5
+    finally:
+        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg) = old
+
+
+def test_llm_agent_gemini_backend_routing():
+    """Backend 'gemini' -> route vers Google AI Studio direct, parse le vote, plafonne
+    la confiance. Fail-safe si clé absente (GEMINI_API_KEY manquant -> NEUTRE)."""
+    import llm_agent
+    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._knob,
+           llm_agent._call_gemini, llm_agent._cfg)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._snapshot = lambda s: {"symbol": s}
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "gemini"}.get(n, d)
+        llm_agent._cfg = lambda n, d: d
+        seen = {}
+        def fake_gemini(prompt, model, timeout):
+            seen["model"] = model
+            return '{"vote": -0.6, "confidence": 0.9, "why": "baisse"}'
+        llm_agent._call_gemini = fake_gemini
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == -0.6 and r["confidence"] == 0.5      # conf plafonnée à 0.5
+        assert "gemini" in r["note"] and seen["model"] == "gemini-2.5-flash"
+    finally:
+        (llm_agent.enabled, llm_agent._snapshot, llm_agent._knob,
+         llm_agent._call_gemini, llm_agent._cfg) = old
+
+
+def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():
+    """Banc DÉTERMINISTE inchangé quand LLM OFF ; poids LLM fixe/borné + exclu de
+    l'apprentissage quand ON (le banc 14 reste gelé, §62)."""
+    import swarm_brain as sb
+    # identité quand pas de LLM dans les votes
+    w = {"orderflow": 1.0, "macro": 1.2}
+    assert sb._with_llm_weight(w, {"orderflow": {}}) == w
+    # poids LLM injecté, borné à BRAIN_WEIGHT_MAX, et absent des poids appris/persistés
+    aw = sb._with_llm_weight(w, {"orderflow": {}, "llm": {"vote": 1, "confidence": 0.5}})
+    assert aw["llm"] <= sb.BRAIN_WEIGHT_MAX and "llm" not in w
+    # _record n'enregistre PAS le vote LLM (apprentissage sur les 14 seulement)
+    import tempfile
+    from pathlib import Path
+    old = (sb.LOG_FILE, sb.ROOT)
+    try:
+        tmp = Path(tempfile.mkdtemp())
+        sb.LOG_FILE = tmp / "brain_log.json"
+        sb.ROOT = tmp                                # append_jsonl best-effort -> tmp, pas le dépôt
+        votes = {"orderflow": {"vote": 0.5}, "llm": {"vote": 0.9}}
+        sb._record("BTCUSDT", votes, {"consensus": 0.5}, 100.0)
+        import json
+        rec = json.loads(sb.LOG_FILE.read_text())[-1]["votes"]
+        assert "orderflow" in rec and "llm" not in rec
+    finally:
+        (sb.LOG_FILE, sb.ROOT) = old
+
+
 # ---------- cerveau (essaim d'agents) ----------
 
 def test_brain_aggregate_bias_and_consensus():

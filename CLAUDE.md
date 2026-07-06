@@ -1,9 +1,16 @@
 # CLAUDE.md — contexte & règles pour tout agent travaillant sur ce dépôt
 
-Bot de trading Bitget avec un **cerveau déterministe en mixture-of-experts** (14 agents,
+Bot de trading Bitget avec un **cerveau en mixture-of-experts** (14 agents déterministes,
 pondération adaptative EARCP assainie §51 : hit-rates EWMA exogènes, cohérence
-leave-one-out, lissage — banc GELÉ à 14, §62). **AUCUN réseau de neurones**
-(contrainte du propriétaire). Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`).
+leave-one-out, lissage — banc déterministe GELÉ à 14, §62). **LLM/réseaux de neurones
+AUTORISÉS depuis le 06/07/2026** (décision propriétaire — l'ancienne contrainte « aucun
+réseau de neurones » du §1 est LEVÉE). Ils sont branchés en **surcouche opt-in** (agent
+LLM 15ᵉ, `llm_agent.py`, gated `LLM_AGENT_ENABLED`, défaut OFF) : **déterministe d'abord**
+(le banc 14 reste le socle), **fail-safe** (LLM indispo/lent/incohérent → vote ignoré,
+jamais de crash ni de blocage), et surtout **les murs argent de `guards()` restent ABSOLUS
+et déterministes** — un LLM peut influencer la direction/le sizing suggéré, jamais desserrer
+les caps 50/250, le levier ×5, le stop journalier, le kill-switch ou la porte d'edge.
+Tourne sur un VPS Ubuntu (`~/bitget_termux_repo`).
 Branche de travail : `claude/beautiful-heisenberg-c5aoqu`.
 Cadences (§63) : cerveau 1 min (timer dédié bitget-brain), scan ~1 min,
 watchdog 5 min (carte de fraîcheur « rien d'aveugle » §61), notify 15 min,

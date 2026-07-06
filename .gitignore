@@ -66,3 +66,6 @@ xs_paper_journal.jsonl
 .stop_guardian_heartbeat.json
 .watchdog_heal_state.json
 logs/
+
+# Config MCP locale (Claude Code) — chemins absolus VPS, outillage dev, hors runtime bot
+.mcp.json
