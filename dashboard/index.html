@@ -323,6 +323,8 @@
       <span id="nn-badge" style="float:right;letter-spacing:0">—</span></h2>
     <canvas id="nn-map" style="width:100%;height:260px;display:block"></canvas>
     <div class="dim" id="nn-info" style="margin-top:6px;font-size:11px;letter-spacing:0"></div>
+    <div class="dim" style="margin-top:8px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-family:system-ui,sans-serif">Anatomie du réseau <span style="text-transform:none;letter-spacing:0">— poids RÉELLEMENT appris (25→32→32→1) · intensité ∝ |poids| · vert=+ / rouge=− · v<span id="nn-anat-v">?</span></span></div>
+    <canvas id="nn-anat" style="width:100%;height:200px;display:block"></canvas>
   </div>
 
   <div class="cycle" id="cycle">
@@ -1297,6 +1299,7 @@ function renderState(){
     window._VIZ=st.viz||{};window._HR=st.hitrates||{};
     try{ dessineViz(st.viz||{}); }catch(e){}
     try{ dessineReseau(st.neural||{}); }catch(e){}
+    try{ dessineAnatomie(st.nn_anatomie); }catch(e){}
     try{ dessineBord(st.bord||[], st.rdv||[]); }catch(e){}
     try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
     try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
@@ -1531,6 +1534,43 @@ function _nnDraw(ts){
     if(core){ctx.textAlign="center";ctx.fillText(lbl,p.x,p.y-11-7);}
     else{ctx.textAlign="left";ctx.fillText(lbl,p.x+r+4,p.y);}
   });
+}
+
+// ===== anatomie RÉELLE du réseau (§85) : faisceau cumulatif alpha ∝ |poids appris| =====
+let _anatDrawnV=null;
+function dessineAnatomie(an){
+  const cv=$("nn-anat");if(!cv)return;
+  if(!an||!an.W){const ctx=cv.getContext("2d");ctx.clearRect(0,0,cv.width,cv.height);_anatDrawnV=null;return;}
+  if(_anatDrawnV===an.version&&cv.width>0)return;      // redessine seulement au changement de version
+  const dpr=window.devicePixelRatio||1,W=cv.clientWidth||600,H=200;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const ctx=cv.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const sizes=an.layers,pad=70,colW=(W-pad-16)/(sizes.length-1);
+  const ys=sizes.map(n=>{const a=[];for(let i=0;i<n;i++)a.push(10+(H-20)*(n<2?0.5:i/(n-1)));return a;});
+  const xs=sizes.map((_,i)=>pad+colW*i);
+  // ampleur max pour normaliser l'alpha (le halo naît de l'accumulation, pas d'une ligne)
+  let wmax=1e-9;an.W.forEach(m=>m.forEach(r=>r.forEach(v=>{const a=Math.abs(v);if(a>wmax)wmax=a;})));
+  an.W.forEach((M,li)=>{
+    M.forEach((row,j)=>{row.forEach((w,i)=>{
+      const a=Math.abs(w)/wmax;if(a<0.04)return;       // coupe le bruit, garde le faisceau
+      ctx.strokeStyle=(w>=0?"rgba(63,191,127,":"rgba(229,72,77,")+(0.03+0.30*a).toFixed(3)+")";
+      ctx.lineWidth=0.5+1.2*a;
+      ctx.beginPath();ctx.moveTo(xs[li],ys[li][i]);ctx.lineTo(xs[li+1],ys[li+1][j]);ctx.stroke();
+    });});
+  });
+  // nœuds discrets + noms des features d'entrée
+  ctx.font="7.5px ui-monospace,monospace";ctx.textAlign="right";ctx.textBaseline="middle";
+  sizes.forEach((n,li)=>{
+    ys[li].forEach((y,i)=>{
+      ctx.fillStyle=li===0?"#5B9BD5":li===sizes.length-1?"#E5A93D":"#8E8574";
+      ctx.beginPath();ctx.arc(xs[li],y,li===0||li===sizes.length-1?2.4:1.6,0,7);ctx.fill();
+      if(li===0&&an.features&&an.features[i]){ctx.fillStyle="#8E8574";ctx.fillText(an.features[i].slice(0,12),xs[0]-5,y);}
+    });
+  });
+  ctx.fillStyle="#8E8574";ctx.textAlign="center";ctx.font="8px system-ui,sans-serif";
+  ctx.fillText("P(hausse)",xs[xs.length-1],ys[ys.length-1][0]-10);
+  const v=$("nn-anat-v");if(v)v.textContent=an.version!=null?an.version:"?";
+  _anatDrawnV=an.version;
 }
 
 function dessineViz(viz){

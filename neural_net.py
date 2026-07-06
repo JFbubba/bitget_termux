@@ -1067,6 +1067,33 @@ _INPUT_GROUPS = {
 _OVERLAYS = ["smc", "llm"]                            # surcouches opt-in (observation)
 
 
+def anatomy():
+    """ANATOMIE RÉELLE du réseau (§85, dashboard) : les matrices de poids APPRISES
+    du MLP (moyenne des |poids| de l'ensemble, signe du membre 0), compactées pour
+    un rendu « faisceau lumineux » honnête — alpha ∝ |poids| réel, pas un décor.
+    None si modèle indisponible (fail-safe). Versionné (cache côté dashboard)."""
+    models, meta = _load_model()
+    if not models:
+        return None
+    try:
+        import torch
+        cles = [k for k, v in models[0].state_dict().items()
+                if k.endswith("weight") and v.dim() == 2]
+        cles.sort(key=lambda k: int(k.split(".")[1]))
+        couches = []
+        for k in cles:
+            stack = torch.stack([m.state_dict()[k] for m in models])
+            mag = stack.abs().mean(0)                  # ampleur consensuelle de l'ensemble
+            signe = torch.sign(models[0].state_dict()[k])
+            W = (mag * signe)
+            couches.append([[round(float(x), 3) for x in ligne] for ligne in W.tolist()])
+        return {"version": meta.get("version"), "layers": [len(couches[0][0])] +
+                [len(c) for c in couches],
+                "features": FEATURES + EXTRA_FEATURES, "W": couches}
+    except Exception:
+        return None
+
+
 def connectivity_map(symbol="BTCUSDT", votes=None, prediction=None, brain=None, smc=None):
     """Carte de connectivité pour le dashboard : nœuds (éléments) + arêtes (flux de
     données) + activation LIVE. Décrit littéralement le réseau reliant tous les éléments,

@@ -3041,3 +3041,20 @@ Le bloc « Audit IC live » gagne les VOIX OPT-IN (§77) : IC dès ≥ 50 votes,
 compte de votes parlés (constaté : classics 2 593, llm 671 — mesure imminente).
 Les exécutions TP partiels étaient déjà visibles (§82). Serveur : blocs `methodes`
 et `overlay_ic` cachés 60/300 s.
+
+## §85 — Anatomie RÉELLE du réseau au dashboard (l'idée du script matplotlib, version honnête)
+
+Le propriétaire a partagé un script matplotlib « réseau de neurones esthétique »
+(halo cumulatif de milliers de lignes à alpha faible, palette thermique) et demandé
+s'il pouvait améliorer le bot/dashboard. Verdict : tel quel NON — activations
+factices (sin/cos), topologie inventée, image statique : exactement le « faux
+graphe » que §69 a éradiqué. MAIS la TECHNIQUE de rendu est bonne et nous avons les
+vraies données pour la mériter : `neural_net.anatomy()` expose les matrices de
+poids APPRISES du MLP (25→32→32→1 ; ampleur = moyenne |W| de l'ensemble ×5, signe
+du membre 0) et le dashboard les dessine en faisceau cumulatif — alpha ∝ |poids|
+réel, vert=+/rouge=− (sémantique du dépôt, pas de rainbow), noms des 25 features en
+entrée, redessin uniquement au changement de version du modèle (v5 affichée).
+Chaque réentraînement de 04:20 changera donc VISIBLEMENT l'anatomie.
+Obsidian : rien à câbler — docs/ est du markdown pur, le dépôt s'ouvre tel quel
+comme coffre si le propriétaire veut la vue graphe ; le bot, lui, apprend dans ses
+journaux mesurés, pas dans de la prose.
