@@ -261,10 +261,19 @@ def edge_bound(meta, prudent=True):
 def _notify_gate_transition(old_meta, new_meta):
     """Alerte Telegram (best-effort, jamais d'exception) quand la PORTE D'EDGE de la
     16e voix change d'état après un réentraînement : le propriétaire apprend LE JOUR
-    où la voix commence à parler (ou se tait de nouveau) sans surveiller les métas."""
+    où la voix commence à parler (ou se tait de nouveau) sans surveiller les métas.
+    Suit le CRITÈRE CONFIGURÉ (NN_EDGE_GATE prudent/brut) — l'alerte annonce l'état
+    de la porte qui gouverne RÉELLEMENT la voix."""
     try:
-        avant = edge_bound(old_meta or {}, prudent=True)
-        apres = edge_bound(new_meta or {}, prudent=True)
+        mode = "prudent"
+        try:
+            import nn_agent
+            mode = nn_agent._gate_mode()
+        except Exception:
+            pass
+        prudent = mode != "brut"
+        avant = edge_bound(old_meta or {}, prudent=prudent)
+        apres = edge_bound(new_meta or {}, prudent=prudent)
         if avant is None or apres is None:
             return
         ouvre = avant <= 0.0 < apres
@@ -272,13 +281,12 @@ def _notify_gate_transition(old_meta, new_meta):
         if not (ouvre or ferme):
             return
         import telegram_notifier as tn
-        brut = (new_meta or {}).get("wf_edge")
         if ouvre:
-            tn.send_telegram(f"🧠 16e voix (NN) : edge prudent PASSÉ POSITIF ({apres:+.3f} ; "
-                             f"moyenne brute {brut}) — si NN_AGENT_ENABLED=1 elle PARLE désormais "
-                             "dans le consensus (confiance plafonnée, murs argent intacts).")
+            tn.send_telegram(f"🧠 16e voix (NN) : edge {mode} PASSÉ POSITIF ({apres:+.3f}) — "
+                             "si NN_AGENT_ENABLED=1 elle PARLE désormais dans le consensus "
+                             "(confiance plafonnée, murs argent intacts).")
         else:
-            tn.send_telegram(f"🧠 16e voix (NN) : edge prudent repassé ≤ 0 ({apres:+.3f}) — "
+            tn.send_telegram(f"🧠 16e voix (NN) : edge {mode} repassé ≤ 0 ({apres:+.3f}) — "
                              "elle se TAIT de nouveau (porte d'edge).")
     except Exception:
         pass
@@ -739,6 +747,13 @@ def connectivity_map(symbol="BTCUSDT", votes=None, prediction=None, brain=None, 
 # --------------------------------------------------------------------------- #
 def main():
     import sys
+    try:
+        # comme brain_cycle : le cron/CLI n'a pas d'EnvironmentFile — sans ceci les
+        # leviers env (NN_EDGE_GATE, NN_HORIZON_S…) seraient invisibles hors service.
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     args = sys.argv[1:]
     if "--train" in args:
         i = args.index("--train")

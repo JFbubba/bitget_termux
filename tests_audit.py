@@ -7376,11 +7376,16 @@ def test_nn_dataset_hygiene_deadband_trous_et_tri_temporel():
 
 
 def test_nn_agent_sans_edge_reste_muet():
+    import os
     import neural_net
     import nn_agent
     # le dernier entraînement n'a PAS démontré d'edge hors-échantillon -> voix muette,
-    # même si la prédiction brute est très directionnelle (philosophie Kelly=0, §68)
+    # même si la prédiction brute est très directionnelle (philosophie Kelly=0, §68).
+    # Mode de porte FORCÉ à « prudent » : le test ne dépend pas de l'env machine
+    # (un module de la suite peut avoir chargé le fichier d'env via dotenv).
     orig = neural_net.predict
+    old_env = os.environ.pop("NN_EDGE_GATE", None)
+    os.environ["NN_EDGE_GATE"] = "prudent"
     neural_net.predict = lambda symbol, votes=None: {
         "p_up": 0.9, "vote": 0.8, "confidence": 0.8, "val_edge": -0.05, "note": "nn v9"}
     try:
@@ -7393,6 +7398,9 @@ def test_nn_agent_sans_edge_reste_muet():
         assert r2["vote"] == 0.8 and 0 < r2["confidence"] <= 0.5
     finally:
         neural_net.predict = orig
+        os.environ.pop("NN_EDGE_GATE", None)
+        if old_env is not None:
+            os.environ["NN_EDGE_GATE"] = old_env
 
 
 def test_nn_extras_causales_failsafe_et_bornees():
@@ -7468,6 +7476,7 @@ def test_nn_edge_bound_et_porte_configurable():
 
 
 def test_nn_alerte_transition_porte():
+    import os
     import sys
     import types
     import neural_net as nn
@@ -7476,12 +7485,13 @@ def test_nn_alerte_transition_porte():
     stub.send_telegram = lambda msg: sent.append(msg)
     old = sys.modules.get("telegram_notifier")
     sys.modules["telegram_notifier"] = stub
+    old_env = os.environ.pop("NN_EDGE_GATE", None)    # l'alerte suit le critère CONFIGURÉ
     try:
-        # fermée -> ouverte : UNE alerte « passe positif »
+        # mode prudent (défaut) — fermée -> ouverte : UNE alerte « passe positif »
         nn._notify_gate_transition({"wf_edge": -0.01, "wf_edge_se": 0.0},
                                    {"wf_edge": 0.02, "wf_edge_se": 0.005})
-        assert len(sent) == 1 and "POSITIF" in sent[0]
-        # ouverte -> fermée : UNE alerte « se tait »
+        assert len(sent) == 1 and "POSITIF" in sent[0] and "prudent" in sent[0]
+        # ouverte -> fermée (la borne prudente repasse ≤ 0) : UNE alerte « se tait »
         nn._notify_gate_transition({"wf_edge": 0.02, "wf_edge_se": 0.005},
                                    {"wf_edge": 0.01, "wf_edge_se": 0.02})
         assert len(sent) == 2 and "TAIT" in sent[1]
@@ -7489,11 +7499,22 @@ def test_nn_alerte_transition_porte():
         nn._notify_gate_transition({"wf_edge": -0.01, "wf_edge_se": 0.0},
                                    {"wf_edge": -0.02, "wf_edge_se": 0.0})
         assert len(sent) == 2
+        # mode brut : la MÊME paire de métas n'est plus une fermeture (0.01 brut > 0)
+        os.environ["NN_EDGE_GATE"] = "brut"
+        nn._notify_gate_transition({"wf_edge": 0.02, "wf_edge_se": 0.005},
+                                   {"wf_edge": 0.01, "wf_edge_se": 0.02})
+        assert len(sent) == 2                          # pas d'alerte : porte brute inchangée
+        nn._notify_gate_transition({"wf_edge": 0.01, "wf_edge_se": 0.0},
+                                   {"wf_edge": -0.01, "wf_edge_se": 0.0})
+        assert len(sent) == 3 and "brut" in sent[2]    # vraie fermeture brute -> alerte
     finally:
         if old is not None:
             sys.modules["telegram_notifier"] = old
         else:
             sys.modules.pop("telegram_notifier", None)
+        os.environ.pop("NN_EDGE_GATE", None)
+        if old_env is not None:
+            os.environ["NN_EDGE_GATE"] = old_env
 
 
 # ---------- Positions réelles (spot · marge iso/cross · futures) ----------

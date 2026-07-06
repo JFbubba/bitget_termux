@@ -2556,3 +2556,15 @@ devient positif. État câblé :
 État au moment de la note : enabled=True, mode=prudent, edge prudent −0.033 -> la voix
 est consultée mais MUETTE (`nn:sans-edge(-0.033,prudent)`). Elle s'ouvrira d'elle-même
 sur chiffres. Murs argent inchangés : la voix influence le consensus, jamais guards().
+
+## §71 (fin) — Décision propriétaire : porte d'edge en mode BRUT
+
+Le propriétaire a basculé `NN_EDGE_GATE=brut` (levier env, 06/07 après-midi) : la 16e
+voix parle dès que la MOYENNE walk-forward est positive (+0.0015 au moment du passage),
+en assumant explicitement le bruit statistique (se ±0.035). Vérifié live : `nn v3`
+présent dans les voix du cerveau (peek), confiance plafonnée NN_AGENT_CONF_CAP, poids
+fixe borné. Raccords faits dans la foulée : l'ALERTE de transition suit désormais le
+critère CONFIGURÉ (prudent/brut — elle annonce l'état de la porte qui gouverne
+réellement la voix), et la CLI charge dotenv (comme brain_cycle) pour que le cron
+04:20 voie les leviers env. Repasser en `prudent` = une ligne du levier env, effet au
+cycle suivant. Les murs argent restent hors d'atteinte de la voix (guards() absolu).
