@@ -100,6 +100,11 @@ ACCUM_AUTONOMOUS_LIVE = False
 # Garde « meilleur prix » : n'accumule PAS si Bitget cote au-dessus de la médiane
 # cross-exchange de plus de ce % (premium). Évite d'acheter sur un pic propre à Bitget.
 ACCUM_MAX_PREMIUM_PCT = 0.30
+# Confirmation du fill RÉEL (idée #1) : après un achat, re-poll les fills pour enregistrer
+# le montant EFFECTIVEMENT dépensé (limit_ioc peut ne remplir que partiellement).
+ACCUM_CONFIRM_FILL = True                   # False = enregistre le montant demandé (comportement d'avant)
+ACCUM_CONFIRM_FILL_TRIES = 5               # nb de re-polls des fills (les fills peuvent arriver en léger différé)
+ACCUM_CONFIRM_FILL_DELAY_S = 1.0           # délai entre re-polls (s)
 
 # === Porte directionnelle régime-aware (regime_gate.py, lue par journal_scanner) ===
 # Supprime les signaux qui combattent la marée macro : en RISK_OFF, aucun LONG n'est
@@ -166,7 +171,8 @@ FUTURES_FUNDING_TIMING_MIN = 20       # report d'OUVERTURE si un règlement de f
                                       # dans N min et que le côté paierait (§60, SAVOIR §5)  # tripwire : alerte si une position est à < N % de son prix
                                       # de liquidation (marge croisée, positions §47 empilées)
 FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
-FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
+FUTURES_AUTO_RR = 1.5                 # take-profit = distance SL × RR (§68 B : 2.0 -> 1.5, optimum mesuré)
+ATR_TRADE_RR = 1.5                    # RR du plan paper (§68 B) — cohérent avec FUTURES_AUTO_RR
 
 # Jambes cash-and-carry automatiques (carry_auto, §45) — short perp COUVERT par le
 # BTC spot détenu (delta-neutre, levier ×1, sans SL : hedgé). Entrée : ATTRACTIF
@@ -218,3 +224,41 @@ LOOP_INTERVAL_SECONDS = 15 * 60
 SIGNALS_JOURNAL_FILE = "signals_journal.csv"
 OPEN_STATE_FILE = "open_outcomes_state.csv"
 FINAL_OUTCOMES_FILE = "final_outcomes_journal.csv"
+
+# === Agent LLM (15ᵉ agent, OPT-IN) — llm_agent.py, décision propriétaire 06/07/2026 ===
+# Surcouche non-déterministe au banc gelé à 14 (§62). DÉFAUT OFF : tant que
+# LLM_AGENT_ENABLED est False, le cerveau se comporte à l'identique. FAIL-SAFE (LLM
+# indispo/lent/incohérent -> vote ignoré). N'a AUCUN pouvoir sur les murs de guards().
+LLM_AGENT_ENABLED = False                  # interrupteur maître (armer via .env aussi)
+LLM_AGENT_BACKEND = "local"                # "local" = Ollama VPS (rien ne sort) ; "cloud" = OpenRouter
+LLM_AGENT_MODEL_LOCAL = "qwen2.5:7b"       # modèle Ollama local (localhost:11434)
+LLM_AGENT_MODEL_CLOUD = "openai/gpt-5-mini"  # modèle OpenRouter (OPENROUTER_API_KEY dans .env)
+LLM_AGENT_MODEL_GEMINI = "gemini-2.5-flash"  # modèle Google AI Studio direct (backend "gemini", GEMINI_API_KEY)
+LLM_AGENT_GEMINI_THINKING = 0              # budget raisonnement Gemini (0 = coupé -> vote rapide, tient dans max_tokens)
+
+# === Véto de contradiction du cerveau (cognition, idée NERVA) ===
+# Un bloc minoritaire FORT opposé au consensus -> escompte dur la conviction.
+BRAIN_CONTRADICTION_MIN = 2                 # nb d'agents forts opposés déclenchant le véto
+BRAIN_CONTRADICTION_CONF = 0.4             # confiance mini pour compter un opposant
+BRAIN_CONTRADICTION_VOTE = 0.5             # |vote| mini pour compter un opposant
+BRAIN_CONTRADICTION_PRUDENCE = 0.15        # facteur de prudence en cas de contradiction (0 = blocage net)
+# Gouvernance « WATCH » (idée NERVA) : experts qui votent/s'affichent mais poids 0 en LIVE
+# (ne peuvent pas influencer un ordre réel tant qu'ils ne sont pas validés). Liste CSV.
+BRAIN_WATCH_AGENTS = ""                     # ex. "simons,savant" -> ces experts en observation seule
+FUTURES_STRESS_SHOCK_PCT = 10              # #5 : choc de stress pré-trade (% adverse sur le livre)
+
+# === Agent RISQUE annonces Bitget (bitget_announcements.py, idée repo Bitget/radar) ===
+# Véto SOUPLE à l'ouverture futures : on n'ouvre pas sur un symbole en delisting/suspension.
+ANNOUNCE_VETO_ENABLED = 1                   # 1 = véto actif ; 0 = désactivé
+ANNOUNCE_VETO_THRESHOLD = 70               # score d'impact 0..100 déclenchant le véto (delisting=80, suspension=75)
+ANNOUNCE_TTL_S = 1800                       # cache des annonces (30 min)
+ANNOUNCE_TIMEOUT_S = 6                      # timeout réseau par requête (fail-open au-delà)
+LLM_AGENT_TIMEOUT_S = 8.0                  # au-delà -> vote ignoré (ne ralentit pas le cerveau)
+LLM_AGENT_MAX_TOKENS = 800                 # budget sortie cloud (modèles thinking : marge de raisonnement)
+LLM_AGENT_CONF_CAP = 0.5                   # plafond de confiance (ne domine pas le banc)
+LLM_AGENT_WEIGHT = 0.5                     # poids FIXE dans l'agrégation (non appris, non persisté)
+LLM_AGENT_SYMBOLS = ""                      # liste blanche (ex. "BTCUSDT") ; vide = TOUS les tokens de l'univers
+LLM_AGENT_TTL_S = 900                       # vote LLM caché/symbole (15 min) : couvre tout l'univers sans exploser le quota
+LLM_AGENT_KEEPALIVE = "30m"                 # Ollama : garde qwen en mémoire entre cycles (évite le rechargement swap)
+LLM_AGENT_DAILY_BUDGET_USD = 0.50          # #3 : plafond $ / jour des appels LLM CLOUD (dépassé -> plus d'appel cloud du jour)
+LLM_AGENT_DAILY_MAX_CALLS = 2000           # #3 : plafond nb d'appels cloud / jour (borne les modèles gratuits type Gemini free-tier)

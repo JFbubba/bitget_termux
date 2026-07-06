@@ -89,13 +89,28 @@ def daily_spend_breach(promise=None, now=None, ledger=None):
     return (spent > promise, spent, promise)
 
 
-def _record_real_buy(amount_usdt, oid, now=None, extra=None):
+def _record_real_buy(amount_usdt, oid, now=None, extra=None, fill=None):
     """`extra` (audit P2) : contexte de décision journalisé AVEC l'achat (score
     d'opportunité, prix, premium) — la revue J+14 doit pouvoir relier chaque achat
-    réel à ce que le moteur voyait. Champs numériques/str uniquement, best-effort."""
+    réel à ce que le moteur voyait. Champs numériques/str uniquement, best-effort.
+
+    `fill` (idée #1) : fill RÉEL confirmé {amount_usdt, size_btc, price_avg}. En
+    limit_ioc un ordre peut ne remplir que PARTIELLEMENT — on enregistre alors le
+    montant EFFECTIVEMENT dépensé (le cap journalier et le prix de revient comptent
+    le réel, plus le demandé). Sans confirmation -> on garde le demandé (conservateur :
+    compte le plein montant contre le cap, jamais de sous-comptage)."""
     now = time.time() if now is None else now
     led = _load_real()
-    row = {"ts": now, "amount_usdt": float(amount_usdt), "clientOid": oid, "symbol": SYMBOL}
+    montant = float(amount_usdt)
+    row = {"ts": now, "amount_usdt": montant, "clientOid": oid, "symbol": SYMBOL}
+    if fill and isinstance(fill, dict) and (fill.get("amount_usdt") or 0) > 0:
+        row["amount_usdt"] = round(float(fill["amount_usdt"]), 6)   # RÉEL dépensé (écrase le demandé)
+        row["requested_usdt"] = montant
+        row["filled_btc"] = fill.get("size_btc")
+        row["fill_price"] = fill.get("price_avg")
+        row["fill_confirmed"] = True
+    else:
+        row["fill_confirmed"] = False                               # montant = demandé (non confirmé)
     for k, v in (extra or {}).items():
         if isinstance(v, (int, float, str)) and k not in row:
             row[k] = round(v, 6) if isinstance(v, float) else v
@@ -246,6 +261,47 @@ def _best_quote(symbol=SYMBOL):
         return None
 
 
+def _confirm_fill(oid, tries=None, delay=None, sleeper=None):
+    """Idée #1 : confirme le fill RÉEL d'un ordre en re-pollant les fills spot pour cet
+    orderId (les fills peuvent arriver avec un léger retard). Retourne le groupe agrégé
+    {amount_usdt, size_btc, price_avg} ou None. FAIL-SAFE : n'ordonne rien, ne lève
+    jamais (l'ordre est DÉJÀ passé — ceci ne fait que constater ce qui a été rempli)."""
+    tries = int(_cfg("ACCUM_CONFIRM_FILL_TRIES", 5)) if tries is None else tries
+    delay = float(_cfg("ACCUM_CONFIRM_FILL_DELAY_S", 1.0)) if delay is None else delay
+    sleeper = sleeper or time.sleep
+    try:
+        import accum_reconcile as ar
+    except Exception:
+        return None
+    for i in range(max(1, tries)):
+        try:
+            for g in ar.group_fills(ar.fetch_fills(limit=100)) or []:
+                if str(g.get("order_id")) == str(oid) and (g.get("amount_usdt") or 0) > 0:
+                    return {"amount_usdt": g.get("amount_usdt"), "size_btc": g.get("size_btc"),
+                            "price_avg": g.get("price_avg")}
+        except Exception:
+            pass
+        if i < tries - 1:
+            sleeper(delay)
+    return None
+
+
+def _parse_error(out):
+    """Idée #2 : extrait {code, msg} de la réponse Bitget en cas d'échec, pour un
+    diagnostic clair. PAS de retry auto sur un ACHAT réel (risque de double ordre) —
+    on se contente de rendre l'erreur lisible et actionnable pour l'appelant/journal."""
+    try:
+        import re
+        m = re.search(r'"code"\s*:\s*"?(\d+)"?', out or "")
+        mm = re.search(r'"msg"\s*:\s*"([^"]+)"', out or "")
+        code = m.group(1) if m else None
+        if code and code != "00000":
+            return {"code": code, "msg": (mm.group(1)[:200] if mm else "")}
+    except Exception:
+        pass
+    return None
+
+
 def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spent=None, style=None,
             extra=None):
     """Achat spot BTC réel SI confirm=True ET toutes les gardes passent. Sinon DRY
@@ -269,10 +325,19 @@ def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spe
     compact = (out or "").replace(" ", "").lower()
     success = (bool(out) and '"ok":false' not in compact and "error" not in compact
                and ("orderid" in compact or '"data"' in compact or '"ok":true' in compact))
+    result = {"ok": True, "executed": success, "preview": preview, "response": out,
+              "clientOid": oid}
     if success:
-        _record_real_buy(amount_usdt, oid, now, extra=extra)
-    return {"ok": True, "executed": success, "preview": preview, "response": out,
-            "clientOid": oid}
+        # #1 : constate le fill RÉEL (limit_ioc partiel) et enregistre le réel dépensé.
+        fill = _confirm_fill(oid) if bool(_cfg("ACCUM_CONFIRM_FILL", True)) else None
+        _record_real_buy(amount_usdt, oid, now, extra=extra, fill=fill)
+        if fill:
+            result["fill"] = fill
+    else:
+        err = _parse_error(out)                # #2 : erreur Bitget lisible (pas de retry auto)
+        if err:
+            result["error"] = err
+    return result
 
 
 def main():

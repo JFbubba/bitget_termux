@@ -677,6 +677,193 @@ def test_risk_caps_dust_stop():
     assert "x" in extra
 
 
+def test_futures_leverage_hard_wall_uncrossable():
+    """Mur DUR levier ×5 : ni .env ni config ne peuvent le DÉPASSER (l'ABAISSER, oui).
+    Régression du finding #1 : le levier utilisait _limit (sans plafond absolu) au
+    lieu de _capped, donc MANDATE_MAX_LEVERAGE=20 poussait le mur effectif à ×20."""
+    import os
+    import futures_executor as fe
+    old = os.environ.get("MANDATE_MAX_LEVERAGE")
+    try:
+        # 1) env tente ×20 -> plafonné au mur absolu ×5
+        os.environ["MANDATE_MAX_LEVERAGE"] = "20"
+        assert fe._capped("MANDATE_MAX_LEVERAGE", 5.0, fe.FUT_ABS_MAX_LEVERAGE) == 5.0
+        assert fe.build_futures_order("t", "long", 50, 20)["leverage"] == 5.0
+        ok, reasons = fe.guards("t", 50, 20, live=True, autonomous=True,
+                                futures_live=True, kill=False, edge_override=1)
+        assert any("levier" in r and "mur dur" in r for r in reasons)  # ×20 rejeté
+        # 2) abaissement TOUJOURS permis : env ×3 -> mur effectif ×3
+        os.environ["MANDATE_MAX_LEVERAGE"] = "3"
+        assert fe._capped("MANDATE_MAX_LEVERAGE", 5.0, fe.FUT_ABS_MAX_LEVERAGE) == 3.0
+        assert fe.build_futures_order("t", "long", 50, 5)["leverage"] == 3.0
+    finally:
+        if old is None:
+            os.environ.pop("MANDATE_MAX_LEVERAGE", None)
+        else:
+            os.environ["MANDATE_MAX_LEVERAGE"] = old
+
+
+# ---------- agent LLM (15ᵉ agent OPT-IN, §06/07) : opt-in, fail-safe, borné ----------
+
+def test_llm_agent_off_is_neutral():
+    """OFF (défaut) -> vote neutre de confiance NULLE, ignoré par aggregate."""
+    import llm_agent
+    old = llm_agent.enabled
+    try:
+        llm_agent.enabled = lambda: False
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        llm_agent.enabled = old
+
+
+def test_llm_agent_failsafe_on_backend_error():
+    """Backend qui lève -> _produce_vote LÈVE (permet le stale-while-error du cache) et
+    agent() reste NEUTRE (fail-safe, jamais d'exception propagée)."""
+    import llm_agent
+    import runtime_cache as rc
+    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local,
+           llm_agent._cfg, llm_agent._knob, rc.get)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._snapshot = lambda s: {"symbol": s, "last": 1.0}
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        llm_agent._cfg = lambda n, d: d
+        def boom(*a, **k):
+            raise RuntimeError("ollama down (simulé)")
+        llm_agent._call_local = boom
+        try:
+            llm_agent._produce_vote("BTCUSDT")
+            assert False, "devait lever"
+        except RuntimeError:
+            pass
+        # cache émulé sans disque : sur échec, fallback neutre
+        rc.get = lambda key, ttl, fetch, fallback=None, now=None: (
+            fetch() if False else fallback)
+        r = llm_agent.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local,
+         llm_agent._cfg, llm_agent._knob, rc.get) = old
+
+
+def test_llm_agent_parse_and_conf_cap():
+    """Réponse valide -> parsée ; confiance PLAFONNÉE (ne domine pas le banc).
+    Réponses hors-bornes / bruit -> rejetées (None). Testé sur _produce_vote (hors cache)."""
+    import llm_agent
+    assert llm_agent._parse('{"vote": 0.8, "confidence": 0.9, "why": "momentum"}') == (0.8, 0.9, "momentum")
+    assert llm_agent._parse('bla {"vote": -0.5, "confidence": 0.3} fin')[:2] == (-0.5, 0.3)
+    assert llm_agent._parse('{"vote": 2, "confidence": 0.5}') is None       # vote hors [-1,1]
+    assert llm_agent._parse('{"vote": 0.5, "confidence": 9}') is None       # conf hors [0,1]
+    assert llm_agent._parse("pas de json") is None
+    old = (llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg, llm_agent._knob)
+    try:
+        llm_agent._snapshot = lambda s: {"symbol": s}
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        llm_agent._cfg = lambda n, d: {"LLM_AGENT_CONF_CAP": 0.5}.get(n, d)
+        llm_agent._call_local = lambda *a, **k: '{"vote": 1.0, "confidence": 1.0, "why": "x"}'
+        r = llm_agent._produce_vote("BTCUSDT")
+        assert r["vote"] == 1.0 and r["confidence"] == 0.5                  # 1.0 plafonné à 0.5
+    finally:
+        (llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg, llm_agent._knob) = old
+
+
+def test_llm_agent_gemini_backend_routing():
+    """Backend 'gemini' -> route vers Google AI Studio direct, parse le vote, plafonne
+    la confiance. Testé sur _produce_vote (hors cache)."""
+    import llm_agent
+    old = (llm_agent._snapshot, llm_agent._knob, llm_agent._call_gemini, llm_agent._cfg)
+    try:
+        llm_agent._snapshot = lambda s: {"symbol": s}
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "gemini"}.get(n, d)
+        llm_agent._cfg = lambda n, d: d
+        seen = {}
+        def fake_gemini(prompt, model, timeout):
+            seen["model"] = model
+            return '{"vote": -0.6, "confidence": 0.9, "why": "baisse"}'
+        llm_agent._call_gemini = fake_gemini
+        r = llm_agent._produce_vote("BTCUSDT")
+        assert r["vote"] == -0.6 and r["confidence"] == 0.5      # conf plafonnée à 0.5
+        assert "gemini" in r["note"] and seen["model"] == "gemini-2.5-flash"
+    finally:
+        (llm_agent._snapshot, llm_agent._knob, llm_agent._call_gemini, llm_agent._cfg) = old
+
+
+def test_llm_agent_caches_per_symbol():
+    """agent() passe par runtime_cache avec une clé PAR SYMBOLE + le TTL configuré :
+    throttle du quota fournisseur (1 appel LLM / symbole / TTL, pas à chaque cycle 1 min).
+    Permet de couvrir TOUT l'univers sans exploser le quota Gemini."""
+    import llm_agent
+    import runtime_cache as rc
+    old = (llm_agent.enabled, llm_agent._cfg, llm_agent._knob, llm_agent._produce_vote, rc.get)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._cfg = lambda n, d: 900 if n == "LLM_AGENT_TTL_S" else d
+        llm_agent._knob = lambda n, d: d                          # liste blanche vide -> tous symboles
+        llm_agent._produce_vote = lambda s: {"vote": 0.4, "confidence": 0.3, "note": "x"}
+        seen = {}
+        def fake_get(key, ttl, fetch, fallback=None, now=None):
+            seen["key"], seen["ttl"] = key, ttl
+            return fetch()
+        rc.get = fake_get
+        r = llm_agent.agent("ethusdt")
+        assert seen["key"] == "llm_vote_ETHUSDT" and seen["ttl"] == 900
+        assert r["vote"] == 0.4                                   # tout symbole voté (plus de restriction BTC)
+    finally:
+        (llm_agent.enabled, llm_agent._cfg, llm_agent._knob, llm_agent._produce_vote, rc.get) = old
+
+
+def test_llm_cost_budget_and_ledger():
+    """#3 : budget & ledger de coût LLM cloud. DEUX plafonds (coût $ ET nb d'appels/jour)."""
+    import json
+    import pathlib
+    import tempfile
+    import llm_cost as lc
+    day = lc._day()
+    rows = [{"day": day, "cost_usd": 0.02}, {"day": day, "cost_usd": 0.03},
+            {"day": day - 1, "cost_usd": 9.0}]                 # hier -> ignoré
+    cost, n = lc.today(ledger=rows)
+    assert round(cost, 4) == 0.05 and n == 2
+    assert lc.budget_ok(ledger=rows) is True                   # sous les défauts (0.50$ / 2000)
+    assert lc.budget_ok(ledger=[{"day": day, "cost_usd": 1.0}]) is False   # coût dépassé
+    assert lc.budget_ok(ledger=[{"day": day, "cost_usd": 0.0}] * 2001) is False  # nb appels dépassé
+    old = lc.LEDGER
+    try:
+        lc.LEDGER = pathlib.Path(tempfile.mkdtemp()) / "led.jsonl"
+        lc.record("gemini", "gemini-2.5-flash", tokens=120, cost_usd=0.0)
+        line = json.loads(lc.LEDGER.read_text().splitlines()[-1])
+        assert line["backend"] == "gemini" and line["tokens"] == 120 and line["day"] == day
+    finally:
+        lc.LEDGER = old
+
+
+def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():
+    """Banc DÉTERMINISTE inchangé quand LLM OFF ; poids LLM fixe/borné + exclu de
+    l'apprentissage quand ON (le banc 14 reste gelé, §62)."""
+    import swarm_brain as sb
+    # identité quand pas de LLM dans les votes
+    w = {"orderflow": 1.0, "macro": 1.2}
+    assert sb._with_llm_weight(w, {"orderflow": {}}) == w
+    # poids LLM injecté, borné à BRAIN_WEIGHT_MAX, et absent des poids appris/persistés
+    aw = sb._with_llm_weight(w, {"orderflow": {}, "llm": {"vote": 1, "confidence": 0.5}})
+    assert aw["llm"] <= sb.BRAIN_WEIGHT_MAX and "llm" not in w
+    # _record n'enregistre PAS le vote LLM (apprentissage sur les 14 seulement)
+    import tempfile
+    from pathlib import Path
+    old = (sb.LOG_FILE, sb.ROOT)
+    try:
+        tmp = Path(tempfile.mkdtemp())
+        sb.LOG_FILE = tmp / "brain_log.json"
+        sb.ROOT = tmp                                # append_jsonl best-effort -> tmp, pas le dépôt
+        votes = {"orderflow": {"vote": 0.5}, "llm": {"vote": 0.9}}
+        sb._record("BTCUSDT", votes, {"consensus": 0.5}, 100.0)
+        import json
+        rec = json.loads(sb.LOG_FILE.read_text())[-1]["votes"]
+        assert "orderflow" in rec and "llm" not in rec
+    finally:
+        (sb.LOG_FILE, sb.ROOT) = old
+
+
 # ---------- cerveau (essaim d'agents) ----------
 
 def test_brain_aggregate_bias_and_consensus():
@@ -1249,6 +1436,150 @@ def test_brain_cognition_groupthink():
     mixed = {"a": {"vote": 0.8, "confidence": 0.8}, "b": {"vote": -0.4, "confidence": 0.8}}
     cog2 = sb.cognition(mixed, {"a": 1.0, "b": 1.0}, 0.2)
     assert cog2["groupthink"] is False and cog2["prudence"] == 1.0
+
+
+def test_brain_cognition_contradiction_veto():
+    """Véto de contradiction (idée NERVA) : un bloc minoritaire FORT opposé au consensus
+    escompte DUR la conviction, même quand le consensus semble décidé."""
+    import swarm_brain as sb
+    # consensus LONG décidé, mais 2 agents FORTS votent short -> contradiction -> prudence basse
+    votes = {"a": {"vote": 0.9, "confidence": 0.9}, "b": {"vote": 0.8, "confidence": 0.9},
+             "c": {"vote": 0.85, "confidence": 0.9},
+             "x": {"vote": -0.7, "confidence": 0.6}, "y": {"vote": -0.8, "confidence": 0.7}}
+    cog = sb.cognition(votes, {}, 0.5)
+    assert cog["contradiction"] is True and cog["n_contre"] == 2 and cog["prudence"] <= 0.15
+    # un SEUL opposant fort -> pas de contradiction (seuil = 2)
+    cog2 = sb.cognition({"a": {"vote": 0.9, "confidence": 0.9}, "b": {"vote": 0.8, "confidence": 0.9},
+                         "x": {"vote": -0.7, "confidence": 0.6}}, {}, 0.5)
+    assert cog2["contradiction"] is False and cog2["prudence"] == 1.0
+    # opposants FAIBLES (conf/|vote| sous seuils) -> non comptés
+    cog3 = sb.cognition({"a": {"vote": 0.9, "confidence": 0.9},
+                         "x": {"vote": -0.3, "confidence": 0.3}, "y": {"vote": -0.2, "confidence": 0.2}}, {}, 0.5)
+    assert cog3["contradiction"] is False
+
+
+def test_bitget_announcements_scoring_and_veto():
+    """Agent annonces (idée repo Bitget) : barème déterministe + véto delisting/suspension.
+    FAIL-OPEN si l'API est injoignable. Fonctions pures testées, fetch mocké (hermétique)."""
+    import bitget_announcements as ba
+    # barème : delisting > suspension > listing ; ajustements par mots-clés
+    assert ba.score_announcement({"type": "delisting", "title": "x"}) == 80
+    assert ba.score_announcement({"type": "listing", "title": "x"}) == 30
+    assert ba.score_announcement({"type": "suspension", "title": "emergency halt"}) == min(100, 75 + 15 + 12 + 12)
+    assert ba.score_announcement("pas un dict") == 0
+    # classification depuis le titre
+    assert ba.classify("Bitget Will Delist XRPUSDT") == "delisting"
+    assert ba.classify("Suspension of ABC Trading") == "suspension"
+    assert ba.classify("System Maintenance Notice") == "maintenance"
+    # extraction de symboles
+    assert "XRPUSDT" in ba.symbols_in("Bitget Will Delist XRPUSDT on 2026")
+    # véto : annonce delisting sur XRP -> XRP bloqué, BTC non. Fetch mocké.
+    old = ba.fetch_announcements
+    try:
+        ba.fetch_announcements = lambda: [{"title": "Bitget Will Delist XRPUSDT", "type": "delisting"}]
+        assert ba.symbol_blocked("XRPUSDT") is True
+        assert ba.symbol_blocked("BTCUSDT") is False
+        # fail-open : fetch qui lève -> symbol_risk 0 -> pas de véto
+        def boom():
+            raise RuntimeError("API annonces down")
+        ba.fetch_announcements = boom
+        assert ba.symbol_risk("XRPUSDT") == 0 and ba.symbol_blocked("XRPUSDT") is False
+    finally:
+        ba.fetch_announcements = old
+
+
+def test_brain_watch_governance():
+    """#4 (idée NERVA) : un expert en WATCH vote/s'affiche mais son poids est ZÉRO en LIVE
+    -> ne peut pas influencer un ordre réel tant qu'il n'est pas validé."""
+    import os
+    import swarm_brain as sb
+    old = sb._cfg
+    had = "BRAIN_WATCH_AGENTS" in os.environ
+    saved = os.environ.pop("BRAIN_WATCH_AGENTS", None)          # hermétique : l'env est prioritaire
+    try:
+        w = {"orderflow": 1.0, "macro": 1.2, "simons": 0.8, "trend": 1.0}
+        # chemin CONFIG (env absent) : _cfg fournit la liste
+        sb._cfg = lambda n, d: "macro,simons" if n == "BRAIN_WATCH_AGENTS" else d
+        aw = sb._apply_watch(w)
+        assert aw["macro"] == 0.0 and aw["simons"] == 0.0        # WATCH -> poids 0
+        assert aw["orderflow"] == 1.0 and aw["trend"] == 1.0     # validés inchangés
+        sb._cfg = lambda n, d: d                                 # liste vide -> identité
+        assert sb._apply_watch(w) == w
+        # chemin ENV (prioritaire sur config) : §68 élagage live
+        os.environ["BRAIN_WATCH_AGENTS"] = "orderflow"
+        aw2 = sb._apply_watch(w)
+        assert aw2["orderflow"] == 0.0 and aw2["macro"] == 1.2   # env gagne
+    finally:
+        sb._cfg = old
+        os.environ.pop("BRAIN_WATCH_AGENTS", None)
+        if had:
+            os.environ["BRAIN_WATCH_AGENTS"] = saved
+
+
+def test_futures_report_stress_book():
+    """#5 (idée Jasmine) : stress conservateur — un choc adverse franchit-il le stop journalier ?"""
+    import futures_report as fr
+    r = fr.stress_book(100, 200, 10, stop_pct=5)   # perte 10$ ; stop 5% de 200 = 10$ -> breach
+    assert r["perte_usdt"] == 10.0 and r["equity_apres"] == 190.0 and r["breach_stop"] is True
+    r2 = fr.stress_book(20, 200, 10, stop_pct=5)   # perte 2$ < 10$ -> pas de breach
+    assert r2["breach_stop"] is False
+    assert fr.stress_book("x", None, 10)["breach_stop"] is None   # illisible -> pas de crash
+
+
+def test_data_guards_quality():
+    """#7 (idées arbitrage-bot + Jasmine) : quote saine, série exploitable, cap par liquidité."""
+    import data_guards as dg
+    assert dg.quote_valid(100, 101) is True
+    assert dg.quote_valid(101, 100) is False        # book croisé
+    assert dg.quote_valid(0, 100) is False and dg.quote_valid("x", 1) is False
+    assert dg.quote_fresh(1000, 2500) is True and dg.quote_fresh(9000, 2500) is False
+    assert dg.series_ok([100, 101, 99, 102]) is True
+    assert dg.series_ok([100, None, 99]) is False
+    assert dg.series_ok([100, 300]) is False        # +200% > 80% -> corrompu
+    assert dg.series_ok([100]) is False             # trop court (min_len 2)
+    assert dg.cap_by_liquidity(50, 100, 0.3) == 30.0
+    assert dg.cap_by_liquidity(50, 100, 0) == 50.0  # size 0 -> cap (jamais d'infini)
+
+
+def test_situation_memory_recall_and_reflection():
+    """#6 (idée 111/TradingAgents) : mémoire de situations — similarité Jaccard, recall des
+    situations proches, expectancy_hint advisory (None si trop peu d'échantillons)."""
+    import json
+    import pathlib
+    import tempfile
+    import situation_memory as sm
+    assert sm.similarity({"a=1", "b=2"}, {"a=1", "b=2"}) == 1.0
+    assert round(sm.similarity({"a=1", "b=2"}, {"a=1", "c=3"}), 3) == round(1 / 3, 3)
+    lf = sorted(sm.tokens({"bias": "long", "force": "fort"}))
+    sf = sorted(sm.tokens({"bias": "short", "force": "fort"}))
+    store = [{"tokens": lf, "outcome": 1}, {"tokens": lf, "outcome": 1},
+             {"tokens": lf, "outcome": -1}, {"tokens": sf, "outcome": -1}]
+    rec = sm.recall({"bias": "long", "force": "fort"}, store=store)
+    assert len(rec) == 3 and all(r["sim"] == 1.0 for r in rec)   # 'short fort' (sim 1/3) exclu
+    hint = sm.expectancy_hint({"bias": "long", "force": "fort"}, store=store)
+    assert hint["n"] == 3 and round(hint["hint"], 3) == round((1 + 1 - 1) / 3, 3)
+    assert sm.expectancy_hint({"bias": "neutre"}, store=store) is None   # 0 proche -> prudence
+    p = pathlib.Path(tempfile.mkdtemp()) / "mem.jsonl"
+    sm.record({"bias": "long"}, 1.0, path=p)
+    assert json.loads(p.read_text().splitlines()[-1])["outcome"] == 1.0
+
+
+def test_brain_agent_invalidation_contract():
+    """#8 (idée NERVA) : contrat d'agent enrichi — un vote avec invalid_if est NEUTRALISÉ
+    (confidence 0) si le prix COURANT le viole (stop-out de signal) ; evidence préservé."""
+    import swarm_brain as sb
+    votes = {
+        "technicals": {"vote": 0.6, "confidence": 0.7, "note": "long",
+                       "invalid_if": {"below": 60000}, "evidence": ["ema50=60000"]},
+        "short_a": {"vote": -0.5, "confidence": 0.8, "note": "short", "invalid_if": {"above": 65000}},
+        "plain": {"vote": 0.3, "confidence": 0.5, "note": "x"},
+    }
+    out = sb._apply_invalidations(votes, 59000)      # 59000 < 60000 -> long invalidé
+    assert out["technicals"]["confidence"] == 0.0 and "[invalidé]" in out["technicals"]["note"]
+    assert out["technicals"]["evidence"] == ["ema50=60000"]   # preuve préservée
+    assert out["short_a"]["confidence"] == 0.8       # 59000 < 65000 -> short pas invalidé
+    assert out["plain"] == votes["plain"]            # pas d'invalid_if -> inchangé
+    assert sb._apply_invalidations(votes, None) == votes     # prix illisible -> identité (fail-safe)
 
 def test_brain_read_attaches_cognition():
     import swarm_brain as sb
@@ -4065,6 +4396,46 @@ def test_spot_executor_record_extra_contexte():
             se.REAL_LEDGER = orig
 
 
+def test_spot_executor_fill_confirmation():
+    """#1 : sur un achat réussi, execute() confirme le fill RÉEL et enregistre le montant
+    EFFECTIVEMENT dépensé (limit_ioc peut ne remplir que partiellement), pas le demandé.
+    Sans confirmation -> conservateur (montant demandé). Hermétique (ledger + _confirm_fill mockés)."""
+    import tempfile
+    import pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se._confirm_fill)
+    ok_runner = lambda c: '{"code":"00000","data":{"orderId":"O1"}}'   # noqa: E731
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            # fill PARTIEL : demandé 5 $, rempli 3.2 $ / 0.00005 BTC
+            se._confirm_fill = lambda oid, **k: {"amount_usdt": 3.2, "size_btc": 0.00005, "price_avg": 64000.0}
+            r = se.execute(5.0, confirm=True, runner=ok_runner, balance=100, spent=0, now=1_000_000)
+            assert r["executed"] is True and r.get("fill", {}).get("amount_usdt") == 3.2
+            b = se._load_real()["buys"][-1]
+            assert b["amount_usdt"] == 3.2 and b["requested_usdt"] == 5.0   # RÉEL, pas le demandé
+            assert b["fill_confirmed"] is True and b["filled_btc"] == 0.00005
+            # sans confirmation -> montant demandé (conservateur : jamais de sous-comptage du cap)
+            se._confirm_fill = lambda oid, **k: None
+            se.execute(4.0, confirm=True, runner=ok_runner, balance=100, spent=0, now=1_000_000)
+            b2 = se._load_real()["buys"][-1]
+            assert b2["amount_usdt"] == 4.0 and b2["fill_confirmed"] is False
+        finally:
+            (se.REAL_LEDGER, se._confirm_fill) = orig
+
+
+def test_spot_executor_error_parsed():
+    """#2 : une réponse d'erreur Bitget devient result['error'] {code, msg} LISIBLE
+    (pas de retry auto sur un achat réel -> pas de double ordre)."""
+    import spot_executor as se
+    assert se._parse_error('{"code":"40762","msg":"balance not enough"}') == {"code": "40762", "msg": "balance not enough"}
+    assert se._parse_error('{"code":"00000","data":{}}') is None          # succès -> pas d'erreur
+    assert se._parse_error("pas du json") is None
+    r = se.execute(5.0, confirm=True, runner=lambda c: '{"code":"40762","msg":"insufficient"}',
+                   balance=100, spent=0, now=1_000_000)
+    assert r["executed"] is False and r["error"]["code"] == "40762"
+
+
 # ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
 
 def test_carry_transitions_attractif_front_montant():
@@ -5577,6 +5948,25 @@ def test_futures_equity_intraday_journal_et_courbe():
         tmp.unlink(missing_ok=True)
 
 
+def test_futures_report_payoff_profile():
+    """#3 : la FORME de l'edge (pas que le PnL). Fragile = gros win-rate, gains
+    minuscules (une perte efface tout) -> ne pas scaler ; perdant = espérance ≤ 0."""
+    import futures_report as fr
+    assert fr.payoff_profile([])["shape"] == "n/a"
+    # 8 gains de +0.1, 2 pertes de −1.0 : win 80% mais payoff 0.1 -> FRAGILE, espérance négative
+    fragile = [{"cTime": 1000, "profit": "0.1"} for _ in range(8)] + \
+              [{"cTime": 1000, "profit": "-1.0"} for _ in range(2)]
+    r = fr.payoff_profile(fragile)
+    assert r["win_rate"] == 0.8 and r["expectancy"] < 0 and r["shape"] == "perdant"
+    # 6 gains +2, 4 pertes −0.5 : équilibré, espérance positive -> ROBUSTE
+    robuste = [{"cTime": 1000, "profit": "2"} for _ in range(6)] + \
+              [{"cTime": 1000, "profit": "-0.5"} for _ in range(4)]
+    r2 = fr.payoff_profile(robuste)
+    assert r2["expectancy"] > 0 and r2["payoff"] == 4.0 and r2["shape"] == "robuste"
+    # borne temporelle respectée (comme resume_fills)
+    assert fr.payoff_profile([{"cTime": 1000, "profit": "5"}], depuis_ts=3_000)["n"] == 0
+
+
 def test_futures_report_somme_funding():
     import futures_report as fr
     rows = [{"businessType": "contract_settle_fee", "cTime": 2_000_000, "amount": "0.0005"},
@@ -6728,6 +7118,447 @@ def test_stop_guardian_sd_notify_sans_socket():
     finally:
         if had:
             os.environ["NOTIFY_SOCKET"] = old
+
+
+# ---------- Smart Money Concepts (§64) ----------
+
+def _smc_candle(ts, o, h, l, c, v=1.0):
+    return [ts, o, h, l, c, v]
+
+
+def test_smc_bullish_fvg_detected():
+    import smc
+    # trou haussier net : low[t]=104 > high[t-2]=101, taille au-dessus du filtre ATR
+    candles = [
+        _smc_candle(0, 100, 101, 99, 100),
+        _smc_candle(900, 101, 106, 100, 105),   # impulsion
+        _smc_candle(1800, 105, 108, 104, 107),
+    ]
+    gaps = smc.fair_value_gaps(candles)
+    assert len(gaps) == 1
+    g = gaps[0]
+    assert g["type"] == "bull"
+    assert g["entry"] == 101 and g["invalidation"] == 100
+    assert g["filled"] is False
+
+
+def test_smc_fvg_size_filter_rejects_noise():
+    import smc
+    # micro-trou (1 centime) : doit être rejeté par le filtre de taille ATR
+    candles = [
+        _smc_candle(0, 100, 100.5, 99.5, 100),
+        _smc_candle(900, 100, 105, 100, 104),
+        _smc_candle(1800, 104, 105, 100.51, 104.8),  # low 100.51 > high 100.5 : trou de 0.01
+    ]
+    assert smc.fair_value_gaps(candles) == []
+
+
+def test_smc_swing_high_fractal():
+    import smc
+    highs = [10, 11, 15, 11, 10]
+    candles = [_smc_candle(i * 900, h - 1, h, 9, h - 0.5) for i, h in enumerate(highs)]
+    sw = smc.swings(candles)
+    assert any(s["type"] == "high" and s["index"] == 2 and s["price"] == 15 for s in sw)
+    assert not any(s["type"] == "low" for s in sw)  # lows tous égaux -> aucun swing low
+
+
+def test_smc_kill_zone_new_york_time():
+    import smc
+    from datetime import datetime, timezone
+    # juillet 2026 -> New York = EDT (UTC-4). 08:00 UTC = 04:00 NY -> London KZ.
+    london = smc.kill_zone(datetime(2026, 7, 6, 8, 0, tzinfo=timezone.utc))
+    assert london["zone"] == "london" and london["tradeable"] is True
+    # 12:00 UTC = 08:00 NY -> New York KZ, hors fenêtre Silver Bullet.
+    ny = smc.kill_zone(datetime(2026, 7, 6, 12, 0, tzinfo=timezone.utc))
+    assert ny["zone"] == "newyork" and ny["silver_bullet"] is False
+    # 18:00 UTC = 14:00 NY -> hors KZ mais fenêtre Silver Bullet (14-15h).
+    sb = smc.kill_zone(datetime(2026, 7, 6, 18, 0, tzinfo=timezone.utc))
+    assert sb["zone"] is None and sb["tradeable"] is False and sb["silver_bullet"] is True
+
+
+def test_smc_analyze_shape_and_geometry():
+    import smc
+    # série synthétique (montée puis balayage puis reprise) : analyze ne doit jamais
+    # lever, renvoie une structure complète, et tout setup produit est géométriquement
+    # cohérent (stop du bon côté de l'entrée).
+    base = 1_700_000_000
+    candles = []
+    price = 100.0
+    for i in range(60):
+        price += (1.0 if i % 5 else -2.0)
+        candles.append(_smc_candle(base + i * 900, price, price + 1.5, price - 1.5, price + 0.5))
+    res = smc.analyze(candles)
+    assert res["ok"] is True
+    assert "overlay" in res and "checklist" in res and "kill_zone" in res
+    assert set(res["checklist"]) == {"kill_zone", "sweep", "choch_valide", "fvg_entree"}
+    s = res.get("setup")
+    if s:
+        if s["direction"] == "LONG" and s.get("coherent"):
+            assert s["stop"] < s["entry"] < s["tp1"]
+        elif s["direction"] == "SHORT" and s.get("coherent"):
+            assert s["tp1"] < s["entry"] < s["stop"]
+
+
+def test_smc_analyze_never_orders_on_short_series():
+    import smc
+    # trop peu de bougies : réponse propre, aucune exception, aucun setup.
+    res = smc.analyze([_smc_candle(0, 1, 2, 0.5, 1.5)])
+    assert res["ok"] is False and "setup" not in res
+
+
+def test_smc_smt_divergence():
+    import smc
+    # A fait un plus-haut plus haut, B un plus-haut plus bas -> divergence baissière.
+    a = [_smc_candle(i * 900, 100, 100 + i, 99, 100 + i) for i in range(20)]
+    b = [_smc_candle(i * 900, 100, 120 - i, 99, 120 - i) for i in range(20)]
+    assert smc.smt_divergence(a, b)["signal"] == "bearish"
+
+
+# ---------- Réseau neuronal de fusion (§65) ----------
+
+def test_nn_vector_from_votes():
+    import neural_net as nn
+    # scalaire, dict {vote,confidence}, et agent manquant -> longueur fixe, borné, fail-safe
+    votes = {"orderflow": 0.5, "technicals": {"vote": 1.0, "confidence": 0.4},
+             "macro": "pas un nombre", "sentiment": 5.0}  # 5.0 doit être clampé à 1.0
+    v = nn.vector_from_votes(votes)
+    assert len(v) == len(nn.FEATURES)
+    assert v[nn.FEATURES.index("orderflow")] == 0.5
+    assert abs(v[nn.FEATURES.index("technicals")] - 0.4) < 1e-9   # 1.0 * 0.4
+    assert v[nn.FEATURES.index("macro")] == 0.0                   # illisible -> 0
+    assert v[nn.FEATURES.index("sentiment")] == 1.0               # clampé
+    assert v[nn.FEATURES.index("carry")] == 0.0                   # absent -> 0
+    assert all(-1.0 <= x <= 1.0 for x in v)
+
+
+def test_nn_feature_hash_matches_bench():
+    import neural_net as nn
+    import swarm_brain as sb
+    # le schéma de features DOIT rester aligné sur le banc gelé des 14 agents
+    assert nn.FEATURES == sb.AGENTS
+    assert len(nn.feature_hash()) == 12
+
+
+def test_nn_agent_disabled_is_neutral():
+    import nn_agent
+    import os
+    # défaut OFF -> vote neutre de confiance nulle (ignoré par l'agrégation), jamais d'erreur
+    old = os.environ.pop("NN_AGENT_ENABLED", None)
+    try:
+        assert nn_agent.enabled() is False
+        r = nn_agent.agent("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        if old is not None:
+            os.environ["NN_AGENT_ENABLED"] = old
+
+
+def test_nn_connectivity_map_structure():
+    import neural_net as nn
+    # entièrement hors-ligne (votes/brain/prediction/smc fournis) : structure + murs absolus
+    m = nn.connectivity_map("BTCUSDT", votes={"orderflow": 0.3}, prediction={}, brain={"consensus": 0.1}, smc={})
+    ids = {n["id"] for n in m["nodes"]}
+    for required in ("brain", "nn", "consensus", "guards", "exec"):
+        assert required in ids
+    guard = next(n for n in m["nodes"] if n["id"] == "guards")
+    assert guard.get("absolute") is True             # les murs sont marqués absolus
+    assert len(m["edges"]) >= 5
+    import json
+    json.dumps(m)                                    # sérialisable pour le dashboard
+
+
+def test_nn_predict_failsafe_returns_dict_or_none():
+    import neural_net as nn
+    # predict ne lève JAMAIS : dict (si poids présents) ou None (fail-safe)
+    r = nn.predict("BTCUSDT", votes={"orderflow": 0.2})
+    assert r is None or (set(("p_up", "vote", "confidence")) <= set(r))
+
+
+def test_nn_dataset_and_forward_when_torch_present():
+    import neural_net as nn
+    try:
+        import torch  # noqa: F401
+    except Exception:
+        return  # torch absent (autre machine) : test sauté proprement, pas d'échec
+    import json
+    import os
+    import tempfile
+    # mini-log synthétique -> (X, y) SANS toucher les poids réels
+    log = [
+        {"symbol": "T", "ts": 0, "price": 100, "votes": {"orderflow": 0.5}},
+        {"symbol": "T", "ts": nn.HORIZON_S, "price": 101, "votes": {"orderflow": -0.5}},
+        {"symbol": "T", "ts": 2 * nn.HORIZON_S, "price": 99, "votes": {"technicals": 0.3}},
+    ]
+    fd, path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(log, f)
+        X, y = nn._dataset(path)
+        assert len(X) == len(y) and all(len(x) == len(nn.FEATURES) for x in X)
+        assert set(y) <= {0, 1}
+        # forward direct d'un réseau neuf (aucune écriture disque)
+        from torch import nn as tnn
+        net = nn._build_net(torch, tnn, len(nn.FEATURES))
+        out = net(torch.zeros((1, len(nn.FEATURES))))
+        assert tuple(out.shape) == (1, 1)
+    finally:
+        os.remove(path)
+
+
+# ---------- Positions réelles (spot · marge iso/cross · futures) ----------
+
+def test_real_positions_spot_filters_dust_and_values():
+    import real_positions as rp
+    orig_get, orig_px = rp._signed_get, rp._prices
+    rp._prices = lambda: {"BTCUSDT": 60000.0}
+    rp._signed_get = lambda path, params=None, timeout=10: [
+        {"coin": "USDT", "available": "100", "frozen": "0", "locked": "0"},
+        {"coin": "BTC", "available": "0.001", "frozen": "0", "locked": "0"},   # 0.001*60000 = 60$
+        {"coin": "HEX", "available": "5", "frozen": "0", "locked": "0"},       # pas de prix -> exclu
+        {"coin": "DUST", "available": "0.0000001", "frozen": "0", "locked": "0"},
+    ]
+    try:
+        out = rp.spot()
+        coins = [r["coin"] for r in out]
+        assert coins == ["USDT", "BTC"]                # HEX (non valorisable) et DUST exclus
+        assert out[0]["value_usdt"] == 100.0 and out[1]["value_usdt"] == 60.0
+    finally:
+        rp._signed_get, rp._prices = orig_get, orig_px
+
+
+def test_real_positions_futures_parse():
+    import real_positions as rp
+    orig = rp._signed_get
+    rp._signed_get = lambda path, params=None, timeout=10: [
+        {"symbol": "BTCUSDT", "holdSide": "long", "total": "0.01", "openPriceAvg": "60000",
+         "markPrice": "61000", "leverage": "5", "marginMode": "isolated",
+         "marginSize": "120", "unrealizedPL": "10"},
+        {"symbol": "ETHUSDT", "holdSide": "short", "total": "0", "unrealizedPL": "0"},  # taille 0 -> filtré
+    ]
+    try:
+        out = rp.futures()
+        assert len(out) == 1
+        p = out[0]
+        assert p["side"] == "LONG" and p["entry"] == 60000.0 and p["upnl_usdt"] == 10.0
+        assert p["margin_mode"] == "isolated" and p["leverage"] == 5.0
+    finally:
+        rp._signed_get = orig
+
+
+def test_real_positions_snapshot_failsafe():
+    import real_positions as rp
+    orig_get, orig_px = rp._signed_get, rp._prices
+    rp._prices = lambda: {}
+
+    def _boom(*a, **k):
+        raise RuntimeError("API KO")
+    rp._signed_get = _boom
+    try:
+        snap = rp.snapshot()                           # ne doit JAMAIS lever
+        assert snap["counts"] == {"spot": 0, "margin_iso": 0, "margin_cross": 0, "futures": 0}
+        assert len(snap["errors"]) == 4                # une erreur par catégorie, capturée
+    finally:
+        rp._signed_get, rp._prices = orig_get, orig_px
+
+
+# ---------- Exécuteurs bornés §67 (spot libre · marge · virements · earn) ----------
+
+def test_execute_guard_gating_and_caps():
+    import bitget_execute as ex
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=False, kill=False, spent=0)
+    assert not ok and any("SPOT_TRADE_LIVE=False" in x for x in r)          # OFF -> refus
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=False, spent=0)
+    assert ok, r                                                            # armé + dans caps -> OK
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 20, 10, 50, live=True, kill=False, spent=0)
+    assert not ok and any("plafond/opération" in x for x in r)             # cap/op
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=False, spent=48)
+    assert not ok and any("journalier" in x for x in r)                    # cap journalier
+    ok, r = ex.guard("spot", "SPOT_TRADE_LIVE", 5, 10, 50, live=True, kill=True, spent=0)
+    assert not ok and any("kill" in x for x in r)                          # kill-switch
+
+
+def test_execute_capped_absolute_ceiling():
+    import bitget_execute as ex
+    import os
+    os.environ["TEST_CAP_X"] = "9999"
+    try:
+        assert ex.capped("TEST_CAP_X", 10.0, 200.0) == 200.0   # env ne DÉPASSE jamais l'absolu
+    finally:
+        os.environ.pop("TEST_CAP_X", None)
+
+
+def test_execute_kill_failclosed():
+    import bitget_execute as ex
+    assert ex.kill_active(True) is True and ex.kill_active(False) is False
+
+
+def test_execute_dry_default_no_runner_call():
+    import bitget_execute as ex
+    called = []
+    r = ex.run(["spot", "x"], True, [], "spot", 5, "oid1", confirm=False, runner=lambda a: called.append(a))
+    assert r["executed"] is False and r["dry"] is True and called == []     # DRY : runner JAMAIS appelé
+
+
+def test_execute_confirm_records_to_ledger():
+    import bitget_execute as ex
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    old = ex.LEDGER
+    ex.LEDGER = Path(path)
+    try:
+        r = ex.run(["spot", "x"], True, [], "spot", 5, "oidZ", confirm=True,
+                   runner=lambda a: '{"code":"00000","data":{"orderId":"1"}}')
+        assert r["executed"] is True
+        led = json.loads(ex.LEDGER.read_text())
+        assert led["ops"][-1]["clientOid"] == "oidZ" and led["ops"][-1]["surface"] == "spot"
+    finally:
+        ex.LEDGER = old
+        os.remove(path)
+
+
+def test_spot_trader_off_by_default_and_args():
+    import spot_trader as st
+    r = st.execute("BTCUSDT", "buy", 5, confirm=False, live=False, kill=False, spent=0)
+    assert r["ok"] is False and any("SPOT_TRADE_LIVE" in x for x in r["reasons"])
+    args = st.build_args("BTCUSDT", "buy", 5, "oid", price=60000)
+    assert args[:2] == ["spot", "spot_place_order"]
+
+
+def test_margin_trader_rejects_bad_type():
+    import margin_trader as mt
+    r = mt.order("BTCUSDT", "buy", 5, margin_type="bogus", confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("marginType invalide" in x for x in r["reasons"])
+
+
+def test_account_transfers_allowlist_blocks_external():
+    import account_transfers as at
+    r = at.execute("spot", "EXTERNAL_WALLET", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("hors allowlist" in x for x in r["reasons"])
+    r2 = at.execute("spot", "spot", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r2["ok"] is False and any("source = destination" in x for x in r2["reasons"])
+
+
+def test_earn_manager_action_validation():
+    import earn_manager as em
+    r = em.execute("bogus", "PID", "USDT", 5, confirm=False, live=True, kill=False, spent=0)
+    assert r["ok"] is False and any("action invalide" in x for x in r["reasons"])
+
+
+def test_trading_execs_never_withdraw_and_transfer_confined():
+    """Invariant DUR : aucun exécuteur ne contient 'withdraw' (clé Trade-only) ; seul
+    account_transfers.py contient 'transfer'."""
+    from pathlib import Path
+    execs = ["bitget_execute.py", "spot_trader.py", "margin_trader.py",
+             "account_transfers.py", "earn_manager.py"]
+    for f in execs:
+        assert "withdraw" not in Path(f).read_text(encoding="utf-8").lower(), f"withdraw dans {f}"
+    for f in ["bitget_execute.py", "spot_trader.py", "margin_trader.py", "earn_manager.py"]:
+        assert "transfer" not in Path(f).read_text(encoding="utf-8").lower(), f"transfer dans {f}"
+
+
+# ---------- Critère de Kelly (§68) ----------
+
+def test_kelly_negative_edge_gives_zero():
+    import kelly
+    k = kelly.kelly_fraction(0.35, 0.55)           # stats mesurées réelles ~ edge négatif
+    assert k["f_full"] < 0 and k["f"] == 0.0 and k["edge_positive"] is False
+
+
+def test_kelly_positive_edge_half_and_cap():
+    import kelly
+    # W=0.6 R=2 -> f_full = 0.6 - 0.4/2 = 0.4 ; demi-Kelly -> 0.2 (sous cap 0.25)
+    k = kelly.kelly_fraction(0.6, 2.0, fraction=0.5, cap=0.25)
+    assert k["f_full"] == 0.4 and k["f"] == 0.2 and k["edge_positive"] is True
+    # plafond dur : Full-Kelly élevé rabattu au cap
+    k2 = kelly.kelly_fraction(0.9, 10.0, fraction=1.0, cap=0.25)
+    assert k2["f"] == 0.25
+
+
+def test_kelly_invalid_inputs_are_safe():
+    import kelly
+    assert kelly.kelly_fraction(None, 2.0)["f"] == 0.0
+    assert kelly.kelly_fraction(0.6, 0.0)["f"] == 0.0     # R <= 0 -> 0
+
+
+def test_kelly_recommended_usdt_bounded():
+    import kelly
+    # edge positif mais rebornage par le cap/opération
+    amt, k = kelly.recommended_usdt(10.0, W=0.6, R=2.0, capital=1000.0)
+    assert amt == 10.0 and k["f"] == 0.2               # f*capital=200 -> borné à 10
+    # edge négatif -> 0
+    amt2, _ = kelly.recommended_usdt(10.0, W=0.35, R=0.55, capital=1000.0)
+    assert amt2 == 0.0
+
+
+def test_counterfactual_directional_and_pairs():
+    import counterfactual_prune as cp
+    # W et R directionnels : 2 gagnants (+0.2) et 2 perdants (−0.1) au-dessus du seuil
+    d = cp._directional([0.5, 0.5, 0.5, 0.5], [0.2, 0.2, -0.1, -0.1], threshold=0.2)
+    assert d["W"] == 0.5 and d["R"] == 2.0 and d["kelly_f"] == 0.25 and d["n"] == 4
+    # sous le seuil -> ignoré
+    d2 = cp._directional([0.05], [0.1], threshold=0.2)
+    assert d2["n"] == 0
+    # _pairs : consensus pondéré + exclusion d'un agent (poids -> 0)
+    entrees = [
+        {"symbol": "T", "ts": 0, "price": 100, "votes": {"a": 1.0, "b": -1.0}},
+        {"symbol": "T", "ts": 4000, "price": 110, "votes": {"a": 0.0, "b": 0.0}},
+    ]
+    cons, fwd = cp._pairs(entrees, {"a": 1.0, "b": 1.0}, exclude=["b"], horizon_s=3600)
+    assert cons == [1.0] and len(fwd) == 1                # b exclu -> consensus = vote de a
+
+
+def test_exit_calibration_simulate_and_mfe():
+    import exit_calibration as ec
+    # LONG entry 100, atr 10 -> SL 90 (sl_mult 1), TP 120 (rr 2)
+    assert ec.simulate(100, "LONG", [(0, 105, 99), (1, 121, 118)], 10, 1.0, 2.0) == "TP"
+    assert ec.simulate(100, "LONG", [(0, 101, 89)], 10, 1.0, 2.0) == "SL"
+    assert ec.simulate(100, "LONG", [(0, 101, 99)], 10, 1.0, 2.0) is None
+    assert ec.simulate(100, "LONG", [(0, 121, 89)], 10, 1.0, 2.0) == "SL"   # tie -> SL (pessimiste)
+    # SHORT : miroir
+    assert ec.simulate(100, "SHORT", [(0, 101, 75)], 10, 1.0, 2.0) == "TP"   # descend à 80
+    # MFE/MAE en unités de risque (risk=10) : haut 130 -> MFE 3R, bas 95 -> MAE 0.5R
+    mfe, mae = ec.mfe_mae_R(100, "LONG", [(0, 130, 95)], 10)
+    assert mfe == 3.0 and mae == 0.5
+
+
+def test_ic_alignment_realigns_on_ic():
+    """§68 : l'alignement IC monte les poids des agents à IC positif et descend ceux à IC
+    négatif (gated, bounded, normalisé)."""
+    import os
+    import swarm_brain as sb
+    old_ic = sb._ic_priors
+    had = "BRAIN_IC_ALIGN" in os.environ
+    saved = os.environ.get("BRAIN_IC_ALIGN")
+    try:
+        # multiplicateurs simulés : bon agent ×2.5, mauvais ×0.3, neutre ×1
+        sb._ic_priors = lambda: {"good": 2.5, "bad": 0.3, "neutral": 1.0}
+        w = {"good": 1.0, "bad": 1.0, "neutral": 1.0}
+        os.environ["BRAIN_IC_ALIGN"] = "0"                 # gated OFF -> identité
+        assert sb._apply_ic_alignment(dict(w)) == w
+        os.environ["BRAIN_IC_ALIGN"] = "1"                 # ON
+        aw = sb._apply_ic_alignment(dict(w))
+        assert aw["good"] > aw["neutral"] > aw["bad"]      # ordre = IC
+        assert all(sb.BRAIN_WEIGHT_MIN <= v <= sb.BRAIN_WEIGHT_MAX for v in aw.values())
+        # fail-safe : pas de multiplicateurs -> poids inchangés
+        sb._ic_priors = lambda: {}
+        assert sb._apply_ic_alignment(dict(w)) == w
+    finally:
+        sb._ic_priors = old_ic
+        os.environ.pop("BRAIN_IC_ALIGN", None)
+        if had:
+            os.environ["BRAIN_IC_ALIGN"] = saved
+
+
+def test_learning_health_rank_corr():
+    import learning_health as lh
+    a = {"x": 1, "y": 2, "z": 3}
+    assert lh.rank_corr(a, {"x": 10, "y": 20, "z": 30}) == 1.0      # parfaitement aligné
+    assert lh.rank_corr(a, {"x": 30, "y": 20, "z": 10}) == -1.0     # parfaitement inversé
+    assert lh.rank_corr({"x": 1}, {"x": 1}) is None                 # < 3 clés communes
 
 
 def _run_all():

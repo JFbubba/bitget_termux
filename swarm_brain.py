@@ -101,7 +101,13 @@ def agent_technicals(symbol):
     if rsi is not None:
         vote += 0.3 if rsi < 35 else -0.3 if rsi > 65 else 0
     vote += _clamp(vb / 10.0) * 0.4
-    return {"vote": _clamp(vote), "confidence": 0.6, "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}"}
+    v = _clamp(vote)
+    out = {"vote": v, "confidence": 0.6,
+           "note": f"RSI {rsi}, EMA {'+' if (ema20 or 0) > (ema50 or 0) else '-'}, vbias {vb}",
+           "evidence": [f"ema20={ema20}", f"ema50={ema50}", f"rsi14={rsi}"]}    # #8 auditabilité
+    if ema50 and v != 0:                                  # #8 invalidation : un long n'est valable
+        out["invalid_if"] = {"below": ema50} if v > 0 else {"above": ema50}   # qu'au-dessus de l'EMA50
+    return out
 
 
 def _fetch_macro_regime():
@@ -414,6 +420,72 @@ def aggregate(votes, weights):
     return {"consensus": round(consensus, 3), "bias": bias, "conviction": round(abs(consensus), 3), "agents": contrib}
 
 
+def _with_llm_weight(weights, votes):
+    """Poids d'agrégation avec le poids FIXE et BORNÉ de l'agent LLM (opt-in) — SANS
+    jamais le persister ni le soumettre à l'apprentissage EARCP (le banc déterministe
+    gelé à 14 reste intact, §62). Identité quand le LLM est absent (OFF)."""
+    if "llm" not in votes:
+        return weights
+    w = float(_cfg("LLM_AGENT_WEIGHT", 0.5))
+    return {**weights, "llm": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
+
+
+def _with_nn_weight(weights, votes):
+    """Poids d'agrégation avec le poids FIXE et BORNÉ de la 16ᵉ voix (réseau de fusion,
+    §65) — SANS jamais le persister ni le soumettre à l'apprentissage EARCP (le banc
+    gelé à 14 reste intact, §62). Identité quand le NN est absent (OFF)."""
+    if "nn" not in votes:
+        return weights
+    w = float(_cfg("NN_AGENT_WEIGHT", 0.5))
+    return {**weights, "nn": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
+
+
+def _apply_watch(weights):
+    """Gouvernance « WATCH » (idée NERVA) : un expert listé dans BRAIN_WATCH_AGENTS peut
+    voter et s'AFFICHER, mais son poids est mis à ZÉRO dans l'agrégation LIVE — il ne peut
+    donc JAMAIS influencer un ordre réel tant qu'il n'est pas validé (backtest/edge). C'est
+    une rampe d'accès SÛRE pour un expert expérimental, sans toucher le consensus des 14
+    validés. Identité quand la liste est vide (défaut).
+
+    Levier env-aware (env PRIORITAIRE > config, comme les autres verrous .env) : sert aussi
+    à ÉLAGUER en live les agents à IC négatif/nul (§68, contrefactuel mesuré)."""
+    watch = str(os.getenv("BRAIN_WATCH_AGENTS") or _cfg("BRAIN_WATCH_AGENTS", "")).strip()
+    if not watch:
+        return weights
+    names = {s.strip() for s in watch.split(",") if s.strip()}
+    return {k: (0.0 if k in names else v) for k, v in weights.items()}
+
+
+def _apply_invalidations(votes, price):
+    """#8 : contrat d'agent ENRICHI (idée NERVA `invalid_if`). Un agent peut émettre
+    invalid_if = {'below': X} et/ou {'above': Y} : un niveau de prix qui INVALIDE son vote
+    (ex. un long n'est valable qu'au-dessus de son support). Si le prix COURANT viole la
+    condition, on NEUTRALISE ce vote (confidence 0) -> « stop-out de signal » déterministe.
+    Le champ `evidence` est préservé pour l'auditabilité. Identité si prix illisible."""
+    try:
+        px = float(price)
+    except (TypeError, ValueError):
+        return votes
+    if px <= 0:
+        return votes
+    out = {}
+    for name, v in votes.items():
+        inv = v.get("invalid_if") if isinstance(v, dict) else None
+        void = False
+        if isinstance(inv, dict):
+            lo, hi = inv.get("below"), inv.get("above")
+            try:
+                if lo is not None and px < float(lo):
+                    void = True
+                if hi is not None and px > float(hi):
+                    void = True
+            except (TypeError, ValueError):
+                void = False
+        out[name] = {**v, "confidence": 0.0,
+                     "note": (str(v.get("note", "")) + " [invalidé]").strip()} if void else v
+    return out
+
+
 def cognition(votes, weights, consensus):
     """Méta-cognition du cerveau (« conscience » de son propre état). Pur.
 
@@ -444,9 +516,28 @@ def cognition(votes, weights, consensus):
     allv = [v.get("vote", 0) or 0 for v in votes.values()]
     dispersion = statistics.pstdev(allv) if len(allv) > 1 else 0.0
     groupthink = agreement >= 0.85 and abs(consensus) >= 0.4
+    # VÉTO DE CONTRADICTION (idée NERVA/contradiction_agent) : un bloc MINORITAIRE FORT
+    # qui contredit le consensus est un signal de danger — le consensus « décidé » masque
+    # un désaccord net. On compte les agents qui s'expriment FORT (conf & |vote| élevés)
+    # dans le sens OPPOSÉ au consensus ; au-delà d'un seuil -> on escompte DUR la conviction
+    # (véto souple : par défaut prudence 0.15 ; BRAIN_CONTRADICTION_PRUDENCE=0 = blocage net).
+    conf_min = float(_cfg("BRAIN_CONTRADICTION_CONF", 0.4))
+    vote_min = float(_cfg("BRAIN_CONTRADICTION_VOTE", 0.5))
+    n_min = int(_cfg("BRAIN_CONTRADICTION_MIN", 2))
+    against = 0
+    if consensus != 0:
+        for v in votes.values():
+            vote = v.get("vote", 0) or 0
+            conf = v.get("confidence", 0) or 0
+            if conf >= conf_min and abs(vote) >= vote_min and (vote > 0) != (consensus > 0):
+                against += 1
+    contradiction = against >= n_min
     prudence = 0.8 if groupthink else 1.0
+    if contradiction:
+        prudence = min(prudence, float(_cfg("BRAIN_CONTRADICTION_PRUDENCE", 0.15)))
     return {"weight_entropy": round(entropy, 3), "agreement": round(agreement, 3),
             "dispersion": round(dispersion, 3), "groupthink": groupthink,
+            "contradiction": contradiction, "n_contre": against,
             "prudence": prudence}
 
 
@@ -519,6 +610,65 @@ def _apply_edge_priors(weights):
     if not priors:
         return weights
     w = {k: v * (max(float(priors.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
+    avg = (sum(w.values()) / len(w)) if w else 1.0
+    if avg > 0:
+        w = {k: round(v / avg, 3) for k, v in w.items()}
+    return _clamp_weights(w)
+
+
+def _ic_priors():
+    """Multiplicateurs de poids dérivés de l'IC LIVE mesuré (live_ic_audit, ~30k votes),
+    CACHÉS (le timer relance le process chaque minute -> cache disque partagé, recalcul ~1×/h).
+    Centrés à 1 (IC 0 -> ×1), bornés : mult = clamp(1 + IC/scale, MIN, MAX). scale 0.05 par
+    défaut -> IC +0.10 -> ~×2.5, IC −0.03 -> ×0.4, IC −0.05 -> ×0.25. Agent sans IC fiable
+    (< 50 obs) -> absent (×1 neutre). {} si indisponible (fail-safe neutre)."""
+    from config_utils import cfg as _cfg
+    try:
+        import runtime_cache as rc
+        scale = float(_cfg("BRAIN_IC_ALIGN_SCALE", 0.05))
+        lo = float(_cfg("BRAIN_IC_ALIGN_MIN", 0.25))
+        hi = float(_cfg("BRAIN_IC_ALIGN_MAX", 2.5))
+        horizon = int(_cfg("BRAIN_IC_ALIGN_HORIZON_S", 3600))
+
+        def _compute():
+            import live_ic_audit as lia
+            out = {}
+            for r in lia.snapshot(horizon).get("agents", []):
+                ic = r.get("ic")
+                if ic is not None:
+                    out[r["agent"]] = max(lo, min(hi, 1.0 + float(ic) / scale))
+            return out
+        return rc.get("ic_align_mult", float(_cfg("BRAIN_IC_ALIGN_TTL_S", 3600)), _compute, fallback={})
+    except Exception:
+        return {}
+
+
+def _apply_ic_alignment(weights):
+    """RÉALIGNE les poids EARCP sur l'IC LIVE mesuré (§68) : mélange géométrique w^(1-α)·cible^α,
+    normalisé à moyenne ~1, re-borné [MIN,MAX]. cible (mult) > 1 pour IC positif, < 1 négatif — la
+    prédictivité MESURÉE pilote le poids (fin de la boucle §51 où flows pesait 1.33 pour un
+    IC −0.03). Gated BRAIN_IC_ALIGN (env prioritaire, défaut OFF). Fail-safe NEUTRE : pas d'IC
+    / module en panne -> poids inchangés. Rend le WATCH-list superflu (down-weight principiel
+    plutôt que zéro manuel)."""
+    import os
+    from config_utils import cfg as _cfg
+    try:
+        on = os.getenv("BRAIN_IC_ALIGN")
+        on = int(on) if on is not None else int(_cfg("BRAIN_IC_ALIGN", 0))
+        if not on:
+            return weights
+        mult = _ic_priors()
+        a = os.getenv("BRAIN_IC_ALIGN_ALPHA")
+        alpha = max(0.0, min(1.0, float(a) if a is not None else float(_cfg("BRAIN_IC_ALIGN_ALPHA", 0.85))))
+    except Exception:
+        return weights
+    if not mult:
+        return weights
+    # MÉLANGE GÉOMÉTRIQUE vers la cible IC : w^(1-α)·cible^α (α=1 -> cible IC pure ; α=0 ->
+    # EARCP inchangé). Le multiplicatif pur SATURAIT (top au plafond, bas au plancher, §51) ;
+    # ici un agent planché (w petit) est TIRÉ vers sa cible IC (simons/savant 0.2 -> ~0.9).
+    w = {k: (max(v, 1e-9) ** (1.0 - alpha)) * (max(float(mult.get(k, 1.0)), 1e-9) ** alpha)
+         for k, v in weights.items()}
     avg = (sum(w.values()) / len(w)) if w else 1.0
     if avg > 0:
         w = {k: round(v / avg, 3) for k, v in w.items()}
@@ -631,7 +781,8 @@ def _price(symbol):
 def _record(symbol, votes, result, price):
     entry = {
         "ts": int(time.time()), "symbol": symbol, "price": price,
-        "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items()},
+        # LLM exclu du journal d'apprentissage : le banc déterministe 14 apprend seul (§62).
+        "votes": {n: round(v.get("vote", 0), 3) for n, v in votes.items() if n in AGENT_FUNCS},
         "consensus": result["consensus"], "evaluated": False,
     }
     log = _read_log()
@@ -708,6 +859,16 @@ def learn(symbol, price_now, weights):
             if vote == 0 or realized == 0:
                 continue
             correctness.setdefault(name, []).append((vote > 0) == (realized > 0))
+        if realized != 0:                            # RÉFLEXION post-trade (idée #6) : situation -> résultat
+            try:
+                import situation_memory as sm
+                cons = e.get("consensus", 0) or 0
+                sm.record({"symbol": symbol,
+                           "bias": "long" if cons > 0.2 else "short" if cons < -0.2 else "neutre",
+                           "force": "fort" if abs(cons) >= 0.5 else "modere"},
+                          realized, now=now)
+            except Exception:
+                pass
         e["evaluated"] = True
         changed = True
     if correctness:
@@ -727,6 +888,11 @@ def learn(symbol, price_now, weights):
         ew = earcp_weights(perf_hr, coh, beta=beta, perf_bounds=(0.3, 0.7))
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
         cible = {k: v / avg for k, v in ew.items()}             # cible EARCP (moyenne ~1.0)
+        # §68 (fix À LA SOURCE) : l'IC LIVE réaligne la CIBLE d'apprentissage elle-même
+        # (pas un patch sur les poids finaux). Le hit-rate EARCP anti-corrèle avec la
+        # prédictivité (corrélation de rang ~0) : on injecte l'IC dans la cible et le
+        # lissage y converge. Gated BRAIN_IC_ALIGN. Identité si OFF/indispo.
+        cible = _apply_ic_alignment(cible)
         # LISSAGE vers la cible (audit §51, 3e mécanisme de saturation) : learn()
         # tourne une fois PAR SYMBOLE (10×/cycle) et la cohérence ne change pas
         # entre ces appels — ÉCRASER les poids par la cible re-composait la
@@ -740,7 +906,7 @@ def learn(symbol, price_now, weights):
                             + lissage * cible[k], 3) for k in cible}
         weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
         weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
-        save_weights(weights)
+        save_weights(weights)                                    # IC-align déplacé DANS la cible (source, ci-dessus)
     if changed:
         _write_log(log)
     return weights
@@ -765,7 +931,25 @@ def gather_votes(symbol):
 
     workers = max(1, int(_cfg("BRAIN_VOTES_WORKERS", 8)))
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        return dict(ex.map(_vote, AGENTS))
+        votes = dict(ex.map(_vote, AGENTS))
+    # 15ᵉ agent LLM (OPT-IN, surcouche non-déterministe, §06/07) : additif, fail-safe,
+    # borné. Absent du dict tant que LLM_AGENT_ENABLED est OFF -> banc 14 inchangé.
+    try:
+        import llm_agent
+        if llm_agent.enabled():
+            votes["llm"] = llm_agent.agent(symbol)
+    except Exception:                            # fail-safe : le LLM ne casse jamais la collecte
+        pass
+    # 16ᵉ voix : réseau neuronal de FUSION (OPT-IN, §65). Fusionne non-linéairement les
+    # votes DÉJÀ calculés (passés en context -> pas de recalcul/récursion). Additif,
+    # fail-safe, borné, jamais persisté -> banc 14 inchangé. Absent tant que NN OFF.
+    try:
+        import nn_agent
+        if nn_agent.enabled():
+            votes["nn"] = nn_agent.agent(symbol, context={"votes": votes})
+    except Exception:                            # fail-safe : le NN ne casse jamais la collecte
+        pass
+    return votes
 
 
 def _attach_cognition(result, votes, weights, closes=None):
@@ -780,14 +964,27 @@ def _attach_cognition(result, votes, weights, closes=None):
         scale = vr["scale"]
     result["adjusted_conviction"] = round(result.get("conviction", 0.0) * cog["prudence"] * scale, 3)
     result["notes"] = {n: v.get("note") for n, v in votes.items()}
+    # #8 : preuves par agent + agents dont le vote a été invalidé par le prix (auditabilité)
+    result["evidence"] = {n: v.get("evidence") for n, v in votes.items()
+                          if isinstance(v, dict) and v.get("evidence")}
+    result["invalidated"] = [n for n, v in votes.items()
+                             if isinstance(v, dict) and "[invalidé]" in str(v.get("note", ""))]
     return result
 
 
 def _series(symbol):
-    """Série de clôtures résiliente (Bitget -> CoinGecko, cachée) pour le CVIX."""
+    """Série de clôtures résiliente (Bitget -> CoinGecko, cachée) pour le CVIX.
+    Rejette une série corrompue (idée #7 data_guards) -> pas de CVIX sur données pourries."""
     try:
         import market_sources as ms
-        return ms.closes(symbol, limit=120) or None
+        closes = ms.closes(symbol, limit=120) or None
+        try:
+            import data_guards
+            if closes and not data_guards.series_ok(closes):
+                return None
+        except Exception:
+            pass
+        return closes
     except Exception:
         return None
 
@@ -800,19 +997,21 @@ def peek(symbol="BTCUSDT"):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    result = aggregate(votes, weights)
+    try:
+        votes = _apply_invalidations(votes, _price(symbol))   # #8 : stop-out de signal
+    except Exception:
+        pass
+    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
+    result = aggregate(votes, aw)
     result["symbol"] = symbol
-    result["weights"] = weights
-    return _attach_cognition(result, votes, weights, _series(symbol))
+    result["weights"] = aw
+    return _attach_cognition(result, votes, aw, _series(symbol))
 
 
 def read(symbol="BTCUSDT", do_learn=True):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    result = aggregate(votes, weights)
-    result["symbol"] = symbol
-    result["weights"] = weights
     # §61 : learn et record SÉPARÉS, exceptions IMPRIMÉES. L'ancien try unique
     # muet a caché 4.7 h de NameError dans learn() (import _cfg manquant) : le
     # cerveau n'enregistrait plus AUCUN vote et personne ne le voyait — la
@@ -822,6 +1021,11 @@ def read(symbol="BTCUSDT", do_learn=True):
     except Exception as exc:
         print(f"brain read({symbol}) prix: {type(exc).__name__}")
         price = None
+    votes = _apply_invalidations(votes, price)           # #8 : stop-out de signal (prix courant)
+    aw = _apply_watch(_with_nn_weight(_with_llm_weight(weights, votes), votes))   # LLM + NN bornés + experts WATCH à poids 0
+    result = aggregate(votes, aw)
+    result["symbol"] = symbol
+    result["weights"] = aw
     if do_learn and price:
         try:
             learn(symbol, price, weights)
@@ -833,7 +1037,7 @@ def read(symbol="BTCUSDT", do_learn=True):
             result["price"] = price
         except Exception as exc:
             print(f"brain record({symbol}): {type(exc).__name__}: {exc}")
-    return _attach_cognition(result, votes, weights, _series(symbol))
+    return _attach_cognition(result, votes, aw, _series(symbol))
 
 
 def build_report(r):

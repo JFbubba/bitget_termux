@@ -49,6 +49,64 @@ def resume_fills(rows, depuis_ts=None):
             "net_usdt": round(pnl - frais, 6)}
 
 
+def payoff_profile(rows, depuis_ts=None):
+    """PUR (idée #3) : FORME de l'edge, pas seulement le PnL. Sépare gains/pertes
+    réalisés (champ `profit` par fill) et classe l'edge — car scaler les caps (§45) sur
+    un edge FRAGILE (gros taux de gain, gains minuscules, une grosse perte efface tout)
+    est dangereux. Retourne win_rate, gain/perte moyens, payoff (gain moy / |perte moy|),
+    espérance, et un verdict. `shape` : robuste / fragile / asymétrique+ / perdant / n/a."""
+    gains, pertes = [], []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        ts = safe_float(r.get("cTime"))
+        if ts is None or (depuis_ts is not None and ts / 1000.0 < float(depuis_ts)):
+            continue
+        p = safe_float(r.get("profit"))
+        if p is None or p == 0:
+            continue
+        (gains if p > 0 else pertes).append(p)
+    n = len(gains) + len(pertes)
+    if n == 0:
+        return {"n": 0, "shape": "n/a", "verdict": "pas de trade réalisé"}
+    win_rate = len(gains) / n
+    avg_win = sum(gains) / len(gains) if gains else 0.0
+    avg_loss = sum(pertes) / len(pertes) if pertes else 0.0          # négatif
+    payoff = (avg_win / abs(avg_loss)) if avg_loss else None
+    expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss      # $/trade attendu
+    if expectancy <= 0:
+        shape, verdict = "perdant", "espérance ≤ 0 — NE PAS scaler les caps"
+    elif win_rate >= 0.7 and (payoff is not None and payoff < 0.5):
+        shape, verdict = "fragile", "gros taux de gain mais gains minuscules — une perte efface tout, prudence sur le scaling"
+    elif win_rate <= 0.45 and (payoff is None or payoff >= 1.8):
+        shape, verdict = "asymétrique+", "peu de gains mais gros — edge de queue, tolérer les séries perdantes"
+    else:
+        shape, verdict = "robuste", "profil équilibré — edge exploitable, scaling justifiable si soutenu"
+    return {"n": n, "win_rate": round(win_rate, 3),
+            "avg_win": round(avg_win, 4), "avg_loss": round(avg_loss, 4),
+            "payoff": round(payoff, 2) if payoff is not None else None,
+            "expectancy": round(expectancy, 4), "shape": shape, "verdict": verdict}
+
+
+def stress_book(gross_usdt, equity_usdt, shock_pct, stop_pct=None):
+    """PUR (idée Jasmine/stress) : impact CONSERVATEUR d'un choc de marché sur le livre.
+    Pire cas : le choc est ADVERSE à toute l'exposition -> perte ≈ gross × shock%. Retourne
+    {perte, equity_apres, breach_stop} — breach si la perte franchirait le stop journalier.
+    Sanity-check avant d'ouvrir davantage (survivre à un crash −X% sans casser le stop)."""
+    try:
+        gross = float(gross_usdt or 0)
+        eq = float(equity_usdt or 0)
+        shock = abs(float(shock_pct or 0)) / 100.0
+    except (TypeError, ValueError):
+        return {"shock_pct": None, "perte_usdt": None, "breach_stop": None}
+    stop = abs(float(stop_pct if stop_pct is not None
+                     else _cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0))) / 100.0
+    perte = gross * shock
+    breach = bool(eq > 0 and perte >= eq * stop)
+    return {"shock_pct": round(shock * 100, 1), "perte_usdt": round(perte, 2),
+            "equity_apres": round(eq - perte, 2), "breach_stop": breach}
+
+
 def serie_pnl(rows, depuis_ts=None):
     """PUR. Série CUMULÉE du PnL réalisé NET du bot (profit − frais par fill, tous
     symboles §47), triée par temps : [[ts_s, cum_net], ...]. Pour la courbe du
@@ -212,6 +270,7 @@ def snapshot():
                 break
         if base:
             delta7 = round((eq_now / base - 1.0) * 100.0, 3)
+    fills = fetch_fills() if debut else []          # une seule lecture -> fills_bot ET payoff
     return {
         "boucle": st,
         "carry": carry,
@@ -227,8 +286,11 @@ def snapshot():
                              "notional": (e.get("order") or {}).get("notional_usdt"),
                              "reasons": e.get("reasons")}
                             for e in (events or [])[-5:]],
-        "fills_bot": resume_fills(fetch_fills(), depuis_ts=debut) if debut else
+        "fills_bot": resume_fills(fills, depuis_ts=debut) if debut else
                      {"n_fills": 0, "note": "aucun ordre réel du bot encore"},
+        "payoff": payoff_profile(fills, depuis_ts=debut) if debut else {"n": 0, "shape": "n/a"},
+        "stress": stress_book((st or {}).get("gross_usdt", 0), eq_now,
+                              _cfg("FUTURES_STRESS_SHOCK_PCT", 10)),
         "funding": somme_funding(fetch_bills(), depuis_ts=debut) if debut else {"n": 0},
         "caps": {"per_trade": fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
                                          fe.FUT_ABS_MAX_PER_TRADE_USDT),
@@ -236,6 +298,10 @@ def snapshot():
                                      fe.FUT_ABS_MAX_GROSS_USDT),
                  "mur_per_trade": fe.FUT_ABS_MAX_PER_TRADE_USDT,
                  "mur_gross": fe.FUT_ABS_MAX_GROSS_USDT},
+        # Compte CLASSIQUE (wallets cloisonnés). assetMode = réglage « Mode Multi-Actifs »
+        # du wallet futures : 'union' (ON) force le crossed ; 'single' (OFF) permet l'isolé.
+        # Le crossed ne puise QUE dans le wallet futures, jamais dans spot/earn/bots.
+        "marge": {"asset_mode": fe._asset_mode(), "effectif": fe._marge_mode()},
     }
 
 
@@ -266,6 +332,11 @@ def build_report(s=None):
            if s.get("equity_7j_delta_pct") is not None else ""),
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "
         f"(murs {_n(caps.get('mur_per_trade'))}/{_n(caps.get('mur_gross'))})",
+        (lambda mg: (lambda am, eff:
+            f"Marge : {eff or '?'} — compte classique, Multi-Actifs "
+            f"{'ON (union) → crossed forcé' if am == 'union' else 'OFF (single) → isolé' if am == 'single' else am or '?'}"
+            f" · risque cloisonné au wallet futures (spot/earn/bots hors d'atteinte)"
+         )(mg.get("asset_mode"), mg.get("effectif")))(s.get("marge") or {}),
         f"Journal exécuteur : {s.get('events') or 'vide'}",
     ]
     if fb.get("n_fills"):
@@ -275,6 +346,16 @@ def build_report(s=None):
                       f"NET {_n(fb.get('net_usdt'), '{:+.4f}')} $")
     else:
         lignes.append(f"Fills du BOT : {fb.get('note', 'aucun')}")
+    po = s.get("payoff") or {}
+    if po.get("n"):
+        lignes.append(f"Forme de l'edge : {po.get('shape', '?').upper()} — "
+                      f"win {round((po.get('win_rate') or 0) * 100)}% · payoff {_n(po.get('payoff'))} · "
+                      f"espérance {_n(po.get('expectancy'), '{:+.4f}')} $/trade — {po.get('verdict', '')}")
+    sx = s.get("stress") or {}
+    if sx.get("shock_pct") is not None:
+        lignes.append(f"Stress −{_n(sx.get('shock_pct'), '{:.0f}')}% : perte ~{_n(sx.get('perte_usdt'))} $ -> "
+                      f"equity {_n(sx.get('equity_apres'))} $"
+                      + (" · ⚠ FRANCHIRAIT le stop" if sx.get("breach_stop") else " · sous le stop ✓"))
     fu = s.get("funding") or {}
     if fu.get("n"):
         lignes.append(f"Funding (règlements 8h) : {_n(fu.get('total_usdt'), '{:+.6f}')} $ net "

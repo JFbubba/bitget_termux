@@ -43,14 +43,37 @@ PORT = int(os.getenv("DASH_PORT", "8787"))
 _CACHE = {}
 
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+_CACHE_LOCK = threading.Lock()
+
+
 def _cached(key, ttl, producer):
     now = time.time()
-    hit = _CACHE.get(key)
-    if hit and now - hit[0] < ttl:
-        return hit[1]
-    value = producer()
-    _CACHE[key] = (now, value)
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+    value = producer()                       # HORS verrou : les producteurs sont lents (réseau)
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), value)
     return value
+
+
+def _prewarm(specs, workers=8):
+    """Pré-calcule EN PARALLÈLE une liste de producteurs INDÉPENDANTS (key, ttl, thunk) pour
+    peupler le cache : la construction de l'état passe d'une SOMME séquentielle de latences
+    réseau à leur MAX. Best-effort — une clé qui échoue est simplement recalculée en séquence
+    plus tard (aucune conséquence de correction). Ne prewarm QUE les producteurs sans
+    dépendance sur d'autres (les dépendants restent séquentiels après)."""
+    stale = [(k, ttl, thunk) for (k, ttl, thunk) in specs
+             if not (lambda h: h and time.time() - h[0] < ttl)(_CACHE.get(k))]
+    if not stale:
+        return
+    with ThreadPoolExecutor(max_workers=min(workers, len(stale))) as ex:
+        for k, ttl, thunk in stale:
+            ex.submit(_cached, k, ttl, thunk)
 
 
 def _safe(producer, default=None):
@@ -306,6 +329,21 @@ def build_state(symbol=None, tf="5m"):
             pass
         return {"horizon_years": T, "fan": fan, "scenarios": scen_sum,
                 "macro": macro, "stress": stress, "esm": esm_a}
+
+    def _smc():
+        """Analyse Smart Money Concepts (§64, LECTURE SEULE) : FVG, swings, liquidity
+        sweeps, ChoCh valide, BPR, kill zones, Power of Three, SMT. Renvoie le setup
+        PAPER indicatif + l'overlay graphique. Aucun ordre. Bougies dédiées (profondes)
+        pour une meilleure structure ; paire SMT corrélée (BTC↔ETH) best-effort."""
+        import smc
+        import market_sources
+        cs = market_sources.candles(symbol, tf, 150) or candles
+        smt_map = {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
+        cs_smt = None
+        peer = smt_map.get(symbol)
+        if peer:
+            cs_smt = _safe(lambda: market_sources.candles(peer, tf, 150), None)
+        return smc.analyze(cs, candles_smt=cs_smt)
 
     def _brain():
         import swarm_brain
@@ -608,6 +646,41 @@ def build_state(symbol=None, tf="5m"):
             out["micro_age_s"] = None
         return out
 
+    # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
+    # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
+    # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
+    # séquentiels après. Clés/TTL identiques aux assignations ci-dessous (cache partagé).
+    _prewarm([
+        ("stats", 30, lambda: _safe(_stats, {})),
+        (f"of:{symbol}", 20, lambda: _safe(_orderflow, None)),
+        ("macro", 300, lambda: _safe(_macro, None)),
+        ("market", 600, lambda: _safe(_market, {})),
+        (f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, [])),
+        (f"ob:{symbol}", 8, lambda: _safe(_book, {"bids": [], "asks": []})),
+        (f"br:{symbol}", 45, lambda: _safe(_brain, {})),
+        (f"lq:{symbol}", 45, lambda: _safe(_liq, {})),
+        ("symbols", 300, lambda: _safe(_symbols, [symbol])),
+        ("positions", 15, lambda: _safe(_positions, [])),
+        ("prices", 10, lambda: _safe(_prices, {})),
+        ("accum", 60, lambda: _safe(_accumulation, {})),
+        ("mandate", 60, lambda: _safe(_mandate, {})),
+        ("edge", 60, lambda: _safe(_edge, {})),
+        ("micro", 120, lambda: _safe(_microstructure, {})),
+        ("mtiming", 300, lambda: _safe(_market_timing, {})),
+        ("caps", 60, lambda: _safe(_caps, {})),
+        (f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {})),
+        ("system", 20, lambda: _safe(_system, {})),
+        ("onchain", 3600, lambda: _safe(_onchain, {})),
+        ("flows", 3600, lambda: _safe(_flows, {})),
+        ("voliv", 1800, lambda: _safe(_vol_iv, {})),
+        ("carry", 1800, lambda: _safe(_carry, {})),
+        ("futlive", 60, lambda: _safe(_futures_live, {})),
+        (f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {})),
+        (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
+        ("realpos", 30, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
+        ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
+    ])
+
     # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
     stats = _cached("stats", 30, lambda: _safe(_stats, {}))
     orderflow = _cached(f"of:{symbol}", 20, lambda: _safe(_orderflow, None))
@@ -648,6 +721,33 @@ def build_state(symbol=None, tf="5m"):
     # futures réel §45 : préview de décision + réconciliation (lecture seule)
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
+    # Smart Money Concepts §64 (lecture seule) : setup PAPER + overlay graphique
+    state["smc"] = _cached(f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {}))
+    # Réseau neuronal de fusion §65 (lecture seule) : carte de connectivité + prédiction.
+    # Réutilise le `brain` déjà calculé (pas de recalcul) ; fail-safe {} si torch/poids absents.
+    state["neural"] = _cached(f"neural:{symbol}", 60,
+                              lambda: _safe(lambda: __import__("neural_net").connectivity_map(
+                                  symbol, brain=brain, smc=state.get("smc") or {}), {}))
+    # Positions RÉELLES en cours (lecture seule) : spot · marge iso · marge cross · futures.
+    # 4 GET signés best-effort -> cache 30 s (indépendant du symbole affiché).
+    state["real_positions"] = _cached("realpos", 30,
+                                      lambda: _safe(lambda: __import__("real_positions").snapshot(), {}))
+    # Surfaces de trading bornées §67 : état armé/OFF + caps effectifs + dépensé du jour.
+    # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.
+    state["trading_surfaces"] = _cached("tsurf", 20,
+                                        lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
+    # Critère de Kelly (advisory, lecture seule) : W/R mesurés -> fraction bornée + taille
+    # recommandée/surface. Edge négatif -> 0. Aucun ordre.
+    # capital & W/R RÉUTILISÉS de l'état déjà calculé (real_positions + futures_live + stats)
+    # -> kelly ne re-fetch RIEN (coût ~4 s -> ~0). Fail-safe si champs absents.
+    _rp = (state.get("real_positions") or {}).get("totals") or {}
+    _cap = (_rp.get("spot_usdt") or 0.0) + ((state.get("futures_live") or {}).get("equity") or 0.0)
+    _wr = state.get("stats") or {}
+    _W = (_wr.get("win_rate") / 100.0) if _wr.get("win_rate") is not None else None
+    state["kelly"] = _cached("kelly", 60, lambda: _safe(lambda: __import__("kelly").snapshot(
+        {s.get("surface"): s.get("per_op") for s in (state.get("trading_surfaces") or [])
+         if s.get("surface") in ("spot", "margin")} or None,
+        capital=(_cap or None), W=_W, R=_wr.get("tp_sl_ratio")), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:
@@ -662,6 +762,49 @@ def build_state(symbol=None, tf="5m"):
     state["mode"] = (("RÉEL spot 2–5$/j" if armed else "paper accumulation")
                      + " · " + ("RÉEL futures borné §45" if fut_armed else "PAPER futures"))
     return state
+
+
+# --------------------------------------------------------------------------- #
+#  Modèle INCRÉMENTAL : delta versionné (n'envoyer que les clés qui ont changé) #
+# --------------------------------------------------------------------------- #
+_VERSIONS = {}          # "symbol:tf" -> {clé: [version, hash]}
+_GLOBAL_V = [0]         # compteur de version MONOTONE global
+_VER_LOCK = threading.Lock()
+
+
+def _hash_val(v):
+    """Empreinte stable d'une valeur d'état (pour détecter un changement). PUR."""
+    import hashlib
+    return hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+
+
+def build_delta(symbol, tf, since):
+    """État INCRÉMENTAL. Construit l'état complet (rapide : cache chaud ~0.04 s), verse une
+    version MONOTONE à chaque clé qui change, et renvoie :
+      • FULL {v, full:true, state}       si `since` absent / invalide / postérieur au serveur
+                                          (client neuf, changement de symbole, redémarrage serveur) ;
+      • DELTA {v, full:false, changed}   sinon — uniquement les clés de version > `since`.
+    Stateless & multi-clients : les versions vivent côté serveur par symbole:tf, le client
+    ne porte qu'un curseur entier `since`."""
+    state = build_state(symbol, tf)
+    scope = f"{symbol}:{tf}"
+    with _VER_LOCK:
+        vers = _VERSIONS.setdefault(scope, {})
+        for k, v in state.items():
+            h = _hash_val(v)
+            rec = vers.get(k)
+            if not rec or rec[1] != h:
+                _GLOBAL_V[0] += 1
+                vers[k] = [_GLOBAL_V[0], h]
+        cur = _GLOBAL_V[0]
+        # clés du scope courant disparues de l'état (rare : clés stables) -> à retirer côté client
+        removed = [k for k in vers if k not in state]
+        for k in removed:
+            vers.pop(k, None)
+        if since is None or since < 0 or since > cur:
+            return {"v": cur, "full": True, "state": state}
+        changed = {k: state[k] for k, rec in vers.items() if rec[0] > since and k in state}
+        return {"v": cur, "full": False, "changed": changed, "removed": removed}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -686,8 +829,41 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
             tf = (qs.get("tf", ["5m"])[0] or "5m").lower()
-            body = json.dumps(build_state(symbol, tf)).encode("utf-8")
+            # modèle INCRÉMENTAL : `since` = curseur de version du client (absent -> FULL,
+            # rétro-compatible). Renvoie soit l'état complet, soit uniquement les clés changées.
+            since_raw = qs.get("since", [None])[0]
+            try:
+                since = int(since_raw) if since_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                since = None
+            body = json.dumps(build_delta(symbol, tf, since)).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
+        elif parsed.path == "/api/stream":
+            # PUSH temps réel (Server-Sent Events) : une connexion persistante par client
+            # (thread dédié via ThreadingHTTPServer). On envoie un FULL puis des DELTAS à
+            # cadence fixe ; à la déconnexion l'écriture lève -> le thread se termine.
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
+            tf = (qs.get("tf", ["5m"])[0] or "5m").lower()
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")     # pas de buffering (nginx éventuel)
+                self.end_headers()
+                interval = float(os.getenv("DASH_SSE_INTERVAL", "2"))
+                since = None
+                while True:
+                    payload = build_delta(symbol, tf, since)
+                    since = payload["v"]
+                    self.wfile.write(("data: " + json.dumps(payload) + "\n\n").encode("utf-8"))
+                    self.wfile.flush()
+                    time.sleep(interval)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return                                          # client déconnecté (normal)
+            except Exception:
+                return
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
         elif parsed.path.startswith("/vendor/") and parsed.path.endswith(".js"):
@@ -706,6 +882,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # Charge le .env (gitignored) : le service systemd bitget-dashboard n'a pas
+    # d'EnvironmentFile, donc sans ceci les leviers .env (LLM_AGENT_ENABLED,
+    # NN_AGENT_ENABLED) ne seraient pas vus -> le dashboard afficherait les voix
+    # opt-in OFF alors qu'elles sont armées en prod. Best-effort, lecture seule.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(REPO_ROOT / ".env")
+    except Exception:
+        pass
     print(f"=== DASHBOARD (lecture seule) sur http://{HOST}:{PORT} ===")
     print("Mode: PAPER / DRY-RUN. Aucun ordre. VERDICT: SAFE")
     server = ThreadingHTTPServer((HOST, PORT), Handler)

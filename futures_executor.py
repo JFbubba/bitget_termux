@@ -33,6 +33,7 @@ MARGIN_COIN = "USDT"
 # le mur cumulé 250 ≈ le solde autorisé par le propriétaire (§45).
 FUT_ABS_MAX_PER_TRADE_USDT = 50.0
 FUT_ABS_MAX_GROSS_USDT = 250.0
+FUT_ABS_MAX_LEVERAGE = 5.0   # mur dur levier : ni .env ni config ne peuvent le DÉPASSER
 
 
 from config_utils import cfg as _cfg
@@ -146,7 +147,8 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
         reasons.append(f"agent '{agent}' non éligible LIVE (porte d'edge non franchie)")
 
     # 4. levier ≤ mur dur (fail-closed : non numérique -> rejeté, jamais d'exception)
-    max_lev = _limit("MANDATE_MAX_LEVERAGE", 5.0)
+    #    _capped (pas _limit) : env/config peuvent ABAISSER le levier, JAMAIS dépasser ×5.
+    max_lev = _capped("MANDATE_MAX_LEVERAGE", 5.0, FUT_ABS_MAX_LEVERAGE)
     try:
         lev = float(leverage or 0)
     except (TypeError, ValueError):
@@ -235,7 +237,7 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
     s = str(side).lower()
     if s not in ("long", "short"):
         raise ValueError(f"side invalide: {side!r} (attendu 'long' ou 'short')")
-    max_lev = _limit("MANDATE_MAX_LEVERAGE", 5.0)
+    max_lev = _capped("MANDATE_MAX_LEVERAGE", 5.0, FUT_ABS_MAX_LEVERAGE)
     lev = max(1.0, min(float(max_lev), float(leverage)))   # borné par le mur, jamais au-delà
     notion = float(notional_usdt)
     order = {

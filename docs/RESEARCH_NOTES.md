@@ -2165,3 +2165,280 @@ seul ; le scan (boucles, veille, moniteurs) le SAUTE désormais (SKIP) et garde
 sa cadence ~1 min effective. Résultat : les 14 agents votent CHAQUE minute,
 sans double vote, et les boucles décident sur un consensus jamais plus vieux
 que ~60 s.
+
+## §64 — Surcouche Smart Money Concepts (SMC/ICT) : lecture seule + overlay dashboard
+
+Demande propriétaire : intégrer les stratégies du dépôt `JFbubba/smc` (BPR, SMT
+Divergence, Liquidity Sweep, Silver Bullet, Power of Three, Kill Zones, FVG,
+ChoCh) et un algorithme pour les exploiter et les AFFICHER sur le graphique du
+dashboard.
+
+**Réalisation — `smc.py` (classé SAFE, PUR).** Traduction déterministe des concepts
+en booléens/zones à partir d'OHLCV public : `fair_value_gaps` (3 bougies, filtre
+ATR×0.5, marque le remplissage), `swings` (fractales de Bill Williams 5 bougies),
+`liquidity_sweeps` (perce un swing puis réintègre en clôture), `change_of_character`
+(séquence stricte sweep → cassure EN CORPS du swing responsable → déplacement
+corps ≥60 % laissant un FVG), `balanced_price_ranges` (deux FVG opposés qui se
+recouvrent), `kill_zone`/Silver Bullet (fenêtres heure de New York via zoneinfo,
+repli UTC-4), `power_of_three` (Midnight Open + phase AMD + discount/premium),
+`session_levels` (Asian H/L, PDH/PDL), `smt_divergence` (rupture de corrélation
+BTC↔ETH). `analyze()` agrège en une checklist de confluence 0..4 et un `setup`
+PAPER (direction/entrée/stop/tp1/tp2) avec **garde-fou géométrique** (le stop est
+ancré sur le plus-bas/plus-haut RÉEL du mouvement, jamais un niveau lointain ; un
+setup incohérent est marqué `coherent:false` et jamais `ready`).
+
+**Ligne rouge respectée.** SMC n'entre PAS dans le banc des 14 agents (GELÉ §62) :
+c'est une surcouche d'OBSERVATION, absente de `guards()` et de tout chemin
+d'exécution. Aucune sortie ne desserre un mur argent (50/250, ×5, stop journalier,
+kill-switch, porte d'edge) ni ne modifie le sizing réel. Le `setup` est un PLAN
+indicatif, jamais un ordre. Les 3 portes restent vertes (tests, security_agent,
+safe_push_check).
+
+**Dashboard.** `server.py` expose `state["smc"]` (bougies dédiées profondes 150 +
+paire SMT corrélée, caché 60 s, best-effort). `index.html` ajoute une couche
+« SMC » (toggle dans la légende) : zones FVG (vert/rouge) et BPR (ambre) en paires
+de lignes, niveaux de référence (Asian H/L, PDH/PDL, Midnight Open), marqueurs
+SWEEP (rond) et ChoCh (carré) ancrés à la bougie de l'event, plus une bande texte
+sous le graphe (kill zone NY, checklist de confluence, phase PO3, ligne de setup).
+
+## §65 — Réseau neuronal de FUSION : 16ᵉ voix opt-in + carte de connectivité
+
+Demande propriétaire : « crée un réseau neuronal complet et pertinent entre tous
+les éléments du bot ». Choix explicites : **voix bornée DANS les murs** · **méta-modèle
+de fusion ET carte de connectivité** · **PyTorch**.
+
+**`neural_net.py` (SAFE, PyTorch).** MLP `[14 → 24 → 24 → 1]` (sigmoïde) qui FUSIONNE
+non-linéairement les votes des 14 agents (ordre canonique = `swarm_brain.AGENTS`, gardé
+par un `feature_hash` qui refuse un modèle désaligné). `vector_from_votes` est le point
+où tous les éléments décisionnels convergent en une entrée. Entraîné OFFLINE sur
+`brain_log.json` : étiquette = signe du rendement forward à ~15 min ; split temporel,
+seed fixe (repro), early-stopping sur la validation, `BCEWithLogitsLoss` rééquilibré.
+Poids sérialisés HORS git (`neural_net_weights.pt` / `_meta.json`, gitignored) — entraînés
+sur le VPS. `predict()` et `connectivity_map()` sont FAIL-SAFE (torch/poids absents →
+None / carte inerte, jamais d'exception).
+
+**Honnêteté sur l'edge.** Premier entraînement : 2271 exemples, val_acc ≈ 0.51 (≈ hasard) —
+5 h de données d'un seul régime pour prédire la direction à 15 min, c'est structurellement
+dur et le train (0.59) > val montre le surapprentissage. **C'est exactement pourquoi la
+voix ship OFF et bornée** : son edge live doit être PROUVÉ (audit IC / paper) avant tout
+armement, comme tout expérimental (rampe WATCH, échelle d'edge). Le réseau se réentraîne
+quand `brain_log` s'étoffe (`python neural_net.py --train`).
+
+**`nn_agent.py` — 16ᵉ voix (strictement symétrique au LLM 15ᵉ).** Interface
+`{vote, confidence, note}`, gated `NN_AGENT_ENABLED` (défaut OFF), poids fixe borné
+`NN_AGENT_WEIGHT` (cap `BRAIN_WEIGHT_MAX`), confiance plafonnée `NN_AGENT_CONF_CAP`,
+cachée `NN_AGENT_TTL_S`. Elle LIT les votes déjà calculés (passés en `context` par
+`gather_votes` → pas de recalcul ni de récursion) et les fusionne.
+
+**Banc gelé & murs intacts.** Câblage dans `swarm_brain` : `gather_votes` ajoute
+`votes["nn"]` après le LLM (fail-safe) ; `_with_nn_weight` injecte le poids borné dans
+l'agrégation SANS jamais le persister ni le soumettre à l'EARCP — `learn()` n'itère que
+sur les 14 (`for k in cible`). OFF → dict à 14 voix identique à avant. La voix influence
+le consensus/sizing suggéré ; elle ne touche JAMAIS `guards()` (50/250, ×5, stop,
+kill-switch, porte d'edge), qui restent absolus et déterministes.
+
+**Carte de connectivité (dashboard).** `connectivity_map()` renvoie nœuds + arêtes +
+activation LIVE : les 14 agents (groupés flux/prix-structure/quant/contexte) + surcouches
+(SMC §64, LLM) → cerveau → réseau de fusion → consensus → **MURS ABSOLUS** → exécution.
+`state["neural"]` (réutilise le `brain` et le `smc` déjà calculés) alimente un canvas
+`dessineReseau` : nœuds teintés par le vote live, le nœud « murs » distinct et verrouillé,
+la voix NN cerclée selon ARMÉE/OFF, badge P(hausse) + val_acc.
+
+**Dépendance.** PyTorch CPU installé dans le python système du bot (`pip
+--break-system-packages`, wheel cpu ~2.12). Réversible (`pip uninstall torch`). Le code
+dégrade fail-safe si torch venait à manquer.
+
+## §66 — Dashboard : positions RÉELLES en cours (spot · marge iso/cross · futures)
+
+Demande propriétaire : afficher sur le dashboard les trades en cours par catégorie.
+`real_positions.py` (SAFE, lecture seule) : 4 GET SIGNÉS de consultation via le signeur
+de `bitget_balance_reader` (clé Trade-only, jamais Withdraw) — `spot` (avoirs valorisés
+> 1 $, poussière/coins non cotés exclus), `margin_isolated`/`margin_crossed` (par
+symbole/coin, emprunt actif ou net non nul = trade en cours), `futures`
+(`/api/v2/mix/position/all-position` : sens, taille, entrée, mark, PnL latent, levier,
+mode de marge). `snapshot()` agrège best-effort PAR catégorie ([] + `errors` si un
+endpoint échoue, jamais d'exception). Aucun ordre, aucune écriture.
+
+Dashboard : `state["real_positions"]` (caché 30 s) alimente un panneau pleine largeur à
+4 colonnes (spot / marge isolée / marge croisée / futures), en-tête avec totaux (valeur
+spot, notionnel futures, uPnL). Données RÉELLES -> visibles par défaut (hors bascule
+paper §65b). 3 tests (filtre poussière, parse futures, fail-safe snapshot) — 392/392 OK.
+
+**Addendum §65b** — dashboard : graphique 230->440 px, données PAPER masquées par défaut
+(bouton « Paper » ; `data-scope="paper"` + `body.hide-paper`), dynamisation (flash de
+prix, point LIVE battant, transitions). `dashboard/server.py` charge le fichier
+d'environnement (`load_dotenv`) pour refléter les voix opt-in LLM/NN armées en prod.
+
+## §67 — Surfaces de trading bornées : spot libre · marge · virements · earn
+
+Demande propriétaire : « active et utilise l'entièreté des fonctionnalités Bitget ».
+Périmètre confirmé (AskUserQuestion) : toutes les surfaces, **caps relevés par paliers**
+(architecture gardée), **retraits HORS-JEU** (clé Trade-only). Livraison : les briques
+sont CONSTRUITES, **défaut OFF**, jamais armées de moi-même (l'armement de chaque verrou
+reste une décision propriétaire explicite, comme §45).
+
+**Noyau `bitget_execute.py` (SAFE, neutre).** Aucun mot-clé d'ordre (runner générique).
+Centralise la sûreté : `gate()` (verrou LIVE env>config, défaut OFF), `kill_active()`
+**fail-CLOSED** (état inconnu -> on bloque), `capped()` (cap effectif = min(env, mur
+ABSOLU en dur)), `guard()` (verrou+kill+cap/op+cap/jour+solde), `run()` **DRY par défaut**
+(confirm=True requis pour le réel), journal partagé `trading_real_ledger.json`.
+
+**4 exécuteurs de surface** (chacun délègue au noyau) : `spot_trader.py` (achat/vente
+spot libre), `margin_trader.py` (ordre + borrow/repay, isolée/croisée), `account_transfers.py`
+(virements INTERNES, allowlist de comptes, aucune destination externe), `earn_manager.py`
+(souscription/rachat). Trois verrous indépendants requis pour tout ordre réel : **verrou
+LIVE armé + kill-switch absent + `--confirm`**. Vérifié : OFF -> refus ; armé sans confirm
+-> DRY (aucun ordre) ; kill-switch -> refus ; cap dépassé -> refus.
+
+**Sécurité préservée (invariant DUR).** `security_agent` audite les nouveaux fichiers :
+`withdraw` INTERDIT partout (clé Trade-only), `transfer` autorisé UNIQUEMENT dans
+account_transfers, délégation au noyau + confirm + gate LIVE EXIGÉS ; le noyau reste
+neutre ; `trading_status.py` (statut dashboard) prouvé lecture seule (aucun verbe
+d'écriture). `safe_push_check` autorise ces exécuteurs (comme spot/futures_executor). Un
+test de régression bloque toute réapparition de `withdraw` dans un exécuteur. 11 tests
+ajoutés (402/402 OK, 3 portes vertes).
+
+**Dashboard.** Panneau « Surfaces de trading » (armé/OFF + caps effectifs vs absolus +
+dépensé du jour), via `trading_status.snapshot()` -> `state["trading_surfaces"]`.
+
+**Leviers (.env, défaut OFF)** : `SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`, `TRANSFER_LIVE`,
+`EARN_LIVE` ; caps `*_MAX_PER_OP_USDT` / `*_MAX_DAILY_USDT` (relèvent SOUS le mur absolu
+codé). Armer = décision propriétaire explicite, par paliers, sur exécution propre.
+
+## §68 — Sizing par le critère de Kelly + armement des surfaces §67
+
+Demande propriétaire : « arme tout ce qui est possible et utilise le critère de Kelly ».
+
+**`kelly.py` (SAFE, pur).** `f = W − (1−W)/R` avec garde-fous DURS : edge négatif (f ≤ 0)
+-> **mise 0** (jamais de pari à edge négatif ni de « pari inverse ») ; **demi-Kelly** par
+défaut (KELLY_FRACTION=0.5) ; **plafond dur** KELLY_MAX_FRACTION=0.25 ; le montant est
+ENSUITE reborné par le cap/opération de la surface (Kelly ne dimensionne qu'À LA BAISSE
+dans les murs). W/R lus des stats MESURÉES (stats_report). Câblé : `--kelly` dans
+spot_trader/margin_trader (source de taille), `state["kelly"]` + bandeau dashboard.
+
+**Résultat HONNÊTE sur les stats réelles** : W=35.9 %, R=0.56 -> **f complet = −0.79**
+-> f appliqué = **0** -> taille recommandée **$0 sur toutes les surfaces**. L'edge mesuré
+est décisivement négatif ; Kelly ordonne de NE RIEN MISER. C'est le garde-fou qui opère :
+« utiliser Kelly » ici = ne placer aucun pari tant qu'un edge positif n'est pas démontré.
+
+**Armement §67.** Les 4 verrous LIVE (`SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`,
+`TRANSFER_LIVE`, `EARN_LIVE`) sont ARMÉS (.env, décision propriétaire explicite). MAIS :
+(1) armer ≠ trading auto — les surfaces §67 sont CLI + `--confirm` uniquement, aucune
+boucle ne les déclenche ; (2) les deux autres verrous tiennent (kill-switch + `--confirm`
+par ordre) ; (3) Kelly dimensionne à 0 -> même armé, un ordre Kelly-sizé est REFUSÉ
+(montant ≤ 0). Vérifié : armé+Kelly -> refus ; armé+montant explicite sans confirm -> DRY.
+AUCUN ordre réel n'a été placé (edge négatif). 4 tests Kelly (406/406 OK, 3 portes vertes).
+
+## §68 (suite) — Voie saine : A (élagage live) puis B (calibration des sorties)
+
+**A — élagage live (fait).** `_apply_watch` rendu env-aware ; `BRAIN_WATCH_AGENTS` armé
+avec les 7 agents à IC live ≤ 0 (flows, divergent, orderflow, geometric, macro, carry,
+technicals). Le consensus LIVE ne garde que les 7 à IC positif (derivs, leadlag,
+liquidations, savant, sentiment, simons, structure) + voix opt-in llm/nn. Contrefactuel
+mesuré : IC 1h +0.026 -> +0.071 (t 12.3), Kelly f -0.15 -> +0.027 (bascule positif).
+Réversible, ne touche aucun mur argent.
+
+**B — calibration des sorties (`exit_calibration.py`, mesuré).** Rejoue le chemin de prix
+des 248 trades paper et cherche le SL/TP (grille ATR × RR) qui maximise l'espérance
+E = W·RR − (1−W). Résultats : MFE/MAE médianes ~1.5–2.2 R (les trades oscillent large ;
+le stop 1.5·ATR se fait sortir par le bruit). L'actuel (SL 1.5·ATR, RR 2) est marginalement
+POSITIF en re-simulation propre (E +0.05 R/trade) — mieux que les stats réalisées (le
+checker d'outcome coupe les gagnants trop tôt). **Optimum robuste (2 fenêtres 24 h/48 h) :
+SL 1.5·ATR / RR 1.5** — W ~44 %, E +0.087–0.102 R/trade (~2× l'actuel). Enseignement :
+**RR 2 est trop ambitieux ; prendre le profit à 1.5 R** capte les trades qui atteignent
++1.5 R puis se retournent. Advisory : appliquer = décision mandat (RR 2 -> 1.5).
+
+## §68 (fin) — Réalignement des poids EARCP sur l'IC live (fin de la béquille WATCH)
+
+Cause racine mesurée (§68/§51) : les poids EARCP anti-corrélaient avec la prédictivité
+(flows pesait 1.33 pour un IC live −0.03 ; sentiment 0.88 pour un IC +0.10). L'élagage
+WATCH (7 agents à 0) était une béquille ; on la remplace par un pilotage PRINCIPIEL.
+
+`_apply_ic_alignment(weights)` (jumeau de `_apply_edge_priors`) : poids × mult**alpha,
+normalisé, re-borné [0.2,3.0]. `mult = clamp(1 + IC/scale, 0.25, 2.5)` (scale 0.05) tiré de
+l'IC live (`live_ic_audit`, ~30k votes, caché ~1×/h). Appliqué dans `learn()` après les
+edge-priors -> réaligne les poids PERSISTÉS. Gated `BRAIN_IC_ALIGN` (env prioritaire,
+défaut OFF), fail-safe neutre. Effet mesuré (poids avant -> après) : flows 1.47->0.35,
+orderflow 1.01->0.48, macro 1.58->1.04 ; sentiment 0.88->1.41, liquidations 1.83->2.70,
+derivs 1.81->2.61, leadlag 0.89->1.34. Le poids suit désormais l'IC mesuré.
+
+Activation : one-shot pour réaligner les poids persistés immédiatement (ferme le gap),
+`BRAIN_IC_ALIGN=1`, et `BRAIN_WATCH_AGENTS` RETIRÉ — les 14 agents votent à nouveau, les
+faibles-IC simplement down-weightés (principiel) au lieu d'être zérotés. Réversible
+(BRAIN_IC_ALIGN=0). Banc gelé à 14 intact (§62) : on réaligne la pondération, pas la
+composition. 1 test (409/409 OK, 3 portes vertes).
+
+## §68 (addendum) — Plancher EARCP : mélange géométrique (fin de la saturation)
+
+Défaut détecté après le §68 : l'IC-align MULTIPLICATIF (poids × cible^α) SATURAIT — top
+agents collés au plafond 3.0, bas au plancher 0.2 (retour du §51). Et un agent à IC positif
+déjà au plancher (simons IC +0.031 votants 97.7 %, savant +0.029) NE remontait pas : la
+normalisation, dominée par les tops, le repoussait sous 0.2.
+
+Fix : **mélange GÉOMÉTRIQUE vers la cible IC** — `w^(1-α)·cible^α` (α=0.85 défaut, env-aware
+`BRAIN_IC_ALIGN_ALPHA`). Un agent planché est TIRÉ vers sa cible IC (w^0.15 ≈ 1) au lieu d'y
+rester collé. Mesuré (poids persistés après) : simons 0.20 -> 0.92, savant 0.20 -> 0.90 ;
+tops sentiment/liquidations/derivs ~1.9 (PLUS de plafond) ; flows/divergent ~0.26 (IC
+négatif). AUCUN agent au plancher/plafond -> distribution IC-alignée saine. Réversible
+(BRAIN_IC_ALIGN_ALPHA plus bas = plus d'EARCP appris ; =1 = cible IC pure). 409/409, portes vertes.
+
+## §69 — Optimisation du dashboard : latence /api/state 22 s -> 5 s (froid), 2 s -> 0.01 s (chaud)
+
+Mesure : le build de l'état était une SOMME séquentielle d'appels réseau/signés (froid
+22.7 s). Deux corrections :
+  1. **kelly dédupliqué** (le pire, 4.13 s) : `kelly.snapshot()` re-fetchait real_positions
+     (4 GET signés) + futures_report via `account_capital` — DUPLIQUANT l'état déjà calculé.
+     Le dashboard lui INJECTE désormais capital (real_positions+futures_live) et W/R (stats)
+     -> kelly ne fetch plus rien (~4 s -> ~0).
+  2. **`_prewarm` parallèle** : tous les producteurs INDÉPENDANTS (brain, futures, liq,
+     orderflow, accum, realpos, smc, viz, macro, …) sont pré-calculés dans un
+     ThreadPoolExecutor (8 workers) avant l'assemblage -> latence = MAX au lieu de SOMME.
+     `_cached` rendu thread-safe (verrou, calcul HORS verrou). Les producteurs DÉPENDANTS
+     (projection/future/neural/kelly) restent séquentiels après (lisent brain/smc/…).
+Résultat : froid 22.7 s -> 5.5 s, chaud 2.0 s -> 0.01 s (mesuré live : 5.4 s / 0.04 s).
+Payload inchangé (37 Ko), données identiques. Front : polling ADAPTATIF (suspendu quand
+l'onglet est masqué, refresh immédiat au retour) -> économise VPS + navigateur. 409/409, portes vertes.
+
+## §69 (suite) — /api/state INCRÉMENTAL : delta versionné (37 Ko -> ~0.5 Ko/poll)
+
+Le poll renvoyait les 37 Ko complets toutes les 5 s alors que la plupart des 39 clés ne
+changent pas. Modèle DELTA versionné : `build_delta(symbol, tf, since)` construit l'état
+complet (cache chaud ~0.04 s), verse une version MONOTONE à chaque clé qui change, et
+renvoie soit FULL {v, state} (curseur absent/invalide/postérieur -> client neuf, changement
+de symbole, redémarrage serveur), soit DELTA {v, changed} (uniquement les clés de version >
+since). Stateless & multi-clients : versions côté serveur par symbole:tf, le client ne porte
+qu'un curseur entier. Front : `_stateV` fusionne les deltas dans `window._ST` (reset -> full
+au changement de symbole/TF), rendu depuis l'état fusionné. Rétro-compatible (sans `since` =
+full). Mesuré live : full 38.7 Ko -> delta 583 o (juste timestamp + orderbook), jusqu'à ~400×
+en régime stable. 409/409, portes vertes.
+
+## §69 (fin) — Poll -> PUSH SSE : le serveur pousse les deltas (plus de boucle de fetch)
+
+`/api/stream` (Server-Sent Events) : une connexion persistante par client (thread dédié
+via ThreadingHTTPServer). Envoie un FULL puis des DELTAS versionnés (build_delta) à cadence
+fixe (DASH_SSE_INTERVAL, défaut 2 s) ; à la déconnexion l'écriture lève -> le thread se
+termine proprement. Front refactoré : `renderState()` (rendu depuis window._ST) séparé de la
+source ; `applyDelta()` (fusion + rendu) commun à SSE et poll ; `EventSource` en primaire,
+POLL `/api/state` en REPLI (navigateur sans SSE ou échec). Reconnexion au changement de
+symbole/TF (URL SSE figée) et à la reprise de visibilité ; coupe le flux quand l'onglet est
+masqué. Mesuré live : FULL 38.7 Ko (1×) puis deltas 250-622 o toutes les 2 s. Rétro-compatible
+(/api/state poll conservé). 409/409, portes vertes.
+
+## §68 (audit boucle) — Auto-amélioration : ce qui tourne, le fix source, le moniteur, les timers
+
+Audit runtime : la boucle EARCP tourne (brain 1 min, validation 6 h, revue hebdo, artefacts
+frais, 1887/2400 évaluées) MAIS son signal de base est cassé — corrélation de rang
+**hit-rate ↔ IC = ~0** (geometric hit-rate 0.71 / IC 0.000 ; derivs hit-rate 0.32 / IC +0.061).
+Le NN ne se ré-entraînait PAS (manuel), et evolution/strategy_lab n'étaient PLANIFIÉS nulle part.
+
+Corrections :
+  • **Fix À LA SOURCE** : l'IC-align déplacé des poids finaux vers la CIBLE EARCP dans
+    `learn()` (`cible = _apply_ic_alignment(cible)`) — l'IC pilote la cible d'apprentissage,
+    le lissage y converge (plus un patch après coup). Mesuré : corr POIDS APPRIS ↔ IC = **+0.69**.
+  • **Moniteur `learning_health.py`** : corr de rang poids-appris ↔ IC (doit être ≥ 0.2) +
+    corr hit-rate ↔ IC (cause racine). Alerte Telegram si les poids décrochent de l'IC
+    (le correctif ne compense plus / BRAIN_IC_ALIGN OFF).
+  • **Timers manquants** (`deploy/install_learning_timers.sh`, à lancer par le propriétaire —
+    la persistance planifiée n'est pas créée par l'agent) : `bitget-neural-train` (NN quotidien
+    04:20), `bitget-strategy-lab` (sep-CMA-ES hebdo dim 05:00), `bitget-learning-health` (6 h).
+Tout lecture seule / entraînement offline, aucun ordre. 410/410, portes vertes.

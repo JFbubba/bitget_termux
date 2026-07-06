@@ -12,6 +12,14 @@ des 13 agents et fait apprendre les poids sur les décisions matures.
 
 
 def main():
+    # Charge le .env (gitignored) : le service systemd bitget-brain n'a pas
+    # d'EnvironmentFile, donc sans ceci les leviers .env (ex. LLM_AGENT_ENABLED,
+    # l'agent LLM opt-in) ne seraient pas vus en prod. Best-effort, aucun ordre.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     try:
         import universe
         symbols = list(universe.symbols())          # univers dynamique si activé, sinon SYMBOLS

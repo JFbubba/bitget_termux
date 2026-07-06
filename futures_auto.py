@@ -75,8 +75,10 @@ def sl_tp(side, prix, atr=None, sl_pct=None, rr=None):
     p = safe_float(prix)
     if p is None or p <= 0:
         return None, None
+    import os
     sl_pct = float(_cfg("FUTURES_AUTO_SL_PCT", 1.5) if sl_pct is None else sl_pct)
-    rr = float(_cfg("FUTURES_AUTO_RR", 2.0) if rr is None else rr)
+    # RR env-aware (§68 B : calibration -> 1.5 ; env prioritaire pour effet immédiat)
+    rr = float((os.getenv("FUTURES_AUTO_RR") or _cfg("FUTURES_AUTO_RR", 1.5)) if rr is None else rr)
     a = safe_float(atr)
     dist = 1.5 * a if (a is not None and a > 0) else p * sl_pct / 100.0
     if str(side) == "long":
@@ -143,6 +145,21 @@ def positions_par_symbole():
         return {sym: parser_positions(rs) for sym, rs in out.items()}
     except Exception:
         return {"erreur": "positions illisibles"}
+
+
+def gross_book_usdt(par_sym=None):
+    """Notional total ouvert sur TOUT le livre futures (tous symboles ET côtés).
+    Sert de gross_open_usdt CROSS-LIVRE pour la garde de cap cumulé (§45) : un
+    appelant ne doit jamais présenter sa seule jambe, sinon le mur 250 $ est aveugle
+    au reste du livre. Retourne None si le livre est illisible -> l'appelant DOIT
+    fail-closed (ne pas ouvrir à l'aveugle), jamais retomber sur 0."""
+    if par_sym is None:
+        par_sym = positions_par_symbole()
+    if not isinstance(par_sym, dict) or par_sym.get("erreur"):
+        return None
+    return round(sum((cotes.get(k) or {}).get("notional_usdt") or 0.0
+                     for cotes in par_sym.values() if isinstance(cotes, dict)
+                     for k in ("long", "short")), 2)
 
 
 def proprietaire_cote(events, cote, symbol=None):
@@ -478,9 +495,7 @@ def _run_cycle(now=None):
     miennes = _mes_positions(par_sym, events)
     out["positions"] = [{"symbol": s, **pos} for s, pos in miennes]
     out["position"] = ({"symbol": miennes[0][0], **miennes[0][1]} if miennes else None)
-    gross = sum((cotes.get(k) or {}).get("notional_usdt") or 0.0
-                for cotes in par_sym.values() if isinstance(cotes, dict)
-                for k in ("long", "short"))
+    gross = gross_book_usdt(par_sym) or 0.0
     out["gross_usdt"] = round(gross, 2)
     import futures_executor as fe
 
@@ -516,6 +531,13 @@ def _run_cycle(now=None):
         d = decider(c, None)
         if d["action"] != "ouvrir":
             continue
+        try:                                          # véto annonces (delisting/suspension) — fail-open
+            import bitget_announcements as ba
+            if ba.symbol_blocked(sym):
+                out["annonce_veto"] = out.get("annonce_veto", 0) + 1
+                continue
+        except Exception:
+            pass
         cotes = par_sym.get(sym) or {}
         if cotes.get(d["side"]):
             continue                                  # côté occupé par un autre agent
