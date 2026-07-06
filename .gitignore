@@ -79,3 +79,4 @@ logs/
 # poids du réseau neuronal de fusion (runtime binaire, §65) — entraînés sur le VPS
 neural_net_weights.pt
 neural_net_meta.json
+neural_net_pretrained.pt

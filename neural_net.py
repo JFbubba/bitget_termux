@@ -27,7 +27,8 @@ P(rendement futur > 0) à l'horizon d'entraînement. Entraîné sur `brain_log_h
 Poids sérialisés hors git (voir .gitignore).
 
 CLI :
-    python neural_net.py --train            # (ré)entraîne sur brain_log.json
+    python neural_net.py --train            # (ré)entraîne sur le journal (fine-tune si pré-entraîné)
+    python neural_net.py --pretrain         # pré-entraîne sur 6 ans de votes REJOUÉS (§73, offline)
     python neural_net.py --predict BTCUSDT  # prédiction live (nécessite des poids)
     python neural_net.py --map              # carte de connectivité (JSON)
 """
@@ -67,10 +68,16 @@ HIDDEN = 32                       # petit MLP : peu de données, on évite le su
 DROPOUT = 0.15                    # régularisation (le signal est faible, le bruit fort)
 ARCH_V = 3                        # version d'architecture (garde au chargement : ≠ -> réentraîner)
 ANTISYM = True                    # prior : renverser tous les signaux directionnels renverse la prédiction
-N_ENS = 3                         # ensemble de graines (moyenne des sigmoïdes : moins de variance)
-WF_FOLDS = 4                      # walk-forward : l'edge honnête = moyenne sur K fenêtres temporelles
+N_ENS = 5                         # ensemble de graines (logits moyennés : moins de variance)
+WF_FOLDS = 6                      # walk-forward : l'edge honnête = moyenne sur K fenêtres temporelles
 HORIZON_S = int(os.getenv("NN_HORIZON_S", "") or 900)   # étiquette = rendement à ~15 min
-DEADBAND = float(os.getenv("NN_DEADBAND", "") or 5e-4)  # |ret| < 5 bps -> étiquette bruit, ignorée
+DEADBAND = float(os.getenv("NN_DEADBAND", "") or 5e-4)  # plancher : |ret| < 5 bps = bruit, ignoré
+VOL_DEADBAND_K = 0.35             # deadband EFFECTIF = max(plancher, K × vol des rendements-horizon
+                                  # du SYMBOLE) : 5 bps fixes gardent tout le bruit de XAUT et n'en
+                                  # retirent aucun à DOGE — l'échelle par vol équilibre l'univers
+VOL_WINDOW = 200                  # rendements-horizon PASSÉS retenus pour la vol locale (causal)
+VOL_MIN_N = 30                    # sous ce nombre d'observations : repli sur le plancher fixe
+W_CLAMP = (0.25, 4.0)             # poids d'exemple = |ret|/vol borné : les grands mouvements pèsent plus
 LABEL_TOL_S = 600                 # trou de données : étiquette au-delà de horizon+tol -> ignorée
 PAST_WINDOW = 70                  # entrées de passé par échantillon (≈70 min : couvre le lookback 60 min)
 SEED = 1729                       # déterminisme (repro des poids)
@@ -339,11 +346,16 @@ def predict(symbol="BTCUSDT", votes=None):
     if not models:
         return None
     try:
+        import math
         import torch
         x = torch.tensor([assemble_live(symbol, votes)], dtype=torch.float32)
         with torch.no_grad():
-            ps = [float(torch.sigmoid(m(x)).item()) for m in models]
-        p = sum(ps) / len(ps)                # moyenne d'ensemble (moins de variance)
+            logits = [float(m(x).item()) for m in models]
+        # logit d'ensemble CALIBRÉ (température §73) : probabilité honnête -> la
+        # confiance de la 16e voix n'est plus un artefact de sur-confiance du réseau.
+        t_cal = float(meta.get("temperature") or 1.0)
+        z = (sum(logits) / len(logits)) / max(t_cal, 1e-6)
+        p = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, z))))
         vote = max(-1.0, min(1.0, (p - 0.5) * 2.0))
         conf = abs(p - 0.5) * 2.0
         # edge hors-échantillon, DEUX lectures exposées pour la porte de la 16e voix :
@@ -384,21 +396,25 @@ def _read_log(log_path=None):
     return json.loads(text)
 
 
-def _dataset(log_path=None, with_ts=False):
-    """Construit (X, y) depuis le journal du cerveau : pour chaque entrée (symbol, ts,
-    price, votes), l'étiquette est le SIGNE du rendement à HORIZON_S (première entrée
-    du même symbole à ts+HORIZON_S). Hygiène des étiquettes :
-      • deadband — |rendement| < DEADBAND (micro-variation) = bruit, échantillon ignoré ;
-      • tolérance — étiquette trouvée au-delà de HORIZON_S+LABEL_TOL_S (trou de données,
-        bot à l'arrêt) = mauvais horizon, échantillon ignoré.
-    Les échantillons sont TRIÉS PAR TEMPS GLOBAL (tous symboles confondus) pour que le
-    split de validation de train() soit réellement temporel (le passé prédit le futur,
-    pas de fuite transversale entre symboles corrélés). Renvoie (X, y) ou (X, y, ts)."""
-    rows = _read_log(log_path)
+def _build_samples(rows, horizon_s=None, deadband=None, tol_s=None):
+    """Cœur du dataset (§71/§73). Passe 1 : par symbole, deux pointeurs -> pour chaque
+    entrée (ts, price, votes) le rendement à `horizon_s` (première entrée ≥ cible,
+    tolérance `tol_s` sur les trous). Passe 2 : ordre TEMPOREL GLOBAL, puis :
+      • deadband ÉCHELONNÉ PAR VOLATILITÉ — seuil = max(plancher, K × vol des
+        rendements-horizon du symbole), la vol étant estimée UNIQUEMENT sur les
+        rendements DÉJÀ RÉALISÉS à cet instant (fenêtre d'étiquette close) : le
+        seuil lui-même est causal. 5 bps fixes gardaient tout le bruit de XAUT et
+        n'en retiraient aucun à DOGE ;
+      • POIDS d'exemple = |ret|/vol borné W_CLAMP — un mouvement de 3σ enseigne
+        plus qu'un frémissement (le val reste NON pondéré : métriques honnêtes).
+    Renvoie (X, y, w, ts) triés par ts."""
+    horizon_s = HORIZON_S if horizon_s is None else int(horizon_s)
+    deadband = DEADBAND if deadband is None else float(deadband)
+    tol_s = LABEL_TOL_S if tol_s is None else int(tol_s)
     by_sym = {}
     for e in rows:
         by_sym.setdefault(e.get("symbol"), []).append(e)
-    samples = []
+    raw = []
     for sym, seq in by_sym.items():
         seq = sorted(seq, key=lambda e: e.get("ts", 0))
         j = 0                                # deux pointeurs : la cible avance avec i
@@ -406,37 +422,80 @@ def _dataset(log_path=None, with_ts=False):
             price = e.get("price")
             if not price:
                 continue
-            target_ts = e.get("ts", 0) + HORIZON_S
+            target_ts = e.get("ts", 0) + horizon_s
             j = max(j, i + 1)
             while j < len(seq) and (seq[j].get("ts", 0) < target_ts or not seq[j].get("price")):
                 j += 1
             if j >= len(seq):
                 break
             fut = seq[j]
-            if fut.get("ts", 0) - target_ts > LABEL_TOL_S:
+            if fut.get("ts", 0) - target_ts > tol_s:
                 continue
             ret = (fut["price"] - price) / price
-            if abs(ret) < DEADBAND:
-                continue
             past = seq[max(0, i - PAST_WINDOW):i]     # fenêtre CAUSALE bornée (jamais le futur)
-            samples.append((e.get("ts", 0),
-                            vector_from_votes(e.get("votes") or {}) + extras_from_seq(past, e),
-                            1 if ret > 0 else 0))
-    samples.sort(key=lambda s: s[0])
-    X = [s[1] for s in samples]
-    y = [s[2] for s in samples]
+            raw.append((e.get("ts", 0), sym,
+                        vector_from_votes(e.get("votes") or {}) + extras_from_seq(past, e),
+                        ret, fut.get("ts", 0)))
+    raw.sort(key=lambda s: s[0])
+    # passe 2 : vol locale CAUSALE par symbole (somme/somme² glissantes, O(n))
+    stats = {}                               # sym -> [deque rets, somme, somme²]
+    pending = {}                             # sym -> deque (fut_ts, ret) en attente de réalisation
+    import collections
+    X, y, w, ts_out = [], [], [], []
+    for ts_i, sym, x, ret, fut_ts in raw:
+        st = stats.setdefault(sym, [collections.deque(), 0.0, 0.0])
+        pq = pending.setdefault(sym, collections.deque())
+        while pq and pq[0][0] <= ts_i:       # rendements dont la fenêtre est CLOSE
+            _, r = pq.popleft()
+            st[0].append(r)
+            st[1] += r
+            st[2] += r * r
+            if len(st[0]) > VOL_WINDOW:
+                old = st[0].popleft()
+                st[1] -= old
+                st[2] -= old * old
+        sd = None
+        n = len(st[0])
+        if n >= VOL_MIN_N:
+            var = max(0.0, st[2] / n - (st[1] / n) ** 2)
+            sd = var ** 0.5
+        pq.append((fut_ts, ret))             # le ret COURANT n'est réalisé qu'à fut_ts
+        seuil = max(deadband, VOL_DEADBAND_K * sd) if sd else deadband
+        if abs(ret) < seuil:
+            continue
+        poids = max(W_CLAMP[0], min(W_CLAMP[1], abs(ret) / sd)) if sd and sd > 0 else 1.0
+        X.append(x)
+        y.append(1 if ret > 0 else 0)
+        w.append(round(poids, 4))
+        ts_out.append(ts_i)
+    return X, y, w, ts_out
+
+
+def _dataset(log_path=None, with_ts=False, with_weights=False):
+    """Construit le dataset depuis le journal du cerveau (voir _build_samples pour
+    l'hygiène des étiquettes §71/§73). Renvoie (X, y), (X, y, ts) ou (X, y, ts, w)."""
+    rows = _read_log(log_path)
+    X, y, w, ts = _build_samples(rows)
+    if with_weights:
+        return X, y, ts, w
     if with_ts:
-        return X, y, [s[0] for s in samples]
+        return X, y, ts
     return X, y
 
 
 def _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, seed, epochs, lr, batch_size, patience,
-         hidden=None, antisym=None, pos_weight=None):
+         hidden=None, antisym=None, pos_weight=None, wtr_t=None, init_state=None):
     """Entraîne UN réseau (mini-batches, early-stopping sur la perte de validation).
-    Déterministe par graine (init + shuffle). Renvoie (model, best_val_loss)."""
+    Déterministe par graine (init + shuffle). `wtr_t` : poids d'exemples (train
+    seulement — la validation reste NON pondérée, c'est elle qui juge). `init_state` :
+    poids de départ (fine-tuning depuis un pré-entraînement §73).
+    Renvoie (model, best_val_loss)."""
     torch.manual_seed(seed)
     model = _build_net(torch, tnn, Xtr_t.shape[1], hidden=hidden, antisym=antisym)
-    loss_fn = tnn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if init_state is not None:
+        model.load_state_dict(init_state)
+    loss_el = tnn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
+    val_fn = tnn.BCEWithLogitsLoss(pos_weight=pos_weight)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     gen = torch.Generator().manual_seed(seed)
     best_val, best_state, since_best = 1e9, None, 0
@@ -446,12 +505,13 @@ def _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, seed, epochs, lr, batch_size, p
         for k in range(0, len(perm), batch_size):
             idx = perm[k:k + batch_size]
             opt.zero_grad()
-            loss = loss_fn(model(Xtr_t[idx]), ytr_t[idx])
+            el = loss_el(model(Xtr_t[idx]), ytr_t[idx])
+            loss = (el * wtr_t[idx]).mean() if wtr_t is not None else el.mean()
             loss.backward()
             opt.step()
         model.eval()
         with torch.no_grad():
-            vloss = float(loss_fn(model(Xva_t), yva_t).item())
+            vloss = float(val_fn(model(Xva_t), yva_t).item())
         if vloss < best_val - 1e-5:
             best_val = vloss
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
@@ -465,12 +525,30 @@ def _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, seed, epochs, lr, batch_size, p
     return model, best_val
 
 
-def _purged_train_idx(ts, val_lo):
+def _calibrate_temperature(torch, logits, y_t):
+    """Température T minimisant la NLL de sigmoid(logit/T) sur la VALIDATION
+    (calibration de Platt à un paramètre). Grille log-uniforme déterministe
+    [0.5, 3.0]. T > 1 = le réseau était sur-confiant -> confiance écrasée vers 0.5 ;
+    la 16e voix hérite ainsi d'une conviction HONNÊTE, pas d'un artefact. PUR."""
+    import math
+    bce = torch.nn.BCEWithLogitsLoss()
+    best_t, best_nll = 1.0, float("inf")
+    for k in range(25):
+        t = math.exp(math.log(0.5) + (math.log(3.0) - math.log(0.5)) * k / 24.0)
+        with torch.no_grad():
+            nll = float(bce(logits / t, y_t).item())
+        if nll < best_nll:
+            best_nll, best_t = nll, t
+    return round(best_t, 4)
+
+
+def _purged_train_idx(ts, val_lo, horizon_s=None):
     """Indices de train STRICTEMENT antérieurs à la fenêtre de validation, PURGÉS :
-    un exemple dont la fenêtre d'étiquette [ts, ts+HORIZON_S] mord sur la validation
+    un exemple dont la fenêtre d'étiquette [ts, ts+horizon] mord sur la validation
     verrait le futur de celle-ci (anti-fuite). PUR."""
+    horizon_s = HORIZON_S if horizon_s is None else int(horizon_s)
     val_start_ts = ts[val_lo]
-    return [i for i in range(val_lo) if ts[i] + HORIZON_S <= val_start_ts]
+    return [i for i in range(val_lo) if ts[i] + horizon_s <= val_start_ts]
 
 
 def _pos_weight(torch, y_idx, y):
@@ -481,12 +559,14 @@ def _pos_weight(torch, y_idx, y):
 
 
 def walk_forward(X, y, ts, folds=WF_FOLDS, seed=SEED, epochs=200, lr=1e-3,
-                 batch_size=256, patience=30, hidden=None, antisym=None, verbose=False):
+                 batch_size=256, patience=30, hidden=None, antisym=None, w=None,
+                 init_state=None, horizon_s=None, verbose=False):
     """Edge HONNÊTE : K fenêtres de validation temporelles consécutives, chacune prédite
     par un modèle entraîné sur son seul passé (fenêtre extensible, purge anti-fuite).
     Un split unique dépend du hasard de SA fenêtre (taux de base mesurés 0.57-0.71 §70) ;
-    la moyenne des K (acc − base) est l'estimateur que la 16e voix gate. Renvoie
-    {folds, wf_edge, wf_acc, wf_base, wf_brier} (wf_edge=None si données insuffisantes)."""
+    la moyenne des K (acc − base) est l'estimateur que la 16e voix gate. `w` : poids
+    d'exemples (train seul) ; `init_state` : départ pré-entraîné (§73). Renvoie
+    {folds, wf_edge, wf_edge_se, wf_acc, wf_base, wf_brier} (wf_edge=None si trop peu)."""
     import torch
     from torch import nn as tnn
     n = len(X)
@@ -497,16 +577,19 @@ def walk_forward(X, y, ts, folds=WF_FOLDS, seed=SEED, epochs=200, lr=1e-3,
     for f in range(folds):
         lo = (f + 1) * block
         hi = (f + 2) * block if f < folds - 1 else n
-        tr_idx = _purged_train_idx(ts, lo)
+        tr_idx = _purged_train_idx(ts, lo, horizon_s=horizon_s)
         if len(tr_idx) < 100 or hi - lo < 50:
             continue
         Xtr_t = torch.tensor([X[i] for i in tr_idx], dtype=torch.float32)
         ytr_t = torch.tensor([y[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
+        wtr_t = (torch.tensor([w[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
+                 if w is not None else None)
         Xva_t = torch.tensor(X[lo:hi], dtype=torch.float32)
         yva_t = torch.tensor(y[lo:hi], dtype=torch.float32).unsqueeze(1)
         model, _ = _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, seed + f, epochs, lr,
                         batch_size, patience, hidden, antisym,
-                        pos_weight=_pos_weight(torch, tr_idx, y))
+                        pos_weight=_pos_weight(torch, tr_idx, y), wtr_t=wtr_t,
+                        init_state=init_state)
         with torch.no_grad():
             p = torch.sigmoid(model(Xva_t))
             acc = float(((p > 0.5).float() == yva_t).float().mean().item())
@@ -535,6 +618,211 @@ def walk_forward(X, y, ts, folds=WF_FOLDS, seed=SEED, epochs=200, lr=1e-3,
             "wf_brier": round(sum(o["brier"] for o in out) / len(out), 4)}
 
 
+# --------------------------------------------------------------------------- #
+#  §73 : PRÉ-ENTRAÎNEMENT sur votes REJOUÉS (historique profond 6 ans)         #
+# --------------------------------------------------------------------------- #
+PRETRAINED_PATH = REPO / "neural_net_pretrained.pt"
+PRETRAIN_HORIZON_S = int(os.getenv("NN_PRETRAIN_HORIZON_S", "") or 3600)  # 1 barre 1h
+_REPLAY_WIN = 200                 # fenêtre de rejeu (= les 200 bougies du fetch live)
+_REPLAY_STRIDES = {"simons": 48, "savant": 6, "geometric": 6}  # coûteux : tenus entre 2 calculs
+_REPLAY_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
+
+
+def _load_pretrained_states(torch, n, hidden=None, antisym=None):
+    """États de DÉPART du fine-tuning (§73) : membres pré-entraînés sur les votes
+    rejoués de l'historique profond. [] si absent/désaligné/désactivé (NN_PRETRAIN=off)
+    — l'entraînement part alors de zéro, comme avant. Recyclés si n > membres."""
+    if (os.getenv("NN_PRETRAIN", "") or "").strip().lower() in ("off", "0", "no"):
+        return []
+    if not PRETRAINED_PATH.exists():
+        return []
+    try:
+        payload = torch.load(PRETRAINED_PATH, map_location="cpu")
+        meta = (payload or {}).get("meta") or {}
+        if meta.get("feature_hash") != feature_hash() or int(meta.get("arch_v", 0)) != ARCH_V:
+            return []
+        if int(meta.get("hidden", -1)) != int(HIDDEN if hidden is None else hidden):
+            return []
+        if bool(meta.get("antisym", ANTISYM)) != bool(ANTISYM if antisym is None else antisym):
+            return []
+        states = payload.get("models") or []
+        return [states[k % len(states)] for k in range(n)] if states else []
+    except Exception:
+        return []
+
+
+def _replay_votes_series(sym, candles, btc_by_ts=None, verbose=False):
+    """Votes REJOUÉS barre par barre pour les agents à forme PURE canonique (celles
+    que la validation §54 rejoue déjà) : technicals (formule EXACTE d'agent_technicals
+    sur la fenêtre 200 — EMA20/50, RSI 35/65, volume_bias, VWAP §72), divergent,
+    simons/savant/geometric (stride + tenue, à l'image de leur lenteur live), leadlag
+    (fade BTC — 0 pour BTC lui-même). Les 8 autres voix restent à 0.0 (fail-safe,
+    cohérent avec vector_from_votes : agent manquant = 0). `candles` au format
+    historique [ts_ms, o, h, l, c, v]. Renvoie [dict votes | None] par barre."""
+    import indicators
+    import swarm_brain as sb
+    import technicals as tkm
+    from simons_agent import signal as sig_simons
+    from savant_agent import signal as sig_savant
+    from geometric_agent import signal as sig_geometric
+    from leadlag_agent import signal as sig_leadlag
+
+    n = len(candles)
+    dicts = [{"ts": int(c[0]), "open": float(c[1]), "high": float(c[2]),
+              "low": float(c[3]), "close": float(c[4]),
+              "volume": float(c[5]) if len(c) > 5 else 0.0} for c in candles]
+    closes = [d["close"] for d in dicts]
+    is_btc = str(sym).upper() == "BTCUSDT"
+    held = {"simons": 0.0, "savant": 0.0, "geometric": 0.0}
+    out = [None] * n
+
+    def _last(v):
+        return v[-1] if isinstance(v, list) and v else v
+
+    for t in range(_REPLAY_WIN, n):
+        w_closes = closes[t - _REPLAY_WIN + 1:t + 1]
+        w_dicts = dicts[t - _REPLAY_WIN + 1:t + 1]
+        votes = {}
+        # -- technicals : réplique EXACTE de swarm_brain.agent_technicals --
+        try:
+            ema20 = _last(indicators.ema(w_closes, 20))
+            ema50 = _last(indicators.ema(w_closes, 50))
+            rsi = _last(indicators.calculate_rsi(w_closes))
+            vb = _last(indicators.volume_bias_score(w_dicts)) or 0
+            v = 0.0
+            if ema20 and ema50:
+                v += 0.5 if ema20 > ema50 else -0.5
+            if rsi is not None:
+                v += 0.3 if rsi < 35 else -0.3 if rsi > 65 else 0
+            v += max(-1.0, min(1.0, vb / 10.0)) * 0.4
+            vw = tkm.vwap(w_dicts)
+            px = w_closes[-1]
+            if vw and px:
+                ecart = (px - vw) / vw
+                v += 0.2 if ecart < -0.002 else -0.2 if ecart > 0.002 else 0
+            votes["technicals"] = max(-1.0, min(1.0, v))
+        except Exception:
+            votes["technicals"] = 0.0
+        # -- divergent (z-score de sur-extension, forme canonique §54) --
+        try:
+            votes["divergent"] = float(sb.divergent_score(w_closes) or 0.0)
+        except Exception:
+            votes["divergent"] = 0.0
+        # -- simons / savant / geometric : stride + tenue --
+        for nom, fn, arg in (("simons", sig_simons, w_closes),
+                             ("savant", sig_savant, w_dicts),
+                             ("geometric", sig_geometric, w_closes)):
+            stride = _REPLAY_STRIDES.get(nom, 1)
+            if (t - _REPLAY_WIN) % stride == 0:
+                try:
+                    r = fn(arg)
+                    held[nom] = float((r or {}).get("vote", 0.0) if isinstance(r, dict) else (r or 0.0))
+                except Exception:
+                    held[nom] = 0.0
+            votes[nom] = held[nom]
+        # -- leadlag : fade du mouvement BTC (0 pour BTC lui-même) --
+        if is_btc or not btc_by_ts:
+            votes["leadlag"] = 0.0
+        else:
+            try:
+                w_ts = [d["ts"] for d in dicts[max(0, t - 89):t + 1]]
+                btc_w = [btc_by_ts.get(x) for x in w_ts]
+                votes["leadlag"] = (0.0 if any(b is None for b in btc_w)
+                                    else float(sig_leadlag(closes[max(0, t - 89):t + 1], btc_w) or 0.0))
+            except Exception:
+                votes["leadlag"] = 0.0
+        out[t] = votes
+        if verbose and (t - _REPLAY_WIN) % 5000 == 0:
+            print(f"  {sym}: barre {t}/{n}")
+    return out
+
+
+def build_replay_rows(symbols=None, tf="1h", verbose=True):
+    """Corpus de PRÉ-ENTRAÎNEMENT : lignes au format brain-log ({ts s, symbol, price,
+    votes, consensus:None}) reconstruites depuis l'historique profond (§54,
+    candles_history) — des ANNÉES de régimes là où le journal live n'a que des jours.
+    Les votes rejoués couvrent 6 des 14 voix (formes pures) ; le reste à 0."""
+    import candles_history as ch
+    symbols = list(symbols or _REPLAY_SYMBOLS)
+    btc_by_ts = None
+    try:
+        btc = ch.load("BTCUSDT", tf)
+        btc_by_ts = {int(c[0]): float(c[4]) for c in btc}
+    except Exception:
+        btc = []
+    rows = []
+    for sym in symbols:
+        try:
+            candles = btc if sym == "BTCUSDT" and btc else ch.load(sym, tf)
+        except Exception:
+            continue
+        if not candles or len(candles) < _REPLAY_WIN + 50:
+            continue
+        if verbose:
+            print(f"rejeu {sym} : {len(candles)} bougies {tf}")
+        series = _replay_votes_series(sym, candles, btc_by_ts=btc_by_ts, verbose=verbose)
+        for t, votes in enumerate(series):
+            if votes is None:
+                continue
+            rows.append({"ts": int(candles[t][0] // 1000), "symbol": sym,
+                         "price": float(candles[t][4]), "votes": votes,
+                         "consensus": None})
+    return rows
+
+
+def pretrain(epochs=200, lr=1e-3, batch_size=512, patience=25, n_ens=None, verbose=True):
+    """PRÉ-ENTRAÎNE l'ensemble sur les votes rejoués (§73) et sérialise
+    neural_net_pretrained.pt (méta embarquée : empreintes + walk-forward de contrôle).
+    Le train() quotidien s'en sert ensuite comme INITIALISATION (fine-tuning sur le
+    journal live) — NN_PRETRAIN=off pour repartir de zéro. N'écrit PAS les poids de
+    production : seul train() le fait."""
+    import datetime as _dt
+    import torch
+    from torch import nn as tnn
+    n_ens = N_ENS if n_ens is None else max(1, int(n_ens))
+    rows = build_replay_rows(verbose=verbose)
+    X, y, w, ts = _build_samples(rows, horizon_s=PRETRAIN_HORIZON_S,
+                                 tol_s=PRETRAIN_HORIZON_S)
+    n = len(X)
+    if n < 5000:
+        raise RuntimeError(f"corpus rejoué trop maigre ({n}) — vérifier data_history")
+    if verbose:
+        print(f"corpus rejoué : {n} exemples ({sum(y)} hausses / {n - sum(y)} baisses)")
+    wf_stats = walk_forward(X, y, ts, epochs=min(epochs, 120), lr=lr,
+                            batch_size=batch_size, patience=min(patience, 15),
+                            w=w, horizon_s=PRETRAIN_HORIZON_S, verbose=verbose)
+    n_val = max(500, int(n * 0.1))
+    tr_idx = _purged_train_idx(ts, n - n_val, horizon_s=PRETRAIN_HORIZON_S)
+    Xtr_t = torch.tensor([X[i] for i in tr_idx], dtype=torch.float32)
+    ytr_t = torch.tensor([y[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
+    wtr_t = torch.tensor([w[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
+    Xva_t = torch.tensor(X[n - n_val:], dtype=torch.float32)
+    yva_t = torch.tensor(y[n - n_val:], dtype=torch.float32).unsqueeze(1)
+    pw = _pos_weight(torch, tr_idx, y)
+    states, val_losses = [], []
+    for k in range(n_ens):
+        model, best_val = _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, SEED + 100 + k,
+                               epochs, lr, batch_size, patience, pos_weight=pw, wtr_t=wtr_t)
+        states.append({kk: v.clone() for kk, v in model.state_dict().items()})
+        val_losses.append(best_val)
+        if verbose:
+            print(f"membre pré-entraîné {k}: val_loss {best_val:.4f}")
+    meta = {"feature_hash": feature_hash(), "arch_v": ARCH_V, "hidden": HIDDEN,
+            "antisym": ANTISYM, "n_models": n_ens, "horizon_s": PRETRAIN_HORIZON_S,
+            "n_samples": n,
+            "data_from": _dt.datetime.fromtimestamp(ts[0], _dt.timezone.utc).isoformat(timespec="seconds"),
+            "data_to": _dt.datetime.fromtimestamp(ts[-1], _dt.timezone.utc).isoformat(timespec="seconds"),
+            "wf": wf_stats, "trained_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+    torch.save({"models": states, "meta": meta}, PRETRAINED_PATH)
+    if verbose:
+        print(f"\nPré-entraîné sur {n} exemples rejoués "
+              f"({meta['data_from']} -> {meta['data_to']}).")
+        print(f"Walk-forward corpus : edge {wf_stats.get('wf_edge')} "
+              f"(acc {wf_stats.get('wf_acc')} vs base {wf_stats.get('wf_base')})")
+        print(f"Init de fine-tuning -> {PRETRAINED_PATH.name}")
+    return meta
+
+
 def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
           patience=60, hidden=None, antisym=None, n_ens=None, wf=True, verbose=True):
     """Entraîne l'ENSEMBLE de fusion et sérialise poids + méta. Retourne les métriques.
@@ -545,11 +833,14 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
     import torch
     from torch import nn as tnn
 
-    X, y, ts = _dataset(log_path, with_ts=True)
+    X, y, ts, w = _dataset(log_path, with_ts=True, with_weights=True)
     n = len(X)
     if n < 40:
         raise RuntimeError(f"trop peu d'exemples pour entraîner ({n}) — laisse tourner le cerveau")
     n_ens = N_ENS if n_ens is None else max(1, int(n_ens))
+    inits = _load_pretrained_states(torch, n_ens, hidden=hidden, antisym=antisym)
+    if verbose and inits:
+        print(f"fine-tuning depuis le pré-entraînement ({len(inits)} membres, §73)")
 
     # 1) edge honnête (walk-forward) — AVANT l'entraînement final
     if wf:
@@ -557,7 +848,8 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
             print(f"Walk-forward ({WF_FOLDS} plis) :")
         wf_stats = walk_forward(X, y, ts, epochs=min(epochs, 200), lr=lr,
                                 batch_size=batch_size, patience=min(patience, 30),
-                                hidden=hidden, antisym=antisym, verbose=verbose)
+                                hidden=hidden, antisym=antisym, w=w,
+                                init_state=(inits[0] if inits else None), verbose=verbose)
     else:
         wf_stats = {"folds": [], "wf_edge": None, "note": "désactivé"}
 
@@ -568,6 +860,7 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
         raise RuntimeError(f"trop peu d'exemples de train après purge ({len(tr_idx)})")
     Xtr_t = torch.tensor([X[i] for i in tr_idx], dtype=torch.float32)
     ytr_t = torch.tensor([y[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
+    wtr_t = torch.tensor([w[i] for i in tr_idx], dtype=torch.float32).unsqueeze(1)
     Xva_t = torch.tensor(X[n - n_val:], dtype=torch.float32)
     yva_t = torch.tensor(y[n - n_val:], dtype=torch.float32).unsqueeze(1)
     pw = _pos_weight(torch, tr_idx, y)
@@ -575,15 +868,22 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
     models, val_losses = [], []
     for k in range(n_ens):
         model, best_val = _fit(torch, tnn, Xtr_t, ytr_t, Xva_t, yva_t, SEED + k, epochs,
-                               lr, batch_size, patience, hidden, antisym, pos_weight=pw)
+                               lr, batch_size, patience, hidden, antisym, pos_weight=pw,
+                               wtr_t=wtr_t, init_state=(inits[k] if inits else None))
         models.append(model)
         val_losses.append(best_val)
         if verbose:
             print(f"membre {k}: val_loss {best_val:.4f}")
 
     with torch.no_grad():
-        p_va = sum(torch.sigmoid(m(Xva_t)) for m in models) / len(models)
-        p_tr = sum(torch.sigmoid(m(Xtr_t)) for m in models) / len(models)
+        logit_va = sum(m(Xva_t) for m in models) / len(models)
+        logit_tr = sum(m(Xtr_t) for m in models) / len(models)
+    # CALIBRATION (§73) : température ajustée sur la validation — la probabilité (donc
+    # la CONFIANCE de la 16e voix) devient honnête ; le signe des votes est inchangé.
+    temperature = _calibrate_temperature(torch, logit_va, yva_t)
+    with torch.no_grad():
+        p_va = torch.sigmoid(logit_va / temperature)
+        p_tr = torch.sigmoid(logit_tr / temperature)
         va_pred = (p_va > 0.5).float()
         val_acc = float((va_pred == yva_t).float().mean().item())
         tr_acc = float(((p_tr > 0.5).float() == ytr_t).float().mean().item())
@@ -619,6 +919,8 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
             "val_hiconf_acc": round(hi_acc, 4) if hi_acc is not None else None,
             "val_hiconf_n": hi_n,
             "val_loss": round(sum(val_losses) / len(val_losses), 4),
+            "temperature": temperature, "vol_deadband_k": VOL_DEADBAND_K,
+            "pretrained_init": bool(inits),
             "wf_edge": wf_stats.get("wf_edge"), "wf_edge_se": wf_stats.get("wf_edge_se"),
             "wf": wf_stats, "seed": SEED,
             "trained_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
@@ -759,6 +1061,10 @@ def main():
         i = args.index("--train")
         epochs = int(args[i + 1]) if i + 1 < len(args) and args[i + 1].isdigit() else 300
         train(epochs=epochs)
+    elif "--pretrain" in args:
+        i = args.index("--pretrain")
+        epochs = int(args[i + 1]) if i + 1 < len(args) and args[i + 1].isdigit() else 200
+        pretrain(epochs=epochs)
     elif "--predict" in args:
         i = args.index("--predict")
         sym = args[i + 1].upper() if i + 1 < len(args) else "BTCUSDT"

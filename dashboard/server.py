@@ -677,7 +677,7 @@ def build_state(symbol=None, tf="5m"):
         ("futlive", 60, lambda: _safe(_futures_live, {})),
         (f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {})),
         (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
-        ("realpos", 30, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
+        ("realpos", 10, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
         ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
     ])
 
@@ -730,7 +730,7 @@ def build_state(symbol=None, tf="5m"):
                                   symbol, brain=brain, smc=state.get("smc") or {}), {}))
     # Positions RÉELLES en cours (lecture seule) : spot · marge iso · marge cross · futures.
     # 4 GET signés best-effort -> cache 30 s (indépendant du symbole affiché).
-    state["real_positions"] = _cached("realpos", 30,
+    state["real_positions"] = _cached("realpos", 10,
                                       lambda: _safe(lambda: __import__("real_positions").snapshot(), {}))
     # Surfaces de trading bornées §67 : état armé/OFF + caps effectifs + dépensé du jour.
     # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.

@@ -7473,6 +7473,10 @@ def test_nn_dataset_hygiene_deadband_trous_et_tri_temporel():
         # compat : l'appel à 2 valeurs reste inchangé
         X2, y2 = nn._dataset(path)
         assert (X2, y2) == (X, y)
+        # poids d'exemples (§73) : disponibles, bornés ; trop peu d'histoire pour la
+        # vol locale (< VOL_MIN_N rendements réalisés) -> poids neutres à 1.0
+        X3, y3, ts3, w3 = nn._dataset(path, with_ts=True, with_weights=True)
+        assert (X3, y3, ts3) == (X, y, ts) and w3 == [1.0, 1.0]
     finally:
         os.remove(path)
 
@@ -7543,6 +7547,41 @@ def test_nn_antisymetrie_exacte():
     assert fl[:len(nn.FEATURES)] == [-1.0] * len(nn.FEATURES)
     assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("vol_60m")] == 1.0
     assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("ret_15m")] == -1.0
+
+
+def test_nn_calibration_et_pretrain_failsafe():
+    import neural_net as nn
+    try:
+        import torch
+    except Exception:
+        return  # torch absent : test sauté proprement
+    # calibration : réseau SUR-confiant (logits ±3, 30 % d'étiquettes contraires)
+    # -> température > 1 (écrase vers 0.5) ; toujours dans la grille [0.5, 3]
+    y = torch.tensor([[1.0] if i % 10 < 7 else [0.0] for i in range(200)])
+    logits = torch.full((200, 1), 3.0)               # « toujours hausse, sûr à 95 % »
+    t_cal = nn._calibrate_temperature(torch, logits, y)
+    assert t_cal > 1.0 and 0.5 <= t_cal <= 3.0
+    # pré-entraînement (§73) : fail-safe TOTAL du chargeur d'init
+    import os
+    from pathlib import Path as _P
+    old_path, old_env = nn.PRETRAINED_PATH, os.environ.pop("NN_PRETRAIN", None)
+    try:
+        nn.PRETRAINED_PATH = _P("/nonexistent/nn_pre.pt")
+        assert nn._load_pretrained_states(torch, 3) == []          # absent -> []
+        import tempfile
+        tmp = _P(tempfile.mkstemp(suffix=".pt")[1])
+        torch.save({"models": [{}], "meta": {"feature_hash": "MAUVAIS",
+                                             "arch_v": nn.ARCH_V}}, tmp)
+        nn.PRETRAINED_PATH = tmp
+        assert nn._load_pretrained_states(torch, 3) == []          # désaligné -> []
+        os.environ["NN_PRETRAIN"] = "off"
+        assert nn._load_pretrained_states(torch, 3) == []          # désactivé -> []
+        tmp.unlink(missing_ok=True)
+    finally:
+        nn.PRETRAINED_PATH = old_path
+        os.environ.pop("NN_PRETRAIN", None)
+        if old_env is not None:
+            os.environ["NN_PRETRAIN"] = old_env
 
 
 def test_nn_edge_bound_et_porte_configurable():

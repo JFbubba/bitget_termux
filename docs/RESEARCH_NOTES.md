@@ -2616,3 +2616,74 @@ Rien n'est armé par cette passe : les leviers CLASSICS_AGENT_ENABLED et
 ACCUM_DCA_COSTBASIS restent OFF (les armer = une ligne du levier env chacun).
 Le n°10 (RF) reste un instrument de MESURE au lab — pas de voix live (coût par
 cycle prohibitif et philosophie : promotion sur chiffres uniquement).
+
+## §74 — Dashboard : RÉEL uniquement, fenêtre de trades vivante, cartes animées, alignements
+
+Demande propriétaire (06/07 soir). Quatre chantiers, dans la continuité data-viz §69 :
+  • **RÉEL uniquement** : le bouton « Paper affiché/masqué » et TOUT l'affichage paper
+    disparaissent (panneaux « Positions en cours (paper) », « Issues des signaux »,
+    « Labo xs paper », lignes cumul paper / carry paper, tuile win-rate paper du
+    bandeau). Le panneau « Wallet · Performance » (stats de signaux paper) devient
+    **« Performance RÉELLE »** : PnL net bot futures en héros (fills réels, frais
+    déduits), chips WIN RÉEL (Kelly W mesuré) / PAYOFF R / FILLS / FRAIS, equity
+    futures, BTC accumulé réel. Bandeau : tuile « RÉEL PNL BOT ». Pied de page :
+    fills réels + positions ouvertes (plus de compte de signaux fictifs).
+  • **Fenêtre TRADES RÉELS EN COURS** (pleine largeur, sous le bandeau) : une ligne
+    par position futures ouverte — sens (badge ▲ LONG/▼ SHORT), taille, entrée, mark,
+    uPnL $ (FLASH vert/rouge à chaque variation), uPnL % (vs marge), levier·mode,
+    marge, notionnel ; uPnL total dans le titre ; état FLAT explicite. Fraîcheur :
+    cache serveur realpos 30 s -> 10 s (positions poussées par SSE ~2 s). La ligne
+    d'entrée RÉELLE de la position du symbole s'affiche sur le graphe (remplace les
+    lignes paper).
+  • **Réseau de neurones ANIMÉ** (`dessineReseau` -> boucle RAF `_nnDraw`) : particules
+    circulant le long des arêtes (données -> cerveau -> fusion -> consensus -> murs ->
+    exécution), débit et vitesse ∝ |activation| de la source, couleur = signe ;
+    activations LISSÉES (lerp) entre deux pushs SSE ; nœuds qui « respirent » avec
+    leur activation (+ halo lent constant sur les murs 🔒) ; badge enrichi (edge de la
+    porte). `prefers-reduced-motion` -> rendu statique (inchangé).
+  • **Carte de consensus ANIMÉE** (MiroFish) : amplitudes LISSÉES (lerp, les rayons ne
+    sautent plus), dérive orbitale lente (1 tour ≈ 5 min), arêtes en tirets qui
+    MARCHENT vers le centre (vitesse ∝ |consensus|), cœur « MARCHÉ » qui respire avec
+    |net| + onde émise quand le net est directionnel ; anneau de seuil pulsé conservé.
+  • **Alignements** : la fenêtre trades partage UNE grille entre en-tête et lignes
+    (alignement données/titres garanti par construction) ; `.row` cale sa valeur à
+    droite ; valeurs des positions réelles en nowrap.
+Vérifié : purge paper totale (0 occurrence), syntaxe JS validée (node --check),
+healthz 200, /api/state expose tout ce que le front consomme. Lecture seule inchangée.
+
+## §73 — Réseau de fusion v4 : hygiène par volatilité, calibration, et PRÉ-ENTRAÎNEMENT sur 6 ans de votes rejoués
+
+Deux étages d'amélioration, chacun MESURÉ (walk-forward 6 plis sur le journal live).
+
+**Étage 1 — hygiène v2 + calibration.**
+  • Deadband ÉCHELONNÉ PAR VOLATILITÉ : seuil = max(5 bps, 0.35 × vol des rendements-
+    horizon du SYMBOLE), vol estimée CAUSALEMENT (uniquement les rendements dont la
+    fenêtre est close à l'instant t). 5 bps fixes gardaient tout le bruit de XAUT et
+    n'en retiraient rien à DOGE.
+  • POIDS d'exemples = |ret|/vol borné [0.25, 4] (train seul — la validation reste non
+    pondérée) : un mouvement de 3σ enseigne plus qu'un frémissement.
+  • CALIBRATION en température (Platt 1 paramètre, ajustée sur la validation) sur le
+    LOGIT d'ensemble : T mesuré 1.14 (scratch) puis 1.92 (v4) — le réseau était
+    SUR-confiant, la confiance de la 16e voix devient une probabilité honnête.
+  • 6 plis (au lieu de 4), ensemble ×5 (logits moyennés), _fit/_purged factorisés.
+
+**Étage 2 — PRÉ-ENTRAÎNEMENT sur votes REJOUÉS (la vraie profondeur).**
+Le journal live n'a que des jours ; l'historique §54 a des ANNÉES. 6 des 14 voix ont
+une forme PURE canonique rejouable : technicals (formule exacte d'agent_technicals,
+VWAP §72 compris), divergent, simons/savant/geometric (stride 48/6/6 + tenue, à
+l'image de leur lenteur live), leadlag (fade BTC). `--pretrain` reconstruit
+118 309 exemples (2020-10 -> 2026-07, 4 symboles 1h, ~9.9 ms/barre), entraîne
+l'ensemble (horizon 1 barre, même hygiène vol) et sérialise
+`neural_net_pretrained.pt` ; `--train` s'en sert comme INITIALISATION (fine-tuning,
+NN_PRETRAIN=off pour repartir de zéro). Corpus rejoué lui-même : edge ≈ 0 (−0.006) —
+l'init est un PRIOR NEUTRE bien régularisé, pas une boule de cristal.
+
+**Verdict mesuré (mêmes 6 fenêtres live)** :
+  scratch  : wf_edge −0.0245 (acc 0.524)
+  fine-tune: wf_edge −0.0079 (acc 0.538) — 5 plis sur 6 meilleurs -> ADOPTÉ (v4).
+L'edge moyen reste ≤ 0 : la 16e voix se TAIT de nouveau (porte brut, choix
+propriétaire §71 fin — `nn:sans-edge(-0.008,brut)`), et c'est exactement le
+comportement voulu : elle parle sur chiffres, se tait sur chiffres. Haute-conviction :
+52 prédictions à 0.596 vs base 0.565. Le cron 04:20 fine-tune désormais chaque jour
+depuis le prior 6 ans sur un journal live qui grandit. (Re-pré-entraîner de temps en
+temps : `python neural_net.py --pretrain`, ~35 min offline.)
