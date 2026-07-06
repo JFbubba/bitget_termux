@@ -216,7 +216,9 @@
         <span class="ind on" data-ind="ema50"><span class="sw" style="background:var(--purple)"></span>EMA50</span>
         <span class="ind on" data-ind="vwap"><span class="sw" style="background:var(--amber)"></span>VWAP</span>
         <span class="ind" data-ind="volume"><span class="sw" style="background:#3a6ea5"></span>Volume</span>
+        <span class="ind on" data-ind="smc"><span class="sw" style="background:#E5A93D"></span>SMC</span>
       </div>
+      <div id="smc-strip" class="dim" style="margin-top:6px;font-size:11px;line-height:1.5;letter-spacing:0"></div>
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px">
         <div class="chip"><div class="v" id="of-imb">—</div><div class="l">IMBALANCE</div></div>
         <div class="chip"><div class="v" id="of-cvd">—</div><div class="l">CVD</div></div>
@@ -473,7 +475,7 @@ function setBar(id,pct){const e=$(id);if(e)e.style.width=Math.max(0,Math.min(100
 function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v||0)),pos=cv>=0,half=Math.abs(cv)*50;e.style.left=(pos?50:50-half)+"%";e.style.width=half+"%";e.style.background=pos?"#3FBF7F":"#E5484D";}
 
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
-const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
+const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false,smc:true};
 let _candles=[],chart=null,series={};
 let TF="5m",SYMBOL="BTCUSDT",projLines=[],posLines=[],_drawnSym=null,_lastSymbols=[];
 // bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
@@ -548,10 +550,10 @@ function drawChart(candles){
 }
 
 // marqueurs du graphique = conscience du cerveau + ORDRES RÉELS (§55), fusionnés
-let _biasMarker=null,_tradeMarkers=[];
+let _biasMarker=null,_tradeMarkers=[],_smcMarkers=[];
 function _applyMarkers(){
   if(!series.candles)return;
-  const all=[..._tradeMarkers,...(_biasMarker?[_biasMarker]:[])]
+  const all=[..._tradeMarkers,..._smcMarkers,...(_biasMarker?[_biasMarker]:[])]
     .sort((a,b)=>a.time-b.time);
   series.candles.setMarkers(all);
 }
@@ -586,6 +588,61 @@ function markTradesOnChart(trades){
       text:(long?"OUVRE L":"OUVRE S")};
   });
   _applyMarkers();
+}
+
+// --- Smart Money Concepts (§64) : overlay graphique + lecture de setup ---
+let _smcLines=[];
+function clearSmcLines(){
+  if(series.candles){_smcLines.forEach(l=>{try{series.candles.removePriceLine(l);}catch(e){}});}
+  _smcLines=[];
+}
+function drawSMC(smc){
+  clearSmcLines();_smcMarkers=[];
+  if(!chart||!series.candles||!_candles.length){renderSMCstrip(smc);return;}
+  if(!LAYERS.smc||!smc||!smc.ok){_applyMarkers();renderSMCstrip(smc);return;}
+  const ov=smc.overlay||{};
+  // zones FVG (vert/rouge) + BPR (ambre) : paire de lignes bord haut/bas
+  (ov.zones||[]).forEach(z=>{
+    const col=z.kind==="bpr"?"#E5A93D":(z.type==="bull"?"#3FBF7F":"#E5484D");
+    const tag=z.kind==="bpr"?"BPR":(z.type==="bull"?"FVG↑":"FVG↓");
+    _smcLines.push(series.candles.createPriceLine({price:+z.top,color:col,lineWidth:1,lineStyle:1,axisLabelVisible:false,title:tag}));
+    _smcLines.push(series.candles.createPriceLine({price:+z.bottom,color:col,lineWidth:1,lineStyle:1,axisLabelVisible:false,title:""}));
+  });
+  // niveaux de référence (Asian H/L, PDH/PDL, Midnight Open)
+  (ov.lines||[]).forEach(ln=>{
+    const mo=ln.label==="Midnight Open";
+    _smcLines.push(series.candles.createPriceLine({price:+ln.price,color:mo?"#C9C4B8":"#8E8574",
+      lineWidth:1,lineStyle:mo?0:3,axisLabelVisible:true,title:ln.label}));
+  });
+  // marqueurs : SWEEP (rond) + ChoCh (carré), ancrés à la bougie contenant l'event
+  const t0=_candles[0][0],t1=_candles[_candles.length-1][0];
+  const tf=_candles.length>1?(_candles[1][0]-_candles[0][0]):300;
+  _smcMarkers=(ov.markers||[]).filter(x=>x.ts&&x.ts>=t0&&x.ts<=t1+tf).map(x=>{
+    const t=t0+Math.floor((x.ts-t0)/tf)*tf;
+    if(x.kind==="sweep"){const buy=x.side==="buy";
+      return{time:t,position:buy?"aboveBar":"belowBar",color:"#E5A93D",shape:"circle",text:"SWEEP"};}
+    const bull=x.side==="bullish";
+    return{time:t,position:bull?"belowBar":"aboveBar",color:bull?"#3FBF7F":"#E5484D",shape:"square",text:"ChoCh"};
+  });
+  _applyMarkers();renderSMCstrip(smc);
+}
+function renderSMCstrip(smc){
+  const el=$("smc-strip");if(!el)return;
+  if(!smc||!smc.ok){el.textContent="SMC : —";return;}
+  const kz=smc.kill_zone||{},po3=smc.power_of_three||{},s=smc.setup;
+  const ck=smc.checklist||{};
+  const zone=kz.zone?kz.zone.toUpperCase():"hors zone";
+  const kzTxt=`<b style="color:${kz.tradeable?'#3FBF7F':'#8E8574'}">${zone}</b> (NY ${kz.ny_time||'—'})`
+    +(kz.silver_bullet?' · <span class="amber">Silver Bullet</span>':'');
+  const dot=b=>b?'<span style="color:#3FBF7F">✔</span>':'<span style="color:#5a554c">·</span>';
+  const chk=`${dot(ck.kill_zone)}KZ ${dot(ck.sweep)}sweep ${dot(ck.choch_valide)}ChoCh ${dot(ck.fvg_entree)}FVG`;
+  const po3Txt=po3.midnight_open?` · PO3 ${po3.phase||'—'} ${po3.discount?'<span class="green">discount</span>':'<span class="red">premium</span>'}`:'';
+  let setup='';
+  if(s){const col=s.direction==="LONG"?"#3FBF7F":"#E5484D";
+    const flag=s.ready?'<span class="green">PRÊT</span>':(s.coherent?'en attente':'<span class="red">incohérent</span>');
+    setup=`<br><b style="color:${col}">${s.direction}</b> e:${(+s.entry).toFixed(2)} sl:${(+s.stop).toFixed(2)} tp:${(+s.tp1).toFixed(2)} · RR ${s.rr1} · ${flag}`;}
+  else setup='<br><span class="dim">setup : aucun (pas de ChoCh+FVG récent)</span>';
+  el.innerHTML=`SMC ${kzTxt} · conf ${smc.score}/4 [${chk}]${po3Txt}${setup}`;
 }
 
 function clearProjLines(){
@@ -980,6 +1037,7 @@ async function tick(){
     try{ dessineViz(st.viz||{}); }catch(e){}
     try{ dessineBord(st.bord||[], st.rdv||[]); }catch(e){}
     try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
+    try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");
@@ -995,8 +1053,8 @@ async function tick(){
 // --- barre d'indicateurs du graphique : clic = toggle, double-clic = isoler ---
 function applyIndUI(){document.querySelectorAll("#ind-bar .ind").forEach(el=>el.classList.toggle("on",!!LAYERS[el.dataset.ind]));}
 document.querySelectorAll("#ind-bar .ind").forEach(el=>bindClickDbl(el,
-  ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();applyChartLayers();},
-  ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();applyChartLayers();}));
+  ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}},
+  ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}}));
 
 // --- légende du graphe : clic = toggle d'une couche, double-clic = isoler ---
 function applyLegendUI(){document.querySelectorAll("#g-legend .lg").forEach(el=>el.classList.toggle("off",!CLS_ON[el.dataset.cls]));}

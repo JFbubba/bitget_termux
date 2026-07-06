@@ -307,6 +307,21 @@ def build_state(symbol=None, tf="5m"):
         return {"horizon_years": T, "fan": fan, "scenarios": scen_sum,
                 "macro": macro, "stress": stress, "esm": esm_a}
 
+    def _smc():
+        """Analyse Smart Money Concepts (§64, LECTURE SEULE) : FVG, swings, liquidity
+        sweeps, ChoCh valide, BPR, kill zones, Power of Three, SMT. Renvoie le setup
+        PAPER indicatif + l'overlay graphique. Aucun ordre. Bougies dédiées (profondes)
+        pour une meilleure structure ; paire SMT corrélée (BTC↔ETH) best-effort."""
+        import smc
+        import market_sources
+        cs = market_sources.candles(symbol, tf, 150) or candles
+        smt_map = {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}
+        cs_smt = None
+        peer = smt_map.get(symbol)
+        if peer:
+            cs_smt = _safe(lambda: market_sources.candles(peer, tf, 150), None)
+        return smc.analyze(cs, candles_smt=cs_smt)
+
     def _brain():
         import swarm_brain
         return swarm_brain.peek(symbol)
@@ -648,6 +663,8 @@ def build_state(symbol=None, tf="5m"):
     # futures réel §45 : préview de décision + réconciliation (lecture seule)
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
+    # Smart Money Concepts §64 (lecture seule) : setup PAPER + overlay graphique
+    state["smc"] = _cached(f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:

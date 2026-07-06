@@ -7109,6 +7109,100 @@ def test_stop_guardian_sd_notify_sans_socket():
             os.environ["NOTIFY_SOCKET"] = old
 
 
+# ---------- Smart Money Concepts (§64) ----------
+
+def _smc_candle(ts, o, h, l, c, v=1.0):
+    return [ts, o, h, l, c, v]
+
+
+def test_smc_bullish_fvg_detected():
+    import smc
+    # trou haussier net : low[t]=104 > high[t-2]=101, taille au-dessus du filtre ATR
+    candles = [
+        _smc_candle(0, 100, 101, 99, 100),
+        _smc_candle(900, 101, 106, 100, 105),   # impulsion
+        _smc_candle(1800, 105, 108, 104, 107),
+    ]
+    gaps = smc.fair_value_gaps(candles)
+    assert len(gaps) == 1
+    g = gaps[0]
+    assert g["type"] == "bull"
+    assert g["entry"] == 101 and g["invalidation"] == 100
+    assert g["filled"] is False
+
+
+def test_smc_fvg_size_filter_rejects_noise():
+    import smc
+    # micro-trou (1 centime) : doit être rejeté par le filtre de taille ATR
+    candles = [
+        _smc_candle(0, 100, 100.5, 99.5, 100),
+        _smc_candle(900, 100, 105, 100, 104),
+        _smc_candle(1800, 104, 105, 100.51, 104.8),  # low 100.51 > high 100.5 : trou de 0.01
+    ]
+    assert smc.fair_value_gaps(candles) == []
+
+
+def test_smc_swing_high_fractal():
+    import smc
+    highs = [10, 11, 15, 11, 10]
+    candles = [_smc_candle(i * 900, h - 1, h, 9, h - 0.5) for i, h in enumerate(highs)]
+    sw = smc.swings(candles)
+    assert any(s["type"] == "high" and s["index"] == 2 and s["price"] == 15 for s in sw)
+    assert not any(s["type"] == "low" for s in sw)  # lows tous égaux -> aucun swing low
+
+
+def test_smc_kill_zone_new_york_time():
+    import smc
+    from datetime import datetime, timezone
+    # juillet 2026 -> New York = EDT (UTC-4). 08:00 UTC = 04:00 NY -> London KZ.
+    london = smc.kill_zone(datetime(2026, 7, 6, 8, 0, tzinfo=timezone.utc))
+    assert london["zone"] == "london" and london["tradeable"] is True
+    # 12:00 UTC = 08:00 NY -> New York KZ, hors fenêtre Silver Bullet.
+    ny = smc.kill_zone(datetime(2026, 7, 6, 12, 0, tzinfo=timezone.utc))
+    assert ny["zone"] == "newyork" and ny["silver_bullet"] is False
+    # 18:00 UTC = 14:00 NY -> hors KZ mais fenêtre Silver Bullet (14-15h).
+    sb = smc.kill_zone(datetime(2026, 7, 6, 18, 0, tzinfo=timezone.utc))
+    assert sb["zone"] is None and sb["tradeable"] is False and sb["silver_bullet"] is True
+
+
+def test_smc_analyze_shape_and_geometry():
+    import smc
+    # série synthétique (montée puis balayage puis reprise) : analyze ne doit jamais
+    # lever, renvoie une structure complète, et tout setup produit est géométriquement
+    # cohérent (stop du bon côté de l'entrée).
+    base = 1_700_000_000
+    candles = []
+    price = 100.0
+    for i in range(60):
+        price += (1.0 if i % 5 else -2.0)
+        candles.append(_smc_candle(base + i * 900, price, price + 1.5, price - 1.5, price + 0.5))
+    res = smc.analyze(candles)
+    assert res["ok"] is True
+    assert "overlay" in res and "checklist" in res and "kill_zone" in res
+    assert set(res["checklist"]) == {"kill_zone", "sweep", "choch_valide", "fvg_entree"}
+    s = res.get("setup")
+    if s:
+        if s["direction"] == "LONG" and s.get("coherent"):
+            assert s["stop"] < s["entry"] < s["tp1"]
+        elif s["direction"] == "SHORT" and s.get("coherent"):
+            assert s["tp1"] < s["entry"] < s["stop"]
+
+
+def test_smc_analyze_never_orders_on_short_series():
+    import smc
+    # trop peu de bougies : réponse propre, aucune exception, aucun setup.
+    res = smc.analyze([_smc_candle(0, 1, 2, 0.5, 1.5)])
+    assert res["ok"] is False and "setup" not in res
+
+
+def test_smc_smt_divergence():
+    import smc
+    # A fait un plus-haut plus haut, B un plus-haut plus bas -> divergence baissière.
+    a = [_smc_candle(i * 900, 100, 100 + i, 99, 100 + i) for i in range(20)]
+    b = [_smc_candle(i * 900, 100, 120 - i, 99, 120 - i) for i in range(20)]
+    assert smc.smt_divergence(a, b)["signal"] == "bearish"
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

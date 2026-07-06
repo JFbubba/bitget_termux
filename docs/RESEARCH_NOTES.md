@@ -2165,3 +2165,38 @@ seul ; le scan (boucles, veille, moniteurs) le SAUTE désormais (SKIP) et garde
 sa cadence ~1 min effective. Résultat : les 14 agents votent CHAQUE minute,
 sans double vote, et les boucles décident sur un consensus jamais plus vieux
 que ~60 s.
+
+## §64 — Surcouche Smart Money Concepts (SMC/ICT) : lecture seule + overlay dashboard
+
+Demande propriétaire : intégrer les stratégies du dépôt `JFbubba/smc` (BPR, SMT
+Divergence, Liquidity Sweep, Silver Bullet, Power of Three, Kill Zones, FVG,
+ChoCh) et un algorithme pour les exploiter et les AFFICHER sur le graphique du
+dashboard.
+
+**Réalisation — `smc.py` (classé SAFE, PUR).** Traduction déterministe des concepts
+en booléens/zones à partir d'OHLCV public : `fair_value_gaps` (3 bougies, filtre
+ATR×0.5, marque le remplissage), `swings` (fractales de Bill Williams 5 bougies),
+`liquidity_sweeps` (perce un swing puis réintègre en clôture), `change_of_character`
+(séquence stricte sweep → cassure EN CORPS du swing responsable → déplacement
+corps ≥60 % laissant un FVG), `balanced_price_ranges` (deux FVG opposés qui se
+recouvrent), `kill_zone`/Silver Bullet (fenêtres heure de New York via zoneinfo,
+repli UTC-4), `power_of_three` (Midnight Open + phase AMD + discount/premium),
+`session_levels` (Asian H/L, PDH/PDL), `smt_divergence` (rupture de corrélation
+BTC↔ETH). `analyze()` agrège en une checklist de confluence 0..4 et un `setup`
+PAPER (direction/entrée/stop/tp1/tp2) avec **garde-fou géométrique** (le stop est
+ancré sur le plus-bas/plus-haut RÉEL du mouvement, jamais un niveau lointain ; un
+setup incohérent est marqué `coherent:false` et jamais `ready`).
+
+**Ligne rouge respectée.** SMC n'entre PAS dans le banc des 14 agents (GELÉ §62) :
+c'est une surcouche d'OBSERVATION, absente de `guards()` et de tout chemin
+d'exécution. Aucune sortie ne desserre un mur argent (50/250, ×5, stop journalier,
+kill-switch, porte d'edge) ni ne modifie le sizing réel. Le `setup` est un PLAN
+indicatif, jamais un ordre. Les 3 portes restent vertes (tests, security_agent,
+safe_push_check).
+
+**Dashboard.** `server.py` expose `state["smc"]` (bougies dédiées profondes 150 +
+paire SMT corrélée, caché 60 s, best-effort). `index.html` ajoute une couche
+« SMC » (toggle dans la légende) : zones FVG (vert/rouge) et BPR (ambre) en paires
+de lignes, niveaux de référence (Asian H/L, PDH/PDL, Midnight Open), marqueurs
+SWEEP (rond) et ChoCh (carré) ancrés à la bougie de l'event, plus une bande texte
+sous le graphe (kill zone NY, checklist de confluence, phase PO3, ligne de setup).
