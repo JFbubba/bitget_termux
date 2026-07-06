@@ -7435,6 +7435,67 @@ def test_nn_antisymetrie_exacte():
     assert fl[len(nn.FEATURES) + nn.EXTRA_FEATURES.index("ret_15m")] == -1.0
 
 
+def test_nn_edge_bound_et_porte_configurable():
+    import os
+    import neural_net as nn
+    import nn_agent
+    # borne prudente = moyenne − erreur-type ; brute = moyenne seule ; repli val_acc − base
+    meta = {"wf_edge": 0.004, "wf_edge_se": 0.035}
+    assert nn.edge_bound(meta) == -0.031
+    assert nn.edge_bound(meta, prudent=False) == 0.004
+    assert nn.edge_bound({"val_acc": 0.55, "val_base_rate": 0.53}) == 0.02
+    assert nn.edge_bound({}) is None
+    # porte configurable : prudent (défaut) tait la voix ; brut la laisse parler
+    orig, old_env = nn.predict, os.environ.pop("NN_EDGE_GATE", None)
+    nn.predict = lambda symbol, votes=None: {
+        "p_up": 0.7, "vote": 0.4, "confidence": 0.4,
+        "val_edge": -0.031, "val_edge_brut": 0.004, "note": "nn v9"}
+    try:
+        assert nn_agent._gate_mode() == "prudent"     # défaut
+        r = nn_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and "sans-edge" in r["note"] and "prudent" in r["note"]
+        os.environ["NN_EDGE_GATE"] = "brut"
+        assert nn_agent._gate_mode() == "brut"
+        r2 = nn_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r2["vote"] == 0.4 and r2["confidence"] > 0   # l'edge brut +0.004 ouvre la porte
+        os.environ["NN_EDGE_GATE"] = "n'importe"
+        assert nn_agent._gate_mode() == "prudent"     # valeur inconnue -> défaut sûr
+    finally:
+        nn.predict = orig
+        os.environ.pop("NN_EDGE_GATE", None)
+        if old_env is not None:
+            os.environ["NN_EDGE_GATE"] = old_env
+
+
+def test_nn_alerte_transition_porte():
+    import sys
+    import types
+    import neural_net as nn
+    sent = []
+    stub = types.ModuleType("telegram_notifier")
+    stub.send_telegram = lambda msg: sent.append(msg)
+    old = sys.modules.get("telegram_notifier")
+    sys.modules["telegram_notifier"] = stub
+    try:
+        # fermée -> ouverte : UNE alerte « passe positif »
+        nn._notify_gate_transition({"wf_edge": -0.01, "wf_edge_se": 0.0},
+                                   {"wf_edge": 0.02, "wf_edge_se": 0.005})
+        assert len(sent) == 1 and "POSITIF" in sent[0]
+        # ouverte -> fermée : UNE alerte « se tait »
+        nn._notify_gate_transition({"wf_edge": 0.02, "wf_edge_se": 0.005},
+                                   {"wf_edge": 0.01, "wf_edge_se": 0.02})
+        assert len(sent) == 2 and "TAIT" in sent[1]
+        # pas de transition -> pas de bruit
+        nn._notify_gate_transition({"wf_edge": -0.01, "wf_edge_se": 0.0},
+                                   {"wf_edge": -0.02, "wf_edge_se": 0.0})
+        assert len(sent) == 2
+    finally:
+        if old is not None:
+            sys.modules["telegram_notifier"] = old
+        else:
+            sys.modules.pop("telegram_notifier", None)
+
+
 # ---------- Positions réelles (spot · marge iso/cross · futures) ----------
 
 def test_real_positions_spot_filters_dust_and_values():

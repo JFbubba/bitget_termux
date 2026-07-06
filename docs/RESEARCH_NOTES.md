@@ -2538,3 +2538,21 @@ borne prudente passe positive. Le cron 04:20 réentraîne chaque jour sur un jou
 grandit (~13 k lignes/j) — la décision se prendra sur les chiffres, pas sur l'espoir.
 Sérialisation : {models: [state_dicts]} + méta enrichie (arch_v=3, in_dim, antisym,
 n_models, wf complet) ; garde arch_v au chargement (poids v2 -> None, fail-safe).
+
+## §71 (suite) — 16e voix ARMÉE : porte d'edge automatique + alerte d'ouverture
+
+Décision propriétaire (06/07 après-midi) : la 16e voix doit PARLER dès que l'edge
+devient positif. État câblé :
+  • `NN_AGENT_ENABLED=1` (levier env, armé par le propriétaire) — le cerveau consulte
+    la voix à CHAQUE cycle (`votes["nn"]`, poids fixe borné NN_AGENT_WEIGHT, EARCP
+    intact §62) ;
+  • la PORTE D'EDGE décide seule de la parole, automatiquement, à chaque réentraînement
+    quotidien (cron 04:20) : critère configurable `NN_EDGE_GATE` — `prudent` (défaut :
+    wf_edge − erreur-type inter-plis > 0) ou `brut` (wf_edge moyen > 0, assume le bruit) ;
+  • ALERTE TELEGRAM à la TRANSITION (train() -> _notify_gate_transition) : le propriétaire
+    apprend le jour exact où la voix s'ouvre (ou se referme), sans surveiller les métas ;
+  • PAS de boucle de rétroaction : `_record` ne journalise que le banc gelé
+    (`n in AGENT_FUNCS`) -> la voix ne s'entraîne jamais sur sa propre sortie.
+État au moment de la note : enabled=True, mode=prudent, edge prudent −0.033 -> la voix
+est consultée mais MUETTE (`nn:sans-edge(-0.033,prudent)`). Elle s'ouvrira d'elle-même
+sur chiffres. Murs argent inchangés : la voix influence le consensus, jamais guards().

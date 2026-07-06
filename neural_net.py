@@ -242,6 +242,48 @@ def _build_net(torch, nn, in_dim, hidden=None, antisym=None):
 _CACHE = {"model": None, "meta": None, "loaded": False}
 
 
+def edge_bound(meta, prudent=True):
+    """Edge hors-échantillon d'après la méta du dernier entraînement. `prudent` (défaut) :
+    borne wf_edge − erreur-type inter-plis (un edge moyen minuscule sur des plis à ±0.08
+    est du bruit, §71) ; sinon la moyenne walk-forward brute. Repli : val_acc − taux de
+    base. None si indisponible. PUR."""
+    try:
+        if meta.get("wf_edge") is not None:
+            e = float(meta["wf_edge"])
+            if prudent:
+                e -= float(meta.get("wf_edge_se") or 0.0)
+            return round(e, 4)
+        return round(float(meta["val_acc"]) - float(meta["val_base_rate"]), 4)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _notify_gate_transition(old_meta, new_meta):
+    """Alerte Telegram (best-effort, jamais d'exception) quand la PORTE D'EDGE de la
+    16e voix change d'état après un réentraînement : le propriétaire apprend LE JOUR
+    où la voix commence à parler (ou se tait de nouveau) sans surveiller les métas."""
+    try:
+        avant = edge_bound(old_meta or {}, prudent=True)
+        apres = edge_bound(new_meta or {}, prudent=True)
+        if avant is None or apres is None:
+            return
+        ouvre = avant <= 0.0 < apres
+        ferme = apres <= 0.0 < avant
+        if not (ouvre or ferme):
+            return
+        import telegram_notifier as tn
+        brut = (new_meta or {}).get("wf_edge")
+        if ouvre:
+            tn.send_telegram(f"🧠 16e voix (NN) : edge prudent PASSÉ POSITIF ({apres:+.3f} ; "
+                             f"moyenne brute {brut}) — si NN_AGENT_ENABLED=1 elle PARLE désormais "
+                             "dans le consensus (confiance plafonnée, murs argent intacts).")
+        else:
+            tn.send_telegram(f"🧠 16e voix (NN) : edge prudent repassé ≤ 0 ({apres:+.3f}) — "
+                             "elle se TAIT de nouveau (porte d'edge).")
+    except Exception:
+        pass
+
+
 def _load_model():
     """Charge l'ENSEMBLE entraîné (caché) : liste de modèles dont les sigmoïdes sont
     moyennées à l'inférence. None si torch/poids absents ou schéma/architecture
@@ -296,20 +338,14 @@ def predict(symbol="BTCUSDT", votes=None):
         p = sum(ps) / len(ps)                # moyenne d'ensemble (moins de variance)
         vote = max(-1.0, min(1.0, (p - 0.5) * 2.0))
         conf = abs(p - 0.5) * 2.0
-        # edge hors-échantillon : BORNE PRUDENTE walk-forward (edge moyen − erreur-type
-        # inter-plis — un edge moyen minuscule sur des plis à ±0.08 est du bruit),
-        # sinon repli sur val_acc − taux de base. Exposé pour que la 16e voix puisse
-        # SE TAIRE tant qu'il n'est pas positif.
-        val_edge = None
-        try:
-            if meta.get("wf_edge") is not None:
-                val_edge = round(float(meta["wf_edge"]) - float(meta.get("wf_edge_se") or 0.0), 4)
-            else:
-                val_edge = round(float(meta["val_acc"]) - float(meta["val_base_rate"]), 4)
-        except (KeyError, TypeError, ValueError):
-            val_edge = None
+        # edge hors-échantillon, DEUX lectures exposées pour la porte de la 16e voix :
+        # val_edge = borne PRUDENTE (wf_edge − erreur-type inter-plis, défaut du gate) ;
+        # val_edge_brut = moyenne walk-forward seule (gate NN_EDGE_GATE=brut).
+        val_edge = edge_bound(meta, prudent=True)
+        val_edge_brut = edge_bound(meta, prudent=False)
         return {"p_up": round(p, 4), "vote": round(vote, 4),
                 "confidence": round(conf, 4), "val_edge": val_edge,
+                "val_edge_brut": val_edge_brut,
                 "note": f"nn v{meta.get('version', '?')}"}
     except Exception:
         return None
@@ -555,9 +591,10 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
 
     torch.save({"models": [m.state_dict() for m in models]}, WEIGHTS_PATH)
     try:
-        version = int(json.loads(META_PATH.read_text(encoding="utf-8")).get("version", 0)) + 1
+        old_meta = json.loads(META_PATH.read_text(encoding="utf-8"))
     except Exception:
-        version = 1
+        old_meta = {}
+    version = int(old_meta.get("version", 0) or 0) + 1
     import datetime as _dt
     meta = {"version": version, "feature_hash": feature_hash(), "features": FEATURES,
             "extra_features": EXTRA_FEATURES, "in_dim": IN_DIM, "arch_v": ARCH_V,
@@ -579,6 +616,7 @@ def train(log_path=None, epochs=300, lr=1e-3, val_frac=0.2, batch_size=256,
             "trained_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
     META_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     _CACHE["loaded"] = False                          # force le rechargement au prochain predict
+    _notify_gate_transition(old_meta, meta)           # le propriétaire sait quand la voix s'ouvre
     if verbose:
         print(f"\nEntraîné (ensemble ×{n_ens}) sur {len(tr_idx)} exemples "
               f"(val {n_val}, purge {n - n_val - len(tr_idx)}) — "

@@ -39,6 +39,18 @@ def enabled():
     return bool(_cfg("NN_AGENT_ENABLED", False))
 
 
+def _gate_mode():
+    """Critère de la PORTE D'EDGE : 'prudent' (défaut — borne walk-forward wf_edge −
+    erreur-type inter-plis, §71) ou 'brut' (moyenne walk-forward seule — la voix parle
+    dès que l'edge MOYEN passe positif, décision propriétaire assumant le bruit).
+    Env prioritaire (NN_EDGE_GATE), sinon config."""
+    v = (os.getenv("NN_EDGE_GATE", "") or "").strip().lower()
+    if v in ("prudent", "brut"):
+        return v
+    v = str(_cfg("NN_EDGE_GATE", "prudent")).strip().lower()
+    return v if v in ("prudent", "brut") else "prudent"
+
+
 def _produce_vote(symbol, context=None):
     """Une inférence -> vote FRAIS. LÈVE si le modèle est indisponible (torch/poids
     absents) pour que runtime_cache dégrade proprement (stale/fallback neutre)."""
@@ -48,11 +60,13 @@ def _produce_vote(symbol, context=None):
     if not pred:
         raise RuntimeError("nn:modèle indisponible")
     # PORTE D'EDGE (même philosophie que Kelly=0 sur edge négatif, §68) : tant que le
-    # dernier entraînement n'a pas démontré un edge hors-échantillon POSITIF
-    # (val_acc > taux de base sur split temporel purgé), la 16e voix se TAIT.
-    edge = pred.get("val_edge")
+    # dernier entraînement n'a pas démontré un edge hors-échantillon POSITIF selon le
+    # critère configuré (_gate_mode), la 16e voix se TAIT.
+    mode = _gate_mode()
+    edge = pred.get("val_edge_brut") if mode == "brut" else pred.get("val_edge")
     if edge is not None and float(edge) <= 0.0:
-        return {"vote": 0, "confidence": 0, "note": f"nn:sans-edge({float(edge):+.3f})"}
+        return {"vote": 0, "confidence": 0,
+                "note": f"nn:sans-edge({float(edge):+.3f},{mode})"}
     # confiance BORNÉE : une voix opt-in ne doit pas dominer le banc déterministe.
     conf = max(0.0, min(float(pred["confidence"]), float(_cfg("NN_AGENT_CONF_CAP", 0.5))))
     return {"vote": round(float(pred["vote"]), 3), "confidence": round(conf, 3),

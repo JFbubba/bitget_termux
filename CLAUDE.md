@@ -108,7 +108,8 @@ DYNAMIC_UNIVERSE=1          # univers dynamique top-N
 ACCUM_AUTONOMOUS_LIVE=1     # accumulation auto réelle (sinon manuelle)
 EXEC_STYLE=limit_ioc        # défaut ; "taker" = marché ; "maker" = post-only
 LLM_AGENT_ENABLED=0         # 15ᵉ voix LLM (opt-in, surcouche fail-safe)
-NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65)
+NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65 — ARMÉ le 06/07)
+NN_EDGE_GATE=prudent        # porte d'edge 16ᵉ voix (§71) : prudent (wf_edge − se) | brut (wf_edge seul)
 # Surfaces de trading bornées §67 — TOUTES défaut OFF (armer = décision propriétaire) :
 SPOT_TRADE_LIVE=0           # spot libre (achat/vente)   · caps SPOT_TRADE_MAX_PER_OP/DAILY_USDT
 MARGIN_TRADE_LIVE=0         # marge isolée/croisée        · caps MARGIN_MAX_PER_OP/DAILY_USDT
