@@ -2328,3 +2328,22 @@ boucle ne les déclenche ; (2) les deux autres verrous tiennent (kill-switch + `
 par ordre) ; (3) Kelly dimensionne à 0 -> même armé, un ordre Kelly-sizé est REFUSÉ
 (montant ≤ 0). Vérifié : armé+Kelly -> refus ; armé+montant explicite sans confirm -> DRY.
 AUCUN ordre réel n'a été placé (edge négatif). 4 tests Kelly (406/406 OK, 3 portes vertes).
+
+## §68 (suite) — Voie saine : A (élagage live) puis B (calibration des sorties)
+
+**A — élagage live (fait).** `_apply_watch` rendu env-aware ; `BRAIN_WATCH_AGENTS` armé
+avec les 7 agents à IC live ≤ 0 (flows, divergent, orderflow, geometric, macro, carry,
+technicals). Le consensus LIVE ne garde que les 7 à IC positif (derivs, leadlag,
+liquidations, savant, sentiment, simons, structure) + voix opt-in llm/nn. Contrefactuel
+mesuré : IC 1h +0.026 -> +0.071 (t 12.3), Kelly f -0.15 -> +0.027 (bascule positif).
+Réversible, ne touche aucun mur argent.
+
+**B — calibration des sorties (`exit_calibration.py`, mesuré).** Rejoue le chemin de prix
+des 248 trades paper et cherche le SL/TP (grille ATR × RR) qui maximise l'espérance
+E = W·RR − (1−W). Résultats : MFE/MAE médianes ~1.5–2.2 R (les trades oscillent large ;
+le stop 1.5·ATR se fait sortir par le bruit). L'actuel (SL 1.5·ATR, RR 2) est marginalement
+POSITIF en re-simulation propre (E +0.05 R/trade) — mieux que les stats réalisées (le
+checker d'outcome coupe les gagnants trop tôt). **Optimum robuste (2 fenêtres 24 h/48 h) :
+SL 1.5·ATR / RR 1.5** — W ~44 %, E +0.087–0.102 R/trade (~2× l'actuel). Enseignement :
+**RR 2 est trop ambitieux ; prendre le profit à 1.5 R** capte les trades qui atteignent
++1.5 R puis se retournent. Advisory : appliquer = décision mandat (RR 2 -> 1.5).

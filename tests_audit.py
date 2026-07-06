@@ -7511,6 +7511,20 @@ def test_counterfactual_directional_and_pairs():
     assert cons == [1.0] and len(fwd) == 1                # b exclu -> consensus = vote de a
 
 
+def test_exit_calibration_simulate_and_mfe():
+    import exit_calibration as ec
+    # LONG entry 100, atr 10 -> SL 90 (sl_mult 1), TP 120 (rr 2)
+    assert ec.simulate(100, "LONG", [(0, 105, 99), (1, 121, 118)], 10, 1.0, 2.0) == "TP"
+    assert ec.simulate(100, "LONG", [(0, 101, 89)], 10, 1.0, 2.0) == "SL"
+    assert ec.simulate(100, "LONG", [(0, 101, 99)], 10, 1.0, 2.0) is None
+    assert ec.simulate(100, "LONG", [(0, 121, 89)], 10, 1.0, 2.0) == "SL"   # tie -> SL (pessimiste)
+    # SHORT : miroir
+    assert ec.simulate(100, "SHORT", [(0, 101, 75)], 10, 1.0, 2.0) == "TP"   # descend à 80
+    # MFE/MAE en unités de risque (risk=10) : haut 130 -> MFE 3R, bas 95 -> MAE 0.5R
+    mfe, mae = ec.mfe_mae_R(100, "LONG", [(0, 130, 95)], 10)
+    assert mfe == 3.0 and mae == 0.5
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
