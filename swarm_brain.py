@@ -424,6 +424,19 @@ def _with_llm_weight(weights, votes):
     return {**weights, "llm": round(max(0.0, min(w, float(BRAIN_WEIGHT_MAX))), 3)}
 
 
+def _apply_watch(weights):
+    """Gouvernance « WATCH » (idée NERVA) : un expert listé dans BRAIN_WATCH_AGENTS peut
+    voter et s'AFFICHER, mais son poids est mis à ZÉRO dans l'agrégation LIVE — il ne peut
+    donc JAMAIS influencer un ordre réel tant qu'il n'est pas validé (backtest/edge). C'est
+    une rampe d'accès SÛRE pour un expert expérimental, sans toucher le consensus des 14
+    validés. Identité quand la liste est vide (défaut)."""
+    watch = str(_cfg("BRAIN_WATCH_AGENTS", "")).strip()
+    if not watch:
+        return weights
+    names = {s.strip() for s in watch.split(",") if s.strip()}
+    return {k: (0.0 if k in names else v) for k, v in weights.items()}
+
+
 def cognition(votes, weights, consensus):
     """Méta-cognition du cerveau (« conscience » de son propre état). Pur.
 
@@ -823,10 +836,18 @@ def _attach_cognition(result, votes, weights, closes=None):
 
 
 def _series(symbol):
-    """Série de clôtures résiliente (Bitget -> CoinGecko, cachée) pour le CVIX."""
+    """Série de clôtures résiliente (Bitget -> CoinGecko, cachée) pour le CVIX.
+    Rejette une série corrompue (idée #7 data_guards) -> pas de CVIX sur données pourries."""
     try:
         import market_sources as ms
-        return ms.closes(symbol, limit=120) or None
+        closes = ms.closes(symbol, limit=120) or None
+        try:
+            import data_guards
+            if closes and not data_guards.series_ok(closes):
+                return None
+        except Exception:
+            pass
+        return closes
     except Exception:
         return None
 
@@ -839,7 +860,7 @@ def peek(symbol="BTCUSDT"):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    aw = _with_llm_weight(weights, votes)        # poids LLM fixe/borné, non persisté
+    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw
@@ -850,7 +871,7 @@ def read(symbol="BTCUSDT", do_learn=True):
     symbol = symbol.upper()
     weights = load_weights()
     votes = gather_votes(symbol)
-    aw = _with_llm_weight(weights, votes)        # LLM dans l'agrégation live seulement
+    aw = _apply_watch(_with_llm_weight(weights, votes))   # LLM borné + experts WATCH à poids 0
     result = aggregate(votes, aw)
     result["symbol"] = symbol
     result["weights"] = aw

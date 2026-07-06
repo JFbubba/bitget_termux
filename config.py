@@ -241,6 +241,10 @@ BRAIN_CONTRADICTION_MIN = 2                 # nb d'agents forts opposés déclen
 BRAIN_CONTRADICTION_CONF = 0.4             # confiance mini pour compter un opposant
 BRAIN_CONTRADICTION_VOTE = 0.5             # |vote| mini pour compter un opposant
 BRAIN_CONTRADICTION_PRUDENCE = 0.15        # facteur de prudence en cas de contradiction (0 = blocage net)
+# Gouvernance « WATCH » (idée NERVA) : experts qui votent/s'affichent mais poids 0 en LIVE
+# (ne peuvent pas influencer un ordre réel tant qu'ils ne sont pas validés). Liste CSV.
+BRAIN_WATCH_AGENTS = ""                     # ex. "simons,savant" -> ces experts en observation seule
+FUTURES_STRESS_SHOCK_PCT = 10              # #5 : choc de stress pré-trade (% adverse sur le livre)
 
 # === Agent RISQUE annonces Bitget (bitget_announcements.py, idée repo Bitget/radar) ===
 # Véto SOUPLE à l'ouverture futures : on n'ouvre pas sur un symbole en delisting/suspension.

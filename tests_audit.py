@@ -1487,6 +1487,48 @@ def test_bitget_announcements_scoring_and_veto():
     finally:
         ba.fetch_announcements = old
 
+
+def test_brain_watch_governance():
+    """#4 (idée NERVA) : un expert en WATCH vote/s'affiche mais son poids est ZÉRO en LIVE
+    -> ne peut pas influencer un ordre réel tant qu'il n'est pas validé."""
+    import swarm_brain as sb
+    old = sb._cfg
+    try:
+        sb._cfg = lambda n, d: "macro,simons" if n == "BRAIN_WATCH_AGENTS" else d
+        w = {"orderflow": 1.0, "macro": 1.2, "simons": 0.8, "trend": 1.0}
+        aw = sb._apply_watch(w)
+        assert aw["macro"] == 0.0 and aw["simons"] == 0.0        # WATCH -> poids 0
+        assert aw["orderflow"] == 1.0 and aw["trend"] == 1.0     # validés inchangés
+        sb._cfg = lambda n, d: d                                 # liste vide -> identité
+        assert sb._apply_watch(w) == w
+    finally:
+        sb._cfg = old
+
+
+def test_futures_report_stress_book():
+    """#5 (idée Jasmine) : stress conservateur — un choc adverse franchit-il le stop journalier ?"""
+    import futures_report as fr
+    r = fr.stress_book(100, 200, 10, stop_pct=5)   # perte 10$ ; stop 5% de 200 = 10$ -> breach
+    assert r["perte_usdt"] == 10.0 and r["equity_apres"] == 190.0 and r["breach_stop"] is True
+    r2 = fr.stress_book(20, 200, 10, stop_pct=5)   # perte 2$ < 10$ -> pas de breach
+    assert r2["breach_stop"] is False
+    assert fr.stress_book("x", None, 10)["breach_stop"] is None   # illisible -> pas de crash
+
+
+def test_data_guards_quality():
+    """#7 (idées arbitrage-bot + Jasmine) : quote saine, série exploitable, cap par liquidité."""
+    import data_guards as dg
+    assert dg.quote_valid(100, 101) is True
+    assert dg.quote_valid(101, 100) is False        # book croisé
+    assert dg.quote_valid(0, 100) is False and dg.quote_valid("x", 1) is False
+    assert dg.quote_fresh(1000, 2500) is True and dg.quote_fresh(9000, 2500) is False
+    assert dg.series_ok([100, 101, 99, 102]) is True
+    assert dg.series_ok([100, None, 99]) is False
+    assert dg.series_ok([100, 300]) is False        # +200% > 80% -> corrompu
+    assert dg.series_ok([100]) is False             # trop court (min_len 2)
+    assert dg.cap_by_liquidity(50, 100, 0.3) == 30.0
+    assert dg.cap_by_liquidity(50, 100, 0) == 50.0  # size 0 -> cap (jamais d'infini)
+
 def test_brain_read_attaches_cognition():
     import swarm_brain as sb
     # aggregate + cognition cohérents sur des votes synthétiques

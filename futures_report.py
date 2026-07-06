@@ -88,6 +88,25 @@ def payoff_profile(rows, depuis_ts=None):
             "expectancy": round(expectancy, 4), "shape": shape, "verdict": verdict}
 
 
+def stress_book(gross_usdt, equity_usdt, shock_pct, stop_pct=None):
+    """PUR (idée Jasmine/stress) : impact CONSERVATEUR d'un choc de marché sur le livre.
+    Pire cas : le choc est ADVERSE à toute l'exposition -> perte ≈ gross × shock%. Retourne
+    {perte, equity_apres, breach_stop} — breach si la perte franchirait le stop journalier.
+    Sanity-check avant d'ouvrir davantage (survivre à un crash −X% sans casser le stop)."""
+    try:
+        gross = float(gross_usdt or 0)
+        eq = float(equity_usdt or 0)
+        shock = abs(float(shock_pct or 0)) / 100.0
+    except (TypeError, ValueError):
+        return {"shock_pct": None, "perte_usdt": None, "breach_stop": None}
+    stop = abs(float(stop_pct if stop_pct is not None
+                     else _cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0))) / 100.0
+    perte = gross * shock
+    breach = bool(eq > 0 and perte >= eq * stop)
+    return {"shock_pct": round(shock * 100, 1), "perte_usdt": round(perte, 2),
+            "equity_apres": round(eq - perte, 2), "breach_stop": breach}
+
+
 def serie_pnl(rows, depuis_ts=None):
     """PUR. Série CUMULÉE du PnL réalisé NET du bot (profit − frais par fill, tous
     symboles §47), triée par temps : [[ts_s, cum_net], ...]. Pour la courbe du
@@ -270,6 +289,8 @@ def snapshot():
         "fills_bot": resume_fills(fills, depuis_ts=debut) if debut else
                      {"n_fills": 0, "note": "aucun ordre réel du bot encore"},
         "payoff": payoff_profile(fills, depuis_ts=debut) if debut else {"n": 0, "shape": "n/a"},
+        "stress": stress_book((st or {}).get("gross_usdt", 0), eq_now,
+                              _cfg("FUTURES_STRESS_SHOCK_PCT", 10)),
         "funding": somme_funding(fetch_bills(), depuis_ts=debut) if debut else {"n": 0},
         "caps": {"per_trade": fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0,
                                          fe.FUT_ABS_MAX_PER_TRADE_USDT),
@@ -330,6 +351,11 @@ def build_report(s=None):
         lignes.append(f"Forme de l'edge : {po.get('shape', '?').upper()} — "
                       f"win {round((po.get('win_rate') or 0) * 100)}% · payoff {_n(po.get('payoff'))} · "
                       f"espérance {_n(po.get('expectancy'), '{:+.4f}')} $/trade — {po.get('verdict', '')}")
+    sx = s.get("stress") or {}
+    if sx.get("shock_pct") is not None:
+        lignes.append(f"Stress −{_n(sx.get('shock_pct'), '{:.0f}')}% : perte ~{_n(sx.get('perte_usdt'))} $ -> "
+                      f"equity {_n(sx.get('equity_apres'))} $"
+                      + (" · ⚠ FRANCHIRAIT le stop" if sx.get("breach_stop") else " · sous le stop ✓"))
     fu = s.get("funding") or {}
     if fu.get("n"):
         lignes.append(f"Funding (règlements 8h) : {_n(fu.get('total_usdt'), '{:+.6f}')} $ net "
