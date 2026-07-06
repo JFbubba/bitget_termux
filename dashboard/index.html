@@ -475,7 +475,7 @@ function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false};
 let _candles=[],chart=null,series={};
-let TF="5m",SYMBOL="BTCUSDT",projLines=[],_drawnSym=null,_lastSymbols=[];
+let TF="5m",SYMBOL="BTCUSDT",projLines=[],posLines=[],_drawnSym=null,_lastSymbols=[];
 // bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
 function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;renderPicker(_lastSymbols);tick();}
 function renderPicker(symbols){
@@ -617,6 +617,28 @@ function drawProjection(proj,liq){
            title:"⬢"+(c.distance_pct>=0?"+":"")+c.distance_pct.toFixed(1)+"%"+p}));
        });
   }
+}
+
+function clearPosLines(){
+  if(series.candles){posLines.forEach(l=>{try{series.candles.removePriceLine(l);}catch(e){}});}
+  posLines=[];
+}
+// STRATÉGIE sur le graphe (overlay #3) : entrée / SL / TP de la position du symbole
+// courant + prix de revient RÉEL de l'accumulation BTC — les niveaux où se joue le risque.
+function drawPositionLines(st){
+  if(!chart||!series.candles)return;
+  clearPosLines();
+  const pos=(st.positions||[]).find(p=>p.symbol===SYMBOL);
+  if(pos){
+    const long=pos.side==="LONG";
+    if(pos.entry)posLines.push(series.candles.createPriceLine({price:+pos.entry,color:"#C9C4B8",lineWidth:1,lineStyle:0,axisLabelVisible:true,title:(long?"▲ entrée L":"▼ entrée S")}));
+    if(pos.stop_loss)posLines.push(series.candles.createPriceLine({price:+pos.stop_loss,color:"#E5484D",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"SL"}));
+    if(pos.take_profit)posLines.push(series.candles.createPriceLine({price:+pos.take_profit,color:"#3FBF7F",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"TP"}));
+  }
+  const rec=st.accumulation&&st.accumulation.reconcile;
+  const cb=rec&&rec.cost_basis;
+  if(SYMBOL==="BTCUSDT"&&cb)
+    posLines.push(series.candles.createPriceLine({price:+cb,color:"#E5A93D",lineWidth:1,lineStyle:3,axisLabelVisible:true,title:"revient "+(+cb).toFixed(0)}));
 }
 
 function handleCrosshair(param){
@@ -843,7 +865,7 @@ async function tick(){
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
     $("c-sym").textContent=(st.symbol||"").replace(/USDT$/,"")||"—";
-    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});renderPositions(st.positions||[]);
+    drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawPositionLines(st);drawBook(st.orderbook,o.mid_price);drawLattice(s);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});renderPositions(st.positions||[]);
     const pj=st.projection||{};
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
