@@ -2411,3 +2411,15 @@ qu'un curseur entier. Front : `_stateV` fusionne les deltas dans `window._ST` (r
 au changement de symbole/TF), rendu depuis l'état fusionné. Rétro-compatible (sans `since` =
 full). Mesuré live : full 38.7 Ko -> delta 583 o (juste timestamp + orderbook), jusqu'à ~400×
 en régime stable. 409/409, portes vertes.
+
+## §69 (fin) — Poll -> PUSH SSE : le serveur pousse les deltas (plus de boucle de fetch)
+
+`/api/stream` (Server-Sent Events) : une connexion persistante par client (thread dédié
+via ThreadingHTTPServer). Envoie un FULL puis des DELTAS versionnés (build_delta) à cadence
+fixe (DASH_SSE_INTERVAL, défaut 2 s) ; à la déconnexion l'écriture lève -> le thread se
+termine proprement. Front refactoré : `renderState()` (rendu depuis window._ST) séparé de la
+source ; `applyDelta()` (fusion + rendu) commun à SSE et poll ; `EventSource` en primaire,
+POLL `/api/state` en REPLI (navigateur sans SSE ou échec). Reconnexion au changement de
+symbole/TF (URL SSE figée) et à la reprise de visibilité ; coupe le flux quand l'onglet est
+masqué. Mesuré live : FULL 38.7 Ko (1×) puis deltas 250-622 o toutes les 2 s. Rétro-compatible
+(/api/state poll conservé). 409/409, portes vertes.

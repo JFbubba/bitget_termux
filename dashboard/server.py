@@ -838,6 +838,32 @@ class Handler(BaseHTTPRequestHandler):
                 since = None
             body = json.dumps(build_delta(symbol, tf, since)).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
+        elif parsed.path == "/api/stream":
+            # PUSH temps réel (Server-Sent Events) : une connexion persistante par client
+            # (thread dédié via ThreadingHTTPServer). On envoie un FULL puis des DELTAS à
+            # cadence fixe ; à la déconnexion l'écriture lève -> le thread se termine.
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
+            tf = (qs.get("tf", ["5m"])[0] or "5m").lower()
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")     # pas de buffering (nginx éventuel)
+                self.end_headers()
+                interval = float(os.getenv("DASH_SSE_INTERVAL", "2"))
+                since = None
+                while True:
+                    payload = build_delta(symbol, tf, since)
+                    since = payload["v"]
+                    self.wfile.write(("data: " + json.dumps(payload) + "\n\n").encode("utf-8"))
+                    self.wfile.flush()
+                    time.sleep(interval)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return                                          # client déconnecté (normal)
+            except Exception:
+                return
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
         elif parsed.path.startswith("/vendor/") and parsed.path.endswith(".js"):

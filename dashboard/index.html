@@ -547,7 +547,7 @@ let _candles=[],chart=null,series={};
 let TF="5m",SYMBOL="BTCUSDT",projLines=[],posLines=[],_drawnSym=null,_lastSymbols=[];
 let _stateV=null;   // curseur de version pour /api/state incrémental (null -> demande FULL)
 // bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
-function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;_stateV=null;renderPicker(_lastSymbols);tick();}
+function selectSymbol(sym){if(!sym||sym===SYMBOL)return;SYMBOL=sym;renderPicker(_lastSymbols);_connect();}
 function renderPicker(symbols){
   const host=document.getElementById("sym-pick");if(!host)return;
   _lastSymbols=symbols||_lastSymbols;
@@ -1023,19 +1023,29 @@ function renderFuture(f){
   $("fu-scen").innerHTML=Object.keys(sc).map(n=>{const s=sc[n];return `<div><b>${n}</b> : ${s.median>=0?"+":""}${s.median.toFixed(0)}% méd · [${s.p5.toFixed(0)}%…+${s.p95.toFixed(0)}%] · P↑ ${Math.round(s.prob_up*100)}%</div>`;}).join("")||"—";
 }
 
+let _lat=0;
+// fusionne un delta/full (SSE ou poll) dans window._ST, puis re-rend. Source commune.
+function applyDelta(resp){
+  if(resp.full){ window._ST=resp.state||{}; }
+  else { const _S=window._ST||{}; Object.assign(_S,resp.changed||{});
+         (resp.removed||[]).forEach(k=>delete _S[k]); window._ST=_S; }
+  if(resp.v!=null)_stateV=resp.v;
+  renderState();
+}
+// POLL de REPLI (utilisé seulement si SSE indisponible) : requête incrémentale ponctuelle.
 async function tick(){
   const t0=performance.now();
   try{
-    // requête INCRÉMENTALE : envoie le curseur de version ; le serveur renvoie soit l'état
-    // complet (full), soit uniquement les clés changées (delta) -> fusion dans window._ST.
     const _url="/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF)
       +(_stateV!=null?("&since="+_stateV):"");
-    const _resp=await(await fetch(_url)).json();const lat=Math.round(performance.now()-t0);
-    if(_resp.full){ window._ST=_resp.state||{}; }
-    else { const _S=window._ST||{}; Object.assign(_S,_resp.changed||{});
-           (_resp.removed||[]).forEach(k=>delete _S[k]); window._ST=_S; }
-    if(_resp.v!=null)_stateV=_resp.v;
-    const st=window._ST||{};
+    const _resp=await(await fetch(_url)).json();_lat=Math.round(performance.now()-t0);
+    applyDelta(_resp);
+  }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";const ld=$("livedot");if(ld)ld.classList.add("stale");}
+}
+// rendu de l'état fusionné (window._ST) — appelé à chaque delta reçu.
+function renderState(){
+  const st=window._ST||{};
+  try{
     renderPicker(st.symbols);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
     $("mode-txt").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
@@ -1188,7 +1198,7 @@ async function tick(){
     $("v-carry-reel").textContent=(fcr.armed||fu2.armed)?"RÉEL":"off";
     $("v-carry").textContent=(fcr.apr!=null)?((fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% / seuil 5% · couv $"+(fcr.couverture!=null?Math.round(fcr.couverture):"—")):"—";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
-    $("f4").textContent="LATENCE "+lat+" ms";
+    $("f4").textContent="LATENCE "+_lat+" ms";
   }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";const ld=$("livedot");if(ld)ld.classList.add("stale");}
 }
 // --- barre d'indicateurs du graphique : clic = toggle, double-clic = isoler ---
@@ -1205,10 +1215,10 @@ document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
 
 // --- sélecteur de timeframe (5m / 15m / 1h) : change TF et rafraîchit ---
 document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("click",()=>{
-  TF=el.dataset.tf;_stateV=null;   // changement de TF -> re-demande l'état complet
+  TF=el.dataset.tf;   // changement de TF -> reconnecte le flux (FULL puis deltas)
   document.querySelectorAll("#tf-bar .tfbtn").forEach(x=>x.classList.toggle("on",x===el));
   $("c-tf").textContent=TF.toUpperCase();
-  tick();
+  _connect();
 }));
 
 // ===== bouton PAPER : bascule l'affichage des données fictives (défaut masqué) =====
@@ -1228,14 +1238,29 @@ document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("cli
 initChart();
 
 setInterval(()=>document.querySelectorAll("#cycle .cyc:not(.budget)").forEach((c,i)=>c.classList.toggle("on",i===Math.floor(Date.now()/700)%6)),350);
-// polling ADAPTATIF : actif seulement quand l'onglet est visible (économise VPS + navigateur).
-let _pollTimer=null;
-function _startPoll(){ if(!_pollTimer) _pollTimer=setInterval(tick,5000); }
+// ===== flux temps réel : SSE (push) en primaire, POLL en repli =====
+let _es=null,_pollTimer=null;
+function _startPoll(){ if(!_pollTimer){ tick(); _pollTimer=setInterval(tick,5000); } }
 function _stopPoll(){ if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null; } }
+function _stopStream(){ if(_es){ try{_es.close();}catch(e){} _es=null; } }
+function _startStream(){
+  _stopStream(); _stopPoll();
+  if(!window.EventSource){ _startPoll(); return; }   // navigateur sans SSE -> poll
+  try{
+    _es=new EventSource("/api/stream?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF));
+    _es.onmessage=(e)=>{ try{ _lat=0; const ld=$("livedot"); if(ld)ld.classList.remove("stale");
+                              applyDelta(JSON.parse(e.data)); }catch(x){} };
+    // erreur (déconnexion) : le navigateur RECONNECTE l'EventSource automatiquement.
+    _es.onerror=()=>{ const ld=$("livedot"); if(ld)ld.classList.add("stale"); };
+  }catch(e){ _startPoll(); }                          // échec SSE -> poll
+}
+// (re)connexion : reset du curseur -> le serveur renvoie un FULL puis des deltas.
+function _connect(){ _stateV=null; _startStream(); }
+// onglet masqué -> on coupe le flux (économise VPS + navigateur) ; retour -> reconnexion.
 document.addEventListener("visibilitychange",()=>{
-  if(document.hidden){ _stopPoll(); } else { tick(); _startPoll(); }   // reprise -> refresh immédiat
+  if(document.hidden){ _stopStream(); _stopPoll(); } else { _connect(); }
 });
-tick(); _startPoll();
+_connect();
 
 // ===== journal de bord + rendez-vous (§63) =====
 const ICO={ordre:"⚡",dca:"🟠",sl_tp:"🎯",echec:"⚠️",blackout:"⏸"};
