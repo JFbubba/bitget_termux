@@ -7553,6 +7553,14 @@ def test_ic_alignment_realigns_on_ic():
             os.environ["BRAIN_IC_ALIGN"] = saved
 
 
+def test_learning_health_rank_corr():
+    import learning_health as lh
+    a = {"x": 1, "y": 2, "z": 3}
+    assert lh.rank_corr(a, {"x": 10, "y": 20, "z": 30}) == 1.0      # parfaitement aligné
+    assert lh.rank_corr(a, {"x": 30, "y": 20, "z": 10}) == -1.0     # parfaitement inversé
+    assert lh.rank_corr({"x": 1}, {"x": 1}) is None                 # < 3 clés communes
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

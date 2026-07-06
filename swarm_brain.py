@@ -888,6 +888,11 @@ def learn(symbol, price_now, weights):
         ew = earcp_weights(perf_hr, coh, beta=beta, perf_bounds=(0.3, 0.7))
         avg = (sum(ew.values()) / len(ew)) if ew else 1.0
         cible = {k: v / avg for k, v in ew.items()}             # cible EARCP (moyenne ~1.0)
+        # §68 (fix À LA SOURCE) : l'IC LIVE réaligne la CIBLE d'apprentissage elle-même
+        # (pas un patch sur les poids finaux). Le hit-rate EARCP anti-corrèle avec la
+        # prédictivité (corrélation de rang ~0) : on injecte l'IC dans la cible et le
+        # lissage y converge. Gated BRAIN_IC_ALIGN. Identité si OFF/indispo.
+        cible = _apply_ic_alignment(cible)
         # LISSAGE vers la cible (audit §51, 3e mécanisme de saturation) : learn()
         # tourne une fois PAR SYMBOLE (10×/cycle) et la cohérence ne change pas
         # entre ces appels — ÉCRASER les poids par la cible re-composait la
@@ -901,8 +906,7 @@ def learn(symbol, price_now, weights):
                             + lissage * cible[k], 3) for k in cible}
         weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
         weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
-        weights = _apply_ic_alignment(weights)                   # §68 : réaligne sur l'IC LIVE mesuré (gated)
-        save_weights(weights)
+        save_weights(weights)                                    # IC-align déplacé DANS la cible (source, ci-dessus)
     if changed:
         _write_log(log)
     return weights

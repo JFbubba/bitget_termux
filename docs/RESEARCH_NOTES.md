@@ -2423,3 +2423,22 @@ POLL `/api/state` en REPLI (navigateur sans SSE ou échec). Reconnexion au chang
 symbole/TF (URL SSE figée) et à la reprise de visibilité ; coupe le flux quand l'onglet est
 masqué. Mesuré live : FULL 38.7 Ko (1×) puis deltas 250-622 o toutes les 2 s. Rétro-compatible
 (/api/state poll conservé). 409/409, portes vertes.
+
+## §68 (audit boucle) — Auto-amélioration : ce qui tourne, le fix source, le moniteur, les timers
+
+Audit runtime : la boucle EARCP tourne (brain 1 min, validation 6 h, revue hebdo, artefacts
+frais, 1887/2400 évaluées) MAIS son signal de base est cassé — corrélation de rang
+**hit-rate ↔ IC = ~0** (geometric hit-rate 0.71 / IC 0.000 ; derivs hit-rate 0.32 / IC +0.061).
+Le NN ne se ré-entraînait PAS (manuel), et evolution/strategy_lab n'étaient PLANIFIÉS nulle part.
+
+Corrections :
+  • **Fix À LA SOURCE** : l'IC-align déplacé des poids finaux vers la CIBLE EARCP dans
+    `learn()` (`cible = _apply_ic_alignment(cible)`) — l'IC pilote la cible d'apprentissage,
+    le lissage y converge (plus un patch après coup). Mesuré : corr POIDS APPRIS ↔ IC = **+0.69**.
+  • **Moniteur `learning_health.py`** : corr de rang poids-appris ↔ IC (doit être ≥ 0.2) +
+    corr hit-rate ↔ IC (cause racine). Alerte Telegram si les poids décrochent de l'IC
+    (le correctif ne compense plus / BRAIN_IC_ALIGN OFF).
+  • **Timers manquants** (`deploy/install_learning_timers.sh`, à lancer par le propriétaire —
+    la persistance planifiée n'est pas créée par l'agent) : `bitget-neural-train` (NN quotidien
+    04:20), `bitget-strategy-lab` (sep-CMA-ES hebdo dim 05:00), `bitget-learning-health` (6 h).
+Tout lecture seule / entraînement offline, aucun ordre. 410/410, portes vertes.
