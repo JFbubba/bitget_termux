@@ -670,6 +670,10 @@ def build_state(symbol=None, tf="5m"):
     state["neural"] = _cached(f"neural:{symbol}", 60,
                               lambda: _safe(lambda: __import__("neural_net").connectivity_map(
                                   symbol, brain=brain, smc=state.get("smc") or {}), {}))
+    # Positions RÉELLES en cours (lecture seule) : spot · marge iso · marge cross · futures.
+    # 4 GET signés best-effort -> cache 30 s (indépendant du symbole affiché).
+    state["real_positions"] = _cached("realpos", 30,
+                                      lambda: _safe(lambda: __import__("real_positions").snapshot(), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
     try:

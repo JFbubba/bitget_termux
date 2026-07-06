@@ -155,7 +155,18 @@
     margin-right:6px;vertical-align:0;box-shadow:0 0 6px rgba(63,191,127,.85);animation:pulse 2s ease-in-out infinite}
   .livedot.stale{background:var(--amber);box-shadow:0 0 6px rgba(229,169,61,.85)}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
-  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
+  /* ===== positions RÉELLES : spot · marge iso · marge cross · futures ===== */
+  .rp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .rp-col{border:1px solid var(--line);border-radius:4px;padding:8px;background:var(--panel2)}
+  .rp-h{font-size:9px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;
+    font-family:system-ui,sans-serif;border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:6px;
+    display:flex;justify-content:space-between;align-items:center}
+  .rp-r{display:flex;justify-content:space-between;gap:8px;padding:4px 2px;font-size:11px;border-bottom:1px solid #1a1712}
+  .rp-r:last-child{border-bottom:0}
+  .rp-r .a{color:var(--accent)} .rp-r .m{color:var(--dim);font-size:9px;letter-spacing:.02em}
+  .rp-r .val{text-align:right;white-space:nowrap}
+  .rp-empty{color:var(--dim);font-size:10px;padding:8px 2px;opacity:.6}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}.rp-grid{grid-template-columns:1fr 1fr}}
 </style>
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -252,6 +263,17 @@
     <div class="panel">
       <h2>Order Book</h2>
       <div class="ob" id="ob"></div>
+    </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Positions RÉELLES en cours <span class="dim" style="letter-spacing:0">— compte réel · lecture seule · spot · marge isolée · marge croisée · futures</span>
+      <span id="rp-tot" class="dim" style="float:right;letter-spacing:0">—</span></h2>
+    <div class="rp-grid">
+      <div class="rp-col"><div class="rp-h"><span>Spot</span><span id="rp-spot-n"></span></div><div id="rp-spot"></div></div>
+      <div class="rp-col"><div class="rp-h"><span>Marge isolée</span><span id="rp-iso-n"></span></div><div id="rp-iso"></div></div>
+      <div class="rp-col"><div class="rp-h"><span>Marge croisée</span><span id="rp-cross-n"></span></div><div id="rp-cross"></div></div>
+      <div class="rp-col"><div class="rp-h"><span>Futures</span><span id="rp-fut-n"></span></div><div id="rp-fut"></div></div>
     </div>
   </div>
 
@@ -853,6 +875,35 @@ function renderBrain(b){
   styleBrainIso();
 }
 
+// --- positions RÉELLES (compte réel, lecture seule) : spot · marge iso · cross · futures ---
+function _sgn(x){x=+x||0;return (x>=0?"+":"")+x.toFixed(2);}
+function _rpFill(id,nid,rows){
+  const el=$(id);if(!el)return;const cnt=$(nid);if(cnt)cnt.textContent=rows.length?("· "+rows.length):"";
+  if(!rows.length){el.innerHTML='<div class="rp-empty">aucune position</div>';return;}
+  el.innerHTML=rows.map(r=>
+    `<div class="rp-r"><span><span class="a ${r.cls||""}">${r.main}</span><br><span class="m">${r.meta}</span></span>`
+    +`<span class="val a ${r.vcls||""}">${r.val}</span></div>`).join("");
+}
+function renderRealPositions(rp){
+  rp=rp||{};const t=rp.totals||{};
+  const tot=$("rp-tot");
+  if(tot)tot.innerHTML=`spot $${(t.spot_usdt||0).toFixed(0)} · futures notionnel $${(t.futures_notional_usdt||0).toFixed(0)} · uPnL `
+    +`<span class="${(t.futures_upnl_usdt||0)>=0?'green':'red'}">${_sgn(t.futures_upnl_usdt)} $</span>`;
+  _rpFill("rp-spot","rp-spot-n",(rp.spot||[]).map(r=>({
+    main:r.coin,val:"$"+(r.value_usdt||0).toFixed(2),
+    meta:(+r.amount).toPrecision(4)+(r.price!=null?(" @ "+fmt(r.price)):"")})));
+  _rpFill("rp-iso","rp-iso-n",(rp.margin_iso||[]).map(r=>({
+    main:(r.symbol||r.coin),val:(""+r.net),meta:"emprunt "+r.borrow+(r.coin?(" "+r.coin):"")})));
+  _rpFill("rp-cross","rp-cross-n",(rp.margin_cross||[]).map(r=>({
+    main:r.coin,val:(""+r.net),meta:r.borrow>0?("emprunt "+r.borrow):"détenu (sans emprunt)"})));
+  _rpFill("rp-fut","rp-fut-n",(rp.futures||[]).map(r=>{
+    const long=r.side==="LONG";
+    return{main:(long?"▲ ":"▼ ")+(r.symbol||"").replace(/USDT$/,""),cls:long?"green":"red",
+      val:_sgn(r.upnl_usdt)+" $",vcls:(r.upnl_usdt||0)>=0?"green":"red",
+      meta:r.size+" @ "+(r.entry!=null?fmt(r.entry):"—")+" · ×"+r.leverage+" · "+r.margin_mode};
+  }));
+}
+
 function renderLiq(d){
   const sk=d.skew||{},net=sk.net;
   const el=$("lq-net");
@@ -1079,6 +1130,7 @@ async function tick(){
     try{ dessineBord(st.bord||[], st.rdv||[]); }catch(e){}
     try{ markTradesOnChart((st.viz||{}).trades); }catch(e){}
     try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
+    try{ renderRealPositions(st.real_positions||{}); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");

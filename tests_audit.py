@@ -7294,6 +7294,62 @@ def test_nn_dataset_and_forward_when_torch_present():
         os.remove(path)
 
 
+# ---------- Positions réelles (spot · marge iso/cross · futures) ----------
+
+def test_real_positions_spot_filters_dust_and_values():
+    import real_positions as rp
+    orig_get, orig_px = rp._signed_get, rp._prices
+    rp._prices = lambda: {"BTCUSDT": 60000.0}
+    rp._signed_get = lambda path, params=None, timeout=10: [
+        {"coin": "USDT", "available": "100", "frozen": "0", "locked": "0"},
+        {"coin": "BTC", "available": "0.001", "frozen": "0", "locked": "0"},   # 0.001*60000 = 60$
+        {"coin": "HEX", "available": "5", "frozen": "0", "locked": "0"},       # pas de prix -> exclu
+        {"coin": "DUST", "available": "0.0000001", "frozen": "0", "locked": "0"},
+    ]
+    try:
+        out = rp.spot()
+        coins = [r["coin"] for r in out]
+        assert coins == ["USDT", "BTC"]                # HEX (non valorisable) et DUST exclus
+        assert out[0]["value_usdt"] == 100.0 and out[1]["value_usdt"] == 60.0
+    finally:
+        rp._signed_get, rp._prices = orig_get, orig_px
+
+
+def test_real_positions_futures_parse():
+    import real_positions as rp
+    orig = rp._signed_get
+    rp._signed_get = lambda path, params=None, timeout=10: [
+        {"symbol": "BTCUSDT", "holdSide": "long", "total": "0.01", "openPriceAvg": "60000",
+         "markPrice": "61000", "leverage": "5", "marginMode": "isolated",
+         "marginSize": "120", "unrealizedPL": "10"},
+        {"symbol": "ETHUSDT", "holdSide": "short", "total": "0", "unrealizedPL": "0"},  # taille 0 -> filtré
+    ]
+    try:
+        out = rp.futures()
+        assert len(out) == 1
+        p = out[0]
+        assert p["side"] == "LONG" and p["entry"] == 60000.0 and p["upnl_usdt"] == 10.0
+        assert p["margin_mode"] == "isolated" and p["leverage"] == 5.0
+    finally:
+        rp._signed_get = orig
+
+
+def test_real_positions_snapshot_failsafe():
+    import real_positions as rp
+    orig_get, orig_px = rp._signed_get, rp._prices
+    rp._prices = lambda: {}
+
+    def _boom(*a, **k):
+        raise RuntimeError("API KO")
+    rp._signed_get = _boom
+    try:
+        snap = rp.snapshot()                           # ne doit JAMAIS lever
+        assert snap["counts"] == {"spot": 0, "margin_iso": 0, "margin_cross": 0, "futures": 0}
+        assert len(snap["errors"]) == 4                # une erreur par catégorie, capturée
+    finally:
+        rp._signed_get, rp._prices = orig_get, orig_px
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

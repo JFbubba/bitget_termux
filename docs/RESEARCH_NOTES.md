@@ -2247,3 +2247,24 @@ la voix NN cerclée selon ARMÉE/OFF, badge P(hausse) + val_acc.
 **Dépendance.** PyTorch CPU installé dans le python système du bot (`pip
 --break-system-packages`, wheel cpu ~2.12). Réversible (`pip uninstall torch`). Le code
 dégrade fail-safe si torch venait à manquer.
+
+## §66 — Dashboard : positions RÉELLES en cours (spot · marge iso/cross · futures)
+
+Demande propriétaire : afficher sur le dashboard les trades en cours par catégorie.
+`real_positions.py` (SAFE, lecture seule) : 4 GET SIGNÉS de consultation via le signeur
+de `bitget_balance_reader` (clé Trade-only, jamais Withdraw) — `spot` (avoirs valorisés
+> 1 $, poussière/coins non cotés exclus), `margin_isolated`/`margin_crossed` (par
+symbole/coin, emprunt actif ou net non nul = trade en cours), `futures`
+(`/api/v2/mix/position/all-position` : sens, taille, entrée, mark, PnL latent, levier,
+mode de marge). `snapshot()` agrège best-effort PAR catégorie ([] + `errors` si un
+endpoint échoue, jamais d'exception). Aucun ordre, aucune écriture.
+
+Dashboard : `state["real_positions"]` (caché 30 s) alimente un panneau pleine largeur à
+4 colonnes (spot / marge isolée / marge croisée / futures), en-tête avec totaux (valeur
+spot, notionnel futures, uPnL). Données RÉELLES -> visibles par défaut (hors bascule
+paper §65b). 3 tests (filtre poussière, parse futures, fail-safe snapshot) — 392/392 OK.
+
+**Addendum §65b** — dashboard : graphique 230->440 px, données PAPER masquées par défaut
+(bouton « Paper » ; `data-scope="paper"` + `body.hide-paper`), dynamisation (flash de
+prix, point LIVE battant, transitions). `dashboard/server.py` charge le fichier
+d'environnement (`load_dotenv`) pour refléter les voix opt-in LLM/NN armées en prod.
