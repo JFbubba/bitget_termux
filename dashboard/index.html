@@ -135,11 +135,31 @@
     border:1px solid var(--line);color:var(--dim);background:#1C1914;user-select:none}
   .picker .chip:hover{color:var(--txt);border-color:#3A3222}
   .picker .chip.on{color:#04121d;background:var(--accent);border-color:var(--accent);font-weight:600}
+  /* ===== basculement PAPER (défaut masqué : on ne montre que le RÉEL) ===== */
+  body.hide-paper [data-scope="paper"]{display:none!important}
+  .scopebtn{cursor:pointer;font-size:9.5px;letter-spacing:.06em;padding:3px 10px;border-radius:12px;
+    border:1px solid var(--line);color:var(--dim);background:#1C1914;user-select:none;
+    font-family:system-ui,sans-serif;text-transform:uppercase;transition:all .2s}
+  .scopebtn:hover{border-color:#3A3222;color:var(--txt)}
+  .scopebtn.on{color:#04121d;background:var(--amber);border-color:var(--amber);font-weight:600}
+  .scopebtn .d{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;
+    margin-right:6px;vertical-align:0;opacity:.5}
+  .scopebtn.on .d{opacity:1}
+  /* ===== dynamisation : transitions douces + flash de prix + battement live ===== */
+  .top .met .v,.big,.chip .v,.voie .v,.brain .verdict .b,.chip .l{transition:color .35s ease}
+  .bar i,.vbar i,.cbar .track i,.syn-f{transition:width .5s cubic-bezier(.4,0,.2,1),height .5s ease,background .35s}
+  .flash-up{animation:flup .7s ease} .flash-dn{animation:fldn .7s ease}
+  @keyframes flup{0%{color:var(--green);text-shadow:0 0 9px rgba(63,191,127,.65)}100%{text-shadow:none}}
+  @keyframes fldn{0%{color:var(--red);text-shadow:0 0 9px rgba(229,72,77,.65)}100%{text-shadow:none}}
+  .livedot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);
+    margin-right:6px;vertical-align:0;box-shadow:0 0 6px rgba(63,191,127,.85);animation:pulse 2s ease-in-out infinite}
+  .livedot.stale{background:var(--amber);box-shadow:0 0 6px rgba(229,169,61,.85)}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
   @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}}
 </style>
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
-<body>
+<body class="hide-paper">
 <div class="wrap">
 
   <div class="top">
@@ -164,7 +184,7 @@
       <span class="l"><span class="reel" id="v-carry-reel">·</span> CARRY</span>
       <span class="v" id="v-carry">—</span>
     </div>
-    <div class="met voie">
+    <div class="met voie" data-scope="paper">
       <span class="l">paper · win rate</span>
       <span class="v"><span class="green" id="t-win">—</span> <span class="dim" style="font-size:10px">/ <span id="t-final">—</span> finalisés</span></span>
     </div>
@@ -173,13 +193,14 @@
       <span class="v" id="t-regime" style="font-size:12px">—</span>
     </div>
     <div style="margin-left:auto;align-items:flex-end" class="dim">
-      <span class="badge" id="mode" style="margin-bottom:3px">—</span>
+      <span class="badge" id="mode" style="margin-bottom:3px"><span class="livedot" id="livedot"></span><span id="mode-txt">—</span></span>
       <span id="t-clock" style="font-size:10px">—</span>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 8px 2px">
     <span class="dim" style="font-size:9px;letter-spacing:.1em">UNIVERS</span>
     <span class="picker" id="sym-pick" title="univers dynamique — clic pour changer de symbole"></span>
+    <span id="paper-toggle" class="scopebtn" style="margin-left:auto" title="afficher/masquer les données PAPER (fictives) — par défaut on ne montre que le RÉEL"><span class="d"></span><span id="paper-lbl">Paper masqué</span></span>
   </div>
 
   <div class="grid">
@@ -208,7 +229,7 @@
           <span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="1h">1h</span>
         </span>
       </h2>
-      <div id="chart" style="height:230px;width:100%"></div>
+      <div id="chart" style="height:440px;width:100%"></div>
       <div class="tip" id="chart-tip"></div>
       <div class="ind-bar" id="ind-bar" title="clic = afficher/masquer · double-clic = isoler">
         <span class="ind on" data-ind="candles"><span class="sw" style="background:var(--accent)"></span>Bougies</span>
@@ -234,7 +255,7 @@
     </div>
   </div>
 
-  <div class="panel full" style="margin-top:8px">
+  <div class="panel full" style="margin-top:8px" data-scope="paper">
     <h2>Positions en cours <span class="dim" style="letter-spacing:0">— paper (signaux suivis) · PnL live · clic = afficher l'actif sur le graphique</span>
       <span class="dim" id="pos-count" style="float:right;letter-spacing:0">—</span></h2>
     <div id="positions"></div>
@@ -285,7 +306,7 @@
       <div style="flex:1;min-width:230px">
         <div class="row"><span class="k">mode accumulation</span><span id="ac-mode" class="amber">—</span></div>
         <div class="row"><span class="k">acheté RÉEL</span><span id="ac-real" class="green">—</span></div>
-        <div class="row"><span class="k">cumul paper</span><span id="ac-paper">—</span></div>
+        <div class="row" data-scope="paper"><span class="k">cumul paper</span><span id="ac-paper">—</span></div>
         <div class="row"><span class="k">opportunité d'achat</span><span id="ac-opp" class="accent">—</span></div>
         <div class="row"><span class="k">DCA recommandé</span><span id="ac-dca">—</span></div>
         <div class="row"><span class="k">prix vs marché (premium)</span><span id="ac-prem">—</span></div>
@@ -417,7 +438,7 @@
           <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
         </div>
       </div>
-      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px" data-scope="paper">
         <h2 style="border:0;padding:0;margin:0 0 6px">Labo xs paper <span class="dim" style="letter-spacing:0">— long-short fictif §60</span></h2>
         <div class="row"><span class="k">panier</span><span id="xs-panier" class="dim">—</span></div>
         <div class="row"><span class="k">PnL cumulé (fictif)</span><span id="xs-pnl">—</span></div>
@@ -440,8 +461,8 @@
       <div class="row"><span class="k">DVOL BTC · VRP</span><span id="iv-btc">—</span></div>
       <div class="row"><span class="k">DVOL ETH · VRP</span><span id="iv-eth">—</span></div>
       <div class="row"><span class="k">régime vol BTC</span><span id="iv-reg" class="amber">—</span></div>
-      <div class="row"><span class="k">meilleur carry net</span><span id="cr-best">—</span></div>
-      <div class="dim" id="cr-rows" style="margin-top:6px;line-height:1.7">—</div>
+      <div class="row" data-scope="paper"><span class="k">meilleur carry net (paper)</span><span id="cr-best">—</span></div>
+      <div class="dim" id="cr-rows" data-scope="paper" style="margin-top:6px;line-height:1.7">—</div>
     </div>
     <div class="panel" id="panel-future" style="grid-column:span 2">
       <h2>Futur · Éventail <span class="dim" style="letter-spacing:0">— plages CONDITIONNELLES (Monte Carlo σ/sauts calibrés), PAS une prédiction</span></h2>
@@ -483,6 +504,17 @@ function sbar(id,v){const e=$(id);if(!e)return;const cv=Math.max(-1,Math.min(1,v
 
 // couches d'indicateurs (toggle/isoler depuis la barre #ind-bar)
 const LAYERS={candles:true,ema20:true,ema50:true,vwap:true,volume:false,smc:true};
+// visualisation PAPER : masquée par défaut (on ne montre que le RÉEL). Bouton dédié.
+let SHOW_PAPER=false;const _px={};
+function flashPrice(id,val){
+  const el=$(id);if(!el)return;
+  const prev=_px[id],v=fmt(val);el.textContent=v;
+  if(val!=null&&prev!=null&&val!==prev){
+    el.classList.remove("flash-up","flash-dn");void el.offsetWidth;   // relance l'animation
+    el.classList.add(val>prev?"flash-up":"flash-dn");
+  }
+  if(val!=null)_px[id]=val;
+}
 let _candles=[],chart=null,series={};
 let TF="5m",SYMBOL="BTCUSDT",projLines=[],posLines=[],_drawnSym=null,_lastSymbols=[];
 // bascule d'actif partagée (picker + lignes de positions) : change SYMBOL et rafraîchit
@@ -515,7 +547,7 @@ function initChart(){
   if(!window.LightweightCharts){$("chart").innerHTML="<div class='dim' style='padding:20px'>graphique indisponible (lib non chargée)</div>";return;}
   const el=$("chart");
   chart=LightweightCharts.createChart(el,{
-    width:el.clientWidth,height:230,
+    width:el.clientWidth,height:el.clientHeight||440,
     layout:{background:{color:"transparent"},textColor:"#8E8574",fontSize:10,fontFamily:"monospace"},
     grid:{vertLines:{color:"#1C1914"},horzLines:{color:"#1C1914"}},
     rightPriceScale:{borderColor:"#19202b"},
@@ -532,7 +564,7 @@ function initChart(){
   series.volume=chart.addHistogramSeries({priceScaleId:"vol",priceFormat:{type:"volume"}});
   series.volume.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
   applyChartLayers();
-  new ResizeObserver(()=>chart.applyOptions({width:el.clientWidth})).observe(el);
+  new ResizeObserver(()=>chart.applyOptions({width:el.clientWidth,height:el.clientHeight||440})).observe(el);
   chart.subscribeCrosshairMove(handleCrosshair);
 }
 
@@ -692,7 +724,7 @@ function clearPosLines(){
 function drawPositionLines(st){
   if(!chart||!series.candles)return;
   clearPosLines();
-  const pos=(st.positions||[]).find(p=>p.symbol===SYMBOL);
+  const pos=SHOW_PAPER?(st.positions||[]).find(p=>p.symbol===SYMBOL):null;  // positions = paper
   if(pos){
     const long=pos.side==="LONG";
     if(pos.entry)posLines.push(series.candles.createPriceLine({price:+pos.entry,color:"#C9C4B8",lineWidth:1,lineStyle:0,axisLabelVisible:true,title:(long?"▲ entrée L":"▼ entrée S")}));
@@ -906,12 +938,13 @@ function renderFuture(f){
 async function tick(){
   const t0=performance.now();
   try{
-    const st=await(await fetch("/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);
+    const st=await(await fetch("/api/state?symbol="+encodeURIComponent(SYMBOL)+"&tf="+encodeURIComponent(TF))).json();const lat=Math.round(performance.now()-t0);window._ST=st;
     renderPicker(st.symbols);
     const s=st.stats||{},o=st.orderflow||{},m=st.macro||{},mk=st.market||{},hh=st.health||{};
-    $("mode").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
+    $("mode-txt").textContent=st.mode;$("sym").textContent=st.symbol;$("t-clock").textContent=st.timestamp;
+    const ld=$("livedot");if(ld)ld.classList.remove("stale");   // fetch OK -> battement vert
     const win=(s.win_rate==null)?null:s.win_rate;
-    $("t-price").textContent=fmt(o.mid_price);$("c-price").textContent=fmt(o.mid_price);
+    flashPrice("t-price",o.mid_price);flashPrice("c-price",o.mid_price);
     $("t-win").textContent=win==null?"—":win.toFixed(1)+"%";
     $("t-final").textContent=s.total||0;$("t-regime").textContent=m.regime||"—";
     $("w-win").textContent=win==null?"—":win.toFixed(1)+"%";
@@ -1056,7 +1089,7 @@ async function tick(){
     $("v-carry").textContent=(fcr.apr!=null)?((fcr.apr>=0?"+":"")+(+fcr.apr).toFixed(2)+"% / seuil 5% · couv $"+(fcr.couverture!=null?Math.round(fcr.couverture):"—")):"—";
     $("f1").textContent="AGENT ONLINE";$("f3").textContent="SIGNALS "+(hh.signals||0)+" · FINAL "+(hh.finalized||0);
     $("f4").textContent="LATENCE "+lat+" ms";
-  }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";}
+  }catch(e){$("f1").textContent="AGENT OFFLINE ("+e+")";const ld=$("livedot");if(ld)ld.classList.add("stale");}
 }
 // --- barre d'indicateurs du graphique : clic = toggle, double-clic = isoler ---
 function applyIndUI(){document.querySelectorAll("#ind-bar .ind").forEach(el=>el.classList.toggle("on",!!LAYERS[el.dataset.ind]));}
@@ -1077,6 +1110,19 @@ document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("cli
   $("c-tf").textContent=TF.toUpperCase();
   tick();
 }));
+
+// ===== bouton PAPER : bascule l'affichage des données fictives (défaut masqué) =====
+(function(){
+  const btn=$("paper-toggle"),lbl=$("paper-lbl");
+  function apply(){
+    document.body.classList.toggle("hide-paper",!SHOW_PAPER);
+    btn.classList.toggle("on",SHOW_PAPER);
+    lbl.textContent=SHOW_PAPER?"Paper affiché":"Paper masqué";
+    try{drawPositionLines(window._ST||{});}catch(e){}   // maj immédiate des lignes du graphe
+  }
+  btn.addEventListener("click",()=>{SHOW_PAPER=!SHOW_PAPER;apply();});
+  apply();
+})();
 
 // graphique pro (Lightweight Charts) : crosshair + tooltip OHLC gérés nativement
 initChart();
