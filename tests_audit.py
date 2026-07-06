@@ -718,52 +718,62 @@ def test_llm_agent_off_is_neutral():
 
 
 def test_llm_agent_failsafe_on_backend_error():
-    """Backend qui lève -> NEUTRE, jamais d'exception propagée (fail-safe total)."""
+    """Backend qui lève -> _produce_vote LÈVE (permet le stale-while-error du cache) et
+    agent() reste NEUTRE (fail-safe, jamais d'exception propagée)."""
     import llm_agent
-    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg)
+    import runtime_cache as rc
+    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local,
+           llm_agent._cfg, llm_agent._knob, rc.get)
     try:
         llm_agent.enabled = lambda: True
         llm_agent._snapshot = lambda s: {"symbol": s, "last": 1.0}
-        llm_agent._cfg = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        llm_agent._cfg = lambda n, d: d
         def boom(*a, **k):
             raise RuntimeError("ollama down (simulé)")
         llm_agent._call_local = boom
+        try:
+            llm_agent._produce_vote("BTCUSDT")
+            assert False, "devait lever"
+        except RuntimeError:
+            pass
+        # cache émulé sans disque : sur échec, fallback neutre
+        rc.get = lambda key, ttl, fetch, fallback=None, now=None: (
+            fetch() if False else fallback)
         r = llm_agent.agent("BTCUSDT")
-        assert r["vote"] == 0 and r["confidence"] == 0 and "err" in r["note"]
+        assert r["vote"] == 0 and r["confidence"] == 0
     finally:
-        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg) = old
+        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local,
+         llm_agent._cfg, llm_agent._knob, rc.get) = old
 
 
 def test_llm_agent_parse_and_conf_cap():
     """Réponse valide -> parsée ; confiance PLAFONNÉE (ne domine pas le banc).
-    Réponses hors-bornes / bruit -> rejetées (None)."""
+    Réponses hors-bornes / bruit -> rejetées (None). Testé sur _produce_vote (hors cache)."""
     import llm_agent
     assert llm_agent._parse('{"vote": 0.8, "confidence": 0.9, "why": "momentum"}') == (0.8, 0.9, "momentum")
     assert llm_agent._parse('bla {"vote": -0.5, "confidence": 0.3} fin')[:2] == (-0.5, 0.3)
     assert llm_agent._parse('{"vote": 2, "confidence": 0.5}') is None       # vote hors [-1,1]
     assert llm_agent._parse('{"vote": 0.5, "confidence": 9}') is None       # conf hors [0,1]
     assert llm_agent._parse("pas de json") is None
-    # plafond de confiance appliqué dans agent()
-    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg)
+    old = (llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg, llm_agent._knob)
     try:
-        llm_agent.enabled = lambda: True
         llm_agent._snapshot = lambda s: {"symbol": s}
-        llm_agent._cfg = lambda n, d: {"LLM_AGENT_BACKEND": "local", "LLM_AGENT_CONF_CAP": 0.5}.get(n, d)
+        llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "local"}.get(n, d)
+        llm_agent._cfg = lambda n, d: {"LLM_AGENT_CONF_CAP": 0.5}.get(n, d)
         llm_agent._call_local = lambda *a, **k: '{"vote": 1.0, "confidence": 1.0, "why": "x"}'
-        r = llm_agent.agent("BTCUSDT")
+        r = llm_agent._produce_vote("BTCUSDT")
         assert r["vote"] == 1.0 and r["confidence"] == 0.5                  # 1.0 plafonné à 0.5
     finally:
-        (llm_agent.enabled, llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg) = old
+        (llm_agent._snapshot, llm_agent._call_local, llm_agent._cfg, llm_agent._knob) = old
 
 
 def test_llm_agent_gemini_backend_routing():
     """Backend 'gemini' -> route vers Google AI Studio direct, parse le vote, plafonne
-    la confiance. Fail-safe si clé absente (GEMINI_API_KEY manquant -> NEUTRE)."""
+    la confiance. Testé sur _produce_vote (hors cache)."""
     import llm_agent
-    old = (llm_agent.enabled, llm_agent._snapshot, llm_agent._knob,
-           llm_agent._call_gemini, llm_agent._cfg)
+    old = (llm_agent._snapshot, llm_agent._knob, llm_agent._call_gemini, llm_agent._cfg)
     try:
-        llm_agent.enabled = lambda: True
         llm_agent._snapshot = lambda s: {"symbol": s}
         llm_agent._knob = lambda n, d: {"LLM_AGENT_BACKEND": "gemini"}.get(n, d)
         llm_agent._cfg = lambda n, d: d
@@ -772,12 +782,35 @@ def test_llm_agent_gemini_backend_routing():
             seen["model"] = model
             return '{"vote": -0.6, "confidence": 0.9, "why": "baisse"}'
         llm_agent._call_gemini = fake_gemini
-        r = llm_agent.agent("BTCUSDT")
+        r = llm_agent._produce_vote("BTCUSDT")
         assert r["vote"] == -0.6 and r["confidence"] == 0.5      # conf plafonnée à 0.5
         assert "gemini" in r["note"] and seen["model"] == "gemini-2.5-flash"
     finally:
-        (llm_agent.enabled, llm_agent._snapshot, llm_agent._knob,
-         llm_agent._call_gemini, llm_agent._cfg) = old
+        (llm_agent._snapshot, llm_agent._knob, llm_agent._call_gemini, llm_agent._cfg) = old
+
+
+def test_llm_agent_caches_per_symbol():
+    """agent() passe par runtime_cache avec une clé PAR SYMBOLE + le TTL configuré :
+    throttle du quota fournisseur (1 appel LLM / symbole / TTL, pas à chaque cycle 1 min).
+    Permet de couvrir TOUT l'univers sans exploser le quota Gemini."""
+    import llm_agent
+    import runtime_cache as rc
+    old = (llm_agent.enabled, llm_agent._cfg, llm_agent._knob, llm_agent._produce_vote, rc.get)
+    try:
+        llm_agent.enabled = lambda: True
+        llm_agent._cfg = lambda n, d: 900 if n == "LLM_AGENT_TTL_S" else d
+        llm_agent._knob = lambda n, d: d                          # liste blanche vide -> tous symboles
+        llm_agent._produce_vote = lambda s: {"vote": 0.4, "confidence": 0.3, "note": "x"}
+        seen = {}
+        def fake_get(key, ttl, fetch, fallback=None, now=None):
+            seen["key"], seen["ttl"] = key, ttl
+            return fetch()
+        rc.get = fake_get
+        r = llm_agent.agent("ethusdt")
+        assert seen["key"] == "llm_vote_ETHUSDT" and seen["ttl"] == 900
+        assert r["vote"] == 0.4                                   # tout symbole voté (plus de restriction BTC)
+    finally:
+        (llm_agent.enabled, llm_agent._cfg, llm_agent._knob, llm_agent._produce_vote, rc.get) = old
 
 
 def test_brain_banc_frozen_when_llm_off_and_bounded_when_on():

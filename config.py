@@ -233,5 +233,6 @@ LLM_AGENT_TIMEOUT_S = 8.0                  # au-delà -> vote ignoré (ne ralent
 LLM_AGENT_MAX_TOKENS = 800                 # budget sortie cloud (modèles thinking : marge de raisonnement)
 LLM_AGENT_CONF_CAP = 0.5                   # plafond de confiance (ne domine pas le banc)
 LLM_AGENT_WEIGHT = 0.5                     # poids FIXE dans l'agrégation (non appris, non persisté)
-LLM_AGENT_SYMBOLS = ""                      # liste blanche (ex. "BTCUSDT") ; vide = tous. Borne le coût du local lent
+LLM_AGENT_SYMBOLS = ""                      # liste blanche (ex. "BTCUSDT") ; vide = TOUS les tokens de l'univers
+LLM_AGENT_TTL_S = 900                       # vote LLM caché/symbole (15 min) : couvre tout l'univers sans exploser le quota
 LLM_AGENT_KEEPALIVE = "30m"                 # Ollama : garde qwen en mémoire entre cycles (évite le rechargement swap)

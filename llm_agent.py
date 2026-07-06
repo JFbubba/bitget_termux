@@ -174,35 +174,55 @@ def _parse(text):
         return None
 
 
+def _produce_vote(symbol):
+    """Un appel LLM -> vote FRAIS. LÈVE en cas d'échec (snapshot/backend/parse) pour que
+    runtime_cache dégrade en stale (dernier bon vote) ou fallback neutre, SANS mettre
+    l'échec en cache."""
+    snap = _snapshot(symbol)
+    if not snap:
+        raise RuntimeError("snapshot n/a")
+    backend = str(_knob("LLM_AGENT_BACKEND", "local")).lower()
+    timeout = float(_knob("LLM_AGENT_TIMEOUT_S", 8.0))
+    if backend == "cloud":                       # OpenRouter (multi-fournisseurs)
+        model = str(_knob("LLM_AGENT_MODEL_CLOUD", "openai/gpt-5-mini"))
+        text = _call_cloud(_prompt(snap), model, timeout)
+    elif backend == "gemini":                    # Google AI Studio EN DIRECT
+        model = str(_knob("LLM_AGENT_MODEL_GEMINI", "gemini-2.5-flash"))
+        text = _call_gemini(_prompt(snap), model, timeout)
+    else:                                        # Ollama LOCAL (rien ne sort du VPS)
+        model = str(_knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:7b"))
+        text = _call_local(_prompt(snap), model, timeout)
+    parsed = _parse(text)
+    if not parsed:
+        raise RuntimeError(f"{backend}:parse KO")
+    vote, conf, why = parsed
+    # confiance BORNÉE : un agent opt-in ne doit pas dominer le banc déterministe.
+    conf = max(0.0, min(conf, float(_cfg("LLM_AGENT_CONF_CAP", 0.5))))
+    return {"vote": round(vote, 3), "confidence": round(conf, 3),
+            "note": f"{backend}:{why}" if why else backend}
+
+
 def agent(symbol):
-    """{vote, confidence, note}. FAIL-SAFE : retourne un neutre de confiance nulle si
-    OFF ou en cas d'erreur/timeout/incohérence (donc ignoré par l'agrégation)."""
+    """{vote, confidence, note}. FAIL-SAFE : neutre de confiance nulle si OFF / hors
+    liste / erreur (donc ignoré par l'agrégation).
+
+    Le vote frais est CACHÉ par symbole (runtime_cache, TTL LLM_AGENT_TTL_S, défaut
+    15 min, persisté sur disque donc partagé entre les process cerveau relancés chaque
+    minute). But : couvrir TOUT l'univers sans rappeler le LLM à chaque cycle 1 min ->
+    respecte le quota du fournisseur. En cas d'échec, runtime_cache réutilise le dernier
+    bon vote (stale-while-error)."""
     if not enabled():
         return {**NEUTRE, "note": "off"}
     if not _symbol_allowed(symbol):
         return {**NEUTRE, "note": "off:hors liste"}
+    ttl = float(_cfg("LLM_AGENT_TTL_S", 900))
     try:
-        snap = _snapshot(symbol)
-        if not snap:
-            return {**NEUTRE, "note": "snapshot n/a"}
-        backend = str(_knob("LLM_AGENT_BACKEND", "local")).lower()
-        timeout = float(_knob("LLM_AGENT_TIMEOUT_S", 8.0))
-        if backend == "cloud":                   # OpenRouter (multi-fournisseurs)
-            model = str(_knob("LLM_AGENT_MODEL_CLOUD", "openai/gpt-5-mini"))
-            text = _call_cloud(_prompt(snap), model, timeout)
-        elif backend == "gemini":                # Google AI Studio EN DIRECT
-            model = str(_knob("LLM_AGENT_MODEL_GEMINI", "gemini-2.5-flash"))
-            text = _call_gemini(_prompt(snap), model, timeout)
-        else:                                    # Ollama LOCAL (rien ne sort du VPS)
-            model = str(_knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:7b"))
-            text = _call_local(_prompt(snap), model, timeout)
-        parsed = _parse(text)
-        if not parsed:
-            return {**NEUTRE, "note": f"{backend}:parse KO"}
-        vote, conf, why = parsed
-        # confiance BORNÉE : un agent opt-in ne doit pas dominer le banc déterministe.
-        conf = max(0.0, min(conf, float(_cfg("LLM_AGENT_CONF_CAP", 0.5))))
-        return {"vote": round(vote, 3), "confidence": round(conf, 3),
-                "note": f"{backend}:{why}" if why else backend}
-    except Exception as exc:                     # noqa: BLE001 — fail-safe volontaire
-        return {**NEUTRE, "note": f"err {type(exc).__name__}"}
+        import runtime_cache as rc
+        return rc.get(f"llm_vote_{symbol.upper()}", ttl,
+                      lambda: _produce_vote(symbol),
+                      fallback={**NEUTRE, "note": "n/a"})
+    except Exception:                            # runtime_cache indispo -> direct, fail-safe
+        try:
+            return _produce_vote(symbol)
+        except Exception as exc:                 # noqa: BLE001 — fail-safe volontaire
+            return {**NEUTRE, "note": f"err {type(exc).__name__}"}
