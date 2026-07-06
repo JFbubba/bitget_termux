@@ -616,6 +616,60 @@ def _apply_edge_priors(weights):
     return _clamp_weights(w)
 
 
+def _ic_priors():
+    """Multiplicateurs de poids dérivés de l'IC LIVE mesuré (live_ic_audit, ~30k votes),
+    CACHÉS (le timer relance le process chaque minute -> cache disque partagé, recalcul ~1×/h).
+    Centrés à 1 (IC 0 -> ×1), bornés : mult = clamp(1 + IC/scale, MIN, MAX). scale 0.05 par
+    défaut -> IC +0.10 -> ~×2.5, IC −0.03 -> ×0.4, IC −0.05 -> ×0.25. Agent sans IC fiable
+    (< 50 obs) -> absent (×1 neutre). {} si indisponible (fail-safe neutre)."""
+    from config_utils import cfg as _cfg
+    try:
+        import runtime_cache as rc
+        scale = float(_cfg("BRAIN_IC_ALIGN_SCALE", 0.05))
+        lo = float(_cfg("BRAIN_IC_ALIGN_MIN", 0.25))
+        hi = float(_cfg("BRAIN_IC_ALIGN_MAX", 2.5))
+        horizon = int(_cfg("BRAIN_IC_ALIGN_HORIZON_S", 3600))
+
+        def _compute():
+            import live_ic_audit as lia
+            out = {}
+            for r in lia.snapshot(horizon).get("agents", []):
+                ic = r.get("ic")
+                if ic is not None:
+                    out[r["agent"]] = max(lo, min(hi, 1.0 + float(ic) / scale))
+            return out
+        return rc.get("ic_align_mult", float(_cfg("BRAIN_IC_ALIGN_TTL_S", 3600)), _compute, fallback={})
+    except Exception:
+        return {}
+
+
+def _apply_ic_alignment(weights):
+    """RÉALIGNE les poids EARCP sur l'IC LIVE mesuré (§68) : poids × mult**alpha, normalisé
+    à moyenne ~1, re-borné [MIN,MAX]. mult > 1 pour IC positif, < 1 pour IC négatif — la
+    prédictivité MESURÉE pilote le poids (fin de la boucle §51 où flows pesait 1.33 pour un
+    IC −0.03). Gated BRAIN_IC_ALIGN (env prioritaire, défaut OFF). Fail-safe NEUTRE : pas d'IC
+    / module en panne -> poids inchangés. Rend le WATCH-list superflu (down-weight principiel
+    plutôt que zéro manuel)."""
+    import os
+    from config_utils import cfg as _cfg
+    try:
+        on = os.getenv("BRAIN_IC_ALIGN")
+        on = int(on) if on is not None else int(_cfg("BRAIN_IC_ALIGN", 0))
+        if not on:
+            return weights
+        mult = _ic_priors()
+        alpha = max(0.0, min(1.0, float(_cfg("BRAIN_IC_ALIGN_ALPHA", 1.0))))
+    except Exception:
+        return weights
+    if not mult:
+        return weights
+    w = {k: v * (max(float(mult.get(k, 1.0)), 1e-9) ** alpha) for k, v in weights.items()}
+    avg = (sum(w.values()) / len(w)) if w else 1.0
+    if avg > 0:
+        w = {k: round(v / avg, 3) for k, v in w.items()}
+    return _clamp_weights(w)
+
+
 def _coherence_scores(entries):
     """Cohérence EARCP : accord de chaque agent avec le consensus DES AUTRES
     (leave-one-out, non pondéré). Pur.
@@ -842,6 +896,7 @@ def learn(symbol, price_now, weights):
                             + lissage * cible[k], 3) for k in cible}
         weights = _clamp_weights(weights)                        # re-borne [MIN,MAX] (la norm. court-circuitait le clamp)
         weights = _apply_edge_priors(weights)                    # priors d'edge ADVISORY (edge mesuré borne l'appris)
+        weights = _apply_ic_alignment(weights)                   # §68 : réaligne sur l'IC LIVE mesuré (gated)
         save_weights(weights)
     if changed:
         _write_log(log)

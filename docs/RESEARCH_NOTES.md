@@ -2347,3 +2347,23 @@ checker d'outcome coupe les gagnants trop tôt). **Optimum robuste (2 fenêtres 
 SL 1.5·ATR / RR 1.5** — W ~44 %, E +0.087–0.102 R/trade (~2× l'actuel). Enseignement :
 **RR 2 est trop ambitieux ; prendre le profit à 1.5 R** capte les trades qui atteignent
 +1.5 R puis se retournent. Advisory : appliquer = décision mandat (RR 2 -> 1.5).
+
+## §68 (fin) — Réalignement des poids EARCP sur l'IC live (fin de la béquille WATCH)
+
+Cause racine mesurée (§68/§51) : les poids EARCP anti-corrélaient avec la prédictivité
+(flows pesait 1.33 pour un IC live −0.03 ; sentiment 0.88 pour un IC +0.10). L'élagage
+WATCH (7 agents à 0) était une béquille ; on la remplace par un pilotage PRINCIPIEL.
+
+`_apply_ic_alignment(weights)` (jumeau de `_apply_edge_priors`) : poids × mult**alpha,
+normalisé, re-borné [0.2,3.0]. `mult = clamp(1 + IC/scale, 0.25, 2.5)` (scale 0.05) tiré de
+l'IC live (`live_ic_audit`, ~30k votes, caché ~1×/h). Appliqué dans `learn()` après les
+edge-priors -> réaligne les poids PERSISTÉS. Gated `BRAIN_IC_ALIGN` (env prioritaire,
+défaut OFF), fail-safe neutre. Effet mesuré (poids avant -> après) : flows 1.47->0.35,
+orderflow 1.01->0.48, macro 1.58->1.04 ; sentiment 0.88->1.41, liquidations 1.83->2.70,
+derivs 1.81->2.61, leadlag 0.89->1.34. Le poids suit désormais l'IC mesuré.
+
+Activation : one-shot pour réaligner les poids persistés immédiatement (ferme le gap),
+`BRAIN_IC_ALIGN=1`, et `BRAIN_WATCH_AGENTS` RETIRÉ — les 14 agents votent à nouveau, les
+faibles-IC simplement down-weightés (principiel) au lieu d'être zérotés. Réversible
+(BRAIN_IC_ALIGN=0). Banc gelé à 14 intact (§62) : on réaligne la pondération, pas la
+composition. 1 test (409/409 OK, 3 portes vertes).

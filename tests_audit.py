@@ -7525,6 +7525,34 @@ def test_exit_calibration_simulate_and_mfe():
     assert mfe == 3.0 and mae == 0.5
 
 
+def test_ic_alignment_realigns_on_ic():
+    """§68 : l'alignement IC monte les poids des agents à IC positif et descend ceux à IC
+    négatif (gated, bounded, normalisé)."""
+    import os
+    import swarm_brain as sb
+    old_ic = sb._ic_priors
+    had = "BRAIN_IC_ALIGN" in os.environ
+    saved = os.environ.get("BRAIN_IC_ALIGN")
+    try:
+        # multiplicateurs simulés : bon agent ×2.5, mauvais ×0.3, neutre ×1
+        sb._ic_priors = lambda: {"good": 2.5, "bad": 0.3, "neutral": 1.0}
+        w = {"good": 1.0, "bad": 1.0, "neutral": 1.0}
+        os.environ["BRAIN_IC_ALIGN"] = "0"                 # gated OFF -> identité
+        assert sb._apply_ic_alignment(dict(w)) == w
+        os.environ["BRAIN_IC_ALIGN"] = "1"                 # ON
+        aw = sb._apply_ic_alignment(dict(w))
+        assert aw["good"] > aw["neutral"] > aw["bad"]      # ordre = IC
+        assert all(sb.BRAIN_WEIGHT_MIN <= v <= sb.BRAIN_WEIGHT_MAX for v in aw.values())
+        # fail-safe : pas de multiplicateurs -> poids inchangés
+        sb._ic_priors = lambda: {}
+        assert sb._apply_ic_alignment(dict(w)) == w
+    finally:
+        sb._ic_priors = old_ic
+        os.environ.pop("BRAIN_IC_ALIGN", None)
+        if had:
+            os.environ["BRAIN_IC_ALIGN"] = saved
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
