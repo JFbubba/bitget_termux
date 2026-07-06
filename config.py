@@ -100,6 +100,11 @@ ACCUM_AUTONOMOUS_LIVE = False
 # Garde « meilleur prix » : n'accumule PAS si Bitget cote au-dessus de la médiane
 # cross-exchange de plus de ce % (premium). Évite d'acheter sur un pic propre à Bitget.
 ACCUM_MAX_PREMIUM_PCT = 0.30
+# Confirmation du fill RÉEL (idée #1) : après un achat, re-poll les fills pour enregistrer
+# le montant EFFECTIVEMENT dépensé (limit_ioc peut ne remplir que partiellement).
+ACCUM_CONFIRM_FILL = True                   # False = enregistre le montant demandé (comportement d'avant)
+ACCUM_CONFIRM_FILL_TRIES = 5               # nb de re-polls des fills (les fills peuvent arriver en léger différé)
+ACCUM_CONFIRM_FILL_DELAY_S = 1.0           # délai entre re-polls (s)
 
 # === Porte directionnelle régime-aware (regime_gate.py, lue par journal_scanner) ===
 # Supprime les signaux qui combattent la marée macro : en RISK_OFF, aucun LONG n'est

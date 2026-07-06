@@ -4228,6 +4228,46 @@ def test_spot_executor_record_extra_contexte():
             se.REAL_LEDGER = orig
 
 
+def test_spot_executor_fill_confirmation():
+    """#1 : sur un achat réussi, execute() confirme le fill RÉEL et enregistre le montant
+    EFFECTIVEMENT dépensé (limit_ioc peut ne remplir que partiellement), pas le demandé.
+    Sans confirmation -> conservateur (montant demandé). Hermétique (ledger + _confirm_fill mockés)."""
+    import tempfile
+    import pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se._confirm_fill)
+    ok_runner = lambda c: '{"code":"00000","data":{"orderId":"O1"}}'   # noqa: E731
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            # fill PARTIEL : demandé 5 $, rempli 3.2 $ / 0.00005 BTC
+            se._confirm_fill = lambda oid, **k: {"amount_usdt": 3.2, "size_btc": 0.00005, "price_avg": 64000.0}
+            r = se.execute(5.0, confirm=True, runner=ok_runner, balance=100, spent=0, now=1_000_000)
+            assert r["executed"] is True and r.get("fill", {}).get("amount_usdt") == 3.2
+            b = se._load_real()["buys"][-1]
+            assert b["amount_usdt"] == 3.2 and b["requested_usdt"] == 5.0   # RÉEL, pas le demandé
+            assert b["fill_confirmed"] is True and b["filled_btc"] == 0.00005
+            # sans confirmation -> montant demandé (conservateur : jamais de sous-comptage du cap)
+            se._confirm_fill = lambda oid, **k: None
+            se.execute(4.0, confirm=True, runner=ok_runner, balance=100, spent=0, now=1_000_000)
+            b2 = se._load_real()["buys"][-1]
+            assert b2["amount_usdt"] == 4.0 and b2["fill_confirmed"] is False
+        finally:
+            (se.REAL_LEDGER, se._confirm_fill) = orig
+
+
+def test_spot_executor_error_parsed():
+    """#2 : une réponse d'erreur Bitget devient result['error'] {code, msg} LISIBLE
+    (pas de retry auto sur un achat réel -> pas de double ordre)."""
+    import spot_executor as se
+    assert se._parse_error('{"code":"40762","msg":"balance not enough"}') == {"code": "40762", "msg": "balance not enough"}
+    assert se._parse_error('{"code":"00000","data":{}}') is None          # succès -> pas d'erreur
+    assert se._parse_error("pas du json") is None
+    r = se.execute(5.0, confirm=True, runner=lambda c: '{"code":"40762","msg":"insufficient"}',
+                   balance=100, spent=0, now=1_000_000)
+    assert r["executed"] is False and r["error"]["code"] == "40762"
+
+
 # ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
 
 def test_carry_transitions_attractif_front_montant():
