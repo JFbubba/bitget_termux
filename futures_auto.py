@@ -75,8 +75,10 @@ def sl_tp(side, prix, atr=None, sl_pct=None, rr=None):
     p = safe_float(prix)
     if p is None or p <= 0:
         return None, None
+    import os
     sl_pct = float(_cfg("FUTURES_AUTO_SL_PCT", 1.5) if sl_pct is None else sl_pct)
-    rr = float(_cfg("FUTURES_AUTO_RR", 2.0) if rr is None else rr)
+    # RR env-aware (§68 B : calibration -> 1.5 ; env prioritaire pour effet immédiat)
+    rr = float((os.getenv("FUTURES_AUTO_RR") or _cfg("FUTURES_AUTO_RR", 1.5)) if rr is None else rr)
     a = safe_float(atr)
     dist = 1.5 * a if (a is not None and a > 0) else p * sl_pct / 100.0
     if str(side) == "long":

@@ -171,7 +171,8 @@ FUTURES_FUNDING_TIMING_MIN = 20       # report d'OUVERTURE si un règlement de f
                                       # dans N min et que le côté paierait (§60, SAVOIR §5)  # tripwire : alerte si une position est à < N % de son prix
                                       # de liquidation (marge croisée, positions §47 empilées)
 FUTURES_AUTO_SL_PCT = 1.5             # stop-loss % du prix si ATR indisponible
-FUTURES_AUTO_RR = 2.0                 # take-profit = distance SL × RR
+FUTURES_AUTO_RR = 1.5                 # take-profit = distance SL × RR (§68 B : 2.0 -> 1.5, optimum mesuré)
+ATR_TRADE_RR = 1.5                    # RR du plan paper (§68 B) — cohérent avec FUTURES_AUTO_RR
 
 # Jambes cash-and-carry automatiques (carry_auto, §45) — short perp COUVERT par le
 # BTC spot détenu (delta-neutre, levier ×1, sans SL : hedgé). Entrée : ATTRACTIF

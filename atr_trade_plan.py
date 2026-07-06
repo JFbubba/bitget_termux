@@ -6,6 +6,22 @@ from candle_reader import get_bitget_candles
 from indicators import ema, calculate_rsi, calculate_atr
 
 
+def _rr():
+    """Ratio take-profit / risque (§68 B). env ATR_TRADE_RR > config > 1.5 (optimum mesuré)."""
+    import os
+    v = os.getenv("ATR_TRADE_RR")
+    if v is not None:
+        try:
+            return float(v)
+        except ValueError:
+            pass
+    try:
+        from config_utils import cfg
+        return float(cfg("ATR_TRADE_RR", 1.5))
+    except Exception:
+        return 1.5
+
+
 def analyze_decision(symbol="BTCUSDT"):
     candles = get_bitget_candles(symbol=symbol, granularity="15m", limit=100)
     closes = [candle["close"] for candle in candles]
@@ -100,7 +116,7 @@ def build_trade_plan(analysis):
         if risk <= 0:
             return None
 
-        take_profit = entry + (risk * 2)
+        take_profit = entry + (risk * _rr())
 
         return {
             "side": "LONG",
@@ -123,7 +139,7 @@ def build_trade_plan(analysis):
         if risk <= 0:
             return None
 
-        take_profit = entry - (risk * 2)
+        take_profit = entry - (risk * _rr())
 
         return {
             "side": "SHORT",
