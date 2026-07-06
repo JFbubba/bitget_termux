@@ -2831,3 +2831,33 @@ conf > 0 ; jamais lu par learn() ni par l'entraînement du NN -> §62 intact) + 
 « voix opt-in » dans live_ic_audit (même juge ic_par_agent que les 14). La 17e voix
 armée y accumule dès maintenant ; le NN muet n'y écrit rien (par construction : on ne
 mesure que ce qui parle). À ≥ 50 votes parlés, l'IC de chaque voix devient un fait.
+
+## §78 — Qualité de pondération : la cible RIDGE corrélation-consciente bat tout (mesuré)
+
+Demande propriétaire : « améliore la qualité de pondération ». Banc d'essai walk-forward
+(6 plis, 34 769 échantillons réels, IC de rang du CONSENSUS pondéré vs rendement 1 h) :
+
+  égal            +0.032        cible IC (§68)     +0.038
+  poids actuels   +0.076        IC par régime      +0.036
+  **ridge Σ⁻¹·IC  +0.123 ± 0.048**  ridge par régime  +0.106
+
+Le RIDGE (régression ridge des rendements sur les 14 votes = poids tenant compte de la
+CORRÉLATION entre agents) gagne sur CHACUN des 6 plis, y compris les deux fenêtres
+négatives (−0.004 vs −0.135). La leçon : la famille contrarian (sentiment/derivs/
+liquidations/carry, pilotée funding+F&G) partage UN pari — l'IC individuel le compte
+quatre fois, le ridge une seule, et il concentre sur les porteurs NON redondants
+(leadlag 4.7, simons 3.9, structure 3.4 avant bornage). Robustesse : plateau λ large
+(0.05–0.5 ≈ +0.12), poids inter-plis de plus en plus stables (corr 0.63 -> 0.99),
+0.7 s de calcul. Le régime n'ajoute RIEN par-dessus (buckets qui amincissent les données).
+
+Implémentation : `_ridge_solve` (PUR : négatifs clippés — jamais de flip de signe —,
+normalisation moyenne ~1, bornes [0.25, 2.5], mêmes rails que les mults IC) +
+`_ridge_mults` (cache 1 h, < 2000 échantillons -> {}) ; la sélection de cible dans
+l'alignement devient : ridge si `BRAIN_RIDGE_ALIGN` armé ET disponible, sinon REPLI
+AUTOMATIQUE sur les mults IC §68. Le mélange géométrique α, la normalisation, les
+clamps [0.2, 3.0], les priors d'edge §77 et le lissage 10 % restent inchangés — le
+ridge ne fait que proposer une MEILLEURE cible aux mêmes rails. ARMÉ par le
+propriétaire (mandat « qualité de pondération ») ; réversible en une ligne
+(BRAIN_RIDGE_ALIGN=0). Cible live constatée : structure/simons/leadlag ~2.9,
+famille corrélée ~0.4. La cible se recalcule chaque heure sur un journal qui grandit —
+si la structure de corrélation tourne, les poids suivront, mesurés.

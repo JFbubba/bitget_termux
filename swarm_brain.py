@@ -647,6 +647,79 @@ def _apply_edge_priors(weights):
     return _clamp_weights(w)
 
 
+def _ridge_solve(X, Y, lam_frac=0.2):
+    """PUR (testable). Cœur du ridge Σ⁻¹·IC : coefficients de la régression ridge de
+    Y sur X, négatifs clippés à 0 (jamais de flip), normalisés moyenne ~1, bornés
+    [0.25, 2.5]. [] si dégénéré. X: liste de lignes, Y: liste."""
+    import numpy as np
+    X = np.asarray(X, dtype=float)
+    Y = np.asarray(Y, dtype=float)
+    if X.ndim != 2 or len(X) != len(Y) or len(X) < 10:
+        return []
+    Xs = X - X.mean(0)
+    Ys = Y - Y.mean()
+    lam = float(lam_frac) * np.trace(Xs.T @ Xs) / X.shape[1]
+    w = np.linalg.solve(Xs.T @ Xs + lam * np.eye(X.shape[1]), Xs.T @ Ys)
+    w = np.clip(w, 0.0, None)
+    if w.sum() <= 1e-12:
+        return []
+    w = w / w.mean()
+    return [round(float(max(0.25, min(2.5, v))), 3) for v in w]
+
+
+def _ridge_mults():
+    """Cible de pondération RIDGE Σ⁻¹·IC (§78) : régression ridge des rendements
+    forward 1 h sur les 14 votes du journal — les coefficients tiennent compte de la
+    CORRÉLATION entre agents (trois contrarians corrélés partagent UN pari : le ridge
+    ne le compte qu'une fois, là où l'IC individuel le compte trois). Mesuré en
+    walk-forward 6 plis : IC consensus +0.123 vs +0.076 (poids courants) et meilleur
+    sur CHAQUE pli. Négatifs CLIPPÉS à 0 (jamais de flip de signe d'un agent), puis
+    normalisation moyenne ~1 et bornes [0.25, 2.5] (mêmes rails que les mults IC).
+    Caché 1 h ; {} si numpy/journal indisponibles (fail-safe -> repli IC)."""
+    from config_utils import cfg as _cfg
+    try:
+        import runtime_cache as rc
+
+        def _compute():
+            import math
+            lam_frac = float(os.getenv("BRAIN_RIDGE_LAMBDA") or _cfg("BRAIN_RIDGE_LAMBDA", 0.2))
+            rows = []
+            with open(ROOT / "brain_log_history.jsonl", "r", encoding="utf-8") as f:
+                for ligne in f:
+                    try:
+                        e = json.loads(ligne)
+                        if e.get("votes") and e.get("price") and e.get("symbol"):
+                            rows.append(e)
+                    except Exception:
+                        continue
+                    if len(rows) >= 100_000:
+                        break
+            par_sym = {}
+            for e in rows:
+                par_sym.setdefault(e["symbol"], []).append(e)
+            X, Y = [], []
+            for s, seq in par_sym.items():
+                seq.sort(key=lambda x: x.get("ts", 0))
+                j = 0
+                for i, e in enumerate(seq):
+                    cible_ts = e["ts"] + 3600
+                    j = max(j, i + 1)
+                    while j < len(seq) and seq[j]["ts"] < cible_ts:
+                        j += 1
+                    if j >= len(seq) or seq[j]["ts"] - cible_ts > 600:
+                        continue
+                    X.append([float(e["votes"].get(a, 0) or 0) for a in AGENTS])
+                    Y.append(math.log(seq[j]["price"] / e["price"]))
+            if len(X) < 2000:                          # trop peu pour une covariance fiable
+                return {}
+            w = _ridge_solve(X, Y, lam_frac)
+            return dict(zip(AGENTS, w)) if w else {}
+        return rc.get("ridge_align_mult", float(_cfg("BRAIN_IC_ALIGN_TTL_S", 3600)),
+                      _compute, fallback={})
+    except Exception:
+        return {}
+
+
 def _ic_tstats():
     """t-stats de l'IC LIVE par agent (même snapshot que _ic_priors, cache 1 h).
     {} si indisponible (fail-safe neutre)."""
@@ -705,7 +778,11 @@ def _apply_ic_alignment(weights):
         on = int(on) if on is not None else int(_cfg("BRAIN_IC_ALIGN", 0))
         if not on:
             return weights
-        mult = _ic_priors()
+        # §78 : cible RIDGE corrélation-consciente si armée ET disponible, sinon
+        # repli automatique sur les mults IC individuels (§68). Même mélange, mêmes rails.
+        ridge_on = os.getenv("BRAIN_RIDGE_ALIGN")
+        ridge_on = int(ridge_on) if ridge_on is not None else int(_cfg("BRAIN_RIDGE_ALIGN", 0))
+        mult = (_ridge_mults() if ridge_on else {}) or _ic_priors()
         a = os.getenv("BRAIN_IC_ALIGN_ALPHA")
         alpha = max(0.0, min(1.0, float(a) if a is not None else float(_cfg("BRAIN_IC_ALIGN_ALPHA", 0.85))))
     except Exception:

@@ -915,6 +915,30 @@ def test_classics_agent_17e_voix():
             os.environ["CLASSICS_AGENT_ENABLED"] = old_env
 
 
+def test_brain_ridge_solve_correlation_conscient():
+    """§78 : le ridge Σ⁻¹·IC partage le poids d'un pari REDONDANT (deux agents copies
+    l'un de l'autre) au lieu de le compter deux fois, écrase le bruit, ne flippe
+    jamais un signe (négatifs clippés), et reste borné [0.25, 2.5]."""
+    import random
+    import swarm_brain as sb
+    random.seed(7)
+    X, Y = [], []
+    for _ in range(3000):
+        signal = random.uniform(-1, 1)
+        bruit = random.uniform(-1, 1)
+        anti = random.uniform(-1, 1)
+        # A prédictif ; B = copie de A (redondant) ; C bruit pur ; D ANTI-prédictif
+        X.append([signal, signal, bruit, anti])
+        Y.append(signal * 0.6 - anti * 0.6 + random.gauss(0, 0.4))
+    w = sb._ridge_solve(X, Y, lam_frac=0.2)
+    assert len(w) == 4 and all(0.25 <= v <= 2.5 for v in w)
+    wA, wB, wC, wD = w
+    assert abs(wA - wB) < 0.35                        # le pari redondant est PARTAGÉ
+    assert wA > wC and wB > wC                        # le signal bat le bruit
+    assert wD == 0.25                                 # l'anti-prédictif est clippé (jamais flippé)
+    assert sb._ridge_solve([[1.0]], [0.5]) == []      # dégénéré -> [] (repli IC)
+
+
 def test_brain_edge_prior_cede_a_evidence_live():
     """§77 : le prior ADVISORY de l'échelle d'edge cède face à un IC live
     significativement positif (t ≥ 3) — fin du tir à la corde qui épinglait un agent
@@ -8020,26 +8044,39 @@ def test_ic_alignment_realigns_on_ic():
     négatif (gated, bounded, normalisé)."""
     import os
     import swarm_brain as sb
-    old_ic = sb._ic_priors
-    had = "BRAIN_IC_ALIGN" in os.environ
+    old_ic, old_rg = sb._ic_priors, sb._ridge_mults
     saved = os.environ.get("BRAIN_IC_ALIGN")
+    saved_rg = os.environ.pop("BRAIN_RIDGE_ALIGN", None)  # §78 : maîtrise du levier ridge
     try:
         # multiplicateurs simulés : bon agent ×2.5, mauvais ×0.3, neutre ×1
         sb._ic_priors = lambda: {"good": 2.5, "bad": 0.3, "neutral": 1.0}
         w = {"good": 1.0, "bad": 1.0, "neutral": 1.0}
         os.environ["BRAIN_IC_ALIGN"] = "0"                 # gated OFF -> identité
+        os.environ["BRAIN_RIDGE_ALIGN"] = "0"
         assert sb._apply_ic_alignment(dict(w)) == w
         os.environ["BRAIN_IC_ALIGN"] = "1"                 # ON
         aw = sb._apply_ic_alignment(dict(w))
         assert aw["good"] > aw["neutral"] > aw["bad"]      # ordre = IC
         assert all(sb.BRAIN_WEIGHT_MIN <= v <= sb.BRAIN_WEIGHT_MAX for v in aw.values())
-        # fail-safe : pas de multiplicateurs -> poids inchangés
+        # §78 : ridge ARMÉ + disponible -> la cible ridge PRIME sur les mults IC
+        os.environ["BRAIN_RIDGE_ALIGN"] = "1"
+        sb._ridge_mults = lambda: {"good": 0.3, "bad": 2.5, "neutral": 1.0}   # inversé exprès
+        aw2 = sb._apply_ic_alignment(dict(w))
+        assert aw2["bad"] > aw2["neutral"] > aw2["good"]   # c'est bien le ridge qui pilote
+        # §78 : ridge armé mais INDISPONIBLE -> repli automatique sur les mults IC
+        sb._ridge_mults = lambda: {}
+        aw3 = sb._apply_ic_alignment(dict(w))
+        assert aw3["good"] > aw3["neutral"] > aw3["bad"]
+        # fail-safe : aucune cible -> poids inchangés
         sb._ic_priors = lambda: {}
         assert sb._apply_ic_alignment(dict(w)) == w
     finally:
-        sb._ic_priors = old_ic
+        sb._ic_priors, sb._ridge_mults = old_ic, old_rg
+        os.environ.pop("BRAIN_RIDGE_ALIGN", None)
+        if saved_rg is not None:
+            os.environ["BRAIN_RIDGE_ALIGN"] = saved_rg
         os.environ.pop("BRAIN_IC_ALIGN", None)
-        if had:
+        if saved is not None:
             os.environ["BRAIN_IC_ALIGN"] = saved
 
 
