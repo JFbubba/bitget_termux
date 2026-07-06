@@ -277,6 +277,7 @@ def snapshot():
         "equity_usdt": eq_now,
         "equity_7j_delta_pct": delta7,
         "equity_journal_n": len(ej),
+        "drawdown": fe.drawdown_status(),
         "stop_journalier": led.get("daily_loss_state") or {},
         "stop_pct": float(_cfg("FUTURES_DAILY_LOSS_STOP_PCT", 5.0)),
         "events": compte_events(events),
@@ -339,6 +340,17 @@ def build_report(s=None):
          )(mg.get("asset_mode"), mg.get("effectif")))(s.get("marge") or {}),
         f"Journal exécuteur : {s.get('events') or 'vide'}",
     ]
+    dd = s.get("drawdown") or {}
+    if dd.get("halt"):
+        lignes.insert(2, f"🛑 HALTE DRAWDOWN ACTIVE : dd {_n(dd.get('dd_pct'))} % ≥ MDD "
+                         f"{_n(dd.get('max_dd_pct'), '{:.0f}')} % (pic {_n(dd.get('peak'))} $ / "
+                         f"livre {_n(dd.get('equity'))} $) — TOUT NOUVEL ORDRE EST REFUSÉ (garde 6). "
+                         "Si la baisse vient d'un RETRAIT/VIREMENT délibéré (pas d'une perte) : "
+                         "python futures_executor.py --rebase-equity --confirm")
+    elif dd:
+        lignes.append(f"Halte MDD : non — dd {_n(dd.get('dd_pct'))} % / max "
+                      f"{_n(dd.get('max_dd_pct'), '{:.0f}')} % (pic {_n(dd.get('peak'))} $, "
+                      f"{dd.get('n_points')} pts)")
     if fb.get("n_fills"):
         lignes.append(f"Fills du BOT : {fb['n_fills']} · volume {_n(fb.get('volume_usdt'))} $ · "
                       f"PnL réalisé {_n(fb.get('pnl_realise_usdt'), '{:+.4f}')} $ · "

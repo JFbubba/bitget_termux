@@ -47,6 +47,12 @@ def _produce_vote(symbol, context=None):
     pred = neural_net.predict(symbol, votes=votes)
     if not pred:
         raise RuntimeError("nn:modèle indisponible")
+    # PORTE D'EDGE (même philosophie que Kelly=0 sur edge négatif, §68) : tant que le
+    # dernier entraînement n'a pas démontré un edge hors-échantillon POSITIF
+    # (val_acc > taux de base sur split temporel purgé), la 16e voix se TAIT.
+    edge = pred.get("val_edge")
+    if edge is not None and float(edge) <= 0.0:
+        return {"vote": 0, "confidence": 0, "note": f"nn:sans-edge({float(edge):+.3f})"}
     # confiance BORNÉE : une voix opt-in ne doit pas dominer le banc déterministe.
     conf = max(0.0, min(float(pred["confidence"]), float(_cfg("NN_AGENT_CONF_CAP", 0.5))))
     return {"vote": round(float(pred["vote"]), 3), "confidence": round(conf, 3),

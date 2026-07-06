@@ -2442,3 +2442,60 @@ Corrections :
     la persistance planifiée n'est pas créée par l'agent) : `bitget-neural-train` (NN quotidien
     04:20), `bitget-strategy-lab` (sep-CMA-ES hebdo dim 05:00), `bitget-learning-health` (6 h).
 Tout lecture seule / entraînement offline, aucun ordre. 410/410, portes vertes.
+
+## §70 — Révision générale : NN honnête (données + split), halte MDD fantôme visible + réancrage, DCA un jour sur deux corrigé
+
+Revue complète du bot (06/07 après-midi). Quatre problèmes réels trouvés et traités.
+
+**1. Le réseau de fusion s'entraînait sur les mauvaises données avec un split fuyant.**
+`neural_net.py --train` lisait `brain_log.json` (fenêtre courte : 2 271 exemples ≈ 5 h)
+alors que `brain_log_history.jsonl` offrait 31 574 lignes sur 3 jours — et le timer
+quotidien (§68) promettait déjà « sur brain_log_history ». Pire : le split de validation
+coupait la queue de la liste GROUPÉE PAR SYMBOLE — train et val couvraient la même période
+sur des symboles corrélés (fuite transversale) ; le val_acc 0.5066 (v1) était un artefact.
+Refonte : lecture historique JSONL (repli brain_log.json), échantillons TRIÉS PAR TEMPS
+GLOBAL, split temporel PURGÉ (les exemples de train dont la fenêtre d'étiquette mord sur
+la validation sont retirés), deadband anti-bruit (|ret| < 5 bps ignoré, NN_DEADBAND),
+tolérance de trou (étiquette au-delà de horizon+600 s ignorée), mini-batches + dropout
+0.15 + early-stopping (patience 60), et métriques honnêtes : Brier, TAUX DE BASE
+(prédicteur constant), précision haute-confiance (|p−0.5| ≥ 0.10).
+**Résultat honnête : PAS d'edge hors-échantillon.** Grille horizon (900/1800/3600/7200 s)
+× deadband (5/10/20 bps) sur 3 j de données : val_acc 0.38–0.52, TOUJOURS sous le taux de
+base (0.57–0.71) ; zéro prédiction haute-conviction. Le méta-modèle n'apprend rien
+d'exploitable sur 3 jours — il faut plus de profondeur (le journal grandit, le cron
+quotidien ré-entraîne). Conséquence défensive : **porte d'edge de la 16ᵉ voix** —
+`nn_agent` lit `val_edge` (val_acc − base) du dernier entraînement et SE TAIT
+(vote 0, conf 0, note `nn:sans-edge`) tant qu'il n'est pas positif. Même philosophie que
+Kelly=0 sur edge négatif (§68). Méta enrichie (arch, deadband, fenêtre de données,
+trained_at) + garde `arch` au chargement (poids désalignés -> None, fail-safe).
+
+**2. Halte drawdown FANTÔME : la boucle futures était gelée en silence depuis le 05/07 17:41.**
+L'equity du livre est passée de ~402 à ~240 $ le 05/07 au soir — PAS une perte de trading
+(PnL bot NET −0.10 $ sur 25 fills) mais un MOUVEMENT DE CAPITAL hors du livre piloté.
+La garde 6 (`mandate.drawdown_halt` sur `equity_curve()`) ne distingue pas un virement
+d'une perte -> halte 40.45 % ≥ 20 %, 208 refus journalisés, et `drawdown_from_peak`
+prend le MAX sur la fenêtre (~7 j de points intrajournaliers) : la halte ne se lève pas
+d'elle-même, même si les fonds reviennent. Double angle mort : `futures_report` et
+`futures_auto --status` affichaient « ARMÉE · OUVRIR long » sans mentionner la halte.
+Corrections : `futures_executor.drawdown_status()` (lecture seule) affiché PARTOUT
+(bandeau 🛑 dans futures_report + futures_auto --status quand halt) ; et OUTIL
+PROPRIÉTAIRE `python futures_executor.py --rebase-equity` (DRY par défaut, `--confirm`
+pour agir) : réancre la courbe intrajournalière au point courant, journalise l'état
+remplacé (`FUTURES_EQUITY_REBASE`, traçable), refuse si equity illisible (fail-closed).
+AUCUNE auto-levée : le réancrage reste une décision explicite du propriétaire (règle 2).
+La halte est TOUJOURS ACTIVE à l'heure de cette note — décision propriétaire attendue.
+
+**3. Le « DCA quotidien » achetait UN JOUR SUR DEUX (gigue de 3 secondes).**
+Achats réels : 30/06 12:00:03 · 01/07 12:00:04 · 02/07 12:00:04 · 04/07 12:00:04 —
+03/07 et 05/07 SAUTÉS. Le cron tire à 12:00:01, l'achat est horodaté ~12:00:04 (latence
+ordre), donc au cycle suivant 23 h 59 min 57 s < 24 h -> « intervalle non écoulé ».
+Fix : `should_buy(..., slack_s=300)` — tolérance 5 min sur l'intervalle (jamais deux
+achats le même jour : 23 h 55 reste l'espacement minimal). Test de non-régression ajouté.
+
+**4. Divers.** BrokenPipeError récurrent du dashboard silencié dans `_send` (client parti
+en cours de réponse = normal, le chemin SSE l'attrapait déjà). ROADMAP « Interdit »
+réconcilié avec l'état §67 (surfaces bornées armées le 06/07 : vente spot/marge/virements/
+earn possibles UNIQUEMENT via CLI --confirm avec caps, jamais en boucle auto ; RETRAIT
+interdit partout). Vérifié : les boucles §68 sont planifiées via CRONTAB (installé 08:13)
+— neural-train 04:20, strategy-lab dim 05:00, learning-health 6 h — premières échéances à
+venir ; ne PAS doubler avec les timers systemd de `deploy/install_learning_timers.sh`.

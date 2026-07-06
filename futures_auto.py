@@ -601,6 +601,13 @@ def status(now=None):
     now = time.time() if now is None else now
     out = {"ts": int(now), "consultation": True,
            "armed": bool(int(_cfg("FUTURES_AUTO_DIRECTIONAL", 1) or 0))}
+    try:                                              # halte MDD VISIBLE (garde 6) : sans elle
+        import futures_executor as fe                 # le statut affichait « OUVRIR » alors que
+        dd = fe.drawdown_status()                     # chaque tentative était refusée
+        if dd:
+            out["drawdown"] = dd
+    except Exception:
+        pass
     par_sym = positions_par_symbole()
     if isinstance(par_sym, dict) and par_sym.get("erreur"):
         out["position"] = None
@@ -654,6 +661,11 @@ def build_report(r=None):
                   f"position {r.get('position') or 'flat'}")
     lignes.append(f"Décision : {d.get('action', 'rien').upper()} "
                   f"{d.get('side') or ''} {d.get('symbol') or ''} — {d.get('raison', '')}")
+    dd = r.get("drawdown") or {}
+    if dd.get("halt"):
+        lignes.append(f"🛑 HALTE DRAWDOWN ACTIVE ({dd.get('dd_pct')} % ≥ {dd.get('max_dd_pct')} %) : "
+                      "toute OUVERTURE est refusée par la garde 6 — mouvement de capital ? "
+                      "voir futures_executor --rebase-equity (décision propriétaire)")
     res = r.get("resultat")
     if res:
         etat = "EXÉCUTÉ" if res.get("executed") else f"refusé/échec ({res.get('reasons')})"

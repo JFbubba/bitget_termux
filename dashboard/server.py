@@ -809,12 +809,15 @@ def build_delta(symbol, tf, since):
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                    # client parti en cours de réponse (normal, pas une erreur)
 
     def do_GET(self):
         parsed = urlparse(self.path)

@@ -59,10 +59,16 @@ d'adoption SAFE : voir [docs/EXTERNAL_TOOLS.md](docs/EXTERNAL_TOOLS.md).
 Prochaines adoptions : prediction-mcp (Polymarket, cote PC), module
 CVD/order-flow + zones de liquidation, squelette de skill "analyse".
 
-## Interdit (revise §45)
+## Interdit (revise §45, puis §67 le 06/07)
 
-Ordres reels UNIQUEMENT via les 2 modules autorises (spot_executor, futures_executor).
-Jamais de retrait, jamais de virement, jamais de margin trading, jamais de vente spot.
+Ordres reels UNIQUEMENT via les modules autorises : spot_executor, futures_executor,
+et les surfaces bornees §67 (spot_trader, margin_trader, account_transfers, earn_manager
+sur le noyau bitget_execute — CLI + --confirm uniquement, jamais de boucle auto).
+Jamais de RETRAIT nulle part (cle Trade-only, aucun code de retrait n'existe).
+Vente spot libre / marge / virements internes / earn : INTERDITS aux boucles autonomes —
+possibles UNIQUEMENT via les surfaces §67 (verrous LIVE armes par decision proprietaire
+du 06/07, caps durs par operation et par jour, kill-switch fail-closed, --confirm).
+L'accumulation spot, elle, reste achat-seul (on ne vend jamais la poche d'accumulation).
 Pas de secrets dans Git.
 Pas dactivation can_trade=True sur les agents du cerveau (ils DECIDENT, les executeurs executent).
 Pas de depassement des murs durs (50/250, stop -5 %) sans decision proprietaire explicite.

@@ -4916,6 +4916,11 @@ def test_accumulation_dca_amount_and_throttle():
     assert ae.should_buy(None, 1000, 24) is True
     assert ae.should_buy(1000, 1000 + 23 * 3600, 24) is False
     assert ae.should_buy(1000, 1000 + 25 * 3600, 24) is True
+    # gigue d'horodatage : achat stampé 3 s après le tir du cron -> le cycle suivant
+    # (24 h − 3 s) doit quand même acheter (sinon le DCA quotidien saute un jour sur deux)
+    assert ae.should_buy(1000 + 3, 1000 + 24 * 3600, 24) is True
+    # mais la tolérance ne permet pas un rachat nettement anticipé
+    assert ae.should_buy(1000, 1000 + 23.5 * 3600, 24) is False
 
 
 def test_accumulation_rsi_and_ledger():
@@ -5943,6 +5948,38 @@ def test_futures_equity_intraday_journal_et_courbe():
         assert fe.journal_equity_point(now=10**9, cap=100) is True
         led = _json.loads(tmp.read_text(encoding="utf-8"))
         assert len(led["equity_intraday"]) == 100
+    finally:
+        fe._ledger_path, fe._book_equity = old_path, old_eq
+        tmp.unlink(missing_ok=True)
+
+
+def test_futures_rebase_equity_proprietaire():
+    # réancrage propriétaire (halte MDD fantôme après mouvement de capital) :
+    # fail-closed si equity illisible, DRY sans écriture, --confirm réancre + journalise.
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+    import futures_executor as fe
+    tmp = _Path(tempfile.mkstemp(suffix=".json")[1])
+    old_path, old_eq = fe._ledger_path, fe._book_equity
+    try:
+        fe._ledger_path = lambda: tmp
+        tmp.write_text(_json.dumps({"equity_intraday": [[1000, 402.0], [2000, 240.0]]}),
+                       encoding="utf-8")
+        fe._book_equity = lambda runner=None: None
+        r = fe.rebase_equity(confirm=True)
+        assert r["ok"] is False and "illisible" in r["raison"]     # fail-closed
+        fe._book_equity = lambda runner=None: 240.0
+        r = fe.rebase_equity(confirm=False, now=3000)
+        assert r["ok"] and r["dry"] and r["avant"]["halt"] is True  # la halte est VISIBLE
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert len(led["equity_intraday"]) == 2                     # DRY : AUCUNE écriture
+        r = fe.rebase_equity(confirm=True, now=3000)
+        assert r["ok"] and r["dry"] is False
+        led = _json.loads(tmp.read_text(encoding="utf-8"))
+        assert led["equity_intraday"] == [[3000, 240.0]]            # courbe réancrée
+        assert led["events"][-1]["action"] == "FUTURES_EQUITY_REBASE"  # traçable
+        assert r["apres"]["halt"] is False                          # garde 6 repart du présent
     finally:
         fe._ledger_path, fe._book_equity = old_path, old_eq
         tmp.unlink(missing_ok=True)
@@ -7303,6 +7340,59 @@ def test_nn_dataset_and_forward_when_torch_present():
         assert tuple(out.shape) == (1, 1)
     finally:
         os.remove(path)
+
+
+def test_nn_dataset_hygiene_deadband_trous_et_tri_temporel():
+    import neural_net as nn
+    import json
+    import os
+    import tempfile
+    H = nn.HORIZON_S
+    log = [
+        # A@0 : étiqueté par A@H (+1%) -> gardé, label 1
+        {"symbol": "A", "ts": 0, "price": 100, "votes": {"orderflow": 0.5}},
+        # A@H : rendement vers A@2H sous le deadband (micro-variation) -> ignoré
+        {"symbol": "A", "ts": H, "price": 101, "votes": {"orderflow": 0.1}},
+        {"symbol": "A", "ts": 2 * H, "price": 101 * (1 + nn.DEADBAND / 4), "votes": {}},
+        # B@10 : prochain point du symbole au-delà de H+LABEL_TOL_S (trou de données) -> ignoré
+        {"symbol": "B", "ts": 10, "price": 50, "votes": {"macro": -0.2}},
+        {"symbol": "B", "ts": 10 + H + nn.LABEL_TOL_S + 60, "price": 60, "votes": {}},
+        # B plus tard : étiqueté par le point suivant (-2%) -> gardé, label 0
+        {"symbol": "B", "ts": 5 * H, "price": 50, "votes": {"macro": 0.3}},
+        {"symbol": "B", "ts": 6 * H, "price": 49, "votes": {}},
+    ]
+    fd, path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(log, f)
+        X, y, ts = nn._dataset(path, with_ts=True)
+        assert y == [1, 0]                            # deadband et trou exclus
+        assert ts == sorted(ts)                       # ordre temporel GLOBAL (anti-fuite)
+        # compat : l'appel à 2 valeurs reste inchangé
+        X2, y2 = nn._dataset(path)
+        assert (X2, y2) == (X, y)
+    finally:
+        os.remove(path)
+
+
+def test_nn_agent_sans_edge_reste_muet():
+    import neural_net
+    import nn_agent
+    # le dernier entraînement n'a PAS démontré d'edge hors-échantillon -> voix muette,
+    # même si la prédiction brute est très directionnelle (philosophie Kelly=0, §68)
+    orig = neural_net.predict
+    neural_net.predict = lambda symbol, votes=None: {
+        "p_up": 0.9, "vote": 0.8, "confidence": 0.8, "val_edge": -0.05, "note": "nn v9"}
+    try:
+        r = nn_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and r["confidence"] == 0 and "sans-edge" in r["note"]
+        # edge positif -> la voix parle (confiance bornée par le cap)
+        neural_net.predict = lambda symbol, votes=None: {
+            "p_up": 0.9, "vote": 0.8, "confidence": 0.8, "val_edge": 0.02, "note": "nn v9"}
+        r2 = nn_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r2["vote"] == 0.8 and 0 < r2["confidence"] <= 0.5
+    finally:
+        neural_net.predict = orig
 
 
 # ---------- Positions réelles (spot · marge iso/cross · futures) ----------

@@ -162,12 +162,19 @@ def fenetre_achat_ok(now, last_buy_ts, debut=None, fin=None, retard_h=30.0):
     return debut <= h < fin
 
 
-def should_buy(last_buy_ts, now, interval_h=None):
-    """Throttle DCA : a-t-on attendu l'intervalle depuis le dernier achat ? PUR."""
+def should_buy(last_buy_ts, now, interval_h=None, slack_s=300.0):
+    """Throttle DCA : a-t-on attendu l'intervalle depuis le dernier achat ? PUR.
+
+    `slack_s` (5 min) absorbe la gigue d'horodatage : le cron tire à 12:00:01 mais
+    l'achat est horodaté ~12:00:04 (latence ordre), donc un intervalle STRICT de 24 h
+    ratait le cycle suivant de 3 s -> le « DCA quotidien » achetait UN JOUR SUR DEUX
+    (constaté : 30/06, 01/07, 02/07, 04/07 — 03/07 et 05/07 sautés). La tolérance ne
+    permet jamais deux achats le même jour : 23 h 55 reste ≥ 2× l'espacement minimal
+    utile et le cron ne tire qu'une fois par jour."""
     interval_h = _cfg("DCA_INTERVAL_H", DCA_INTERVAL_H) if interval_h is None else interval_h
     if last_buy_ts is None:
         return True
-    return (now - float(last_buy_ts)) >= interval_h * 3600.0
+    return (now - float(last_buy_ts)) >= interval_h * 3600.0 - float(slack_s)
 
 
 # ---------- registre paper d'accumulation ----------

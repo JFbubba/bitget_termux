@@ -431,6 +431,62 @@ def journal_equity_point(now=None, min_interval_s=600, cap=2016):
     return True
 
 
+def drawdown_status():
+    """État LECTURE SEULE de la halte drawdown (garde 6) : {halt, dd_pct, max_dd_pct,
+    peak, equity, n_points}. Best-effort ({} si illisible) — consommé par
+    futures_report et futures_auto --status pour que la halte soit VISIBLE (une
+    halte silencieuse laissait croire que la boucle allait ouvrir alors que chaque
+    tentative était refusée)."""
+    try:
+        import mandate
+        curve = equity_curve()
+        halt, dd_pct = mandate.drawdown_halt(curve)
+        return {"halt": bool(halt), "dd_pct": dd_pct,
+                "max_dd_pct": float(_cfg("MANDATE_MAX_DRAWDOWN_PCT", 20.0)),
+                "peak": round(max(curve), 2) if curve else None,
+                "equity": round(curve[-1], 2) if curve else None,
+                "n_points": len(curve)}
+    except Exception:
+        return {}
+
+
+def rebase_equity(confirm=False, now=None):
+    """OUTIL PROPRIÉTAIRE : réancre la courbe d'equity intrajournalière APRÈS un
+    mouvement de capital délibéré (dépôt/retrait/virement hors du livre piloté).
+
+    Pourquoi : la garde 6 (halte MDD) mesure le drawdown du LIVRE (wallet futures +
+    expo BTC spot). Un retrait légitime y est indistinguable d'une perte -> halte
+    « fantôme » qui ne se lève pas d'elle-même (le pic reste ~7 j dans la fenêtre
+    intrajournalière, même si les fonds reviennent). Constaté le 05/07 : equity
+    402 -> 240 par mouvement de capital (PnL bot −0.10 $), halte 40 % permanente.
+
+    Ce réancrage est une DÉCISION PROPRIÉTAIRE EXPLICITE (--confirm obligatoire,
+    DRY sinon) : il repart la courbe du point courant. Il ne desserre AUCUN mur
+    (caps 50/250, levier ×5, stop journalier, kill-switch, porte d'edge intacts)
+    et JOURNALISE l'état remplacé (pic, dd, n points) dans le ledger — traçable.
+    Refus si l'equity du livre est illisible (fail-closed)."""
+    now = time.time() if now is None else now
+    avant = drawdown_status()
+    eq = _book_equity()
+    if eq is None or eq <= 0:
+        return {"ok": False, "avant": avant,
+                "raison": "equity du livre illisible — réancrage refusé (fail-closed)"}
+    if not confirm:
+        return {"ok": True, "dry": True, "avant": avant, "equity_livre": round(float(eq), 2),
+                "note": "préview — relancer avec --confirm pour réancrer la courbe"}
+    try:
+        led = json.loads(_ledger_path().read_text(encoding="utf-8"))
+    except Exception:
+        led = {}
+    led["equity_intraday"] = [[int(now), round(float(eq), 6)]]
+    _write_ledger(led)
+    _journal({"ts": int(now), "action": "FUTURES_EQUITY_REBASE", "avant": avant,
+              "equity_livre": round(float(eq), 6),
+              "note": "réancrage propriétaire après mouvement de capital"})
+    return {"ok": True, "dry": False, "avant": avant, "apres": drawdown_status(),
+            "equity_livre": round(float(eq), 2)}
+
+
 def equity_curve():
     """Courbe d'equity du LIVRE : points INTRAJOURNALIERS (equity_intraday, écrits
     par la boucle via journal_equity_point) sinon repli sur les ouvertures
@@ -918,7 +974,20 @@ def main():
     p.add_argument("--tp", type=float, help="take profit (optionnel)")
     p.add_argument("--confirm", action="store_true",
                    help="exécute le VRAI ordre (sinon DRY : preview seulement)")
+    p.add_argument("--rebase-equity", action="store_true",
+                   help="OUTIL PROPRIÉTAIRE : réancre la courbe d'equity après un "
+                        "mouvement de capital (halte MDD fantôme). DRY sans --confirm.")
     args = p.parse_args()
+
+    if args.rebase_equity:
+        print("=== RÉANCRAGE EQUITY (halte MDD, garde 6) — décision propriétaire ===")
+        r = rebase_equity(confirm=args.confirm)
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+        if r.get("dry"):
+            print("Mode DRY — rien n'a été modifié. Ajouter --confirm pour réancrer.")
+        elif r.get("ok"):
+            print("✅ Courbe réancrée. La garde 6 repart du point courant (murs intacts).")
+        return
 
     print("=== ORDRE FUTURES RÉEL BORNÉ (étape 2, §45) ===")
     r = execute(args.agent, args.side, args.usdt, args.leverage, args.entry,
