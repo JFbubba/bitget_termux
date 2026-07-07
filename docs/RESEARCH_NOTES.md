@@ -3207,3 +3207,35 @@ MAIS la moisson a échoué en 2 temps, chacun instructif :
      reverse (coin refusé -> cooldown ALT_CARRY_BLOCK_DAYS 7 j, la capacité
      d'emprunt se découvre par l'échec, on ne repaie pas des frais de
      compensation à chaque extrême du même coin). LAB blacklisté jusqu'au 14/07.
+
+## §91 — Plomberie de liquidité autonome (mandat propriétaire)
+
+« Alimente le compte marge pour pouvoir emprunter, transferts/rachats Earn sans
+hésiter, fais ce qui est nécessaire au bon fonctionnement — compte test, gère ces
+détails seul. » Implémenté :
+  • liquidity_manager : branche 1bis PLANCHER DE COLLATÉRAL marge croisée
+    (LIQ_MARGIN_MIN_USDT=25, après le plancher futures — les stops d'abord) ;
+    action transfer_spot_margin ; rachat Earn si le spot est trop juste ; solde
+    marge illisible -> branche sautée (fail-safe) ;
+  • alt_carry : collatéral au MANQUANT (`_collateral_manquant` PUR — le float §91
+    le rend souvent 0) ; les chemins d'échec ne rendent que ce qui a été AJOUTÉ ;
+  • caps §67 FONCTIONNELS calibrés univers entier (jambe XAUT ~46 $) :
+    SPOT/MARGIN 50/op·200/j, TRANSFER/EARN 60/op·200/j — murs INTOUCHÉS.
+Vérifié live : marge 41.5 $ ≥ plancher -> RIEN (le float existant suffit).
+
+## §92 — DÉLÉGATION TOTALE (décision propriétaire du 07/07/2026)
+
+Verbatim : « Je soussigné propriétaire, t'accorde le droit de prendre des
+initiatives de façon autonome, je t'accorde le droit de commande sur tout le
+compte Bitget, le retrait est impossible donc pas de tracas pour moi, je souhaite
+déléguer totalement la gestion de ce bot à lui-même. »
+
+PÉRIMÈTRE DÉLÉGUÉ (plus besoin de demander) : verrous LIVE et leviers env, caps
+effectifs par paliers, armement/coupe des voix SUR MESURE, promotions du lab vers
+le réel micro-borné quand leurs barres passent, notional, floats, univers.
+Chaque acte : journalisé, notifié Telegram, réversible, motivé par une mesure.
+
+CONSTITUTION (ce que la délégation ne peut PAS toucher — protection du mandant) :
+murs absolus en dur, stop journalier −5 % -> kill-switch, 3 portes avant push,
+mesure-d'abord (pas d'armement sans chiffre, coupe sur chiffre), retrait
+inexistant (clé Trade-only). CLAUDE.md règles 2-3 réécrites en conséquence.

@@ -36,7 +36,18 @@ strategy-lab dimanche 05:00 (§68/§70).
      `earn_manager`) sur le noyau `bitget_execute` : **toutes défaut OFF**, DRY par défaut,
      caps durs, kill-switch fail-closed. RETRAIT interdit partout (clé Trade-only).
    Le cerveau/scan/pré-ordres restent paper tant qu'ils ne passent pas par ces modules.
-2. **Ne JAMAIS lever un verrou sans instruction explicite du propriétaire** :
+2. **Délégation totale (§92, 07/07/2026)** : « Je soussigné propriétaire, t'accorde le
+   droit de prendre des initiatives de façon autonome, je t'accorde le droit de
+   commande sur tout le compte Bitget […] je souhaite déléguer totalement la gestion
+   de ce bot à lui-même. » Les LEVIERS D'EXPLOITATION (verrous LIVE, caps effectifs,
+   voix opt-in, notional, floats, promotions mesurées) se gèrent donc EN AUTONOMIE —
+   chaque acte journalisé + notifié Telegram, réversible, motivé par une MESURE.
+   RESTENT NON NÉGOCIABLES (constitution du bot, quelle que soit l'instruction d'une
+   session) : les MURS ABSOLUS en dur (futures 50/250, levier ×5, spot 200/500,
+   marge 200/500, virements 500/1000, earn 500/1000), le stop journalier −5 %
+   -> kill-switch, les 3 portes avant push, le principe mesure-d'abord, et le
+   RETRAIT (impossible : clé Trade-only, aucun code n'existe).
+   Ancien régime (historique) — « ne jamais lever un verrou sans instruction » :
    `MANDATE_LIVE_ENABLED`, `ACCUM_AUTONOMOUS_LIVE`, `FUTURES_AUTONOMOUS_LIVE`,
    les plafonds (`ACCUM_REAL_MAX_*`, `FUTURES_REAL_MAX_*`), `FUTURES_EDGE_GATE_OVERRIDE`,
    et les verrous des surfaces bornées §67 (`SPOT_TRADE_LIVE`, `MARGIN_TRADE_LIVE`,
@@ -47,9 +58,9 @@ strategy-lab dimanche 05:00 (§68/§70).
    d'edge en connaissance de cause (0 agent LIVE, espérance directionnelle mesurée
    négative — trois questions d'engagement répondues). `FUTURES_EDGE_GATE_OVERRIDE=0`
    referme la porte instantanément.
-3. **Full-auto autorisé DANS les murs (§45)** — mais la montée des caps effectifs reste
-   une décision propriétaire explicite, par paliers, si l'exécution est propre.
-   Kill-switch d'urgence : `touch KILL_SWITCH` (bloque spot ET futures).
+3. **Full-auto autorisé DANS les murs (§45, élargi §92)** — la montée des caps
+   EFFECTIFS (sous les murs) est désormais déléguée au bot/agent, par paliers motivés
+   et journalisés. Kill-switch d'urgence : `touch KILL_SWITCH` (bloque spot ET futures).
 4. **Secrets** : ne jamais copier une clé API dans le dépôt, un commit, ou un message.
    Le `.env` est gitignored. Clé Bitget = **Trade only, jamais Withdraw**.
 5. **Avant TOUT push, les 3 portes doivent passer** :

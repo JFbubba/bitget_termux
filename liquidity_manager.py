@@ -58,14 +58,18 @@ def _flt(name, default):
         return float(default)
 
 
-def decider(spot_usdt, fut_usdt, spot_min=None, spot_max=None, fut_min=None, cap_op=25.0):
+def decider(spot_usdt, fut_usdt, spot_min=None, spot_max=None, fut_min=None, cap_op=25.0,
+            margin_usdt=None, margin_min=None):
     """PUR (testable). UNE action de liquidité par cycle — voir la politique du
     module. Renvoie {"action", "usdt", "raison"} ; action ∈ {"transfer_spot_futures",
-    "redeem", "subscribe", "rien"}. Soldes illisibles -> rien (fail-closed)."""
+    "transfer_spot_margin", "redeem", "subscribe", "rien"}. Soldes illisibles -> rien
+    (fail-closed ; margin illisible -> on saute juste sa branche, §91)."""
     spot_min = _flt("LIQ_SPOT_MIN_USDT", 15.0) if spot_min is None else float(spot_min)
     spot_max = _flt("LIQ_SPOT_MAX_USDT", 120.0) if spot_max is None else float(spot_max)
     fut_min = _flt("LIQ_FUT_MIN_USDT", 40.0) if fut_min is None else float(fut_min)
+    margin_min = _flt("LIQ_MARGIN_MIN_USDT", 25.0) if margin_min is None else float(margin_min)
     spot, fut = safe_float(spot_usdt), safe_float(fut_usdt)
+    margin = safe_float(margin_usdt)
     if spot is None or fut is None:
         return {"action": "rien", "usdt": 0.0, "raison": "soldes illisibles (fail-closed)"}
 
@@ -82,6 +86,18 @@ def decider(spot_usdt, fut_usdt, spot_min=None, spot_max=None, fut_min=None, cap
             return {"action": "redeem", "usdt": _clamp(besoin + max(0.0, spot_min - spot)),
                     "raison": (f"marge futures {fut:.2f} < plancher {fut_min:.0f} et spot "
                                f"{spot:.2f} trop juste — rachat Earn d'abord, virement au cycle suivant")}
+    # 1bis. le collatéral marge croisée (§91, mandat propriétaire 07/07 : « alimente
+    # le compte marge pour pouvoir emprunter ») : sans float USDT en marge, la jambe
+    # reverse de l'alt-carry n'a pas de capacité d'emprunt.
+    if margin is not None and margin < margin_min:
+        besoin = margin_min - margin
+        if besoin >= MIN_MOVE_USDT:
+            if spot - _clamp(besoin) >= spot_min:
+                return {"action": "transfer_spot_margin", "usdt": _clamp(besoin),
+                        "raison": f"collatéral marge {margin:.2f} < plancher {margin_min:.0f}"}
+            return {"action": "redeem", "usdt": _clamp(besoin + max(0.0, spot_min - spot)),
+                    "raison": (f"collatéral marge {margin:.2f} < plancher {margin_min:.0f} et "
+                               f"spot {spot:.2f} trop juste — rachat Earn d'abord")}
     # 2. le float spot ensuite : le DCA quotidien a besoin de cash
     if spot < spot_min:
         besoin = spot_min - spot + MIN_MOVE_USDT
@@ -153,16 +169,29 @@ def _notifie(msg):
         pass
 
 
+def _marge_usdt():
+    """USDT disponible en marge CROISÉE (lecture seule). None si illisible."""
+    try:
+        import bitget_hub_bridge as hub
+        d = hub._read(["margin", "margin_get_assets", "--marginType", "crossed"])
+        for r in (d or {}).get("data") or []:
+            if str(r.get("coin", "")).upper() == "USDT":
+                return float(r.get("available") or 0)
+        return 0.0
+    except Exception:
+        return None
+
+
 def cycle(now=None, confirm=None):
     """Un cycle de gestion de liquidité. N'AGIT (confirm=True vers les exécuteurs §67)
     que si LIQUIDITY_AUTO est armé — sinon DRY (décision journalisée, aucun mouvement).
     Les exécuteurs re-vérifient TOUT (verrous LIVE, kill-switch, caps/op, caps/jour)."""
     now = time.time() if now is None else now
-    spot, fut = _spot_usdt(), _futures_usdt()
-    d = decider(spot, fut)
+    spot, fut, marge = _spot_usdt(), _futures_usdt(), _marge_usdt()
+    d = decider(spot, fut, margin_usdt=marge)
     arme = enabled() if confirm is None else bool(confirm)
-    out = {"ts": int(now), "spot_usdt": spot, "fut_usdt": fut, "decision": d,
-           "armed": arme, "executed": False}
+    out = {"ts": int(now), "spot_usdt": spot, "fut_usdt": fut, "margin_usdt": marge,
+           "decision": d, "armed": arme, "executed": False}
     if d["action"] == "rien":
         _journalise(out)
         return out
@@ -170,6 +199,9 @@ def cycle(now=None, confirm=None):
     if d["action"] == "transfer_spot_futures":
         import account_transfers as at
         res = at.execute("spot", "usdt_futures", "USDT", d["usdt"], confirm=arme)
+    elif d["action"] == "transfer_spot_margin":
+        import account_transfers as at
+        res = at.execute("spot", "crossed_margin", "USDT", d["usdt"], confirm=arme)
     elif d["action"] in ("redeem", "subscribe"):
         pid = _produit_earn_usdt()
         if not pid:
@@ -191,7 +223,7 @@ def status():
     """Lecture seule : soldes + décision PRÉVUE (aucun mouvement, aucune écriture)."""
     spot, fut = _spot_usdt(), _futures_usdt()
     return {"spot_usdt": spot, "fut_usdt": fut, "armed": enabled(),
-            "decision": decider(spot, fut), "consultation": True}
+            "decision": decider(spot, fut, margin_usdt=_marge_usdt()), "consultation": True}
 
 
 def build_report(s=None):

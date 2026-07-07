@@ -6325,6 +6325,33 @@ def test_promotion_board_pur():
     assert x[0]["pret"] is False and x[0]["progression"] <= 0.5
 
 
+def test_liquidite_plancher_marge_et_collateral_manquant():
+    """§91 : le gestionnaire maintient un float de collatéral en marge croisée
+    (mandat propriétaire 07/07) ; l'alt-carry ne vire que le MANQUANT."""
+    import alt_carry as ac
+    import liquidity_manager as lm
+    # marge sous plancher, spot confortable -> virement spot->marge
+    d = lm.decider(80.0, 200.0, spot_min=15, spot_max=120, fut_min=75, cap_op=25,
+                   margin_usdt=5.0, margin_min=25.0)
+    assert d["action"] == "transfer_spot_margin" and d["usdt"] >= 20.0
+    # marge sous plancher, spot trop juste -> rachat Earn d'abord
+    d = lm.decider(16.0, 200.0, spot_min=15, spot_max=120, fut_min=75, cap_op=25,
+                   margin_usdt=5.0, margin_min=25.0)
+    assert d["action"] == "redeem"
+    # marge illisible -> la branche est sautée (pas de blocage des autres)
+    d = lm.decider(200.0, 200.0, spot_min=15, spot_max=120, fut_min=75, cap_op=25,
+                   margin_usdt=None, margin_min=25.0)
+    assert d["action"] == "subscribe"                 # le surplus spot part en Earn
+    # la marge PASSE APRÈS le plancher futures (les stops d'abord)
+    d = lm.decider(80.0, 10.0, spot_min=15, spot_max=120, fut_min=75, cap_op=25,
+                   margin_usdt=5.0, margin_min=25.0)
+    assert d["action"] == "transfer_spot_futures"
+    # collatéral au manquant
+    assert ac._collateral_manquant(21.0, 62.5) == 0.0
+    assert ac._collateral_manquant(21.0, 5.0) == 16.0
+    assert ac._collateral_manquant(21.0, None) == 21.0   # illisible -> tout (fail-safe)
+
+
 def test_alt_carry_decideur_et_jambes():
     """§82 : moisson de funding multi-symboles — n'ouvre que sur extrême POSITIF
     (percentile + APR), ferme quand ça ne paie plus, tient en fail-safe si le funding

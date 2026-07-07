@@ -219,6 +219,14 @@ def _reverse_bloque(etat, sym, now=None):
     return (float(now or time.time()) - float(ts)) < jours * 86400
 
 
+def _collateral_manquant(besoin, disponible):
+    """PUR. Ce qu'il faut VRAIMENT virer en marge : le manquant (0 si le float §91
+    couvre déjà, ou si le solde est illisible -> on vire tout, fail-safe)."""
+    if disponible is None:
+        return round(float(besoin), 2)
+    return round(max(0.0, float(besoin) - float(disponible)), 2)
+
+
 def _ouvrir_reverse(sym, usdt, arme):
     """Entrée REVERSE (funding négatif, §83) : perp LONG d'abord (jambe la plus fiable,
     compensable d'un reduce), puis EMPRUNT du coin (quantité = usdt/prix — le notionnel
@@ -233,26 +241,31 @@ def _ouvrir_reverse(sym, usdt, arme):
         return {"ok": False, "etape": "prix", "raison": "prix illisible (fail-closed)"}
     mtype = str(os.getenv("ALT_CARRY_MARGIN_TYPE") or _cfg("ALT_CARRY_MARGIN_TYPE", "crossed")).lower()
     coin_qte = round(float(usdt) / float(prix), 6)
-    # étape 0 — COLLATÉRAL : l'emprunt exige des fonds dans le wallet marge (vide par
-    # défaut). Virement INTERNE spot -> marge (surface §67 : caps, kill-switch),
-    # rendu à la fermeture. Échec -> abandon AVANT toute jambe (rien à compenser).
+    # étape 0 — COLLATÉRAL au MANQUANT (§91) : le gestionnaire de liquidité maintient
+    # un float marge (LIQ_MARGIN_MIN_USDT) ; on ne vire que le complément éventuel.
+    # Rendu à la fermeture (seul ce qu'on a AJOUTÉ). Échec -> abandon avant toute jambe.
     import account_transfers as at
-    collat = round(min(float(usdt) * 1.2, 25.0), 2)
-    depot = at.execute("spot", "crossed_margin", "USDT", collat, confirm=arme)
-    if arme and not depot.get("executed"):
+    import liquidity_manager as lm
+    besoin_collat = round(min(float(usdt) * 1.2, 60.0), 2)
+    disponible = lm._marge_usdt()
+    collat = _collateral_manquant(besoin_collat, disponible)
+    depot = {"skipped": True, "raison": f"marge dispo {disponible} ≥ besoin {besoin_collat}"}         if collat <= 0 else at.execute("spot", "crossed_margin", "USDT", collat, confirm=arme)
+    if arme and collat > 0 and not depot.get("executed"):
         return {"ok": False, "etape": "collateral", "depot": depot}
     jambe_perp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, confirm=arme,
                             gross_open_usdt=fa.gross_book_usdt(),
                             equity_curve=fe.equity_curve())
     if arme and not jambe_perp.get("executed"):
-        at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)   # rend le collatéral
-        return {"ok": False, "etape": "perp", "perp": jambe_perp}
+        if collat > 0:
+            at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)   # rend l'ajout
+        return {"ok": False, "etape": "perp", "perp": jambe_perp, "depot": depot}
     emprunt = mt.borrow(_coin(sym), usdt, amount=coin_qte, margin_type=mtype, confirm=arme)
     if arme and not emprunt.get("executed"):
         comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
                           confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
                           equity_curve=fe.equity_curve())
-        retour = at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)
+        retour = (None if collat <= 0
+                  else at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme))
         _bloquer_reverse(sym)                          # coin probablement non empruntable
         return {"ok": False, "etape": "emprunt", "perp": jambe_perp, "depot": depot,
                 "emprunt": emprunt, "compensation": comp, "retour_collateral": retour}
@@ -262,7 +275,8 @@ def _ouvrir_reverse(sym, usdt, arme):
         comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
                           confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
                           equity_curve=fe.equity_curve())
-        retour = at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)
+        retour = (None if collat <= 0
+                  else at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme))
         return {"ok": False, "etape": "vente", "perp": jambe_perp, "depot": depot,
                 "emprunt": emprunt, "vente": vente, "remboursement": remb,
                 "compensation": comp, "retour_collateral": retour}
