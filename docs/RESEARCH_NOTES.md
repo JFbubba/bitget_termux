@@ -3088,3 +3088,16 @@ front pré-fusion). Conservé côté serveur : `neural_net.anatomy_live()` et le
 `anatomy_acts` (données réelles cachées, coût négligeable, réutilisables — p. ex.
 pour enrichir plus tard la ligne d'info ou l'anatomie séparée). Leçon retenue :
 deux zooms lisibles valent mieux qu'une grande scène dense.
+
+## §87 — Carte du réseau : l'état de PAROLE de la voix (la seule info nouvelle utile)
+
+Mandat propriétaire : améliorer la carte avec les nouvelles données « uniquement si
+pertinent et utile ». Tri honnête : la salience des poids vit déjà dans le panneau
+anatomie (la dupliquer = bruit) ; les activations cachées n'aident pas la lecture
+agent-niveau. La SEULE info opérationnelle invisible : la carte affichait « ARMÉE ·
+P(hausse) 54 % » alors que la porte d'edge rend la voix MUETTE (vote 0 au consensus)
+— un propriétaire pouvait la croire contributive. Ajouté : `connectivity_map.gate`
+(même logique que nn_agent : mode brut/prudent + edge du mode + muette) ; badge
+« ARMÉE · MUETTE (edge −0.014, brut) » vs « PARLE » ; anneau du nœud fusion AMBRE
+quand armée-mais-muette (vert = parle, gris = OFF) + suffixe « (muette) ». Rien
+d'autre — pertinence avant densité.

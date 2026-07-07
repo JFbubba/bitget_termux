@@ -1442,8 +1442,11 @@ function dessineReseau(neural){
   neural.nodes.forEach(n=>{if(_nnA.act[n.id]==null)_nnA.act[n.id]=0;});
   const pr=neural.prediction||{},m=neural.meta||{};
   if(badge){
-    const on=neural.nn_enabled;
+    const on=neural.nn_enabled,g=neural.gate||{};
+    const parole=on?(g.muette?`<b style="color:#E5A93D">MUETTE</b> <span class="dim">(edge ${g.edge!=null?((g.edge>=0?'+':'')+(+g.edge).toFixed(3)):'?'}, ${g.mode||''})</span>`
+                             :`<b style="color:#3FBF7F">PARLE</b>`):"";
     badge.innerHTML=`voix NN <b style="color:${on?'#3FBF7F':'#8E8574'}">${on?'ARMÉE':'OFF'}</b>`
+      +(parole?` · ${parole}`:"")
       +(pr.p_up!=null?` · P(hausse) ${(100*pr.p_up).toFixed(1)}%`:' · <span class="dim">non entraîné</span>');
   }
   if(info){
@@ -1527,10 +1530,15 @@ function _nnDraw(ts){
     ctx.beginPath();ctx.arc(p.x,p.y,Math.max(3,r),0,7);
     ctx.fillStyle=isGuard?"#E5A93D":_actColor(a);
     ctx.fill();ctx.shadowBlur=0;
-    if(isNN){ctx.strokeStyle=n.enabled?"#3FBF7F":"#6b6559";ctx.lineWidth=2;ctx.stroke();}
+    if(isNN){
+      const g=neural.gate||{};
+      ctx.strokeStyle=!n.enabled?"#6b6559":(g.muette?"#E5A93D":"#3FBF7F");
+      ctx.lineWidth=2;ctx.stroke();
+    }
     if(n.overlay&&!n.enabled){ctx.strokeStyle="#4a453c";ctx.lineWidth=1;ctx.stroke();}
     ctx.fillStyle=n.disabled?"#6b6559":"#C9C4B8";
-    const lbl=(isGuard?"🔒 ":"")+n.label;
+    let lbl=(isGuard?"🔒 ":"")+n.label;
+    if(isNN&&(neural.gate||{}).muette&&n.enabled)lbl+=" (muette)";
     if(core){ctx.textAlign="center";ctx.fillText(lbl,p.x,p.y-11-7);}
     else{ctx.textAlign="left";ctx.fillText(lbl,p.x+r+4,p.y);}
   });

@@ -1216,8 +1216,20 @@ def connectivity_map(symbol="BTCUSDT", votes=None, prediction=None, brain=None, 
         acts = anatomy_live(symbol, votes)
     except Exception:
         pass
+    # §87 : état de PAROLE de la voix (la carte disait « ARMÉE » alors que la porte
+    # d'edge peut la rendre MUETTE — vote 0 dans le consensus). Même logique que
+    # nn_agent._produce_vote, exposée pour l'affichage.
+    gate = None
+    try:
+        import nn_agent
+        mode = nn_agent._gate_mode()
+        edge = (prediction or {}).get("val_edge_brut" if mode == "brut" else "val_edge")
+        gate = {"mode": mode, "edge": edge,
+                "muette": (not nn_on) or (edge is not None and float(edge) <= 0.0)}
+    except Exception:
+        pass
     return {"symbol": symbol, "nodes": nodes, "edges": edges,
-            "anatomy_acts": acts,
+            "anatomy_acts": acts, "gate": gate,
             "prediction": prediction, "nn_enabled": nn_on,
             "consensus": (brain or {}).get("consensus"),
             "meta": _CACHE.get("meta") or (_load_model()[1] or {})}
