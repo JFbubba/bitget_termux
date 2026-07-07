@@ -90,3 +90,4 @@ neural_net_pretrained.pt
 .trades_archive.jsonl
 .daily_digest_stamp
 trading_real_ledger.json
+.mm_lab_result.json

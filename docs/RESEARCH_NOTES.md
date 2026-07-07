@@ -3300,3 +3300,21 @@ CRON À INSTALLER PAR LE PROPRIÉTAIRE (l'environnement de la session a refusé
 l'écriture du crontab — persistance non explicitement demandée) ; décommenter
 en même temps l'entrée .mm_journal.jsonl de la CARTE_FRAICHEUR du watchdog :
     */5 * * * * cd ~/bitget_termux_repo && /usr/bin/python3 market_maker.py --cycle >> ~/market_maker.log 2>&1
+
+MESURE DU BANC (07/07/2026, mm_lab.py — BTCUSDT, 30 j de 5 m, 8 597 barres,
+grille frais/vol, verdict = PnL>0 ET folds+ ≥60 % ET ≥30 fills) :
+  - frais 10 bps · vol ×2.5 (prod)  : −11.64 $ (−0.39 $/j), 2 189 fills, folds+ 0 %
+  - frais 10 bps · vol ×1.5 (serré) : −17.28 $ · vol ×3.5 (large) : −6.63 $
+  - frais 8 bps (réduits)           : −10.11 $
+  - frais 0 (théorique)             : −0.85 $ — MÊME SANS FRAIS le PnL est négatif
+ÉCHEC sur TOUTE la grille, et le banc est une BORNE SUPÉRIEURE (fills sans file
+d'attente). Lecture : l'ADVERSE SELECTION domine le spread capturé — on est
+rempli quand le prix traverse (et continue), l'inventaire se déprécie plus vite
+que les 23 bps encaissés. Confirme mot pour mot le caveat du SAVOIR §9 (« un
+retail lent fournit de la liquidité stale »).
+
+DÉCISION (mesure-d'abord §45) : MM_AUTO reste OFF — pas d'armement. Le module
+reste en DRY (cron */5) : le journal live mesurera le spread capturable RÉEL
+(microprice + carnet, ce que le banc n'a pas) ; ré-évaluation seulement si le
+DRY contredit le banc, ou avec des frais maker ≈ 0 (promo/VIP). Le banc mm_lab
+est rejouable : python mm_lab.py SYMBOL JOURS.

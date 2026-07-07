@@ -315,10 +315,11 @@
   </div>
 
   <div class="panel full" style="margin-top:8px">
-    <h2>Méthodes autonomes <span class="dim" style="letter-spacing:0">— §76-83 · flux de rendement orthogonaux · chaque jambe passe par un exécuteur audité</span></h2>
-    <div class="rp-grid" style="grid-template-columns:repeat(3,1fr)">
+    <h2>Méthodes autonomes <span class="dim" style="letter-spacing:0">— §76-83 · §94 · flux de rendement orthogonaux · chaque jambe passe par un exécuteur audité</span></h2>
+    <div class="rp-grid" style="grid-template-columns:repeat(4,1fr)">
       <div class="rp-col"><div class="rp-h"><span>🌾 Alt-carry (funding)</span><span id="mc-ac-arm" class="dim">—</span></div><div id="mc-ac" style="font-size:11px;line-height:1.7">—</div></div>
       <div class="rp-col"><div class="rp-h"><span>💧 Liquidité</span><span id="mc-liq-arm" class="dim">—</span></div><div id="mc-liq" style="font-size:11px;line-height:1.7">—</div></div>
+      <div class="rp-col"><div class="rp-h"><span>📐 Market making</span><span id="mc-mm-arm" class="dim">—</span></div><div id="mc-mm" style="font-size:11px;line-height:1.7">—</div></div>
       <div class="rp-col"><div class="rp-h"><span>🧪 Labo stratégies</span><span id="mc-lab-next" class="dim">—</span></div><div id="mc-lab" style="font-size:11px;line-height:1.7">—</div></div>
     </div>
   </div>
@@ -1016,12 +1017,13 @@ function renderTrades(rp){
       +'</div>';
   }).join("");
 }
-// --- méthodes autonomes §76-83 : alt-carry, liquidité, labo + barre xs ---
+// --- méthodes autonomes §76-83 + §94 : alt-carry, liquidité, market making, labo + barre xs ---
 function renderMethodes(m, ov){
-  const ac=m.alt_carry||{},liq=m.liquidite||{},lab=m.lab||{},xs=m.xs||{};
+  const ac=m.alt_carry||{},liq=m.liquidite||{},lab=m.lab||{},xs=m.xs||{},mm=m.market_making||{};
   const arm=(el,on,neg)=>{const e=$(el);if(e){e.textContent=on?("ARMÉ"+(neg?" ±":"")):"OFF";e.className=on?"green":"dim";}};
   arm("mc-ac-arm",ac.armed,ac.neg);
   arm("mc-liq-arm",liq.armed);
+  arm("mc-mm-arm",mm.armed);
   const hhmm=ts=>ts?new Date(ts*1000).toISOString().slice(5,16).replace("T"," "):"—";
   {const el=$("mc-ac");if(el){
     const d=(ac.dernier||{}).decision||{};
@@ -1039,6 +1041,14 @@ function renderMethodes(m, ov){
     el.innerHTML=`spot <b class="accent">$${dd.spot_usdt!=null?(+dd.spot_usdt).toFixed(2):"—"}</b> · futures <b class="accent">$${dd.fut_usdt!=null?(+dd.fut_usdt).toFixed(2):"—"}</b>`
       +`<br>dernier cycle ${hhmm(dd.ts)} : <span class="${dd.executed?"green":"dim"}">${(d.action||"—").toUpperCase()}</span> ${d.usdt?("$"+d.usdt):""}`
       +`<br><span class="dim">${d.raison||""}</span>`;
+  }}
+  {const el=$("mc-mm");if(el){
+    const dd=(mm.dernier||{});const p=dd.plan||{};const s=dd.snap||{};const inv=dd.inv||{};
+    const cote=p.bid_price!=null||p.ask_price!=null;
+    el.innerHTML=`${(dd.symbol||mm.symbol||"BTCUSDT").replace(/USDT$/,"")} · spread carnet <b class="accent">${s.spread_bps!=null?(+s.spread_bps).toFixed(2):"—"} bps</b> · vol ${s.vol_bps!=null?(+s.vol_bps).toFixed(1):"—"} bps`
+      +`<br>dernier cycle ${hhmm(dd.ts)} : ${cote?`<span class="green">bid ${p.bid_usdt||0}$@${p.bid_price??"—"} · ask ${p.ask_usdt||0}$@${p.ask_price??"—"}</span> (cible ${p.spread_bps} bps)`:`<span class="dim">${(dd.raisons||[])[0]||"pas de plan"}</span>`}`
+      +`<br>inventaire <b class="accent">${inv.value!=null?("$"+(+inv.value).toFixed(2)):"—"}</b> · PnL jour <span class="${(+dd.pnl_today||0)>=0?"green":"red"}">${dd.pnl_today!=null?(+dd.pnl_today).toFixed(3):"—"} $</span>`
+      +`<br><span class="dim">cotations actives ${mm.actives!=null?mm.actives:"—"} · ${mm.armed?"RÉEL (post-only, caps mm)":"DRY — mesure du spread capturable"}</span>`;
   }}
   {const el=$("mc-lab");if(el){
     const promus=(lab.promus||[]).map(p=>p.nom).join(" · ");

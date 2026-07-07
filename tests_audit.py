@@ -6495,6 +6495,30 @@ def test_market_maker_gardes_et_fills():
     assert fills_invalides == st
 
 
+def test_mm_lab_simulation():
+    """§94 : banc de mesure du market making — marché plat à mèches symétriques
+    -> les deux côtés remplissent et le spread net des frais est capturé (PnL>0) ;
+    frais prohibitifs -> le spread cible s'élargit au-delà des mèches, zéro fill
+    (jamais coter sous les frais). Causal : fair = clôture précédente."""
+    import mm_lab
+    # 200 barres 5m plates : close 100000, mèches ±0.2 % (> demi-spread 11.5 bps)
+    plat = [[i * 300_000, 100000.0, 100200.0, 99800.0, 100000.0, 1.0]
+            for i in range(200)]
+    r = mm_lab.simulate(plat, mm_lab.config_banc(fee_bps=10.0, vol_mult=2.5))
+    assert r["fills_buy"] > 30 and r["fills_sell"] > 30
+    assert r["pnl_net"] > 0 and r["realized"] > r["fees"]
+    assert mm_lab.verdict(r) is True
+    # frais 100 bps -> plancher 203 bps : les mèches de 20 bps n'atteignent jamais
+    r2 = mm_lab.simulate(plat, mm_lab.config_banc(fee_bps=100.0, vol_mult=2.5))
+    assert r2["fills_buy"] == 0 and r2["fills_sell"] == 0 and r2["pnl_net"] == 0.0
+    assert mm_lab.verdict(r2) is False
+    # marché en chute régulière : l'inventaire acheté se déprécie -> PnL négatif
+    chute = [[i * 300_000, 0, 100000.0 - 100 * i + 150, 100000.0 - 100 * i - 150,
+              100000.0 - 100 * i, 1.0] for i in range(200)]
+    r3 = mm_lab.simulate(chute, mm_lab.config_banc(fee_bps=10.0, vol_mult=0.0))
+    assert r3["pnl_net"] < 0 and mm_lab.verdict(r3) is False
+
+
 def test_spot_trader_cotations_maker():
     """§94 : surface de cotation maker — post-only STRICT, caps mm dédiés (per-quote
     + notionnel coté/jour, murs absolus), DRY par défaut, verrou LIVE requis ;
