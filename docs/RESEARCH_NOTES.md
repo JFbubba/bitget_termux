@@ -3078,3 +3078,13 @@ la colonne vertébrale (particules, respiration) s'anime par frame ; re-rendu du
 faisceau uniquement quand les données changent. prefers-reduced-motion : statique.
 Vérifié : x=25/h1=32/p_up servis par symbole, version du modèle affichée dans le
 titre — chaque fine-tuning de 04:20 change l'anatomie ET son flux sous les yeux.
+
+## §86 (addendum) — Fusion REJETÉE par le propriétaire, retour à la carte §74
+
+Verdict propriétaire après visualisation : la fusion « n'apporte rien au graphique ».
+Retour à l'ancienne présentation : carte de connectivité ANIMÉE (§74) + panneau
+« Anatomie du réseau » SÉPARÉ (§85) — restaurés à l'identique (git checkout du
+front pré-fusion). Conservé côté serveur : `neural_net.anatomy_live()` et le champ
+`anatomy_acts` (données réelles cachées, coût négligeable, réutilisables — p. ex.
+pour enrichir plus tard la ligne d'info ou l'anatomie séparée). Leçon retenue :
+deux zooms lisibles valent mieux qu'une grande scène dense.
