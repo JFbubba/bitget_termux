@@ -5689,6 +5689,32 @@ def test_futures_executor_build_order():
         pass
 
 
+def test_futures_liquidity_cap(monkeypatch=None):
+    """§98 : cap de liquidité — plafonne l'ouverture par le top-of-book TRAVERSÉ, ne
+    réduit JAMAIS une fermeture, fail-open, et câblé dans execute() (carnet fourni)."""
+    import futures_executor as fe
+    thin = {"bid": 1.0, "ask": 1.0, "bid_size": 8.0, "ask_size": 8.0}
+    # long traverse l'ASK : 25$ -> cap à ask*ask_size = 8$
+    assert fe.liquidity_capped_notional(25.0, "long", thin) == (8.0, True)
+    # short traverse le BID : ici bid profond -> pas de cap
+    deep_bid = {"bid": 1.0, "ask": 1.0, "bid_size": 100.0, "ask_size": 1.0}
+    assert fe.liquidity_capped_notional(25.0, "short", deep_bid) == (25.0, False)
+    # fail-open : pas de carnet / taille nulle / side inconnu -> notionnel INCHANGÉ
+    assert fe.liquidity_capped_notional(25.0, "long", None) == (25.0, False)
+    assert fe.liquidity_capped_notional(25.0, "long", {"ask": 1.0, "ask_size": 0.0})[1] is False
+    assert fe.liquidity_capped_notional(25.0, "buy", thin) == (25.0, False)
+    # ne peut jamais AUGMENTER : book profond -> inchangé, pas gonflé
+    assert fe.liquidity_capped_notional(5.0, "long", thin) == (5.0, False)
+    # câblage execute() (DRY, carnet injecté) : le notionnel du preview est réduit à 8$
+    r = fe.execute("auto_dir", "long", 25.0, 2.0, entry=1.0, stop_loss=0.9,
+                   top_of_book=thin, confirm=False, journal=False)
+    assert "8.0USDT" in r["preview"] and "25.0USDT" not in r["preview"]
+    # une FERMETURE (reduce=True) n'est JAMAIS capée, même carnet fin
+    rr = fe.execute("auto_dir", "long", 25.0, 2.0, entry=1.0, top_of_book=thin,
+                    reduce=True, confirm=False, journal=False)
+    assert "25.0USDT" in rr["preview"]
+
+
 def test_futures_executor_guards_8():
     import futures_executor as fe
     # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps

@@ -3493,7 +3493,18 @@ déjà appliqué INLINE dans `market_maker.build_snapshot` (`bid<=0 or ask<=bid`
 plus stricte -> unifié pour utiliser la garde partagée testée (source unique, zéro
 changement de comportement, `ask<=bid` préservé) ; (b) `cap_by_liquidity` est une garde
 de TAKER (plafonner un IOC par le top-of-book) dont la place est le chemin exécuteur
-(module d'ordre autorisé, money-critique) -> câblage = décision délibérée, pas un patch
-silencieux ; (c) `quote_fresh` exige un âge de cotation non plombé aujourd'hui. Leçon :
-« tout lire » ≠ tout brancher — deux de ces gardes changent un comportement d'exécution
-et relèvent de la décision (mesure/plomberie), pas de l'oubli.
+(module d'ordre autorisé, money-critique) ; (c) `quote_fresh` exige un âge de cotation non
+plombé aujourd'hui. Leçon : « tout lire » ≠ tout brancher — deux de ces gardes changent
+un comportement d'exécution et relèvent de la décision (mesure/plomberie), pas de l'oubli.
+
+**`cap_by_liquidity` câblé dans l'exécuteur (§98, décision propriétaire 07/07).**
+`futures_executor.liquidity_capped_notional()` (PUR) plafonne le notionnel d'OUVERTURE
+par la liquidité affichée au top-of-book du côté TRAVERSÉ (long -> ask, short -> bid) via
+`data_guards.cap_by_liquidity`. Appliqué dans `execute()` AVANT `guards()` (les caps durs
+voient le notionnel réduit), **openings seulement** (`reduce=False` — une fermeture doit
+rester entière), **ne peut QUE réduire**, **fail-open** (pas de carnet -> inchangé). Le
+carnet vient de `fe._top_of_book(sym)` (MÊME ticker que `_mark_price`, aucune requête en
+plus, gardé par `hub.available()`), FOURNI par `futures_auto` -> `execute()` ne déclenche
+aucune requête réseau (tests hermétiques). Valeur : les thin alts de l'univers (LAB/HYPE/
+BGB) où un IOC de 25 $ pourrait balayer plusieurs niveaux. Trace `liquidity_capped_from`
+au journal quand le cap mord. 1 test dédié (450/450).

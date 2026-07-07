@@ -669,7 +669,8 @@ def _run_cycle(now=None):
                      entry=prix, stop_loss=sl, take_profit=tp,
                      confirm=True, now=now, symbol=sym,
                      gross_open_usdt=gross,            # exposition TOUS symboles/côtés
-                     equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
+                     equity_curve=fe.equity_curve(),   # halte MDD du mandat (garde 6)
+                     top_of_book=fe._top_of_book(sym))  # §98 : cap de liquidité (thin alts)
     if res.get("executed"):
         out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now))
     return _finaliser(out, out["decision"], res)

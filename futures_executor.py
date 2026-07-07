@@ -265,6 +265,35 @@ def build_futures_order(agent, side, notional_usdt, leverage, entry=None,
     return order
 
 
+def liquidity_capped_notional(notional, side, top_of_book):
+    """PUR (§98). Plafonne le notionnel d'OUVERTURE par la liquidité AFFICHÉE au top-of-book,
+    du côté que l'ordre TRAVERSE (long achète -> traverse l'ASK ; short vend -> traverse le BID) :
+    on ne balaie jamais plus que ce qui est visible. Via data_guards.cap_by_liquidity — NE PEUT
+    QUE réduire (jamais augmenter). FAIL-OPEN : top illisible / taille nulle / side inconnu ->
+    notional INCHANGÉ (une garde de données ne doit pas empêcher de trader quand la profondeur
+    est illisible). Retourne (notional_capé, a_capé:bool). Réservé aux OUVERTURES par l'appelant
+    (jamais une réduction : fermer doit rester possible en entier)."""
+    try:
+        import data_guards as dg
+        n = float(notional)
+    except (TypeError, ValueError):
+        return notional, False
+    if not top_of_book or n <= 0:
+        return notional, False
+    s = str(side).lower()
+    if s == "long":
+        price, size = top_of_book.get("ask"), top_of_book.get("ask_size")
+    elif s == "short":
+        price, size = top_of_book.get("bid"), top_of_book.get("bid_size")
+    else:
+        return notional, False
+    capped = dg.cap_by_liquidity(n, price, size)
+    if capped is None:
+        return notional, False
+    capped = round(float(capped), 2)
+    return (capped, capped < n - 1e-9)
+
+
 # ---------- stop de perte JOURNALIER (arme le kill-switch, fail-closed) ----------
 
 def daily_loss_state_check(equity, state, now=None, stop_pct=None, cliff_pct=None):
@@ -717,6 +746,29 @@ def _mark_price(symbol=None):
         return None
 
 
+def _top_of_book(symbol=None):
+    """Meilleur bid/ask + TAILLES du perp (MÊME ticker que _mark_price, aucune requête en
+    plus). Sert de plafond de liquidité (§98). Lecture seule, best-effort -> None si illisible
+    (fail-open : pas de cap). Gardé par hub.available() (hermétique hors-ligne / tests)."""
+    try:
+        import bitget_hub_bridge as hub
+        from numeric_utils import safe_float
+        if not hub.available():
+            return None
+        d = hub._read(["futures", "futures_get_ticker", "--productType", PRODUCT_TYPE,
+                       "--symbol", str(symbol or SYMBOL).upper()])
+        rows = (d or {}).get("data") or []
+        r = rows[0] if rows else {}
+        bid, ask = safe_float(r.get("bidPr")), safe_float(r.get("askPr"))
+        if bid and ask and bid > 0 and ask > 0:
+            return {"bid": bid, "ask": ask,
+                    "bid_size": safe_float(r.get("bidSz")) or 0.0,
+                    "ask_size": safe_float(r.get("askSz")) or 0.0}
+    except Exception:
+        pass
+    return None
+
+
 # ---------- exécution RÉELLE (étape 2, §45) ----------
 
 def _run(cmd, runner=None):
@@ -858,13 +910,24 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             take_profit=None, *, reduce=False, confirm=False, runner=None, now=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
-            marge_mode=None, size_btc=None, pos_mode=None, symbol=None, **gate_overrides):
+            marge_mode=None, size_btc=None, pos_mode=None, symbol=None,
+            top_of_book=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
     edge_override) + daily_loss/spec/price injectables (tests hermétiques)."""
     now = time.time() if now is None else now
     oid = f"fut{str(agent)[:3]}{int(now * 1000)}"
+    # §98 : cap de LIQUIDITÉ sur les OUVERTURES — ne pas balayer plus que le top-of-book affiché
+    # (thin alts : LAB/HYPE/BGB). Réservé à reduce=False (une fermeture doit rester entière).
+    # AVANT guards() -> les caps durs voient le notionnel déjà réduit. Fail-open (pas de carnet
+    # -> inchangé). Le carnet est FOURNI par l'appelant (futures_auto lit fe._top_of_book à côté
+    # de _mark_price) : execute() ne déclenche aucune requête réseau lui-même -> tests hermétiques.
+    notional_capped_from = None
+    if not reduce and top_of_book is not None:
+        capped, binds = liquidity_capped_notional(notional_usdt, side, top_of_book)
+        if binds:
+            notional_capped_from, notional_usdt = float(notional_usdt), capped
     ok, reasons = guards(agent, notional_usdt, leverage, equity_curve=equity_curve,
                          gross_open_usdt=gross_open_usdt, client_oid=oid, seen_oids=seen_oids,
                          hour_utc=hour_utc, macro_events=macro_events, now=now,
@@ -872,6 +935,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
     order = build_futures_order(agent, side, notional_usdt, leverage, entry, stop_loss,
                                 take_profit, oid, reduce=reduce, size_btc=size_btc,
                                 symbol=symbol)
+    if notional_capped_from is not None:          # trace : le cap de liquidité a mordu
+        order["liquidity_capped_from"] = round(notional_capped_from, 2)
     mode = order.get("execution_mode")
     preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "
