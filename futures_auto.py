@@ -654,6 +654,12 @@ def _run_cycle(now=None):
         return out
     out["decision"] = {**d, "symbol": sym}
     prix = fe._mark_price(sym)
+    tob = fe._top_of_book(sym)                     # §98 : carnet (cap liquidité) + fraîcheur
+    if fe.quote_too_stale(tob):                    # flux gelé -> entry/SL/depth non fiables
+        out["decision"] = {**d, "action": "rien", "symbol": sym,
+                           "raison": d["raison"] + f" [{sym}] — cotation PÉRIMÉE (flux gelé), "
+                                     "ouverture refusée (garde fraîcheur §98)"}
+        return out
     sl, tp = sl_tp(d["side"], prix, atr=_atr(symbol=sym))
     if sl is None:
         # Invariant Couche 1 : JAMAIS d'ouverture directionnelle sans stop-loss préréglé
@@ -670,7 +676,7 @@ def _run_cycle(now=None):
                      confirm=True, now=now, symbol=sym,
                      gross_open_usdt=gross,            # exposition TOUS symboles/côtés
                      equity_curve=fe.equity_curve(),   # halte MDD du mandat (garde 6)
-                     top_of_book=fe._top_of_book(sym))  # §98 : cap de liquidité (thin alts)
+                     top_of_book=tob)                  # §98 : cap de liquidité (thin alts) + fraîcheur
     if res.get("executed"):
         out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now))
     return _finaliser(out, out["decision"], res)

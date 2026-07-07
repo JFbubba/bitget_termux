@@ -5715,6 +5715,18 @@ def test_futures_liquidity_cap(monkeypatch=None):
     assert "25.0USDT" in rr["preview"]
 
 
+def test_futures_quote_freshness_guard():
+    """§98 : abstention SEULEMENT sur staleness AVÉRÉE (âge lisible > seuil) ; fail-open
+    si l'âge manque ; tolérance de dérive d'horloge (âge négatif = frais)."""
+    import futures_executor as fe
+    assert fe.quote_too_stale({"age_ms": 5000}, max_age_ms=3000) is True     # gelé -> périmé
+    assert fe.quote_too_stale({"age_ms": 260}, max_age_ms=3000) is False     # feed sain
+    assert fe.quote_too_stale({"age_ms": -50}, max_age_ms=3000) is False     # horloge derrière -> frais
+    assert fe.quote_too_stale({"age_ms": None}, max_age_ms=3000) is False    # âge illisible -> fail-open
+    assert fe.quote_too_stale({}, max_age_ms=3000) is False                  # pas d'âge -> fail-open
+    assert fe.quote_too_stale(None, max_age_ms=3000) is False                # pas de carnet -> fail-open
+
+
 def test_futures_executor_guards_8():
     import futures_executor as fe
     # tout-vert (état injecté -> pur) : double verrou armé, edge ok, kill inactif, dans les caps

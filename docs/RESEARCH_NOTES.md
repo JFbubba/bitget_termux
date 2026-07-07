@@ -3508,3 +3508,14 @@ plus, gardé par `hub.available()`), FOURNI par `futures_auto` -> `execute()` ne
 aucune requête réseau (tests hermétiques). Valeur : les thin alts de l'univers (LAB/HYPE/
 BGB) où un IOC de 25 $ pourrait balayer plusieurs niveaux. Trace `liquidity_capped_from`
 au journal quand le cap mord. 1 test dédié (450/450).
+
+**`quote_fresh` câblé (§98, horodatage ajouté).** `_top_of_book` calcule `age_ms` depuis
+le champ `ts` (horodatage marché, ms) de la ligne ticker (age réel mesuré ~254 ms sur BTC).
+`futures_executor.quote_too_stale(top, max_age_ms)` (PUR, via `data_guards.quote_fresh`) :
+True SEULEMENT si l'âge est LISIBLE et > seuil (`FUTURES_MAX_QUOTE_AGE_MS`, défaut 3000 —
+généreux, ne mord qu'un flux GELÉ) ; âge absent -> False (fail-open, on ne bloque pas sur
+une donnée manquante) ; petit âge négatif (dérive d'horloge) clampé -> frais. `futures_auto`
+ABSTIENT l'ouverture sur staleness avérée (entry/SL/depth d'un flux gelé non fiables) ;
+un seul fetch du carnet réutilisé pour le cap ET la fraîcheur. Les 3 gardes `data_guards`
+utiles à l'exécution futures sont désormais toutes câblées (series_ok au cerveau, quote_valid
+au MM, quote_fresh + cap_by_liquidity à l'exécuteur). 1 test dédié (451/451).

@@ -761,12 +761,35 @@ def _top_of_book(symbol=None):
         r = rows[0] if rows else {}
         bid, ask = safe_float(r.get("bidPr")), safe_float(r.get("askPr"))
         if bid and ask and bid > 0 and ask > 0:
+            ts = safe_float(r.get("ts"))              # horodatage marché (ms) de la cotation
+            age_ms = (time.time() * 1000.0 - ts) if ts else None
             return {"bid": bid, "ask": ask,
                     "bid_size": safe_float(r.get("bidSz")) or 0.0,
-                    "ask_size": safe_float(r.get("askSz")) or 0.0}
+                    "ask_size": safe_float(r.get("askSz")) or 0.0,
+                    "ts": ts, "age_ms": age_ms}
     except Exception:
         pass
     return None
+
+
+def quote_too_stale(top_of_book, max_age_ms=None):
+    """PUR/testable (§98). True SEULEMENT si le carnet est CONFIRMÉ périmé (âge LISIBLE
+    et > seuil) — via data_guards.quote_fresh. Âge absent/illisible -> False (FAIL-OPEN :
+    on ne bloque pas sur une donnée manquante, seulement sur une staleness AVÉRÉE, ex.
+    flux gelé). Petit âge négatif (dérive d'horloge : notre horloge derrière celle de
+    Bitget) clampé à 0 -> considéré frais. Seuil généreux (feed sain ~260 ms) via
+    FUTURES_MAX_QUOTE_AGE_MS (défaut 3000) : ne mord qu'un flux réellement gelé."""
+    if not top_of_book:
+        return False
+    from numeric_utils import safe_float
+    age = safe_float(top_of_book.get("age_ms"))
+    if age is None:
+        return False
+    import data_guards as dg
+    if max_age_ms is None:
+        from config_utils import cfg as _cfg
+        max_age_ms = _cfg("FUTURES_MAX_QUOTE_AGE_MS", 3000)
+    return not dg.quote_fresh(max(0.0, age), max_age_ms=float(max_age_ms))
 
 
 # ---------- exécution RÉELLE (étape 2, §45) ----------
