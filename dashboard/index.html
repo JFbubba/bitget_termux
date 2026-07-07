@@ -131,13 +131,6 @@
   .lgd{display:flex;gap:12px;align-items:center;font-size:9px;color:var(--dim);
     letter-spacing:.08em;text-transform:uppercase;font-family:system-ui,sans-serif;margin-bottom:3px}
   .lgd i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-  .cbar{display:grid;grid-template-columns:44px 1fr 44px;gap:6px;align-items:center;padding:2px 0}
-  .cbar .sym{font-size:10px;color:var(--dim)} .cbar .val{font-size:10px;text-align:right}
-  .cbar .track{position:relative;height:8px;background:#1C1914;border-radius:2px}
-  .cbar .track .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#3A3222}
-  .cbar .track .seuil{position:absolute;top:0;bottom:0;width:1px;background:#4A3F28}
-  .cbar .track i{position:absolute;top:0;bottom:0;border-radius:2px}
-  .cbar.best .sym,.cbar.best .val{color:var(--accent)}
   .syn-f{width:14px;background:var(--blue);border-radius:2px 2px 0 0;min-height:1px;position:relative}
   .syn-f.mono{background:var(--purple)}
   .syn-f .fl{position:absolute;bottom:-13px;left:0;right:0;text-align:center;font-size:8px;color:var(--dim)}
@@ -192,7 +185,7 @@
   .rp-r .val{white-space:nowrap}
   /* ===== dynamisation : transitions douces + flash de prix + battement live ===== */
   .top .met .v,.big,.chip .v,.voie .v,.brain .verdict .b,.chip .l{transition:color .35s ease}
-  .bar i,.vbar i,.cbar .track i,.syn-f{transition:width .5s cubic-bezier(.4,0,.2,1),height .5s ease,background .35s}
+  .bar i,.vbar i,.syn-f{transition:width .5s cubic-bezier(.4,0,.2,1),height .5s ease,background .35s}
   .flash-up{animation:flup .7s ease} .flash-dn{animation:fldn .7s ease}
   @keyframes flup{0%{color:var(--green);text-shadow:0 0 9px rgba(63,191,127,.65)}100%{text-shadow:none}}
   @keyframes fldn{0%{color:var(--red);text-shadow:0 0 9px rgba(229,72,77,.65)}100%{text-shadow:none}}
@@ -528,14 +521,10 @@
       </div>
     </div>
     <div class="panel">
-      <h2>Consensus de l'univers <span class="dim" style="letter-spacing:0">— ce que voit la boucle §47 · seuil ±0.35</span></h2>
-      <div id="cons-univ" style="line-height:1.1">—</div>
-      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
-        <h2 style="border:0;padding:0;margin:0 0 6px">Palette du savant <span class="dim" style="letter-spacing:0">— formes ordinales §50</span></h2>
-        <div style="display:flex;align-items:flex-end;gap:10px">
-          <div id="syn-formes" style="display:flex;align-items:flex-end;gap:3px;height:44px"></div>
-          <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
-        </div>
+      <h2>Palette du savant <span class="dim" style="letter-spacing:0">— formes ordinales §50 · (le consensus de l'univers est dans le radar MiroFish, en haut)</span></h2>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <div id="syn-formes" style="display:flex;align-items:flex-end;gap:3px;height:44px"></div>
+        <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
       </div>
       <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
         <h2 style="border:0;padding:0;margin:0 0 6px">Audit IC live <span class="dim" style="letter-spacing:0">— votes émis, horizon 1 h §60</span></h2>
@@ -1818,26 +1807,8 @@ function dessineViz(viz){
       ctx.fillText("courbe en construction (1 pt / 10 min)…",8,H/2+3);
     }
   }
-  // 2) consensus de l'univers : barres divergentes, seuils ±, meilleur en tête
-  const cu=$("cons-univ");
-  if(cu&&viz.consensus_univers){
-    const seuil=viz.seuil||0.35;
-    let html="";
-    viz.consensus_univers.slice(0,10).forEach((r,i)=>{
-      const c=r.c, sym=(r.s||"").replace(/USDT$/,"");
-      const cc=c==null?0:Math.max(-1,Math.min(1,c));
-      const half=Math.abs(cc)*50, left=cc>=0?50:50-half;
-      const col=c==null?"#3A3222":(cc>=0?"var(--green)":"var(--red)");
-      const best=i===0&&c!=null&&Math.abs(c)>=seuil;
-      html+=`<div class="cbar${best?" best":""}" title="consensus ${c==null?"périmé/absent":c} — seuil d'entrée ±${seuil}">`+
-        `<span class="sym">${sym}</span>`+
-        `<div class="track"><div class="zero"></div>`+
-        `<div class="seuil" style="left:${50+seuil*50}%"></div><div class="seuil" style="left:${50-seuil*50}%"></div>`+
-        `<i style="left:${left}%;width:${half}%;background:${col};opacity:${c==null?0:.9}"></i></div>`+
-        `<span class="val ${c==null?"dim":(cc>=0?"green":"red")}">${c==null?"·":((c>=0?"+":"")+c.toFixed(2))}</span></div>`;
-    });
-    cu.innerHTML=html||"—";
-  }
+  // 2) consensus de l'univers : rendu unique = radar MiroFish (§96, plus haut) —
+  //    l'ancienne liste redondante #cons-univ a été retirée (même donnée viz.consensus_univers).
   // 2b) labo xs paper + audit IC live (§60)
   const xs=viz.xs_paper||{};
   const pan=xs.panier||{};
