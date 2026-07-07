@@ -3448,6 +3448,45 @@ def test_validation_evaluate_edge_vs_noise():
     assert v.evaluate([0.1, 0.2], [0.0, 0.0])["n"] == 2      # trop court -> neutre, pas de crash
 
 
+def test_validation_pearson_ic_and_sign_divergence():
+    """§96 : Pearson IC pondéré-magnitude, et le cas où il DIVERGE DE SIGNE du Rank IC."""
+    import agent_validation as v
+    assert round(v.pearson_ic([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]), 3) == 1.0    # linéaire parfait
+    assert round(v.pearson_ic([1, 2, 3, 4, 5], [-1, -2, -3, -4, -5]), 3) == -1.0
+    assert v.pearson_ic([1], [1]) == 0.0                     # trop court -> 0, pas de crash
+    # divergence de signe : 9 points monotones (rank +) mais UN gros vote à contre-sens
+    # domine le Pearson (magnitude) -> rank IC POSITIF, pearson NÉGATIF.
+    pred = [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]
+    fwd = [1, 2, 3, 4, 5, 6, 7, 8, 9, -50]
+    assert v.pearson_ic(pred, fwd) < 0 < v.rank_ic(pred, fwd)
+    # evaluate expose les deux, cohérents avec les fonctions
+    m = v.evaluate(pred, fwd)
+    assert "pic" in m and "pic_t" in m
+    assert m["pic"] < 0 < m["ic"]
+
+
+def test_live_ic_audit_signe_divergent():
+    import live_ic_audit as lia
+    assert lia._signe_divergent({"ic": 0.05, "pic": -0.05}) is True    # signes opposés, tous deux nets
+    assert lia._signe_divergent({"ic": 0.05, "pic": 0.05}) is False    # même signe
+    assert lia._signe_divergent({"ic": 0.001, "pic": -0.05}) is False  # rank négligeable
+    assert lia._signe_divergent({"ic": None, "pic": -0.05}) is False   # manquant -> pas de crash
+
+
+def test_learning_health_pearson_guard_non_circular():
+    """§96 : la garde repère un agent SUR-pondéré NÉGATIF en pearson, ignore les autres cas."""
+    import learning_health as lh
+    w = {"a": 2.0, "b": 0.3, "c": 1.5, "d": 2.2}
+    pic = {"a": (-0.05, -3.0),   # sur-poids + pearson négatif significatif -> FLAG
+           "b": (-0.09, -8.0),   # négatif mais poids 0.3 <= 1 -> OK (petit poids assumé)
+           "c": (0.03, 4.0),     # sur-poids mais pearson POSITIF -> OK (cas technicals §96)
+           "d": (-0.01, -1.0)}   # sur-poids mais t -1 non significatif -> OK
+    res = lh.overweight_negatifs(w, pic)
+    assert [x["agent"] for x in res] == ["a"]
+    assert res[0]["poids"] == 2.0 and res[0]["pearson_t"] == -3.0
+    assert lh.overweight_negatifs({}, {}) == [] and lh.overweight_negatifs(None, None) == []
+
+
 def test_validation_purged_non_overlapping():
     import numpy as np
     import agent_validation as v

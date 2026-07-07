@@ -72,9 +72,20 @@ def ic_par_agent(entrees, horizon_s=3600):
             continue
         m = av.evaluate(votes, fwd)
         nz = 100.0 * sum(1 for v in votes if v != 0) / len(votes)
-        out[ag] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"), "n": m.get("n"),
+        out[ag] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"),
+                   "pic": m.get("pic"), "pic_t": m.get("pic_t"), "n": m.get("n"),
                    "pct_votants": round(nz, 1)}
     return out
+
+
+def _signe_divergent(r):
+    """True si Rank IC et Pearson IC d'un agent ont un signe OPPOSÉ, tous deux non
+    négligeables (§96 : l'agent vise juste en rang mais se trompe quand il crie fort,
+    ou l'inverse — c'est là que le poids ridge et le dashboard racontent deux histoires)."""
+    ic, pic = r.get("ic"), r.get("pic")
+    if ic is None or pic is None:
+        return False
+    return ic * pic < 0 and abs(ic) >= 0.01 and abs(pic) >= 0.01
 
 
 OVERLAY = Path(__file__).resolve().parent / ".overlay_votes.jsonl"
@@ -97,12 +108,20 @@ def snapshot(horizon_s=3600):
 
 def build_report(s=None):
     s = snapshot() if s is None else s
-    lignes = [f"=== AUDIT IC LIVE — votes réellement émis, horizon {s['horizon_s'] // 60} min ==="]
+    lignes = [f"=== AUDIT IC LIVE — votes réellement émis, horizon {s['horizon_s'] // 60} min ===",
+              "  rankIC = ordinal (dashboard) · pearsonIC = pondéré-magnitude ≈ PnL (métrique RIDGE §78)"]
     for r in s.get("agents", []):
-        lignes.append(f"  {r['agent']:<12} IC {r['ic']:+.4f} (t {r['ic_t']:+.2f}, "
-                      f"n {r['n']}, votants {r['pct_votants']}%)")
+        pic = r.get("pic"); pic_t = r.get("pic_t")
+        pbloc = (f"pearsonIC {pic:+.4f} (t {pic_t:+.2f})" if pic is not None else "pearsonIC —")
+        flag = "  ⚠ SIGNES OPPOSÉS" if _signe_divergent(r) else ""
+        lignes.append(f"  {r['agent']:<12} rankIC {r['ic']:+.4f} (t {r['ic_t']:+.2f}) · "
+                      f"{pbloc} · n {r['n']}, votants {r['pct_votants']}%{flag}")
     if not s.get("agents"):
         lignes.append("  historique insuffisant (< 50 obs/agent)")
+    div = [r["agent"] for r in s.get("agents", []) if _signe_divergent(r)]
+    if div:
+        lignes.append("  ⚠ divergence rankIC↔pearsonIC : " + ", ".join(div)
+                      + " — le POIDS suit le pearson (ridge), le dashboard montrait le rank (§96)")
     ov = overlay_snapshot(s["horizon_s"]).get("agents", [])
     lignes.append("--- voix opt-in (llm/nn/classics, §77) ---")
     if ov:

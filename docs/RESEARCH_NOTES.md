@@ -3403,3 +3403,62 @@ Ce qui était invisible avant et se lit maintenant en 2 s : à quelle distance
 du seuil est chaque symbole, dans quel SENS ça évolue depuis 6 h, combien
 d'agents portent le signal, si la lecture est fraîche, si le candidat est
 tradable, et ce que la boucle va faire de tout ça.
+
+
+## §97 — AUDIT FORENSIQUE : ANGLE MORT DE MESURE + DÉ-RISQUE FUTURES (07/07/2026)
+
+Parti d'une question propriétaire (« amplifier l'agent geometric aiderait-il ? »),
+un audit en éventail (4 agents lecture seule) a démonté une hypothèse fausse et
+révélé un angle mort SYSTÉMIQUE de la pondération. Rien touché aux murs.
+
+**geometric — poids bas CORRECT, pas un frein bloqué.** À l'horizon de jugement
+du cerveau (1 h), son IC live est NÉGATIF (rank −0.012, t −2.5). Le « +6.3 » du §77
+était un snapshot ~24 h PÉRIMÉ. Son edge 24 h (+0.033) est un MIRAGE de régime :
+tout `brain_log_history` ne fait que **4,28 jours**, soit ~4 fenêtres 24 h non
+chevauchantes/symbole ; net de frais ~12 bps brut vs 23 bps de coût plancher
+(SAVOIR §, breakeven) ; aucune porte profonde ne teste 24 h (DSR calé à 8 h, zone
+la plus négative). Verdict : ne rien brancher, juste MESURER l'IC 24 h dans le temps.
+
+**L'angle mort à trois couches (le vrai sujet).**
+1. *Échantillon 4 j / un seul régime* : les « n=46k » de `live_ic_audit` sont ~4 j
+   de rendements forward très recouvrants -> t-stats gonflés (geometric a basculé
+   +6.3 -> −2.5 au même horizon en 4 j). Plafonne la confiance sur TOUT l'IC live.
+2. *Mismatch Pearson vs Rank IC* : la cible RIDGE (§78, `_ridge_solve`) qui fixe 85 %
+   du poids (α=0.85) optimise un **Pearson pondéré-magnitude** (≈ PnL, sizing par
+   |vote|), mais `live_ic_audit`/dashboard affichaient un **Rank IC**. Signe OPPOSÉ
+   pour liquidations/derivs/technicals (± carry/geometric). D'où l'illusion « le ridge
+   réhabilite ce que l'IC plante » : c'est le MÊME agent vu dans deux métriques.
+   Le ridge est SOLIDE (cond ~25, bootstrap stable, 45k paires) — le défaut était
+   d'OBSERVABILITÉ, pas de calcul. (technicals : rank −0.03 mais pearson +0.04 stable ;
+   derivs/liquidations : rank +0.04 mais pearson −0.13 ET corrélés 0.993 -> plancher
+   ridge justifié, pas de l'edge jeté.)
+3. *Juge de santé circulaire (§82)* : `learning_health` comparait les poids à la cible
+   ridge ELLE-MÊME (corr +0.78 « SAIN » garanti) -> aveugle à un sur-poids perdant.
+
+**Correctif de l'instrument (ce commit).**
+- `agent_validation.pearson_ic()` (pur) + `evaluate()` expose `pic`/`pic_t` à côté du
+  rank IC.
+- `live_ic_audit` affiche les DEUX IC + marqueur `⚠ SIGNES OPPOSÉS` (fin de l'angle
+  mort d'observabilité).
+- `learning_health` : garde NON-CIRCULAIRE `overweight_negatifs(weights, pic)` —
+  alarme si un agent SUR-pondéré (poids > 1) est significativement NÉGATIF en PEARSON
+  (t ≤ −2). En Pearson, AUCUN sur-poids actuel ne s'allume -> l'alarme « 4 agents
+  live-négatifs » de l'audit était elle-même un artefact du Rank IC. `healthy` exige
+  désormais les DEUX gardes (corr-cible ET pearson). 3 tests dédiés (447/447).
+
+**Chemins d'argent (mesure forensique, 168 h).** Seuls nets-positifs PROPRES :
+accumulation spot (+5,55 % latent) et funding carry (+0,26 $), sans levier. Futures
+directionnel +1,7 $ mais **82 % vient d'UN trade LAB** ; le cœur BTC saigne les frais
+(7 round-trips, −0,058 $, 0 gagnant). Porte d'edge outrepassée, 0 agent LIVE.
+liquidity_manager + 4 surfaces §67 : armées LIVE mais INERTES (0 action). MM OFF (banc
+négatif) = correct.
+
+**Acte autonome journalisé (§92) : `FUTURES_AUTO_NOTIONAL_USDT` 45 -> 25.** Dé-risque
+motivé par la mesure (edge non prouvé, porté par un seul trade). Réversible d'un flag.
+Murs 50/250 inchangés. XAUT (min ~41,5 $) redevient infaisable — non prouvé porteur
+d'edge. `FUTURES_EDGE_GATE_OVERRIDE` (fermeture = arrêt total de la boucle
+directionnelle) laissé à l'arbitrage propriétaire.
+
+**Faux positif écarté :** `strategy_lab` tourne bien (fichiers `strategies_out/`
+datés 07/07 05:00) ; `knowledge.json` figé au 27/06 relève de `knowledge_base.py`
+(sous-système SAVOIR), pas du lab.

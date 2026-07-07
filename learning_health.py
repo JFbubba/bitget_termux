@@ -40,6 +40,22 @@ def rank_corr(a, b):
     return round(1.0 - 6.0 * dsq / (n * (n * n - 1)), 3)
 
 
+def overweight_negatifs(weights, pic, seuil_poids=1.0, t_max=-2.0):
+    """PUR. Garde NON-CIRCULAIRE (§96) : liste des agents SUR-pondérés (poids > seuil,
+    au-dessus de la moyenne ~1) ET significativement NÉGATIFS dans la métrique qui pilote
+    le SIZING — le PEARSON IC (t ≤ t_max). weights : {agent: poids} ; pic : {agent:
+    (pearson_ic, pearson_t)}. On utilise le PEARSON, pas le Rank IC (qui diffère de signe
+    pour ~5 agents, §96), car c'est lui que la cible ridge optimise. Triés du plus négatif."""
+    sus = []
+    for k, w in (weights or {}).items():
+        p, pt = (pic or {}).get(k, (None, None))
+        if w is not None and w > seuil_poids and p is not None and pt is not None and pt <= t_max:
+            sus.append({"agent": k, "poids": round(float(w), 2),
+                        "pearson_ic": round(float(p), 4), "pearson_t": round(float(pt), 1)})
+    sus.sort(key=lambda s: s["pearson_t"])
+    return sus
+
+
 def snapshot():
     """État de santé de l'apprentissage. LECTURE SEULE.
       - corr_weight_ic : corrélation de rang POIDS APPRIS ↔ IC live (doit être POSITIVE) ;
@@ -47,10 +63,13 @@ def snapshot():
       - ic_align : le correctif est-il armé ? ; healthy : corr_weight_ic ≥ seuil."""
     _load_env()
     out = {"corr_weight_ic": None, "corr_hitrate_ic": None, "ic_align": None,
-           "healthy": None, "n_agents": 0, "note": ""}
+           "healthy": None, "n_agents": 0, "note": "", "overweight_negatifs": []}
     try:
         import live_ic_audit as lia
-        ic = {a["agent"]: a["ic"] for a in lia.snapshot(3600).get("agents", []) if a.get("ic") is not None}
+        agents = lia.snapshot(3600).get("agents", [])
+        ic = {a["agent"]: a["ic"] for a in agents if a.get("ic") is not None}
+        # §96 : Pearson IC (pondéré-magnitude ≈ PnL) par agent — base de la garde NON-circulaire.
+        pic = {a["agent"]: (a.get("pic"), a.get("pic_t")) for a in agents if a.get("pic") is not None}
     except Exception:
         out["note"] = "IC live indisponible"
         return out
@@ -97,12 +116,30 @@ def snapshot():
                 out["corr_weight_cible"] = rank_corr(weights, mults)
         except Exception:
             pass
+    # §96 : GARDE NON-CIRCULAIRE. Le corr poids↔cible ci-dessus est CIRCULAIRE quand
+    # RIDGE_ALIGN=1 (les poids DÉRIVENT de la cible ridge -> corr +0.74 « SAIN » garanti,
+    # même si le banc sur-pondère un agent perdant). Contrôle indépendant : aucun agent
+    # SUR-pondéré (poids > 1, au-dessus de la moyenne ~1) ne doit être significativement
+    # NÉGATIF dans la métrique qui pilote le SIZING — le PEARSON IC (≈ PnL), PAS le Rank IC
+    # (qui diffère de signe pour ~5 agents, §96 : l'utiliser ici crierait à tort sur
+    # technicals dont le pearson est +0.03). t ≤ −2 = significatif sur l'échantillon courant.
+    suspects = overweight_negatifs(weights, pic)
+    out["overweight_negatifs"] = suspects
+
     cw = out["corr_weight_cible"]
-    out["healthy"] = (cw is not None and cw >= CORR_MIN)
-    if cw is None:
+    aligne = (cw is not None and cw >= CORR_MIN)
+    out["healthy"] = bool(aligne and not suspects)       # les DEUX gardes doivent passer
+    if suspects:                                         # priorité : la fuite d'edge réelle
+        noms = ", ".join(f"{s['agent']} (poids {s['poids']}, pearsonIC {s['pearson_ic']:+.3f} "
+                         f"t {s['pearson_t']:+.1f})" for s in suspects)
+        out["note"] = ("ALERTE : agent(s) SUR-pondéré(s) NÉGATIF(s) en pearsonIC (métrique de "
+                       f"sizing, §96) — {noms}. La corr poids↔cible {out['cible'].upper()} "
+                       f"({cw:+.2f}) ne le voit pas (circulaire).")
+    elif cw is None:
         out["note"] = "corrélation non calculable (données insuffisantes)"
-    elif out["healthy"]:
-        out["note"] = f"poids alignés sur la cible {out['cible'].upper()} (corr {cw:+.2f})"
+    elif aligne:
+        out["note"] = (f"poids alignés sur la cible {out['cible'].upper()} (corr {cw:+.2f}) ; "
+                       "garde pearson OK (aucun sur-poids négatif)")
     else:
         out["note"] = (f"ALERTE : poids DÉSALIGNÉS de la cible {out['cible'].upper()} "
                        f"(corr {cw:+.2f} < {CORR_MIN}) — le correctif ne compense pas"
@@ -116,11 +153,16 @@ def check_and_alert():
     if s.get("healthy") is False:
         try:
             import telegram_notifier as tn
+            sus = s.get("overweight_negatifs") or []
+            ligne_sus = ("\n· ⚠ sur-poids négatifs (pearson) : "
+                         + ", ".join(f"{x['agent']} {x['poids']}/{x['pearson_ic']:+.3f}" for x in sus)
+                         if sus else "")
             tn.send_message(
                 "⚠️ SANTÉ APPRENTISSAGE — " + s["note"]
-                + f"\n· corr poids↔IC {s['corr_weight_ic']}"
+                + f"\n· corr poids↔cible {s.get('corr_weight_cible')} ({s.get('cible')})"
                 + f"\n· corr hit-rate↔IC {s['corr_hitrate_ic']} (cause racine)"
-                + f"\n· IC-align {'ARMÉ' if s['ic_align'] else 'OFF'}")
+                + f"\n· IC-align {'ARMÉ' if s['ic_align'] else 'OFF'}"
+                + ligne_sus)
         except Exception:
             pass
     return s
@@ -159,9 +201,14 @@ def main():
     import sys
     s = check_and_alert() if "--alert" in sys.argv else snapshot()
     print("=== SANTÉ DE L'APPRENTISSAGE (§68, lecture seule) ===")
-    print(f"corr POIDS APPRIS ↔ IC : {s['corr_weight_ic']}  (doit être ≥ {CORR_MIN})")
-    print(f"corr hit-rate ↔ IC     : {s['corr_hitrate_ic']}  (~0 = signal EARCP de base cassé)")
+    print(f"corr POIDS ↔ cible {str(s.get('cible','ic')).upper():5s}: {s.get('corr_weight_cible')}  (doit être ≥ {CORR_MIN})")
+    print(f"  dont corr poids ↔ IC : {s['corr_weight_ic']}  ·  corr hit-rate ↔ IC {s['corr_hitrate_ic']}  (~0 = EARCP de base cassé)")
     print(f"IC-align (correctif)   : {'ARMÉ' if s['ic_align'] else 'OFF'}  ·  agents {s['n_agents']}")
+    sus = s.get("overweight_negatifs") or []
+    print("garde pearson (§96)    : " + ("OK — aucun sur-poids négatif dans la métrique de sizing"
+          if not sus else "⚠ ALERTE — " + ", ".join(
+              f"{x['agent']} (poids {x['poids']}, pearsonIC {x['pearson_ic']:+.3f} t {x['pearson_t']:+.1f})"
+              for x in sus)))
     print(f"Verdict : {'SAIN' if s['healthy'] else 'ALERTE'} — {s['note']}")
     print("Lecture seule. Aucun ordre. VERDICT: SAFE")
 

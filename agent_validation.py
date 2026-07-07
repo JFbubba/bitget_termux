@@ -76,6 +76,24 @@ def rank_ic(pred, fwd):
     return float((ra * rb).sum() / d) if d > 0 else 0.0
 
 
+def pearson_ic(pred, fwd):
+    """IC de PEARSON ∈ [−1,1] entre prédictions et rendements futurs. Pur.
+
+    Contrairement au Rank IC (ordinal), le Pearson est pondéré par la MAGNITUDE des
+    votes — donc plus proche du PnL réel, puisque le bot dimensionne par |vote|. C'est
+    la métrique que la cible RIDGE (§78, `_ridge_solve`) optimise. Les deux IC peuvent
+    DIVERGER DE SIGNE (§96 : ~5 agents — technicals/derivs/liquidations/carry/geometric) :
+    un vote qui vise juste « en rang » mais se trompe quand il crie fort a un Rank IC
+    positif et un Pearson négatif. Afficher les DEUX (fin de l'angle mort d'observabilité)."""
+    a, b = np.asarray(pred, float), np.asarray(fwd, float)
+    n = min(len(a), len(b))
+    if n < 3:
+        return 0.0
+    a, b = a[:n] - np.mean(a[:n]), b[:n] - np.mean(b[:n])
+    d = math.sqrt(float((a ** 2).sum()) * float((b ** 2).sum()))
+    return float((a * b).sum() / d) if d > 0 else 0.0
+
+
 def ic_tstat(ic, n):
     """t-stat de l'IC (≈ significativité). Pur."""
     if n < 3 or abs(ic) >= 1:
@@ -156,15 +174,18 @@ def evaluate(votes, fwd):
     v, f = np.asarray(votes, float), np.asarray(fwd, float)
     n = min(len(v), len(f))
     if n < 5:
-        return {"n": int(n), "ic": 0.0, "ic_t": 0.0, "hit": None, "sharpe": 0.0, "psr": 0.5}
+        return {"n": int(n), "ic": 0.0, "ic_t": 0.0, "pic": 0.0, "pic_t": 0.0,
+                "hit": None, "sharpe": 0.0, "psr": 0.5}
     v, f = v[:n], f[:n]
     ic = rank_ic(v, f)
+    pic = pearson_ic(v, f)                       # §96 : IC pondéré-magnitude (≈ métrique ridge)
     strat = np.sign(v) * f                      # rendement directionnel de l'agent
     nz = np.sign(v) != 0
     hit = float((np.sign(v[nz]) == np.sign(f[nz])).mean()) if nz.any() else None
     sr = sharpe(strat)
     sk, ku = _skew_kurt(strat)
     return {"n": int(n), "ic": round(ic, 4), "ic_t": round(ic_tstat(ic, n), 2),
+            "pic": round(pic, 4), "pic_t": round(ic_tstat(pic, n), 2),
             "hit": round(hit, 3) if hit is not None else None,
             "sharpe": round(sr, 4), "skew": round(sk, 3), "kurt": round(ku, 3),
             "psr": round(psr(sr, n, sk, ku), 4), "_strat_sharpe_raw": sr}
