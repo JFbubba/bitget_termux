@@ -177,6 +177,8 @@ def decider(etat, cands, pctl_min=None, apr_min=None, pctl_exit=None, apr_exit=N
             return {"action": "ouvrir", "symbol": c["symbol"], "mode": "classic",
                     "raison": f"funding extrême (pctl {pctl}, APR {apr} %)"}
         if neg and taux < 0 and pctl <= (100 - pctl_min) and (abs(apr) - borrow_apr) >= apr_min:
+            if _reverse_bloque(etat, c["symbol"]):
+                continue                               # coin non empruntable (liste noire §90)
             return {"action": "ouvrir", "symbol": c["symbol"], "mode": "reverse",
                     "raison": (f"funding extrême NÉGATIF (pctl {pctl}, APR {apr} % ; "
                                f"net ~{round(abs(apr) - borrow_apr, 1)} % après emprunt "
@@ -194,6 +196,27 @@ def _prix(sym):
 
 def _coin(sym):
     return str(sym).upper().replace("USDT", "")
+
+
+def _bloquer_reverse(sym, now=None):
+    """§90 — LISTE NOIRE reverse : l'exchange a refusé l'EMPRUNT de ce coin (aucun
+    endpoint hub ne liste les coins empruntables — la capacité se découvre par
+    l'échec). Bloqué ALT_CARRY_BLOCK_DAYS jours (défaut 7) pour ne pas re-payer
+    des frais de compensation à chaque extrême du même coin."""
+    try:
+        etat = _etat()
+        etat.setdefault("reverse_bloque", {})[_coin(sym)] = int(now or time.time())
+        _sauve_etat(etat)
+    except Exception:
+        pass
+
+
+def _reverse_bloque(etat, sym, now=None):
+    ts = ((etat or {}).get("reverse_bloque") or {}).get(_coin(sym))
+    if not ts:
+        return False
+    jours = _flt("ALT_CARRY_BLOCK_DAYS", 7.0)
+    return (float(now or time.time()) - float(ts)) < jours * 86400
 
 
 def _ouvrir_reverse(sym, usdt, arme):
@@ -229,19 +252,23 @@ def _ouvrir_reverse(sym, usdt, arme):
         comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
                           confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
                           equity_curve=fe.equity_curve())
-        return {"ok": False, "etape": "emprunt", "perp": jambe_perp,
-                "emprunt": emprunt, "compensation": comp}
+        retour = at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)
+        _bloquer_reverse(sym)                          # coin probablement non empruntable
+        return {"ok": False, "etape": "emprunt", "perp": jambe_perp, "depot": depot,
+                "emprunt": emprunt, "compensation": comp, "retour_collateral": retour}
     vente = mt.order(sym, "sell", usdt, margin_type=mtype, confirm=arme)
     if arme and not vente.get("executed"):
         remb = mt.repay(_coin(sym), usdt, amount=coin_qte, margin_type=mtype, confirm=arme)
         comp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, reduce=True,
                           confirm=arme, gross_open_usdt=fa.gross_book_usdt(),
                           equity_curve=fe.equity_curve())
-        return {"ok": False, "etape": "vente", "perp": jambe_perp, "emprunt": emprunt,
-                "vente": vente, "remboursement": remb, "compensation": comp}
+        retour = at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)
+        return {"ok": False, "etape": "vente", "perp": jambe_perp, "depot": depot,
+                "emprunt": emprunt, "vente": vente, "remboursement": remb,
+                "compensation": comp, "retour_collateral": retour}
     return {"ok": (not arme) or vente.get("executed"), "perp": jambe_perp,
-            "emprunt": emprunt, "vente": vente, "coin_qte": coin_qte, "prix": prix,
-            "margin_type": mtype, "collateral": collat}
+            "depot": depot, "emprunt": emprunt, "vente": vente, "coin_qte": coin_qte,
+            "prix": prix, "margin_type": mtype, "collateral": collat}
 
 
 def _fermer_reverse(sym, pos, arme):
@@ -268,6 +295,33 @@ def _fermer_reverse(sym, pos, arme):
                             confirm=arme)
     return {"ok": (not arme) or (remb.get("executed") and perp.get("executed")),
             "rachat": rachat, "remboursement": remb, "perp": perp, "retour": retour}
+
+
+def _taille_jambe(sym, base=None, spec=None, px=None, caps=None):
+    """§90 — taille/jambe ADAPTÉE aux minima du contrat (leçon LAB : min 1 coin
+    ≈ 16.6 $ > jambe de 10 $ -> l'extrême à 795 % net est passé sans moisson),
+    BORNÉE par le plus petit cap par opération des surfaces impliquées (les DEUX
+    jambes doivent passer). (taille, besoin, plafond) — taille=None si infaisable."""
+    base = _flt("ALT_CARRY_PER_LEG_USDT", 10.0) if base is None else float(base)
+    if spec is None or px is None or caps is None:
+        import bitget_execute as ex
+        import futures_executor as fe
+        import margin_trader as mt
+        import spot_trader as st
+        spec = fe._contract_spec(sym) or {}
+        px = _prix(sym)
+        caps = (ex.capped("SPOT_TRADE_MAX_PER_OP_USDT", 10.0, st.ABS_PER_OP_USDT),
+                ex.capped("MARGIN_MAX_PER_OP_USDT", 10.0, mt.ABS_PER_OP_USDT),
+                fe._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0, fe.FUT_ABS_MAX_PER_TRADE_USDT))
+    if not px or px <= 0:
+        return None, None, None
+    mini = max(float(spec.get("min_usdt") or 0.0),
+               float(spec.get("min_size") or 0.0) * float(px)) * 1.06
+    besoin = max(base, mini)
+    plafond = min(float(c) for c in caps)
+    if besoin > plafond + 1e-9:
+        return None, round(besoin, 2), round(plafond, 2)
+    return round(besoin, 2), round(besoin, 2), round(plafond, 2)
 
 
 def _ouvrir(sym, usdt, arme):
@@ -317,6 +371,15 @@ def cycle(now=None):
            "executed": False}
     usdt = _flt("ALT_CARRY_PER_LEG_USDT", 10.0)
     if d["action"] == "ouvrir":
+        taille, besoin, plafond = _taille_jambe(d["symbol"])
+        if taille is None:
+            d = {"action": "rien", "raison": (f"{d['symbol']} INFAISABLE : jambe requise "
+                                              f"{besoin} $ (minima contrat) > plafond {plafond} $ "
+                                              f"des surfaces — extrême détecté mais hors caps")}
+            out["decision"] = d
+            _journalise(out)
+            return out
+        usdt = taille
         res = (_ouvrir_reverse(d["symbol"], usdt, arme) if d.get("mode") == "reverse"
                else _ouvrir(d["symbol"], usdt, arme))
         out["resultat"] = {k: (v if k in ("ok", "etape") else
@@ -383,7 +446,14 @@ def main():
         print("=== ALT-CARRY — CYCLE ===")
         print(f"armé {r.get('armed')} · décision {str(d.get('action', 'rien')).upper()} "
               f"{d.get('symbol') or ''} — {d.get('raison', '')}")
-        print("EXÉCUTÉ" if r.get("executed") else "DRY/riens — aucun mouvement réel.")
+        if r.get("executed"):
+            print("EXÉCUTÉ (jambes réelles passées)")
+        elif not r.get("armed"):
+            print("DRY — non armé, aucun mouvement.")
+        elif (r.get("decision") or {}).get("action") == "rien":
+            print("RIEN — aucun mouvement.")
+        else:
+            print("⚠️ NON EXÉCUTÉ malgré armement — voir 'resultat' du journal.")
         print("VERDICT: SAFE")
     else:
         print(build_report())

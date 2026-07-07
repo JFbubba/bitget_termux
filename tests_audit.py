@@ -6363,6 +6363,26 @@ def test_alt_carry_decideur_et_jambes():
     d = ac.decider(etat_r, [{"symbol": "LABUSDT", "taux": 1e-5, "pctl": 60.0, "apr_pct": 1.1}],
                    pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5, borrow_apr=15, neg=True)
     assert d["action"] == "fermer" and d["mode"] == "reverse"
+    # §90 : liste noire reverse — un coin refusé à l'emprunt est sauté (cooldown)
+    import time as _time
+    etat_bloque = {"reverse_bloque": {"LAB": int(_time.time())}}
+    d = ac.decider(etat_bloque, [{"symbol": "LABUSDT", "taux": -8e-4, "pctl": 1.0,
+                                  "apr_pct": -810.0}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5, borrow_apr=15, neg=True)
+    assert d["action"] == "rien"
+    vieux = {"reverse_bloque": {"LAB": int(_time.time()) - 8 * 86400}}   # cooldown expiré
+    d = ac.decider(vieux, [{"symbol": "LABUSDT", "taux": -8e-4, "pctl": 1.0, "apr_pct": -810.0}],
+                   pctl_min=90, apr_min=12, pctl_exit=50, apr_exit=5, borrow_apr=15, neg=True)
+    assert d["action"] == "ouvrir" and d["mode"] == "reverse"
+    # §90 : taille de jambe adaptée aux minima, bornée par les caps des surfaces
+    taille, besoin, plafond = ac._taille_jambe("LABUSDT", base=10.0,
+                                               spec={"min_size": 1.0, "min_usdt": 5.0},
+                                               px=16.5, caps=(20.0, 20.0, 50.0))
+    assert taille and 17.0 < taille < 18.0
+    taille, besoin, plafond = ac._taille_jambe("XAUTUSDT", base=10.0,
+                                               spec={"min_size": 0.01, "min_usdt": 5.0},
+                                               px=4165.0, caps=(20.0, 20.0, 50.0))
+    assert taille is None and besoin > plafond
     # anti-jambe-nue : perp échoue -> compensation vend le spot
     import futures_auto as fa
     import futures_executor as fe

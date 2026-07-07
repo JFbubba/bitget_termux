@@ -3180,3 +3180,30 @@ sans validation profonde §54.
 déchiffre->dépaquette->vérifie (liste complète, JSON re-parsés, tailles). PREMIER
 DRILL : ✅ 15 registres restaurables, la passphrase de production ouvre bien
 l'artefact. Cron mensuel (1ᵉʳ, 08:00) avec alerte Telegram en cas d'échec.
+
+## §90 — Tour complet du bot + premier extrême alt-carry (LAB) : la sécurité a tenu, la moisson a appris
+
+**Tour de santé (07/07 ~01:30 UTC)** : 17 unités systemd actives, 8 crons posés,
+0 erreur en 6 h, carte de fraîcheur verte (tampon digest amorcé — premier envoi
+07:00), cerveau vivant (poids ridge : leadlag 2.89/simons/structure hauts),
+ombre NN accumulée (78 entrées/10 symboles dès la 1ʳᵉ heure), accumulation
+réconciliée sans anomalie, dashboard 41 blocs sains, boucle futures flat prête
+(long XRPUSDT au consensus +0.45).
+
+**Premier extrême alt-carry — LAB funding −810 % APR (~795 % net)** : détecté ✅,
+MAIS la moisson a échoué en 2 temps, chacun instructif :
+  1. jambe 10 $ < minimum du contrat LAB (1 LAB ≈ 16.6 $) -> `_taille_jambe`
+     ADAPTATIVE (minima × 1.06, bornée par le plus petit cap/op des surfaces
+     impliquées ; XAUT correctement infaisable) + décision INFAISABLE visible ;
+     caps §67/op alignés sur le mandat §83 : SPOT/MARGIN 20 $/op, MARGIN 100 $/j
+     (murs absolus 200/500 INTOUCHÉS) ;
+  2. cycle réel relancé : collatéral viré ✓, perp long 17.49 $ OUVERT ✓, EMPRUNT
+     LAB REFUSÉ par l'exchange (coin non empruntable en marge croisée — aucun
+     endpoint hub ne le prédit) -> COMPENSATION immédiate ✓ (perp refermé, zéro
+     jambe nue — la machinerie anti-orphelin a fonctionné SUR ARGENT RÉEL).
+     Deux trous corrigés : le collatéral restait en marge sur échec (désormais
+     RENDU sur chaque chemin d'échec, + restitution manuelle des 21 $ faite,
+     fonds préexistants 41.5 $ du wallet marge non touchés) ; et LISTE NOIRE
+     reverse (coin refusé -> cooldown ALT_CARRY_BLOCK_DAYS 7 j, la capacité
+     d'emprunt se découvre par l'échec, on ne repaie pas des frais de
+     compensation à chaque extrême du même coin). LAB blacklisté jusqu'au 14/07.
