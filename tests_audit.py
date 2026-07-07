@@ -8605,6 +8605,30 @@ def test_dash_chat_messages():
     assert len(milieu) <= 8 and "PIRATE" not in _json.dumps(milieu)
 
 
+def test_dashboard_radar_univers():
+    # radar de consensus §47 : fraîcheur = vue de la boucle (périmé -> c None),
+    # downsampling qui garde le dernier point, voix ± avec bande morte, tri
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server4", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    now = 1_000_000.0
+    entries = [{"symbol": "BTCUSDT", "ts": now - 21000 + i * 210, "consensus": 0.4,
+                "votes": {"a": 0.5, "b": -0.3, "c": 0.05}} for i in range(100)]
+    entries.append({"symbol": "ETHUSDT", "ts": now - 1200, "consensus": -0.6,
+                    "votes": {"a": -1}})
+    out = mod.radar_univers(entries, ["ETHUSDT", "BTCUSDT", "SOLUSDT"], now=now)
+    par = {r["s"]: r for r in out}
+    btc, eth, sol = par["BTCUSDT"], par["ETHUSDT"], par["SOLUSDT"]
+    assert btc["c"] == 0.4 and btc["pour"] == 1 and btc["contre"] == 1 and btc["n_votes"] == 3
+    assert len(btc["serie"]) <= 48 and btc["serie"][-1][1] == 0.4
+    assert eth["c"] is None and eth["dernier"] == -0.6 and eth["age_s"] == 1200
+    assert sol["dernier"] is None and sol["serie"] == []
+    assert out[0]["s"] == "BTCUSDT" and out[-1]["s"] == "SOLUSDT"
+    assert mod.radar_univers(None, []) == []
+
+
 def test_dashboard_chat_context():
     # contexte COMPACT du chat : garde l'essentiel (portefeuille, cerveau, gardes),
     # jette les blobs (bougies/carnet), fail-safe sur état vide

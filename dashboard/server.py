@@ -136,6 +136,51 @@ def edge_summary(rep):
             "n_symbols": rep.get("n_symbols"), "top": top}
 
 
+def radar_univers(entries, symbols, now=None, fenetre_s=21600, max_pts=48,
+                  frais_s=900, deadband=0.1):
+    """Radar de consensus de l'univers (PUR, testable) — la matière du panneau
+    « MiroFish · Radar de consensus ». Pour chaque symbole, depuis brain_log :
+      • c        : dernier consensus SI FRAIS (< frais_s, comme consensus_frais —
+                   c'est exactement ce que la boucle §47 accepte de trader), sinon None ;
+      • dernier  : dernière valeur même périmée (affichée estompée) + age_s ;
+      • serie    : [(ts, consensus)] sur `fenetre_s` (6 h), downsamplée à max_pts ;
+      • pour/contre : décompte des voix d'agents au-delà d'une bande morte ±deadband
+                   (le vote à ~0 n'est pas une opinion), n_votes = voix journalisées.
+    Tri : |consensus frais| décroissant, symboles muets en fin."""
+    import time as _t
+    now = _t.time() if now is None else now
+    par = {}
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        s = str(e.get("symbol") or "").upper()
+        ts, c = e.get("ts"), e.get("consensus")
+        if (s and isinstance(ts, (int, float)) and isinstance(c, (int, float))
+                and now - ts <= fenetre_s):
+            par.setdefault(s, []).append(e)
+    out = []
+    for s in symbols or []:
+        s = str(s).upper()
+        rows = sorted(par.get(s) or [], key=lambda e: e["ts"])
+        serie = [[int(e["ts"]), round(float(e["consensus"]), 3)] for e in rows]
+        if len(serie) > max_pts:                 # downsample uniforme, garde le DERNIER point
+            pas = len(serie) / float(max_pts)
+            serie = [serie[int(i * pas)] for i in range(max_pts - 1)] + [serie[-1]]
+        dern = rows[-1] if rows else None
+        age = int(now - dern["ts"]) if dern else None
+        votes = (dern or {}).get("votes") or {}
+        nums = [v for v in votes.values() if isinstance(v, (int, float))]
+        c_now = round(float(dern["consensus"]), 3) if dern else None
+        out.append({"s": s,
+                    "c": c_now if (age is not None and age <= frais_s) else None,
+                    "dernier": c_now, "age_s": age, "serie": serie,
+                    "pour": sum(1 for v in nums if v > deadband),
+                    "contre": sum(1 for v in nums if v < -deadband),
+                    "n_votes": len(nums)})
+    out.sort(key=lambda r: -(abs(r["c"]) if r["c"] is not None else -1))
+    return out
+
+
 def chat_context(state):
     """Contexte COMPACT pour le chat du dashboard (PUR, testable) : l'essentiel de
     l'état déjà construit, SANS les blobs (bougies, carnet, viz, smc, future…) et
@@ -507,11 +552,10 @@ def build_state(symbol=None, tf="5m"):
             ents = fa._brain_entries()
             from config_utils import cfg as _cfg
             seuil = float(_cfg("FUTURES_AUTO_SEUIL_ENTREE", 0.35))
-            cons = []
-            for s in fa._universe():
-                c = fa.consensus_frais(ents, symbol=s)
-                cons.append({"s": s, "c": c})
-            cons.sort(key=lambda r: -(abs(r["c"]) if r["c"] is not None else -1))
+            # radar §47 enrichi : série 6 h + voix ± + fraîcheur (c = vue de la boucle)
+            cons = radar_univers(ents, fa._universe())
+            for r in cons:                       # minima contrat vs notional §75 (spec cachée)
+                r["faisable"] = _safe(lambda s=r["s"]: bool(fa._taille_faisable(s, ents)), True)
             out["consensus_univers"] = cons
             out["seuil"] = seuil
         except Exception:

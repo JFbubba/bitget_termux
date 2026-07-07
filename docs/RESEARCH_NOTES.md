@@ -3376,3 +3376,30 @@ au périmètre de scan de security_agent (scan générique : zéro mot d'ordre).
 4 tests ajoutés (parse ventilation, whitelist+curation explorateur, messages
 chat bornés/filtrés, contexte compact sans blob). Leviers .env :
 DASH_CHAT_MODEL_LOCAL/CLOUD, DASH_CHAT_MAX_TOKENS, DASH_CHAT_TIMEOUT_S.
+
+## §96 — RADAR DE CONSENSUS : REDESIGN EN INSTRUMENT (instruction propriétaire du 07/07/2026)
+
+Instruction : « fais de la carte de consensus un vrai outil dynamique, utile,
+visuellement parlant — sinon je ne vois pas l'utilité de l'afficher ». L'étoile
+radiale animée (satellites orbitaux) était de la décoration : elle ne montrait
+ni l'histoire, ni la distance au seuil, ni ce que la boucle allait FAIRE.
+Remplacée par un RADAR tabulaire par symbole, aligné sur la réalité de la
+boucle §47 :
+- serveur : `radar_univers()` (PUR, testé) construit depuis brain_log, par
+  symbole : dernier consensus avec la MÊME règle de fraîcheur que
+  `consensus_frais` (périmé > 15 min -> la boucle l'ignore -> affiché estompé
+  + ⚠), série 6 h downsamplée (48 pts), voix d'agents pour/contre (bande
+  morte ±0.1 — un vote à ~0 n'est pas une opinion), âge de lecture ;
+  + faisabilité §75 par symbole (`_taille_faisable`, spec en cache) ;
+- front : une LIGNE par symbole — barre centrée avec graduations au seuil
+  ±0.35, valeur, ● ambre = actionnable, ⛔ = infaisable (écarté à la
+  décision), sparkline 6 h avec lignes de seuil + momentum Δ1 h (↗/↘),
+  badge de POSITION tenue (sens + notional), fraîcheur colorée ; en tête :
+  jauge du net marché + compteurs ↑/↓/actionnables + la DÉCISION préview de
+  la boucle avec sa RAISON (le « et donc ? » du panneau) ; clic sur une
+  ligne = charge l'actif sur le graphique. Canvas/étoile supprimés (ainsi
+  que la légende à couches et ~60 lignes d'animation orbitale).
+Ce qui était invisible avant et se lit maintenant en 2 s : à quelle distance
+du seuil est chaque symbole, dans quel SENS ça évolue depuis 6 h, combien
+d'agents portent le signal, si la lecture est fraîche, si le candidat est
+tradable, et ce que la boucle va faire de tout ça.

@@ -82,14 +82,27 @@
   .bottom{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
   .foot{margin-top:8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);
     padding:6px 12px;color:var(--dim);font-size:10px;letter-spacing:1px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
-  .gstats{position:absolute;top:10px;right:10px;background:rgba(8,10,14,.7);border:1px solid var(--line);
-    border-radius:4px;padding:6px 8px;font-size:10px}
-  .legend{position:absolute;top:10px;left:10px;font-size:10px;background:rgba(8,10,14,.6);padding:4px 6px;border-radius:4px;display:flex;gap:4px;flex-wrap:wrap}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}
-  /* toggles d'indicateurs / couches : cliquer = afficher/masquer, double-clic = isoler */
-  .legend .lg{cursor:pointer;padding:1px 5px;border-radius:3px;border:1px solid transparent;user-select:none}
-  .legend .lg:hover{border-color:var(--line)}
-  .legend .lg.off{opacity:.32;text-decoration:line-through}
+  /* ===== radar de consensus (§47) : lignes par symbole, barre centrée vs seuil ===== */
+  .rc-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:10.5px;letter-spacing:0}
+  .rc-gauge{position:relative;width:190px;height:10px;background:#1C1914;border-radius:3px;flex:none}
+  .rc-gauge .zero,.rc-track .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:#3A3222}
+  .rc-gauge .tick,.rc-track .tick{position:absolute;top:0;bottom:0;width:1px;background:#4A3F28}
+  .rc-gauge .needle{position:absolute;top:-2px;bottom:-2px;width:2.5px;border-radius:1px}
+  .rc-h,.rc-r{display:grid;grid-template-columns:62px 96px minmax(150px,1fr) 66px 160px 60px 64px;
+    gap:8px;align-items:center;padding:3px 6px}
+  .rc-h{color:var(--dim);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    font-family:system-ui,sans-serif;border-bottom:1px solid var(--line)}
+  .rc-h .r,.rc-r .r{text-align:right}
+  .rc-r{border:1px solid transparent;border-radius:4px;cursor:pointer;font-size:10.5px}
+  .rc-r:hover{border-color:#3A3222;background:var(--panel2)}
+  .rc-r.on{border-color:var(--amber);background:#14110a}
+  .rc-r .sym{color:var(--accent)}
+  .rc-r.act .sym{color:var(--amber);font-weight:600}
+  .rc-track{position:relative;height:10px;background:#1C1914;border-radius:2px}
+  .rc-track .fill{position:absolute;top:1px;bottom:1px;border-radius:2px}
+  .rc-badge{display:inline-block;padding:0 6px;border-radius:3px;font-size:9px;letter-spacing:.06em;
+    font-family:system-ui,sans-serif;text-transform:uppercase;border:1px solid currentColor}
   .ind-bar{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
   .ind{cursor:pointer;font-size:9.5px;letter-spacing:.5px;padding:3px 8px;border-radius:4px;
     border:1px solid var(--line);color:var(--dim);background:var(--panel);user-select:none}
@@ -437,20 +450,13 @@
     </div>
   </div>
 
-  <div class="panel full" style="position:relative;margin-top:8px">
-    <h2>MiroFish · Carte de consensus <span class="dim" style="letter-spacing:0">— univers §47 · centre = net marché · rayon ∝ |consensus| · anneau = franchit le seuil ±0.35 · données réelles</span></h2>
-    <div class="legend" id="g-legend" title="clic = afficher/masquer · double-clic = isoler">
-      <span class="lg" data-cls="bull"><span class="dot" style="background:var(--green)"></span>haussier</span>
-      <span class="lg" data-cls="bear"><span class="dot" style="background:var(--red)"></span>baissier</span>
-      <span class="lg" data-cls="seuil"><span class="dot" style="background:var(--amber)"></span>≥ seuil (actionnable)</span>
-    </div>
-    <div class="gstats">
-      <div class="row"><span class="k">net consensus&nbsp;</span><span id="g-conv">—</span></div>
-      <div class="row"><span class="k">haussiers&nbsp;</span><span class="green" id="g-up">—</span></div>
-      <div class="row"><span class="k">baissiers&nbsp;</span><span class="red" id="g-down">—</span></div>
-      <div class="row"><span class="k">symboles&nbsp;</span><span id="g-nodes">—</span></div>
-    </div>
-    <canvas id="graph" height="300"></canvas>
+  <div class="panel full" style="margin-top:8px">
+    <h2>MiroFish · Radar de consensus <span class="dim" style="letter-spacing:0">— univers §47 · ce que VOIT la boucle (lecture fraîche &lt; 15 min) · barre = consensus vs seuil ±0.35 · clic = charger l'actif sur le graphique</span>
+      <span id="rc-badge" style="float:right;letter-spacing:0" class="dim">—</span></h2>
+    <div class="rc-head" id="rc-head">—</div>
+    <div class="rc-h"><span>SYMBOLE</span><span>POSITION</span><span>← SHORT · CONSENSUS · LONG →</span><span class="r">VALEUR</span><span>TENDANCE 6 H · Δ1 H</span><span class="r">VOIX ±</span><span class="r">ÂGE</span></div>
+    <div id="rc-rows"></div>
+    <div class="dim" style="font-size:9.5px;margin-top:6px;letter-spacing:0">● ambre = actionnable (|consensus| ≥ seuil) · ⛔ = infaisable (minima du contrat &gt; notional configuré, §75 — écarté à la décision) · une lecture plus vieille que 15 min est IGNORÉE par la boucle (fail-closed) et s'affiche estompée</div>
   </div>
 
   <div class="bottom">
@@ -873,72 +879,80 @@ function drawBook(ob,mid){
   el.innerHTML=html;
 }
 
-// ===== Carte de consensus de l'univers (§47) — DONNÉES RÉELLES, plus de faux nœuds =====
-// Étoile radiale : centre = net marché ; satellite = symbole de l'univers ; rayon ∝ |consensus|,
-// couleur = signe (vert/rouge, sémantique directionnel), anneau ambre = franchit le seuil d'entrée.
-let _consNodes=[],_consNet=0,_gseuil=0.35,gstarted=false,_consMap={};
-const CLS_ON={bull:true,bear:true,seuil:true};   // couches (toggle/isoler depuis la légende)
+// ===== Radar de consensus (§47) — ce que VOIT la boucle, par symbole =====
+// Ligne = symbole : barre centrée (consensus vs seuil ±), sparkline 6 h + Δ1 h,
+// voix d'agents pour/contre, fraîcheur (une lecture > 15 min est IGNORÉE par la
+// boucle -> estompée), faisabilité §75, position tenue. Clic = charger l'actif.
 const _reduceMotion=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-function setConsensusGraph(cons,seuil){
-  _gseuil=seuil||0.35;
-  const rows=(cons||[]).filter(r=>r&&r.s);
-  const vals=rows.map(r=>r.c).filter(v=>v!=null);
-  _consNet=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
-  const seen={};
-  _consNodes=rows.map((r,i)=>{                       // fusion avec l'état ANIMÉ précédent
-    const sym=(r.s||"").replace(/USDT$/,"");seen[sym]=1;
-    const prev=_consMap[sym]||{dm:0};
-    const n={sym,c:r.c,dm:prev.dm,ang:(i/Math.max(1,rows.length))*6.283-1.5708};
-    _consMap[sym]=n;return n;});
-  Object.keys(_consMap).forEach(k=>{if(!seen[k])delete _consMap[k];});
+function _rcSpark(serie,seuil){
+  if(!serie||serie.length<2)return'<span class="dim" style="font-size:9px">pas d\'historique</span>';
+  const w=118,h=22,t0=serie[0][0],t1=serie[serie.length-1][0];
+  const lim=Math.max(0.5,(seuil||0.35)*1.5,...serie.map(p=>Math.abs(p[1])));
+  const X=t=>t1===t0?w:((t-t0)/(t1-t0))*w, Y=v=>h/2-(v/lim)*(h/2-1.5);
+  const pts=serie.map(p=>X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join(" ");
+  const last=serie[serie.length-1][1],col=last>=0?"#3FBF7F":"#E5484D";
+  const ys=Y(seuil||0.35).toFixed(1),yn=Y(-(seuil||0.35)).toFixed(1);
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="vertical-align:middle">`
+    +`<line x1="0" x2="${w}" y1="${h/2}" y2="${h/2}" stroke="#292319" stroke-width="1"/>`
+    +`<line x1="0" x2="${w}" y1="${ys}" y2="${ys}" stroke="#4A3F28" stroke-width="0.6" stroke-dasharray="2,3"/>`
+    +`<line x1="0" x2="${w}" y1="${yn}" y2="${yn}" stroke="#4A3F28" stroke-width="0.6" stroke-dasharray="2,3"/>`
+    +`<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/>`
+    +`<circle cx="${X(serie[serie.length-1][0]).toFixed(1)}" cy="${Y(last).toFixed(1)}" r="1.8" fill="${col}"/></svg>`;
 }
-function drawGraph(){
-  const c=$("graph");if(!c)return;
-  const w=c.width=c.clientWidth,h=c.height,ctx=c.getContext("2d");
-  ctx.clearRect(0,0,w,h);
-  const cx=w/2,cy=h/2,R=Math.min(w/2,h/2)*0.66,t=Date.now()/1000;
-  const rot=_reduceMotion?0:t*0.02;                  // dérive orbitale LENTE (1 tour ≈ 5 min)
-  const XY=n=>[cx+Math.cos(n.ang+rot)*R,cy+Math.sin(n.ang+rot)*R];
-  // arêtes centre <- symbole : tirets en MARCHE vers le centre (vitesse ∝ |consensus|),
-  // opacité + épaisseur ∝ |consensus|, couleur = signe
-  _consNodes.forEach(n=>{
-    if(n.c==null)return;const cls=n.c>=0?"bull":"bear";if(!CLS_ON[cls])return;
-    n.dm+= (Math.min(1,Math.abs(n.c))-n.dm)*(_reduceMotion?1:0.07);   // amplitude LISSÉE
-    const[x,y]=XY(n),mag=n.dm;
-    ctx.strokeStyle=(n.c>=0?"rgba(63,191,127,":"rgba(229,72,77,")+(0.10+0.55*mag).toFixed(3)+")";
-    ctx.lineWidth=0.6+2.6*mag;
-    if(!_reduceMotion){ctx.setLineDash([3,9]);ctx.lineDashOffset=-((t*26*(0.25+mag))%12);}
-    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(cx,cy);ctx.stroke();
-    ctx.setLineDash([]);
-  });
-  // nœud central = net marché : cœur qui RESPIRE avec |net| + onde quand ça s'anime
-  const netCol=_consNet>=0.05?"#3FBF7F":_consNet<=-0.05?"#E5484D":"#8E8574";
-  const breath=_reduceMotion?0:Math.sin(t*1.7)*2.2*Math.min(1,Math.abs(_consNet)*3+0.25);
-  if(!_reduceMotion&&Math.abs(_consNet)>=0.05){       // onde émise (période 2 s)
-    const ph=(t%2)/2;
-    ctx.strokeStyle=netCol+Math.round(60*(1-ph)).toString(16).padStart(2,"0");
-    ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(cx,cy,19+breath+ph*26,0,6.283);ctx.stroke();
+function _rcDelta1h(serie){
+  if(!serie||serie.length<2)return null;
+  const t1=serie[serie.length-1][0];let ref=serie[0][1];
+  for(const p of serie){if(t1-p[0]<=3600){ref=p[1];break;}}
+  return serie[serie.length-1][1]-ref;
+}
+function renderRadar(st){
+  const host=$("rc-rows");if(!host)return;
+  const viz=st.viz||{},rows=viz.consensus_univers||[],seuil=viz.seuil||0.35;
+  const fu=st.futures_live||{},fd=fu.decision||{};
+  const posMap={};(fu.positions||[]).forEach(p=>{posMap[String(p.symbol||"").toUpperCase()]=p;});
+  const fresh=rows.filter(r=>r.c!=null);
+  const net=fresh.length?fresh.reduce((a,r)=>a+r.c,0)/fresh.length:null;
+  const nAct=fresh.filter(r=>Math.abs(r.c)>=seuil).length;
+  const badge=$("rc-badge");
+  if(badge)badge.innerHTML=(net!=null)
+    ?`net marché <b class="${net>=0.05?"green":net<=-0.05?"red":"dim"}">${(net>=0?"+":"")+net.toFixed(2)}</b>`
+      +` · <span class="green">${fresh.filter(r=>r.c>=0).length}↑</span> <span class="red">${fresh.filter(r=>r.c<0).length}↓</span>`
+      +` · <b class="amber">${nAct}</b> ≥ seuil ${seuil}`
+    :"aucune lecture fraîche";
+  const head=$("rc-head");
+  if(head){
+    const pos=net!=null?(50+Math.max(-1,Math.min(1,net))*50):50;
+    head.innerHTML=`<div class="rc-gauge" title="consensus net de l'univers (moyenne des lectures fraîches) — graduations = seuil ±${seuil}">`
+      +`<i class="zero"></i><i class="tick" style="left:${50+seuil*50}%"></i><i class="tick" style="left:${50-seuil*50}%"></i>`
+      +`<i class="needle" style="left:${pos}%;background:${net==null?"#8E8574":net>=0?"var(--green)":"var(--red)"}"></i></div>`
+      +`<span>${fd.action
+        ?`boucle → <b class="${fd.action==="ouvrir"?"amber":"accent"}">${esc(fd.action)}${fd.side?" "+esc(fd.side):""}</b> <span class="dim">— ${esc(String(fd.raison||"").slice(0,120))}</span>`
+        :'<span class="dim">décision de la boucle indisponible</span>'}</span>`;
   }
-  ctx.fillStyle=netCol+"22";ctx.beginPath();ctx.arc(cx,cy,19+breath,0,6.283);ctx.fill();
-  ctx.fillStyle=netCol;ctx.beginPath();ctx.arc(cx,cy,7+breath*0.35,0,6.283);ctx.fill();
-  ctx.fillStyle="#8E8574";ctx.font="8.5px system-ui,sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
-  ctx.fillText("MARCHÉ",cx,cy-15-Math.max(0,breath));
-  // satellites : symboles réels (rayon lissé, anneau pulsé = franchit le seuil)
-  _consNodes.forEach(n=>{
-    if(n.c==null)return;const cls=n.c>=0?"bull":"bear";if(!CLS_ON[cls])return;
-    const[x,y]=XY(n),mag=n.dm,r=4+7*mag,col=n.c>=0?"#3FBF7F":"#E5484D";
-    if(Math.abs(n.c)>=_gseuil&&CLS_ON.seuil){        // anneau ambre = actionnable (≥ seuil ±0.35)
-      const pr=r+4+(_reduceMotion?0:1.4*(1+Math.sin(t*2)));
-      ctx.strokeStyle="#E5A93D";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,pr,0,6.283);ctx.stroke();
-    }
-    ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,6.283);ctx.fill();
-    ctx.fillStyle="#C9C4B8";ctx.font="9px ui-monospace,monospace";ctx.textAlign="center";ctx.textBaseline="middle";
-    ctx.fillText(n.sym,x,y-r-6);                       // ticker réel = identité (jamais couleur seule)
-    ctx.fillStyle=col==="#3FBF7F"?"#3FBF7F":"#E5484D";ctx.font="8px ui-monospace,monospace";
-    ctx.fillText((n.c>=0?"+":"")+n.c.toFixed(2),x,y+r+7);
-  });
-  if(!_reduceMotion)requestAnimationFrame(drawGraph);   // sinon : redessin sur maj de données
+  host.innerHTML=rows.map(r=>{
+    const sym=String(r.s||""),der=r.dernier,c=r.c;
+    const stale=(c==null&&der!=null),none=(der==null),v=(c!=null?c:der);
+    const half=v!=null?Math.min(1,Math.abs(v))*50:0,left=(v!=null&&v>=0)?50:50-half;
+    const col=v==null?"#8E8574":(v>=0?"var(--green)":"var(--red)");
+    const p=posMap[sym],act=(c!=null&&Math.abs(c)>=seuil);
+    const d1=_rcDelta1h(r.serie);
+    const age=r.age_s==null?"—":(r.age_s<90?r.age_s+" s":r.age_s<5400?Math.round(r.age_s/60)+" min":(r.age_s/3600).toFixed(1)+" h");
+    return `<div class="rc-r ${sym===SYMBOL?"on":""} ${act?"act":""}" data-sym="${esc(sym)}" title="clic : afficher ${esc(sym)} sur le graphique">`
+      +`<span class="sym">${esc(sym.replace(/USDT$/,""))}</span>`
+      +`<span>${p?`<span class="rc-badge ${p.side==="long"?"green":"red"}">${esc(p.side)} $${p.notional_usdt}</span>`:'<span class="dim">·</span>'}</span>`
+      +`<span class="rc-track">${none?"":`<i class="zero"></i><i class="tick" style="left:${50+seuil*50}%"></i><i class="tick" style="left:${50-seuil*50}%"></i>`
+        +`<i class="fill" style="left:${left}%;width:${half}%;background:${col};opacity:${stale?0.35:0.9}"></i>`}</span>`
+      +`<span class="r" style="color:${col}">${v!=null?((v>=0?"+":"")+v.toFixed(2)):"—"}${act?' <b class="amber" title="actionnable : franchit le seuil">●</b>':""}${r.faisable===false?' <span title="infaisable : minima du contrat > notional configuré (§75)">⛔</span>':""}</span>`
+      +`<span>${_rcSpark(r.serie,seuil)}${d1!=null?` <span class="${d1>0.02?"green":d1<-0.02?"red":"dim"}" style="font-size:9px">${d1>0.02?"↗":d1<-0.02?"↘":"→"}${Math.abs(d1)>=0.005?Math.abs(d1).toFixed(2):""}</span>`:""}</span>`
+      +`<span class="r">${r.n_votes?`<span class="green">${r.pour}↑</span> <span class="red">${r.contre}↓</span>`:'<span class="dim">—</span>'}</span>`
+      +`<span class="r ${none||stale?"red":(r.age_s>120?"amber":"green")}">${none?"jamais vu":(stale?age+" ⚠":age)}</span>`
+      +`</div>`;
+  }).join("")||'<div class="dim" style="padding:8px">univers vide</div>';
 }
+$("rc-rows").addEventListener("click",e=>{
+  const row=e.target.closest(".rc-r");
+  if(row&&row.dataset.sym)selectSymbol(row.dataset.sym);
+});
 
 // ---- cerveau / essaim : chaque agent est une couche isolable au clic ----
 let brainIso=null;
@@ -1264,17 +1278,8 @@ function renderState(){
     if(pj.p_up!=null){$("br-pup").textContent=Math.round(pj.p_up*100)+"%";$("br-pdn").textContent=Math.round(pj.p_down*100)+"%";setBar("br-pbar",pj.p_up*100);}
     else{$("br-pup").textContent="—";$("br-pdn").textContent="—";setBar("br-pbar",0);}
     if(st.tf)$("c-tf").textContent=st.tf.toUpperCase();
-    // carte de consensus (données réelles §47) : centre = net marché, satellites = symboles
-    const _cu=(st.viz||{}).consensus_univers||[], _seuil=(st.viz||{}).seuil||0.35;
-    setConsensusGraph(_cu,_seuil);
-    if(!gstarted){gstarted=true;drawGraph();} else if(_reduceMotion){drawGraph();}
-    const _nBull=_consNodes.filter(n=>n.c!=null&&n.c>=0).length;
-    const _nBear=_consNodes.filter(n=>n.c!=null&&n.c<0).length;
-    const _nAct=_consNodes.filter(n=>n.c!=null&&Math.abs(n.c)>=_seuil).length;
-    $("g-conv").textContent=(_consNet>=0?"+":"")+_consNet.toFixed(2);
-    $("g-conv").className=_consNet>=0.05?"green":_consNet<=-0.05?"red":"dim";
-    $("g-up").textContent=_nBull;$("g-down").textContent=_nBear;
-    $("g-nodes").textContent=_consNodes.length+(_nAct?(" · "+_nAct+" ≥seuil"):"");
+    // radar de consensus (données réelles §47) : lignes par symbole + jauge nette
+    try{ renderRadar(st); }catch(e){}
     $("m-fg").textContent=fg?(fg.value+" · "+fg.classification):"—";if(fg)$("m-fg").className=fg.value<25?"red":fg.value>75?"green":"amber";
     const df=mk.defi;if(df){$("m-tvl").textContent="$"+human(df.total_tvl);$("m-chains").textContent=(df.top_chains||[]).map(c=>c.name+" $"+human(c.tvl)).join(" · ");}
     $("m-vix").textContent=fmt(m.vix);$("m-dxy").textContent=(m.dxy_change_pct==null)?"—":fmt(m.dxy_change_pct)+"%";
@@ -1425,12 +1430,6 @@ function applyIndUI(){document.querySelectorAll("#ind-bar .ind").forEach(el=>el.
 document.querySelectorAll("#ind-bar .ind").forEach(el=>bindClickDbl(el,
   ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}},
   ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}}));
-
-// --- légende du graphe : clic = toggle d'une couche, double-clic = isoler ---
-function applyLegendUI(){document.querySelectorAll("#g-legend .lg").forEach(el=>el.classList.toggle("off",!CLS_ON[el.dataset.cls]));}
-document.querySelectorAll("#g-legend .lg").forEach(el=>bindClickDbl(el,
-  ()=>{CLS_ON[el.dataset.cls]=!CLS_ON[el.dataset.cls];applyLegendUI();},
-  ()=>{const k=el.dataset.cls;Object.keys(CLS_ON).forEach(x=>CLS_ON[x]=(x===k));applyLegendUI();}));
 
 // --- sélecteur de timeframe (5m / 15m / 1h) : change TF et rafraîchit ---
 document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("click",()=>{
