@@ -255,7 +255,7 @@ def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None
     }
 
 
-ALLOWED_TF = ("5m", "15m", "1h")
+ALLOWED_TF = ("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w")
 
 
 def build_state(symbol=None, tf="5m"):

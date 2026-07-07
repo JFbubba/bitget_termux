@@ -305,7 +305,7 @@
     <div class="panel" style="position:relative">
       <h2><span id="c-sym">BTC</span> · <span id="c-tf">5M</span> · <span id="c-price">—</span>
         <span id="tf-bar" style="float:right">
-          <span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="1h">1h</span>
+          <span class="tfbtn" data-tf="1m">1m</span><span class="tfbtn on" data-tf="5m">5m</span><span class="tfbtn" data-tf="15m">15m</span><span class="tfbtn" data-tf="30m">30m</span><span class="tfbtn" data-tf="1h">1h</span><span class="tfbtn" data-tf="4h">4h</span><span class="tfbtn" data-tf="1d">1d</span><span class="tfbtn" data-tf="1w">1w</span>
         </span>
       </h2>
       <div id="chart" style="height:440px;width:100%"></div>
@@ -1440,7 +1440,7 @@ document.querySelectorAll("#ind-bar .ind").forEach(el=>bindClickDbl(el,
   ()=>{LAYERS[el.dataset.ind]=!LAYERS[el.dataset.ind];applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}},
   ()=>{const k=el.dataset.ind;Object.keys(LAYERS).forEach(x=>LAYERS[x]=(x===k));applyIndUI();applyChartLayers();try{drawSMC(window._SMC);}catch(e){}}));
 
-// --- sélecteur de timeframe (5m / 15m / 1h) : change TF et rafraîchit ---
+// --- sélecteur de timeframe (1m/5m/15m/30m/1h/4h/1d/1w) : change TF et rafraîchit ---
 document.querySelectorAll("#tf-bar .tfbtn").forEach(el=>el.addEventListener("click",()=>{
   TF=el.dataset.tf;   // changement de TF -> reconnecte le flux (FULL puis deltas)
   document.querySelectorAll("#tf-bar .tfbtn").forEach(x=>x.classList.toggle("on",x===el));
