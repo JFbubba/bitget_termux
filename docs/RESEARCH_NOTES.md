@@ -3318,3 +3318,20 @@ reste en DRY (cron */5) : le journal live mesurera le spread capturable RÉEL
 (microprice + carnet, ce que le banc n'a pas) ; ré-évaluation seulement si le
 DRY contredit le banc, ou avec des frais maker ≈ 0 (promo/VIP). Le banc mm_lab
 est rejouable : python mm_lab.py SYMBOL JOURS.
+
+ADDENDUM MULTI-PAIRES (07/07/2026, après-midi) : le module cote désormais
+plusieurs paires (MM_SYMBOLS CSV — état/inventaire PAR paire, specs de
+l'exchange par paire, budget/inventaire max PARTAGÉS divisés par le nombre de
+paires, stop journalier GLOBAL), et le banc a un mode univers
+(python mm_lab.py --univers 30) : spread carnet L1 RÉEL mesuré par paire,
+frais maker MESURÉS sur nos fills (10 bps, 8 bps déduction BGB active — le
+makerFeeRate public à 20 bps est un plafond théorique, pas le taux du compte).
+MESURE sur les 10 paires de l'univers (30 j de 5 m, frais 8 bps) : ÉCHEC
+PARTOUT, folds+ 0 % sur chaque paire — du moins pire au pire :
+LABUSDT −0.17 $/j · XAUT −0.22 · BGB −0.29 · SOL −0.30 · ETH −0.33 ·
+BTC −0.34 · XRP −0.35 · LIT −0.35 · DOGE −0.38 · HYPE −0.39. Les spreads
+carnet plus larges (LIT 3.8 bps, LAB 1.8 bps) ne compensent PAS : l'adverse
+selection croît avec le spread/la vol au même rythme que le spread encaissé.
+La diversification (principe Virtu n°4) diversifie les POCHES, pas le signe
+de l'espérance. DÉCISION inchangée et RENFORCÉE : MM_AUTO reste OFF sur tout
+l'univers ; le DRY multi-paires reste le seul juge encore ouvert.
