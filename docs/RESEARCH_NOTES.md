@@ -3101,3 +3101,11 @@ P(hausse) 54 % » alors que la porte d'edge rend la voix MUETTE (vote 0 au conse
 « ARMÉE · MUETTE (edge −0.014, brut) » vs « PARLE » ; anneau du nœud fusion AMBRE
 quand armée-mais-muette (vert = parle, gris = OFF) + suffixe « (muette) ». Rien
 d'autre — pertinence avant densité.
+
+## §87 (addendum) — Un SEUL réseau au dashboard
+
+Précision propriétaire : « il y a toujours les deux réseaux » — le panneau
+« Anatomie du réseau » (§85) est SUPPRIMÉ aussi (DOM + rendu + bloc serveur, état
+~15 Ko plus léger). Il ne reste que la carte de connectivité animée §74, enrichie
+du seul ajout jugé utile (§87 : état MUETTE/PARLE de la voix). `neural_net.anatomy()`
+et `anatomy_live()` restent disponibles en CLI/API pour inspection ponctuelle.

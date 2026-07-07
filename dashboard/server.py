@@ -797,8 +797,7 @@ def build_state(symbol=None, tf="5m"):
         except Exception:
             return {}
     state["overlay_ic"] = _cached("overlay_ic", 300, lambda: _safe(_overlay_ic, {}))
-    state["nn_anatomie"] = _cached("nn_anatomie", 600,
-                                   lambda: _safe(lambda: __import__("neural_net").anatomy()))
+
     # Critère de Kelly (advisory, lecture seule) : W/R mesurés -> fraction bornée + taille
     # recommandée/surface. Edge négatif -> 0. Aucun ordre.
     # capital & W/R RÉUTILISÉS de l'état déjà calculé (real_positions + futures_live + stats)
