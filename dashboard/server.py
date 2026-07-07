@@ -964,12 +964,30 @@ def main():
     print(f"=== DASHBOARD (lecture seule) sur http://{HOST}:{PORT} ===")
     print("Mode: PAPER / DRY-RUN. Aucun ordre. VERDICT: SAFE")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
+    # §93 : écoute AUSSI sur l'IP Tailscale si présente (accès smartphone via le
+    # tailnet privé WireGuard — l'IP 100.64/10 n'est PAS routable depuis Internet ;
+    # l'interface publique du VPS reste fermée, on ne bind JAMAIS 0.0.0.0).
+    extra = None
+    try:
+        import subprocess
+        ts_ip = subprocess.run(["tailscale", "ip", "-4"], capture_output=True,
+                               text=True, timeout=5).stdout.strip().splitlines()
+        ts_ip = ts_ip[0].strip() if ts_ip else ""
+        if ts_ip.startswith("100.") and ts_ip != HOST:
+            import threading
+            extra = ThreadingHTTPServer((ts_ip, PORT), Handler)
+            threading.Thread(target=extra.serve_forever, daemon=True).start()
+            print(f"Dashboard aussi sur le tailnet : http://{ts_ip}:{PORT}")
+    except Exception:
+        extra = None                                   # pas de tailscale -> localhost seul
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nArrêt du dashboard.")
     finally:
         server.server_close()
+        if extra is not None:
+            extra.server_close()
 
 
 if __name__ == "__main__":
