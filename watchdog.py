@@ -450,8 +450,7 @@ CARTE_FRAICHEUR = [
     # §89 : la machinerie §76-88 aussi — « rien d'aveugle » vaut pour les nouveaux organes.
     (".alt_carry_journal.jsonl", 130),      # moisson funding (cron :35, marge 2 cycles)
     (".liquidity_journal.jsonl", 130),      # gestion de liquidité (cron :15)
-    # (".mm_journal.jsonl", 20),            # market making §94 — DÉCOMMENTER avec sa cron */5
-    #                                       # (sans cron, l'entrée crierait à tort « figé »)
+    (".mm_journal.jsonl", 20),              # market making §94 (cron */5 posée le 07/07, marge 4 cycles)
     (".daily_digest_stamp", 26 * 60),       # digest quotidien 07:00
     ("neural_net_meta.json", 26 * 60),      # fine-tune NN 04:20
     ("strategies_out", 80 * 60),            # lab mar/jeu/sam (gap max sam->mar + marge)
