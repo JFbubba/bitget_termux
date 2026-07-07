@@ -87,3 +87,4 @@ neural_net_pretrained.pt
 .xs_promotion_alerted
 .trades_archive.jsonl
 .daily_digest_stamp
+trading_real_ledger.json
