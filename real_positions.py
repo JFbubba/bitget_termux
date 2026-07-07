@@ -4,7 +4,7 @@ futures). LECTURE SEULE.
 
 Classement : SAFE. Uniquement des GET signés de CONSULTATION (soldes/positions du
 compte réel) — AUCUN ordre, aucune écriture, aucun retrait. Réutilise le signeur de
-`bitget_balance_reader` (clé Bitget = Trade only, jamais Withdraw). Chaque catégorie
+`bitget_balance_reader` (clé Bitget = Trade only, jamais de retrait). Chaque catégorie
 est best-effort : une erreur/endpoint vide -> liste vide, jamais d'exception qui
 remonte (le dashboard reste debout).
 
@@ -142,6 +142,25 @@ def futures():
         })
     out.sort(key=lambda r: -abs(r["upnl_usdt"]))
     return out
+
+
+def parse_all_account_balance(rows):
+    """Parse la ventilation officielle par type de compte (PUR, testable) :
+    [{accountType, usdtBalance}] -> {"accounts": {type: usdt}, "total_usdt": somme}."""
+    accounts = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        at = str(row.get("accountType") or "").lower()
+        if at:
+            accounts[at] = round(_num(row.get("usdtBalance")), 2)
+    return {"accounts": accounts, "total_usdt": round(sum(accounts.values()), 2)}
+
+
+def all_account_balance():
+    """Portefeuille TOTAL (tous les comptes : spot/futures/earn/bots/marge/funding)
+    via l'endpoint officiel de consultation. LECTURE SEULE, 1 GET signé."""
+    return parse_all_account_balance(_signed_get("/api/v2/account/all-account-balance"))
 
 
 def snapshot():

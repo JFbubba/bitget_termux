@@ -3335,3 +3335,44 @@ selection croît avec le spread/la vol au même rythme que le spread encaissé.
 La diversification (principe Virtu n°4) diversifie les POCHES, pas le signe
 de l'espérance. DÉCISION inchangée et RENFORCÉE : MM_AUTO reste OFF sur tout
 l'univers ; le DRY multi-paires reste le seul juge encore ouvert.
+
+## §95 — DASHBOARD : PORTEFEUILLE TOTAL, RÉFLEXION VIVANTE, CHAT LLM, EXPLORATEUR API (instruction propriétaire du 07/07/2026)
+
+Instruction : « ajouter le montant total du portefeuille · un cadre pour
+visualiser la réflexion en cours · un cadre chat bot (toi ou un autre LLM) ·
+une visualisation de tout ce que fournit Bitget via l'API ». Quatre ajouts,
+TOUS en lecture seule (le dashboard ne peut toujours RIEN exécuter) :
+1. **Portefeuille total** : `real_positions.all_account_balance()` (endpoint
+   officiel all-account-balance, 1 GET signé de consultation, parse PUR testé)
+   -> bandeau « RÉEL PORTEFEUILLE » + chips de ventilation par compte
+   (spot/futures/earn/bots/marge/funding) dans la carte positions. ~1 145 $
+   au 07/07 (earn 686 + futures 208 + spot 113 + bots 95 + marge 44).
+2. **Réflexion en cours** : carte narrative rendue CÔTÉ CLIENT depuis l'état
+   déjà servi (zéro producteur en plus) — cerveau (biais/consensus/conviction
+   ajustée/accord/groupthink + voix décisives avec leurs notes), boucle
+   directionnelle (décision préview + RAISON + throttle + positions), gardes
+   (kill-switch, stop journalier avec marge restante, murs), méthodes.
+3. **Chat** : POST `/api/chat` -> `dash_chat.py` (SAFE, fail-safe) avec
+   contexte COMPACT `chat_context()` (pur, testé, ~4.5k chars — les journaux
+   bruts des méthodes en sont exclus, mesurés à 3.3k chars pour rien).
+   Backends : OpenRouter cloud par DÉFAUT (anthropic/claude-haiku-4.5, 1.4-3 s
+   MESURÉ, budget journalier PARTAGÉ avec la 15ᵉ voix : 0.50 $/j + ledger) ;
+   Ollama local qwen2.5:7b en OPTION (gratuit mais MESURÉ impraticable sur
+   gros contexte : prompt-eval < 4 tok/s quand le modèle est éjecté vers le
+   swap par les boucles — timeout à 2 min sur ~1 850 tokens). L'historique
+   client est BORNÉ (8 messages) et FILTRÉ (un rôle system injecté côté
+   navigateur est ignoré). Le LLM ne peut RIEN exécuter : il reçoit un dict,
+   rend du texte.
+4. **Explorateur API Bitget** : GET `/api/bitget` -> `bitget_explorer.py`
+   (SAFE) — 15 sections WHITELISTÉES (compte : soldes, avoirs spot/earn,
+   compte+positions futures, marge iso/croisée, ordres spot ouverts,
+   fills/bills futures via futures_report ; marché : tickers spot/futures,
+   funding, open interest, annonces scorées), requête À LA DEMANDE (cache
+   30 s), rendu tableau générique (epoch ms/s -> UTC, échappement HTML).
+   AUCUN chemin d'ordre dans le module (fills/bills passent par les lecteurs
+   déjà audités) ; sections virements/retraits volontairement ABSENTES.
+Sécurité : `bitget_explorer.py`, `dash_chat.py`, `real_positions.py` ajoutés
+au périmètre de scan de security_agent (scan générique : zéro mot d'ordre).
+4 tests ajoutés (parse ventilation, whitelist+curation explorateur, messages
+chat bornés/filtrés, contexte compact sans blob). Leviers .env :
+DASH_CHAT_MODEL_LOCAL/CLOUD, DASH_CHAT_MAX_TOKENS, DASH_CHAT_TIMEOUT_S.

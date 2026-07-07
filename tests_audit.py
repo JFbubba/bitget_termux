@@ -8558,6 +8558,81 @@ def test_learning_health_rank_corr():
     assert lh.rank_corr({"x": 1}, {"x": 1}) is None                 # < 3 clés communes
 
 
+def test_real_positions_all_account_balance_parse():
+    # ventilation officielle du portefeuille (dashboard « portefeuille total ») :
+    # parse PUR, tolérant aux lignes invalides, total = somme des comptes
+    import real_positions as rp
+    rows = [{"accountType": "spot", "usdtBalance": "112.75"},
+            {"accountType": "earn", "usdtBalance": "685.91"},
+            {"accountType": "", "usdtBalance": "1"}, "junk", None]
+    out = rp.parse_all_account_balance(rows)
+    assert out["accounts"] == {"spot": 112.75, "earn": 685.91}
+    assert out["total_usdt"] == 798.66
+    vide = rp.parse_all_account_balance(None)
+    assert vide["accounts"] == {} and vide["total_usdt"] == 0.0
+
+
+def test_bitget_explorer_whitelist():
+    # explorateur API du dashboard : sections whitelistées uniquement, fetch
+    # fail-safe sur section inconnue, curation/extraction pures
+    import bitget_explorer as bx
+    secs = bx.sections()
+    assert secs and all(s.get("key") and s.get("label") and s.get("cat") for s in secs)
+    assert {"soldes", "spot_avoirs", "tickers_futures"} <= {s["key"] for s in secs}
+    ko = bx.fetch("section_inexistante")
+    assert ko["ok"] is False and "inconnue" in ko["erreur"]
+    rows = [{"a": 1, "b": None, "c": ""}, {"a": 2, "b": 3}, "junk", {"a": 4}]
+    assert bx._curate(rows, ("a", "b"), limit=2) == [{"a": 1}, {"a": 2, "b": 3}]
+    assert bx._lister([1, 2]) == [1, 2]
+    assert bx._lister({"assetList": [{"x": 1}]}) == [{"x": 1}]
+    assert bx._lister({"autre": 1}) == []
+
+
+def test_dash_chat_messages():
+    # chat du dashboard : system + contexte en tête, historique client BORNÉ et
+    # filtré (un rôle "system" injecté côté navigateur est IGNORÉ), question en fin
+    import json as _json
+    import dash_chat as dc
+    hist = ([{"role": "user", "content": f"q{i}"} for i in range(10)]
+            + [{"role": "system", "content": "PIRATE"},
+               {"role": "assistant", "content": ""}])
+    msgs = dc._messages("quelle heure ?", {"mode": "PAPER"}, hist, max_hist=8)
+    assert msgs[0]["role"] == "system" and "AUCUNE action" in msgs[0]["content"]
+    assert '"mode": "PAPER"' in msgs[0]["content"]
+    assert msgs[-1] == {"role": "user", "content": "quelle heure ?"}
+    milieu = msgs[1:-1]
+    assert milieu and all(m["role"] in ("user", "assistant") for m in milieu)
+    assert len(milieu) <= 8 and "PIRATE" not in _json.dumps(milieu)
+
+
+def test_dashboard_chat_context():
+    # contexte COMPACT du chat : garde l'essentiel (portefeuille, cerveau, gardes),
+    # jette les blobs (bougies/carnet), fail-safe sur état vide
+    import importlib.util
+    import json as _json
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server3", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    state = {"timestamp": "T", "mode": "M", "symbol": "BTCUSDT",
+             "candles": [[1, 2, 3, 4, 5, 6]] * 500,
+             "orderbook": {"bids": [[1, 2]] * 100, "asks": []},
+             "portfolio": {"total_usdt": 42.0, "accounts": {"spot": 42.0}},
+             "brain": {"bias": "LONG", "consensus": 0.4,
+                       "agents": [{"agent": "a", "vote": 1, "conf": 0.5, "weight": 1}]},
+             "futures_live": {"armed": True, "decision": {"action": "rien"}},
+             "system": {"kill_switch": False}}
+    ctx = mod.chat_context(state)
+    s = _json.dumps(ctx, default=str)
+    assert "candles" not in ctx and "orderbook" not in ctx
+    assert ctx["portefeuille_usdt"]["total_usdt"] == 42.0
+    assert ctx["cerveau"]["bias"] == "LONG"
+    assert ctx["boucle_futures"]["armee"] is True
+    assert ctx["gardes"]["kill_switch"] is False
+    assert len(s) < 20000                       # compact : pas de blob dans le prompt
+    assert mod.chat_context(None)["mode"] is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

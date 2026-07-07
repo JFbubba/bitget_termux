@@ -147,6 +147,29 @@
   .rt-r .sym{color:var(--accent);font-weight:600}
   .rt-r .num{white-space:nowrap}
   .rt-empty{color:var(--dim);padding:10px 6px;letter-spacing:.08em}
+  /* ===== chat (questions au bot) + explorateur API Bitget ===== */
+  .chat-log{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+  .chat-m{border:1px solid var(--line);border-radius:4px;padding:6px 9px;font-size:11.5px;
+    line-height:1.55;white-space:pre-wrap;word-break:break-word;max-width:88%}
+  .chat-m.user{align-self:flex-end;background:#1C1914;color:var(--accent)}
+  .chat-m.bot{align-self:flex-start;background:var(--panel2)}
+  .chat-m .who{display:block;font-size:8.5px;letter-spacing:.1em;color:var(--dim);
+    text-transform:uppercase;font-family:system-ui,sans-serif;margin-bottom:2px}
+  .chat-in{flex:1;background:#1C1914;border:1px solid var(--line);border-radius:4px;
+    color:var(--txt);font:inherit;padding:7px 9px;outline:none;min-width:120px}
+  .chat-in:focus{border-color:var(--phos)}
+  .bx-btn{background:#1C1914;border:1px solid var(--line);border-radius:4px;color:var(--amber);
+    font:inherit;font-size:10px;letter-spacing:.08em;padding:6px 12px;cursor:pointer;text-transform:uppercase}
+  .bx-btn:hover{border-color:var(--phos)} .bx-btn:disabled{opacity:.4;cursor:default}
+  .bx-sel{background:#1C1914;border:1px solid var(--line);border-radius:4px;color:var(--txt);
+    font:inherit;font-size:10.5px;padding:4px 6px;max-width:340px}
+  .bx-table{border-collapse:collapse;width:100%;font-size:10.5px}
+  .bx-table th{color:var(--dim);font-size:9px;letter-spacing:.08em;text-transform:uppercase;
+    font-family:system-ui,sans-serif;text-align:left;border-bottom:1px solid var(--line);
+    padding:4px 8px;white-space:nowrap}
+  .bx-table td{padding:3px 8px;border-bottom:1px solid #1C1914;white-space:nowrap}
+  .bx-table td.num{text-align:right}
+  .bx-table tr:hover td{background:var(--panel2)}
   .rt-side{display:inline-block;padding:1px 7px;border-radius:3px;font-size:9.5px;
     letter-spacing:.08em;font-family:system-ui,sans-serif;font-weight:700}
   .rt-side.long{color:#07130c;background:var(--green)}
@@ -219,6 +242,10 @@
     <div class="met voie">
       <span class="l"><span class="reel">RÉEL</span> PNL BOT</span>
       <span class="v"><span id="t-pnl">—</span> <span class="dim" style="font-size:10px"><span id="t-fills">—</span> fills</span></span>
+    </div>
+    <div class="met voie" title="portefeuille Bitget TOTAL, tous comptes (spot + futures + earn + bots + marge + funding) — GET signé de consultation, rafraîchi ~2 min">
+      <span class="l"><span class="reel">RÉEL</span> PORTEFEUILLE</span>
+      <span class="v"><span id="pf-total">—</span> <span class="dim" style="font-size:10px" id="pf-n"></span></span>
     </div>
     <div class="met voie">
       <span class="l">régime</span>
@@ -300,6 +327,7 @@
   <div class="panel full" style="margin-top:8px">
     <h2>Positions RÉELLES en cours <span class="dim" style="letter-spacing:0">— compte réel · lecture seule · spot · marge isolée · marge croisée · futures</span>
       <span id="rp-tot" class="dim" style="float:right;letter-spacing:0">—</span></h2>
+    <div class="chips" id="pf-chips" style="margin:0 0 10px" title="ventilation officielle du portefeuille par type de compte (all-account-balance)"></div>
     <div class="rp-grid">
       <div class="rp-col"><div class="rp-h"><span>Spot</span><span id="rp-spot-n"></span></div><div id="rp-spot"></div></div>
       <div class="rp-col"><div class="rp-h"><span>Marge isolée</span><span id="rp-iso-n"></span></div><div id="rp-iso"></div></div>
@@ -361,6 +389,11 @@
       </div>
       <div class="agents" id="br-agents"></div>
     </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Réflexion en cours <span class="dim" style="letter-spacing:0">— le raisonnement vivant du bot : cerveau → décision → gardes → méthodes (relu à chaque cycle, lecture seule)</span></h2>
+    <div id="reflexion" style="font-size:11px;line-height:2;letter-spacing:0">—</div>
   </div>
 
   <div class="panel full" style="margin-top:8px">
@@ -537,6 +570,23 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Chat · questions au bot <span class="dim" style="letter-spacing:0">— LLM lecture seule (ne peut RIEN exécuter) · contexte = état live du dashboard · local gratuit / cloud budgeté</span>
+      <span style="float:right;letter-spacing:0"><select id="chat-be" class="bx-sel"><option value="cloud">cloud · rapide (budgété 0,50 $/j)</option><option value="local">local · qwen2.5:7b (lent, gratuit)</option></select></span></h2>
+    <div id="chat-log" class="chat-log"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <input id="chat-in" class="chat-in" placeholder="ex : pourquoi la boucle n'a pas tradé aujourd'hui ? que contient mon portefeuille ?" autocomplete="off">
+      <button id="chat-send" class="bx-btn">Envoyer</button>
+    </div>
+  </div>
+
+  <div class="panel full" style="margin-top:8px">
+    <h2>Explorateur API Bitget <span class="dim" style="letter-spacing:0">— tout ce que fournit l'API · lecture seule · sections whitelistées · requête à la demande</span>
+      <span style="float:right;letter-spacing:0"><select id="bx-sec" class="bx-sel"></select> <button id="bx-go" class="bx-btn">Rafraîchir</button></span></h2>
+    <div id="bx-meta" class="dim" style="font-size:10px;margin-bottom:6px;letter-spacing:0">choisis une section — la requête part à la demande (rien ne tourne en continu)</div>
+    <div style="overflow-x:auto"><table id="bx-table" class="bx-table"></table></div>
   </div>
 
   <div class="foot">
@@ -1329,6 +1379,8 @@ function renderState(){
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
     try{ renderKelly(st.kelly||{}); }catch(e){}
     try{ renderMethodes(st.methodes||{}, st.overlay_ic||{}); }catch(e){}
+    try{ renderPortfolio(st.portfolio||{}); }catch(e){}
+    try{ renderReflexion(st); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";
     $("v-acc").textContent=(ac.dca_real!=null?("$"+ac.dca_real+"/j ∝ score "+(ac.opportunity!=null?ac.opportunity.toFixed(2):"—")):"—");
@@ -1436,6 +1488,141 @@ function dessineBord(bord,rdv){
     }).join("<br>"):"—";
   }
 }
+
+// ===== portefeuille TOTAL (tous comptes) : bandeau + chips de ventilation =====
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function renderPortfolio(pf){
+  const t=pf.total_usdt,acc=pf.accounts||{};
+  const el=$("pf-total");if(el)el.textContent=(t!=null)?("$"+(+t).toFixed(0)):"—";
+  const n=$("pf-n");if(n)n.textContent=Object.keys(acc).length?(Object.keys(acc).length+" comptes"):"";
+  const chips=$("pf-chips");if(!chips)return;
+  const ord=["spot","futures","earn","bots","margin","funding"];
+  const lbl={spot:"SPOT",futures:"FUTURES",earn:"EARN",bots:"BOTS",margin:"MARGE",funding:"FUNDING"};
+  const keys=ord.filter(k=>acc[k]!=null).concat(Object.keys(acc).filter(k=>!ord.includes(k)));
+  chips.innerHTML=keys.map(k=>`<div class="chip"><div class="v">$${(+acc[k]).toFixed(0)}</div><div class="l">${esc(lbl[k]||k.toUpperCase())}</div></div>`).join("")
+    +((t!=null)?`<div class="chip" style="border-color:var(--phos)"><div class="v amber">$${(+t).toFixed(0)}</div><div class="l">TOTAL</div></div>`:"");
+}
+
+// ===== réflexion en cours : le raisonnement vivant du bot, en phrases lisibles =====
+function renderReflexion(st){
+  const el=$("reflexion");if(!el)return;
+  const b=st.brain||{},fu=st.futures_live||{},sysd=st.system||{},cp=st.caps||{},me=st.methodes||{};
+  const L=[];
+  if(b.bias){
+    const cog=b.cognition||{},vr=b.volatility||{};
+    let l1=`🧠 <b>Cerveau ${esc((st.symbol||"").replace(/USDT$/,""))}</b> — biais <b class="${b.bias==="LONG"?"green":b.bias==="SHORT"?"red":"dim"}">${esc(b.bias)}</b>`
+      +` · consensus ${b.consensus!=null?((b.consensus>=0?"+":"")+(+b.consensus).toFixed(2)):"—"}`
+      +` · conviction ajustée ${(+(b.adjusted_conviction!=null?b.adjusted_conviction:(b.conviction||0))).toFixed(2)}`;
+    if(cog.agreement!=null)l1+=` · accord ${Math.round(cog.agreement*100)}%${cog.groupthink?' <span class="amber">⚠ groupthink</span>':""}`;
+    if(vr.regime&&vr.regime!=="normal")l1+=` · vol <span class="amber">${esc(vr.regime)}</span>`;
+    L.push(l1);
+    const ags=(b.agents||[]).map(a=>({a,imp:Math.abs((a.vote||0)*(a.weight!=null?a.weight:1))}))
+      .filter(x=>x.imp>0.001).sort((x,y)=>y.imp-x.imp).slice(0,4);
+    if(ags.length)L.push(`&nbsp;&nbsp;&nbsp;<span class="dim">voix décisives :</span> `+ags.map(({a})=>{
+      const nt=String((b.notes||{})[a.agent]||"").slice(0,70);
+      return `<b class="${(a.vote||0)>=0?"green":"red"}">${esc(a.agent)} ${(a.vote>=0?"+":"")+(+a.vote).toFixed(2)}</b>${nt?` <span class="dim">« ${esc(nt)} »</span>`:""}`;
+    }).join(" · "));
+  }else L.push(`🧠 <span class="dim">cerveau : consensus indisponible (recalcul en cours)</span>`);
+  const fd=fu.decision||{};
+  let l3=`🎯 <b>Boucle directionnelle</b> — ${fu.armed?'<b class="green">ARMÉE</b>':'<span class="amber">débrayée</span>'}`;
+  if(fd.action)l3+=` · veut « <b>${esc(fd.action)}${fd.side?" "+esc(fd.side):""}</b> » — <span class="dim">${esc(fd.raison||"")}</span>`;
+  if(fu.throttle_pret===false)l3+=` · <span class="amber">throttle : attend l'intervalle minimum</span>`;
+  L.push(l3);
+  const fps=fu.positions||[];
+  L.push(`&nbsp;&nbsp;&nbsp;<span class="dim">positions :</span> ${fps.length?fps.map(p=>`<b class="${p.side==="long"?"green":"red"}">${esc(p.side)} ${esc((p.symbol||"").replace(/USDT$/,""))} ~$${p.notional_usdt}</b>`).join(" · "):'<span class="dim">flat — rien à gérer</span>'}`);
+  const fst=fu.stop||{};let stopTxt="";
+  if(fst.open_equity&&fst.last_equity!=null){const trig=fst.open_equity*(1-(fu.stop_pct||5)/100);
+    stopTxt=` (marge ${(100*(fst.last_equity-trig)/fst.open_equity).toFixed(1)}% avant coupure)`;}
+  L.push(`🛡 <b>Gardes</b> — kill-switch ${sysd.kill_switch?'<b class="red">ARMÉ ⚠</b>':'<span class="green">inactif</span>'}`
+    +` · stop journalier −${fu.stop_pct!=null?fu.stop_pct:5}%${stopTxt}`
+    +(cp.spent_today!=null?` · DCA dépensé $${cp.spent_today}/${cp.daily_eff!=null?cp.daily_eff:5}`:"")
+    +` · <span class="dim">murs 50/250 · ×5 · absolus, jamais desserrés</span>`);
+  const mm=me.market_making||{},ac2=me.alt_carry||{},lq2=me.liquidite||{},xs2=me.xs||{};
+  const bits=[];
+  if(ac2.armed!=null)bits.push(`alt-carry ${ac2.armed?'<b class="green">ARMÉ</b>':"off"}${ac2.position?" ("+esc(String(ac2.position))+")":""}`);
+  if(lq2.armed!=null)bits.push(`liquidité ${lq2.armed?'<b class="green">ARMÉE</b>':"off"}`);
+  if(mm.armed!=null)bits.push(`market making ${mm.armed?'<b class="green">ARMÉ</b>':"off (DRY)"}${mm.actives!=null?" · "+mm.actives+" cotes":""}${mm.halted?' <span class="red">HALTE</span>':""}`);
+  if(xs2.pret!=null||xs2.barre!=null)bits.push(`xs paper ${xs2.pret?'<b class="green">prêt</b>':"accumule"}`);
+  if(bits.length)L.push(`⚙️ <b>Méthodes autonomes</b> — ${bits.join(" · ")}`);
+  el.innerHTML=L.join("<br>");
+}
+
+// ===== chat : questions au bot (POST /api/chat — LLM lecture seule, zéro action) =====
+let _chatHist=[],_chatBusy=false;
+function chatAdd(role,text,meta){
+  const log=$("chat-log");if(!log)return null;
+  const d=document.createElement("div");d.className="chat-m "+(role==="user"?"user":"bot");
+  const who=document.createElement("span");who.className="who";
+  who.textContent=role==="user"?"toi":("bot"+(meta?" · "+meta:""));
+  d.appendChild(who);d.appendChild(document.createTextNode(text));
+  log.appendChild(d);log.scrollTop=log.scrollHeight;
+  return d;
+}
+async function chatSend(){
+  if(_chatBusy)return;
+  const inp=$("chat-in"),q=(inp.value||"").trim();if(!q)return;
+  inp.value="";chatAdd("user",q);
+  _chatBusy=true;$("chat-send").disabled=true;
+  const be=$("chat-be").value;
+  const wait=chatAdd("bot",be==="cloud"?"… réflexion en cours (cloud, quelques secondes)":"… réflexion en cours (local — LENT sur ce VPS, jusqu'à 2 min)");
+  try{
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({q,backend:be,symbol:SYMBOL,history:_chatHist.slice(-8)})});
+    const res=await r.json();
+    if(wait)wait.remove();
+    if(res.ok){
+      chatAdd("bot",res.reponse,(res.model||res.backend)+(res.ms?" · "+(res.ms/1000).toFixed(1)+" s":""));
+      _chatHist.push({role:"user",content:q},{role:"assistant",content:res.reponse});
+      _chatHist=_chatHist.slice(-24);
+    }else chatAdd("bot","⚠ "+(res.erreur||"erreur inconnue"));
+  }catch(e){if(wait)wait.remove();chatAdd("bot","⚠ requête échouée : "+e);}
+  _chatBusy=false;$("chat-send").disabled=false;inp.focus();
+}
+$("chat-send").addEventListener("click",chatSend);
+$("chat-in").addEventListener("keydown",e=>{if(e.key==="Enter")chatSend();});
+
+// ===== explorateur API Bitget : sections whitelistées, requête à la demande =====
+function bxCell(v){
+  if(v==null||v==="")return"—";
+  if(typeof v==="object")return esc(JSON.stringify(v));
+  const s=String(v);
+  if(/^1[6-9]\d{11}$/.test(s))return new Date(+s).toISOString().replace("T"," ").slice(0,19);   // epoch ms
+  if(/^1[6-9]\d{8}$/.test(s))return new Date(+s*1000).toISOString().replace("T"," ").slice(0,19); // epoch s
+  const n=+s;
+  if(s!==""&&!isNaN(n)&&/^[-+0-9.eE]+$/.test(s))return Math.abs(n)>=1e6?human(n):esc(s);
+  return esc(s);
+}
+async function bxFetch(){
+  const sel=$("bx-sec"),meta=$("bx-meta"),tbl=$("bx-table");
+  if(!sel||!sel.value)return;
+  meta.textContent="chargement…";tbl.innerHTML="";
+  try{
+    const r=await(await fetch("/api/bitget?sec="+encodeURIComponent(sel.value)+"&symbol="+encodeURIComponent(SYMBOL))).json();
+    if(!r.ok){meta.textContent="⚠ "+(r.erreur||"erreur");return;}
+    const rows=r.rows||[];
+    meta.textContent=r.label+" · "+rows.length+" ligne(s) · "+(r.ts?new Date(r.ts*1000).toISOString().slice(11,19)+" UTC · ":"")+"cache 30 s · lecture seule";
+    if(!rows.length){tbl.innerHTML="<tr><td class='dim'>aucune donnée</td></tr>";return;}
+    const cols=[];rows.forEach(row=>Object.keys(row).forEach(k=>{if(!cols.includes(k))cols.push(k);}));
+    tbl.innerHTML="<tr>"+cols.map(c=>"<th>"+esc(c)+"</th>").join("")+"</tr>"
+      +rows.map(row=>"<tr>"+cols.map(c=>{
+        const v=row[c];
+        const num=(typeof v!=="object")&&v!=null&&v!==""&&!isNaN(+v)&&!/^1[6-9]\d{8,11}$/.test(String(v));
+        return `<td class="${num?"num":""}">${bxCell(v)}</td>`;
+      }).join("")+"</tr>").join("");
+  }catch(e){meta.textContent="⚠ requête échouée : "+e;}
+}
+async function bxLoadSections(){
+  try{
+    const r=await(await fetch("/api/bitget")).json();
+    const sel=$("bx-sec");if(!sel)return;
+    const cats={};(r.sections||[]).forEach(s=>{(cats[s.cat]=cats[s.cat]||[]).push(s);});
+    sel.innerHTML=Object.keys(cats).map(c=>`<optgroup label="${esc(c)}">`
+      +cats[c].map(s=>`<option value="${esc(s.key)}">${esc(s.label)}</option>`).join("")+`</optgroup>`).join("");
+    sel.addEventListener("change",bxFetch);
+  }catch(e){}
+}
+$("bx-go").addEventListener("click",bxFetch);
+bxLoadSections();
 
 // ===== visualisations (§ audit 03/07) : PnL/funding, consensus univers, palette =====
 // --- Réseau neuronal §65 : carte de connectivité (entrées -> cerveau -> fusion NN

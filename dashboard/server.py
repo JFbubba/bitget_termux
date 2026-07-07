@@ -136,6 +136,60 @@ def edge_summary(rep):
             "n_symbols": rep.get("n_symbols"), "top": top}
 
 
+def chat_context(state):
+    """Contexte COMPACT pour le chat du dashboard (PUR, testable) : l'essentiel de
+    l'état déjà construit, SANS les blobs (bougies, carnet, viz, smc, future…) et
+    sans aucun secret. Tout est en lecture seule — le chat ne peut RIEN exécuter."""
+    st = state or {}
+    brain = st.get("brain") or {}
+    fu = st.get("futures_live") or {}
+    rp = st.get("real_positions") or {}
+    ac = st.get("accumulation") or {}
+    meth = st.get("methodes") or {}
+    agents = [{"agent": a.get("agent"), "vote": a.get("vote"), "conf": a.get("conf")}
+              for a in (brain.get("agents") or [])[:17]]
+    return {
+        "horodatage_utc": st.get("timestamp"),
+        "mode": st.get("mode"),
+        "symbole_affiche": st.get("symbol"),
+        "portefeuille_usdt": st.get("portfolio"),
+        "cerveau": {"bias": brain.get("bias"), "consensus": brain.get("consensus"),
+                    "conviction_ajustee": brain.get("adjusted_conviction",
+                                                    brain.get("conviction")),
+                    "cognition": brain.get("cognition"), "agents": agents},
+        "boucle_futures": {"armee": fu.get("armed"), "consensus": fu.get("consensus"),
+                           "decision": fu.get("decision"),
+                           "throttle_pret": fu.get("throttle_pret"),
+                           "positions": fu.get("positions"), "equity": fu.get("equity"),
+                           "stop_journalier": fu.get("stop"), "caps": fu.get("caps"),
+                           "pnl_bot": fu.get("fills_bot"), "carry": fu.get("carry")},
+        "positions_reelles": {"spot": (rp.get("spot") or [])[:8],
+                              "futures": rp.get("futures") or [],
+                              "totaux": rp.get("totals")},
+        "accumulation_btc": {k: ac.get(k) for k in
+                             ("autonomous_armed", "real_spent_usd", "real_n_buys",
+                              "opportunity", "dca_real", "premium_pct",
+                              "spot_free_usdt") if k in ac},
+        # méthodes : l'ESSENTIEL seulement (armé/position/halte) — les journaux bruts
+        # gonfleraient le prompt (mesuré : 3.3k chars sur 7.4k au 07/07)
+        "methodes_autonomes": {
+            "alt_carry": {k: (meth.get("alt_carry") or {}).get(k)
+                          for k in ("armed", "position")},
+            "liquidite": {"armed": (meth.get("liquidite") or {}).get("armed")},
+            "market_making": {k: (meth.get("market_making") or {}).get(k)
+                              for k in ("armed", "symbols", "actives", "halted")},
+            "lab_promus": [p.get("nom") for p in
+                           ((meth.get("lab") or {}).get("promus") or [])[:8]],
+        },
+        "gardes": {"kill_switch": (st.get("system") or {}).get("kill_switch"),
+                   "caps_accumulation_jour": st.get("caps"),
+                   "murs": "futures 50/250 $ · levier ≤×5 · stop −5 % · retrait impossible"},
+        "evenements_recents": (st.get("bord") or [])[:8],
+        "rendez_vous": st.get("rdv") or [],
+        "consensus_univers": ((st.get("viz") or {}).get("consensus_univers") or [])[:10],
+    }
+
+
 def assemble_state(symbol, symbols, stats, orderflow, macro, health, market=None, candles=None, orderbook=None, brain=None, liquidations=None, positions=None):
     """Assemble l'état du dashboard (fonction pure, testable)."""
     return {
@@ -680,6 +734,8 @@ def build_state(symbol=None, tf="5m"):
         (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
         ("realpos", 10, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
         ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
+        ("portfolio", 120, lambda: _safe(
+            lambda: __import__("real_positions").all_account_balance(), {})),
     ])
 
     # _stats recalcule sur TOUT le journal de signaux -> cache (evite le recalcul a chaque poll 5s)
@@ -737,6 +793,10 @@ def build_state(symbol=None, tf="5m"):
     # Lecture seule (lit les verrous LIVE via .env chargé) — aucun ordre. Défaut OFF.
     state["trading_surfaces"] = _cached("tsurf", 20,
                                         lambda: _safe(lambda: __import__("trading_status").snapshot(), []))
+    # Portefeuille TOTAL (tous comptes : spot/futures/earn/bots/marge/funding) —
+    # 1 GET signé de consultation, ventilation officielle. Lecture seule, cache 2 min.
+    state["portfolio"] = _cached("portfolio", 120, lambda: _safe(
+        lambda: __import__("real_positions").all_account_balance(), {}))
 
     # --- MÉTHODES AUTONOMES §76-83 (fichiers locaux uniquement — zéro appel réseau) ---
     def _tail_jsonl(path, n=1):
@@ -947,6 +1007,21 @@ class Handler(BaseHTTPRequestHandler):
                 return                                          # client déconnecté (normal)
             except Exception:
                 return
+        elif parsed.path == "/api/bitget":
+            # Explorateur API Bitget (LECTURE SEULE, sections whitelistées) :
+            # sans ?sec= -> liste des sections ; avec -> données de la section (cache 30 s).
+            qs = parse_qs(parsed.query)
+            sec = (qs.get("sec", [""])[0] or "").strip()
+            symbol = (qs.get("symbol", [DEFAULT_SYMBOL])[0] or DEFAULT_SYMBOL).upper()
+            import bitget_explorer as bx
+            if not sec:
+                payload = {"sections": _safe(bx.sections, [])}
+            else:
+                payload = _cached(f"bx:{sec}:{symbol}", 30,
+                                  lambda: _safe(lambda: bx.fetch(sec, symbol),
+                                                {"ok": False, "erreur": "indisponible"}))
+            self._send(200, "application/json; charset=utf-8",
+                       json.dumps(payload, default=str).encode("utf-8"))
         elif parsed.path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
         elif parsed.path.startswith("/vendor/") and parsed.path.endswith(".js"):
@@ -959,6 +1034,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, "text/plain; charset=utf-8", b"not found")
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
+
+    def do_POST(self):
+        # /api/chat : questions en langage naturel sur l'état du bot. LECTURE SEULE —
+        # le LLM reçoit un contexte compact (chat_context) et rend du texte ; il ne
+        # peut déclencher AUCUNE action. Fail-safe : toute erreur -> JSON lisible.
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/chat":
+            self._send(404, "text/plain; charset=utf-8", b"not found")
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), 65536)
+            body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        except Exception:
+            self._send(400, "application/json; charset=utf-8",
+                       b'{"ok": false, "erreur": "corps JSON illisible"}')
+            return
+        q = str(body.get("q") or "").strip()
+        if not q:
+            self._send(400, "application/json; charset=utf-8",
+                       b'{"ok": false, "erreur": "question vide"}')
+            return
+        symbol = str(body.get("symbol") or DEFAULT_SYMBOL).upper()
+        backend = str(body.get("backend") or "local")
+        history = body.get("history") if isinstance(body.get("history"), list) else []
+
+        def _reponse():
+            import dash_chat
+            ctx = chat_context(build_state(symbol))     # cache chaud : ~0.05 s
+            return dash_chat.repondre(q[:2000], ctx, backend=backend, history=history)
+        res = _safe(_reponse, {"ok": False, "erreur": "chat indisponible (erreur interne)"})
+        self._send(200, "application/json; charset=utf-8",
+                   json.dumps(res, default=str).encode("utf-8"))
 
     def log_message(self, *args):
         pass  # silencieux
