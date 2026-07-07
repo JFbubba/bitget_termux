@@ -65,6 +65,7 @@ xs_paper_journal.jsonl
 # Runtime state — garde-fou stop & supervision (regenere a chaud, machine-specifique)
 .stop_guardian_heartbeat.json
 .watchdog_heal_state.json
+.failsafe_state.json
 logs/
 
 # Config MCP locale (Claude Code) — chemins absolus VPS, outillage dev, hors runtime bot
