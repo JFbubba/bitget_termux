@@ -28,6 +28,11 @@ RACINE = Path(__file__).resolve().parent
 FICHIERS = [
     "accumulation_ledger.json", "accumulation_real_ledger.json",
     "futures_real_ledger.json", "futures_auto_journal.jsonl",
+    "trading_real_ledger.json",                  # surfaces §67 (spot/marge/virements/earn)
+    ".alt_carry_journal.jsonl", ".alt_carry_state.json",   # moisson de funding §82-90
+    ".liquidity_journal.jsonl",                  # gestion de liquidité §76/§91
+    ".trades_archive.jsonl",                     # archive des round-trips §89
+    ".overlay_votes.jsonl",                      # votes des voix opt-in + ombre NN §77/§89
     "brain_hitrates.json", "brain_weights.json",
     "brain_log.json", "brain_log_history.jsonl",
     "validation_report.json", "market_timing_history.jsonl",
