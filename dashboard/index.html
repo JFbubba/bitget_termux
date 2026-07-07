@@ -1043,11 +1043,17 @@ function renderMethodes(m, ov){
       +`<br><span class="dim">${d.raison||""}</span>`;
   }}
   {const el=$("mc-mm");if(el){
-    const dd=(mm.dernier||{});const p=dd.plan||{};const s=dd.snap||{};const inv=dd.inv||{};
-    const cote=p.bid_price!=null||p.ask_price!=null;
-    el.innerHTML=`${(dd.symbol||mm.symbol||"BTCUSDT").replace(/USDT$/,"")} · spread carnet <b class="accent">${s.spread_bps!=null?(+s.spread_bps).toFixed(2):"—"} bps</b> · vol ${s.vol_bps!=null?(+s.vol_bps).toFixed(1):"—"} bps`
-      +`<br>dernier cycle ${hhmm(dd.ts)} : ${cote?`<span class="green">bid ${p.bid_usdt||0}$@${p.bid_price??"—"} · ask ${p.ask_usdt||0}$@${p.ask_price??"—"}</span> (cible ${p.spread_bps} bps)`:`<span class="dim">${(dd.raisons||[])[0]||"pas de plan"}</span>`}`
-      +`<br>inventaire <b class="accent">${inv.value!=null?("$"+(+inv.value).toFixed(2)):"—"}</b> · PnL jour <span class="${(+dd.pnl_today||0)>=0?"green":"red"}">${dd.pnl_today!=null?(+dd.pnl_today).toFixed(3):"—"} $</span>`
+    const dd=(mm.dernier||{});
+    const paires=dd.paires||(dd.symbol?{[dd.symbol]:dd}:{});   // nouveau schéma multi-paires, repli ancien
+    const lignes=Object.entries(paires).slice(0,4).map(([sym,p])=>{
+      const pl=p.plan||{},s=p.snap||{};
+      const cote=pl.bid_price!=null||pl.ask_price!=null;
+      return `${sym.replace(/USDT$/,"")} <span class="dim">${s.spread_bps!=null?(+s.spread_bps).toFixed(1)+" bps":"—"}</span> : `
+        +(cote?`<span class="green">b ${pl.bid_usdt||0}$@${pl.bid_price??"—"} · a ${pl.ask_usdt||0}$@${pl.ask_price??"—"}</span>`
+              :`<span class="dim">${((p.raisons||[])[0]||"pas de plan").slice(0,46)}</span>`);
+    });
+    el.innerHTML=`dernier cycle ${hhmm(dd.ts)} · PnL jour <span class="${(+dd.pnl_today||0)>=0?"green":"red"}">${dd.pnl_today!=null?(+dd.pnl_today).toFixed(3):"—"} $</span>${dd.halted?' · <span class="amber">STOP LOCAL</span>':''}`
+      +`<br>`+(lignes.length?lignes.join("<br>"):'<span class="dim">aucun cycle journalisé</span>')
       +`<br><span class="dim">cotations actives ${mm.actives!=null?mm.actives:"—"} · ${mm.armed?"RÉEL (post-only, caps mm)":"DRY — mesure du spread capturable"}</span>`;
   }}
   {const el=$("mc-lab");if(el){

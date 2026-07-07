@@ -767,9 +767,12 @@ def build_state(symbol=None, tf="5m"):
             import market_maker as mm
             dern = _tail_jsonl(REPO_ROOT / ".mm_journal.jsonl", 1)
             st_mm = json.loads((REPO_ROOT / ".mm_state.json").read_text(encoding="utf-8"))
-            out["market_making"] = {"armed": mm.enabled(),
+            poches = st_mm.get("symbols") or {}
+            actives = (sum(len(p.get("active") or []) for p in poches.values())
+                       if poches else len(st_mm.get("active") or []))
+            out["market_making"] = {"armed": mm.enabled(), "symbols": mm.symbols(),
                                     "dernier": dern[0] if dern else None,
-                                    "actives": len(st_mm.get("active") or []),
+                                    "actives": actives,
                                     "halted": bool(st_mm.get("halted"))}
         except Exception:
             out["market_making"] = {}

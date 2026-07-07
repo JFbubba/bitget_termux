@@ -40,15 +40,15 @@ BARRE = {"pnl": 0.0, "frac_folds_pos": 0.60, "fills": 30}
 
 
 def config_banc(fee_bps=10.0, vol_mult=2.5, notional=5.0, book_spread_bps=2.0,
-                max_daily_loss=1.0):
+                max_daily_loss=1.0, price_decimals=2, min_notional=1.0):
     """Config du banc = mêmes clés que market_maker.config() (PUR, sans env)."""
-    return {"symbol": "BTCUSDT", "notional": notional, "min_notional": 1.0,
+    return {"symbol": "BTCUSDT", "notional": notional, "min_notional": min_notional,
             "per_quote_cap": 5.0, "min_spread_bps": 8.0, "max_spread_bps": 80.0,
             "fee_bps": fee_bps, "buffer_bps": 3.0, "vol_mult": vol_mult,
             "budget": 20.0, "target_base_pct": 0.50, "skew_strength": 0.80,
             "max_dev": 0.30, "max_inventory": 15.0, "max_book_spread": 120.0,
             "max_premium_pct": 0.50, "max_daily_loss": max_daily_loss,
-            "price_decimals": 2, "book_spread_bps": book_spread_bps}
+            "price_decimals": price_decimals, "book_spread_bps": book_spread_bps}
 
 
 def simulate(candles, c):
@@ -132,6 +132,76 @@ def grille():
     ]
 
 
+# Frais maker MESURÉS sur nos fills réels (07/07/2026, feeDetail des fills spot) :
+# 10 bps de base, 8 bps avec la déduction BGB (ACTIVE sur le compte — deduction:yes,
+# frais payés en BGB). Le makerFeeRate de l'API publique (20 bps) est un plafond
+# théorique, PAS le taux du compte — ne pas s'en servir.
+FEE_MESURE_BPS = 10.0
+FEE_MESURE_BGB_BPS = 8.0
+
+
+def spread_carnet_bps(symbol):
+    """Spread L1 RÉEL du carnet spot (lecture publique instantanée). None si
+    illisible. Un échantillon = bruité, mais l'ordre de grandeur par paire est
+    ce qui compte pour le banc (liquide ~1-3 bps, illiquide 10-50 bps)."""
+    try:
+        import bitget_market_data as bmd
+        book = bmd.fetch_spot_orderbook(symbol, limit="1")
+        bid, ask = float(book["bids"][0][0]), float(book["asks"][0][0])
+        if bid > 0 and ask > bid:
+            return round((ask - bid) / ((ask + bid) / 2) * 10_000, 3)
+    except Exception:
+        pass
+    return None
+
+
+def run_universe(jours=30, bgb=True):
+    """Banc sur TOUT l'univers du bot (diversification, principe Virtu n°4) :
+    par paire — spread carnet RÉEL mesuré, précision de prix/notional min des
+    SPECS de l'exchange, frais maker MESURÉS (8 bps si BGB). Classement par PnL.
+    Lecture seule ; le téléchargement 5 m est incrémental (data_history/)."""
+    import candles_history as ch
+    import market_maker as mm
+    import universe
+    fee = FEE_MESURE_BGB_BPS if bgb else FEE_MESURE_BPS
+    syms = universe.symbols()
+    resultats, lignes = [], []
+    for s in syms:
+        sp = mm.specs(s)
+        spread = spread_carnet_bps(s)
+        ch.download(s, "5m", jours=jours)
+        candles = [r for r in ch.load(s, "5m")
+                   if r[0] >= (time.time() - jours * 86_400) * 1000]
+        if len(candles) < 500:
+            lignes.append(f"⚠️ {s} : pas assez de bougies 5m ({len(candles)}) — sauté")
+            continue
+        c = config_banc(fee_bps=fee, vol_mult=2.5,
+                        book_spread_bps=max(spread or 2.0, 1.0),
+                        price_decimals=sp["price_decimals"],
+                        min_notional=max(1.0, sp["min_usdt"]))
+        r = simulate(candles, c)
+        r.pop("pnls")
+        ok = verdict(r)
+        resultats.append({"symbol": s, "spread_carnet_bps": spread,
+                          "fee_bps": fee, "verdict": "PASSE" if ok else "ÉCHOUE", **r})
+    resultats.sort(key=lambda r: r["pnl_net"], reverse=True)
+    for r in resultats:
+        lignes.append(f"{'✅' if r['verdict'] == 'PASSE' else '❌'} {r['symbol']} "
+                      f"(spread {r['spread_carnet_bps']} bps) : PnL net {r['pnl_net']} $ "
+                      f"({r['pnl_jour']} $/j) · fills {r['fills_buy']}b/{r['fills_sell']}s "
+                      f"· folds+ {r['frac_folds_pos']} · maxDD {r['max_dd']} $")
+    out = {"ts": int(time.time()), "mode": "univers", "jours": jours,
+           "fee_bps": fee, "bgb": bgb, "barre": BARRE, "resultats": resultats,
+           "note": ("BORNE SUPÉRIEURE (fill sans file d'attente, fair causal, pas de "
+                    "microprice, spread carnet = 1 échantillon) — le réel fera moins "
+                    "bien ; le juge final reste le DRY live (.mm_journal.jsonl).")}
+    try:
+        RESULT.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+    return {**out, "rapport": "\n".join(lignes)}
+
+
 def run(symbol="BTCUSDT", jours=30):
     """Télécharge (incrémental) les 5 m, rejoue la grille, écrit le JSON de
     résultats et retourne le résumé. Lecture seule côté marché."""
@@ -167,6 +237,17 @@ def run(symbol="BTCUSDT", jours=30):
 def main():
     import sys
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if "--univers" in sys.argv[1:]:
+        jours = int(args[0]) if args else 30
+        r = run_universe(jours, bgb="--sans-bgb" not in sys.argv[1:])
+        print(f"=== MM LAB (banc §94, lecture seule) — UNIVERS · {jours} j de 5 m "
+              f"· frais maker {r['fee_bps']} bps ({'BGB actif' if r['bgb'] else 'sans BGB'}, mesurés) ===")
+        print(f"barre du banc : PnL>{BARRE['pnl']} $, folds+ ≥{BARRE['frac_folds_pos']}, "
+              f"fills ≥{BARRE['fills']}")
+        print(r["rapport"])
+        print(r["note"])
+        print("VERDICT: SAFE")
+        return
     symbol = (args[0] if args else "BTCUSDT").upper()
     jours = int(args[1]) if len(args) > 1 else 30
     r = run(symbol, jours)

@@ -6495,6 +6495,44 @@ def test_market_maker_gardes_et_fills():
     assert fills_invalides == st
 
 
+def test_market_maker_multi_symboles():
+    """§94 : multi-paires — parsing CSV, specs par paire (précision/min notional),
+    budget et inventaire max PARTAGÉS (divisés par le nombre de paires : le risque
+    total ne grossit pas en ajoutant des symboles), migration de l'ancien état
+    mono-paire, reset des poches au changement de jour."""
+    import os
+    import market_maker as mm
+    sauve = {k: os.environ.pop(k, None) for k in ("MM_SYMBOLS", "MM_SYMBOL")}
+    try:
+        os.environ["MM_SYMBOLS"] = "btcusdt, ethusdt;ethusdt"
+        assert mm.symbols() == ["BTCUSDT", "ETHUSDT"]
+        c = mm.config()
+        mm._SPECS_CACHE["ETHUSDT"] = {"price_decimals": 2, "qty_decimals": 4,
+                                      "min_usdt": 5.0, "maker_fee_bps": 10.0}
+        cs = mm.config_for(c, "ETHUSDT")
+        assert cs["budget"] == c["budget"] / 2 and cs["max_inventory"] == c["max_inventory"] / 2
+        assert cs["min_notional"] == 5.0 and cs["symbol"] == "ETHUSDT"
+        # migration : l'ancien état mono-paire devient la poche de la 1re paire
+        st = {"day": 1, "mids": [1.0], "inv_base": 0.5, "avg_cost": 2.0,
+              "active": [], "realized_today": 0.1}
+        st = mm._roll_day(st, 86400 * 1 + 10)
+        assert st["symbols"]["BTCUSDT"]["inv_base"] == 0.5
+        assert st["symbols"]["BTCUSDT"]["realized_today"] == 0.1
+        assert "ETHUSDT" in st["symbols"]
+        # changement de jour : PnL des poches remis à zéro, halt levé
+        st["halted"] = True
+        st = mm._roll_day(st, 86400 * 2 + 10)
+        assert st["halted"] is False
+        assert st["symbols"]["BTCUSDT"]["realized_today"] == 0.0
+        assert st["symbols"]["BTCUSDT"]["inv_base"] == 0.5     # l'inventaire survit
+    finally:
+        os.environ.pop("MM_SYMBOLS", None)
+        for k, v in sauve.items():
+            if v is not None:
+                os.environ[k] = v
+        mm._SPECS_CACHE.pop("ETHUSDT", None)
+
+
 def test_mm_lab_simulation():
     """§94 : banc de mesure du market making — marché plat à mèches symétriques
     -> les deux côtés remplissent et le spread net des frais est capturé (PnL>0) ;

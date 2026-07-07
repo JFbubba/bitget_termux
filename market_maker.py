@@ -29,6 +29,12 @@ L'INVENTAIRE est celui du MODULE SEUL (fills de ses propres cotations, préfixe
 clientOid "mmq"), jamais le solde global : le stock d'accumulation BTC (§44) est
 INTOUCHABLE — la vente est bornée à l'inventaire acquis par le market making.
 
+MULTI-SYMBOLES (diversification, principe Virtu n°4) : MM_SYMBOLS (CSV) cote
+plusieurs paires — état/inventaire PAR symbole, précision de prix et notional
+minimal lus des SPECS publiques de l'exchange (cache), caps de surface PARTAGÉS
+(le ledger "mm" borne le total coté/jour toutes paires confondues), stop local
+journalier GLOBAL (somme des PnL du module — une poche qui saigne coupe tout).
+
 Gate maître : MM_AUTO (défaut OFF -> DRY : plan de cotation journalisé, rien de
 placé). La réconciliation/annulation des cotations DÉJÀ ouvertes reste réelle même
 désarmé (retirer ses cotations du carnet RÉDUIT le risque — fail-safe inverse).
@@ -74,12 +80,48 @@ def _flt(name, default):
         return float(default)
 
 
+def symbols():
+    """Paires cotées (CSV env MM_SYMBOLS > config > MM_SYMBOL legacy > BTCUSDT)."""
+    brut = (os.getenv("MM_SYMBOLS") or str(_cfg("MM_SYMBOLS", ""))
+            or os.getenv("MM_SYMBOL") or str(_cfg("MM_SYMBOL", "BTCUSDT")))
+    out = []
+    for s in str(brut).replace(";", ",").split(","):
+        s = s.strip().upper()
+        if s and s not in out:
+            out.append(s)
+    return out or ["BTCUSDT"]
+
+
+_SPECS_CACHE = {}
+
+
+def specs(symbol):
+    """Specs SPOT publiques d'une paire (précision de prix/quantité, notional min,
+    frais maker en bps). Cache module + fallback PRUDENT si l'API est illisible
+    (les valeurs BTC historiques). Lecture seule, best-effort."""
+    s = str(symbol).upper()
+    if s in _SPECS_CACHE:
+        return _SPECS_CACHE[s]
+    out = {"price_decimals": 2, "qty_decimals": 6, "min_usdt": 1.0, "maker_fee_bps": None}
+    try:
+        import bitget_market_data as bmd
+        rows = bmd._get("/api/v2/spot/public/symbols", {"symbol": s}) or []
+        r = rows[0] if isinstance(rows, list) and rows else {}
+        out = {"price_decimals": int(r.get("pricePrecision", 2)),
+               "qty_decimals": int(r.get("quantityPrecision", 6)),
+               "min_usdt": float(r.get("minTradeUSDT", 1.0)),
+               "maker_fee_bps": round(float(r.get("makerFeeRate", 0)) * 10_000, 2) or None}
+        _SPECS_CACHE[s] = out
+    except Exception:
+        pass
+    return out
+
+
 def config():
     """Leviers résolus (env > config > défaut). Le cap/cotation est REborné par le
     mur absolu de la surface (defense-in-depth : la surface re-vérifie tout)."""
     import spot_trader as st
     return {
-        "symbol": (os.getenv("MM_SYMBOL") or str(_cfg("MM_SYMBOL", "BTCUSDT"))).upper(),
         "notional": _flt("MM_QUOTE_NOTIONAL_USDT", 5.0),
         "min_notional": _flt("MM_MIN_NOTIONAL_USDT", 1.0),
         "per_quote_cap": ex.capped("MM_MAX_PER_QUOTE_USDT", 5.0, st.ABS_MM_PER_QUOTE_USDT),
@@ -96,8 +138,21 @@ def config():
         "max_book_spread": _flt("MM_MAX_BOOK_SPREAD_BPS", 120.0),
         "max_premium_pct": _flt("MM_MAX_PREMIUM_PCT", 0.50),
         "max_daily_loss": _flt("MM_MAX_DAILY_LOSS_USDT", 1.0),
-        "price_decimals": int(_flt("MM_PRICE_DECIMALS", 2)),
+        "price_decimals": int(_flt("MM_PRICE_DECIMALS", 2)),   # écrasé par specs() par paire
     }
+
+
+def config_for(c, symbol):
+    """Config d'UNE paire : leviers globaux + specs de l'exchange (précision de
+    prix réelle, notional minimal). Budget/inventaire max PARTAGÉS entre paires :
+    divisés par le nombre de paires cotées (le risque total ne grossit pas en
+    ajoutant des symboles)."""
+    sp = specs(symbol)
+    n = max(1, len(symbols()))
+    return {**c, "symbol": str(symbol).upper(),
+            "price_decimals": sp["price_decimals"],
+            "min_notional": max(c["min_notional"], sp["min_usdt"]),
+            "budget": c["budget"] / n, "max_inventory": c["max_inventory"] / n}
 
 
 # ---------- moteur de cotation (PUR, testable) ----------
@@ -281,16 +336,28 @@ def _notifie(msg):
         pass
 
 
+def _blank_sym():
+    return {"mids": [], "active": [], "inv_base": 0.0, "avg_cost": 0.0,
+            "realized_today": 0.0}
+
+
 def _roll_day(state, now):
+    """État par SYMBOLE (+ migration transparente de l'ancien format mono-paire).
+    Le changement de jour remet les PnL de chaque poche à zéro et lève le halt."""
     day = int(now // 86400)
+    if "symbols" not in state:
+        vieux = {k: state.pop(k) for k in
+                 ("mids", "active", "inv_base", "avg_cost", "realized_today")
+                 if k in state}
+        state["symbols"] = {symbols()[0]: {**_blank_sym(), **vieux}} if vieux else {}
     if state.get("day") != day:
-        state.update({"day": day, "realized_today": 0.0, "halted": False})
-    state.setdefault("mids", [])
-    state.setdefault("active", [])
-    state.setdefault("inv_base", 0.0)
-    state.setdefault("avg_cost", 0.0)
-    state.setdefault("realized_today", 0.0)
+        state["day"] = day
+        state["halted"] = False
+        for p in state["symbols"].values():
+            p["realized_today"] = 0.0
     state.setdefault("halted", False)
+    for s in symbols():
+        state["symbols"].setdefault(s, _blank_sym())
     return state
 
 
@@ -364,103 +431,135 @@ def _reconcile(state, c):
 
 # ---------- cycle / statut ----------
 
+def _photo_paire(state, sym, c, reconcilier=True):
+    """Réconcilie (option) puis photographie UNE paire : (config-paire, poche,
+    snapshot, inventaire, fills constatés). Mute la poche (mids, inventaire)."""
+    cs = config_for(c, sym)
+    poche = state["symbols"][sym]
+    fills = _reconcile(poche, cs) if (reconcilier and poche.get("active")) else []
+    snap = build_snapshot(_book(sym), poche["mids"])
+    if snap and reconcilier:
+        poche["mids"] = (poche["mids"] + [snap["mid"]])[-MIDS_MAX:]
+        snap["vol_bps"] = vol_bps(poche["mids"])
+        snap["n_mids"] = len(poche["mids"])
+    inv = inventory_view(poche["inv_base"], poche["avg_cost"],
+                         snap["mid"] if snap else poche.get("avg_cost"), cs)
+    return cs, poche, snap, inv, fills
+
+
 def cycle(now=None, confirm=None):
-    """Un cycle de market making. Ne COTE (confirm=True vers spot_trader.quote) que
-    si MM_AUTO est armé ET kill-switch inactif ET gardes vertes — sinon DRY (plan
-    journalisé, rien de placé). La surface re-vérifie TOUT (verrou LIVE, kill, caps)."""
+    """Un cycle de market making MULTI-PAIRES. Ne COTE (confirm=True vers
+    spot_trader.quote) que si MM_AUTO est armé ET kill-switch inactif ET gardes
+    vertes — sinon DRY (plans journalisés, rien de placé). Le stop local
+    journalier est GLOBAL (somme des poches). La surface re-vérifie TOUT."""
     now = time.time() if now is None else now
     c = config()
     state = _roll_day(_load_state(), now)
-    fills = _reconcile(state, c) if state.get("active") else []
-    book = _book(c["symbol"])
-    snap = build_snapshot(book, state["mids"])
-    if snap:
-        state["mids"] = (state["mids"] + [snap["mid"]])[-MIDS_MAX:]
-        snap["vol_bps"] = vol_bps(state["mids"])
-        snap["n_mids"] = len(state["mids"])
-    inv = inventory_view(state["inv_base"], state["avg_cost"],
-                         snap["mid"] if snap else state.get("avg_cost"), c)
-    pnl_today = round(float(state["realized_today"]) + inv["latent"], 6)
-    if pnl_today <= -c["max_daily_loss"] and not state["halted"]:
-        state["halted"] = True
-        _notifie(f"🧊 Market making : stop local du jour ({pnl_today:.4f} $ ≤ "
-                 f"-{c['max_daily_loss']} $). Cotations retirées, reprise demain.")
-    kill = _kill_active()
-    premium = _premium(c["symbol"])
-    raisons = no_quote_reasons(snap, premium, pnl_today, c, halted=state["halted"])
-    if kill:
-        raisons.insert(0, "kill_switch actif (fail-closed)")
     arme = enabled() if confirm is None else bool(confirm)
-    plan = build_plan(snap, inv, c) if snap and not raisons else None
-    out = {"ts": int(now), "symbol": c["symbol"], "armed": arme, "kill": kill,
-           "fills": fills, "inv": inv, "pnl_today": pnl_today,
-           "premium_pct": premium, "raisons": raisons,
-           "snap": {k: round(v, 6) for k, v in (snap or {}).items()
-                    if isinstance(v, (int, float))} or None,
-           "plan": plan, "placed": []}
-    if plan and arme:
-        import spot_trader as st
-        for side, px, usdt in (("buy", plan["bid_price"], plan["bid_usdt"]),
-                               ("sell", plan["ask_price"], plan["ask_usdt"])):
-            if px is None or usdt <= 0:
-                continue
-            r = st.quote(c["symbol"], side, usdt, px, confirm=True,
-                         price_decimals=c["price_decimals"])
-            row = {"side": side, "price": px, "usdt": usdt,
-                   "executed": bool(r.get("executed")),
-                   "reasons": r.get("reasons"), "oid": r.get("clientOid")}
-            out["placed"].append(row)
-            if r.get("executed"):
-                state["active"].append({"oid": r.get("clientOid"),
-                                        "order_id": _extract_order_id(r.get("response")),
-                                        "side": side, "price": px, "usdt": usdt})
+    kill = _kill_active()
+    syms = symbols()
+    # passe 1 : fills + photos (le PnL global se calcule AVANT de coter quoi que ce soit)
+    donnees, fills_tous, pnl_global = {}, [], 0.0
+    for s in syms:
+        cs, poche, snap, inv, fills = _photo_paire(state, s, c)
+        fills_tous += [{**f, "symbol": s} for f in fills]
+        pnl_global += float(poche["realized_today"]) + inv["latent"]
+        donnees[s] = (cs, poche, snap, inv)
+    pnl_global = round(pnl_global, 6)
+    if pnl_global <= -c["max_daily_loss"] and not state["halted"]:
+        state["halted"] = True
+        _notifie(f"🧊 Market making : stop local GLOBAL du jour ({pnl_global:.4f} $ ≤ "
+                 f"-{c['max_daily_loss']} $). Cotations retirées, reprise demain.")
+    # passe 2 : plan + cotation par paire
+    out = {"ts": int(now), "symbols": syms, "armed": arme, "kill": kill,
+           "pnl_today": pnl_global, "halted": state["halted"],
+           "fills": fills_tous, "paires": {}}
+    for s in syms:
+        cs, poche, snap, inv = donnees[s]
+        premium = _premium(s)
+        raisons = no_quote_reasons(snap, premium, pnl_global, cs, halted=state["halted"])
+        if kill:
+            raisons.insert(0, "kill_switch actif (fail-closed)")
+        plan = build_plan(snap, inv, cs) if snap and not raisons else None
+        entree = {"inv": inv, "premium_pct": premium, "raisons": raisons,
+                  "snap": {k: round(v, 6) for k, v in (snap or {}).items()
+                           if isinstance(v, (int, float))} or None,
+                  "plan": plan, "placed": []}
+        if plan and arme:
+            import spot_trader as st
+            for side, px, usdt in (("buy", plan["bid_price"], plan["bid_usdt"]),
+                                   ("sell", plan["ask_price"], plan["ask_usdt"])):
+                if px is None or usdt <= 0:
+                    continue
+                r = st.quote(s, side, usdt, px, confirm=True,
+                             price_decimals=cs["price_decimals"])
+                entree["placed"].append({"side": side, "price": px, "usdt": usdt,
+                                         "executed": bool(r.get("executed")),
+                                         "reasons": r.get("reasons"),
+                                         "oid": r.get("clientOid")})
+                if r.get("executed"):
+                    poche["active"].append({"oid": r.get("clientOid"),
+                                            "order_id": _extract_order_id(r.get("response")),
+                                            "side": side, "price": px, "usdt": usdt})
+        out["paires"][s] = entree
     _save_state(state)
     _journalise(out)
-    for f in fills:
+    for f in fills_tous:
+        poche = state["symbols"].get(f.get("symbol")) or {}
         _notifie(f"🔁 Market making : fill {f['side']} {f['size']} @ {f['price']} "
-                 f"({c['symbol']}) · inventaire {state['inv_base']} · "
-                 f"PnL réalisé jour {state['realized_today']} $")
+                 f"({f.get('symbol')}) · inventaire {poche.get('inv_base')} · "
+                 f"PnL réalisé jour {poche.get('realized_today')} $")
     return out
 
 
 def status():
-    """Lecture seule : carnet + inventaire + plan PRÉVU (aucune écriture d'état,
-    aucune cotation, aucune annulation)."""
+    """Lecture seule : carnet + inventaire + plans PRÉVUS par paire (aucune
+    écriture d'état, aucune cotation, aucune annulation)."""
     c = config()
     state = _roll_day(_load_state(), time.time())
-    snap = build_snapshot(_book(c["symbol"]), state["mids"])
-    inv = inventory_view(state["inv_base"], state["avg_cost"],
-                         snap["mid"] if snap else state.get("avg_cost"), c)
-    pnl_today = round(float(state["realized_today"]) + inv["latent"], 6)
-    premium = _premium(c["symbol"])
-    raisons = no_quote_reasons(snap, premium, pnl_today, c, halted=state.get("halted", False))
-    return {"symbol": c["symbol"], "armed": enabled(), "snap": snap, "inv": inv,
-            "pnl_today": pnl_today, "premium_pct": premium, "raisons": raisons,
-            "active": state.get("active") or [],
-            "plan": build_plan(snap, inv, c) if snap and not raisons else None,
-            "consultation": True}
+    paires, pnl_global, actives = {}, 0.0, 0
+    for s in symbols():
+        cs, poche, snap, inv, _ = _photo_paire(state, s, c, reconcilier=False)
+        pnl_paire = float(poche["realized_today"]) + inv["latent"]
+        pnl_global += pnl_paire
+        actives += len(poche.get("active") or [])
+        paires[s] = {"snap": snap, "inv": inv, "premium_pct": _premium(s),
+                     "active": poche.get("active") or [], "cs": cs}
+    pnl_global = round(pnl_global, 6)
+    for s, p in paires.items():
+        raisons = no_quote_reasons(p["snap"], p["premium_pct"], pnl_global,
+                                   p["cs"], halted=state.get("halted", False))
+        p["raisons"] = raisons
+        p["plan"] = build_plan(p["snap"], p["inv"], p["cs"]) if p["snap"] and not raisons else None
+        del p["cs"]
+    return {"symbols": symbols(), "armed": enabled(), "paires": paires,
+            "pnl_today": pnl_global, "actives": actives, "consultation": True}
+
+
+def _ligne_paire(sym, p):
+    """Une ligne de rapport par paire (consultation ou cycle). PUR."""
+    snap, plan, inv = p.get("snap") or {}, p.get("plan") or {}, p.get("inv") or {}
+    if plan:
+        detail = (f"bid {plan.get('bid_usdt')} $ @ {plan.get('bid_price')} · "
+                  f"ask {plan.get('ask_usdt')} $ @ {plan.get('ask_price')} · "
+                  f"cible {plan.get('spread_bps')} bps")
+    else:
+        detail = "pas de cotation : " + " ; ".join(p.get("raisons") or ["plan vide"])
+    marche = (f"spread {snap.get('spread_bps'):.2f} bps · vol {snap.get('vol_bps', 0):.1f} "
+              f"({snap.get('n_mids', 0)} mids)" if snap else "carnet illisible")
+    return (f"  {sym} : {marche} · inv {inv.get('value')} $ (dev {inv.get('dev_pct')}) "
+            f"· premium {p.get('premium_pct')}% -> {detail}")
 
 
 def build_report(s=None):
     s = status() if s is None else s
-    snap, plan, inv = s.get("snap") or {}, s.get("plan") or {}, s.get("inv") or {}
     lignes = [
         "=== MARKET MAKING SPOT (borné §94, principes Virtu) — CONSULTATION ===",
-        f"Armé : {s.get('armed')} · {s.get('symbol')} · cotations actives : {len(s.get('active') or [])}",
+        f"Armé : {s.get('armed')} · paires : {', '.join(s.get('symbols') or [])} · "
+        f"cotations actives : {s.get('actives')} · PnL jour GLOBAL {s.get('pnl_today')} $",
     ]
-    if snap:
-        lignes.append(f"Carnet : bid {snap.get('bid')} / ask {snap.get('ask')} · "
-                      f"spread {snap.get('spread_bps'):.2f} bps · fair {snap.get('fair'):.2f} · "
-                      f"vol {snap.get('vol_bps'):.2f} bps ({snap.get('n_mids')} mids)")
-    lignes.append(f"Inventaire module : {inv.get('base')} base ({inv.get('value')} $) · "
-                  f"dev {inv.get('dev_pct')} · PnL jour {s.get('pnl_today')} $ · "
-                  f"premium {s.get('premium_pct')}%")
-    if plan:
-        lignes.append(f"Plan : bid {plan.get('bid_usdt')} $ @ {plan.get('bid_price')} · "
-                      f"ask {plan.get('ask_usdt')} $ @ {plan.get('ask_price')} · "
-                      f"spread cible {plan.get('spread_bps')} bps {plan.get('raisons') or ''}")
-    else:
-        lignes.append(f"Pas de cotation : {' ; '.join(s.get('raisons') or ['plan vide'])}")
+    for sym, p in (s.get("paires") or {}).items():
+        lignes.append(_ligne_paire(sym, p))
     lignes.append("Décision seule ici — toute exécution passe par spot_trader (verrou "
                   "SPOT_TRADE_LIVE, kill-switch, caps mm). Jamais de retrait. VERDICT: SAFE")
     return "\n".join(lignes)
@@ -476,19 +575,17 @@ def main():
     if "--cycle" in sys.argv[1:]:
         r = cycle()
         print("=== MARKET MAKING — CYCLE ===")
-        print(f"{r['symbol']} · armé {r['armed']} · kill {r['kill']} · PnL jour {r['pnl_today']} $")
+        print(f"paires {', '.join(r['symbols'])} · armé {r['armed']} · kill {r['kill']} · "
+              f"PnL jour {r['pnl_today']} $ · halted {r['halted']}")
         for f in r["fills"]:
-            print(f"fill constaté : {f['side']} {f['size']} @ {f['price']}")
-        if r["raisons"]:
-            print("Pas de cotation :", " ; ".join(r["raisons"]))
-        elif not r["armed"]:
-            p = r.get("plan") or {}
-            print(f"DRY — plan : bid {p.get('bid_usdt')} $ @ {p.get('bid_price')} · "
-                  f"ask {p.get('ask_usdt')} $ @ {p.get('ask_price')} (rien de placé)")
-        else:
-            for row in r["placed"]:
-                etat = "✅ placée" if row["executed"] else f"refusée {row.get('reasons')}"
-                print(f"cotation {row['side']} {row['usdt']} $ @ {row['price']} : {etat}")
+            print(f"fill constaté : {f['side']} {f['size']} @ {f['price']} ({f.get('symbol')})")
+        for sym, p in (r.get("paires") or {}).items():
+            if p.get("placed"):
+                for row in p["placed"]:
+                    etat = "✅ placée" if row["executed"] else f"refusée {row.get('reasons')}"
+                    print(f"  {sym} : cotation {row['side']} {row['usdt']} $ @ {row['price']} : {etat}")
+            else:
+                print(_ligne_paire(sym, p) + ("" if r["armed"] else " [DRY]"))
         print("VERDICT: SAFE")
     else:
         print(build_report())
