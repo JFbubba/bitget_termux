@@ -3519,3 +3519,27 @@ ABSTIENT l'ouverture sur staleness avérée (entry/SL/depth d'un flux gelé non 
 un seul fetch du carnet réutilisé pour le cap ET la fraîcheur. Les 3 gardes `data_guards`
 utiles à l'exécution futures sont désormais toutes câblées (series_ok au cerveau, quote_valid
 au MM, quote_fresh + cap_by_liquidity à l'exécuteur). 1 test dédié (451/451).
+
+
+## §99 — DASHBOARD : détail complet des positions futures RÉELLES (07/07/2026)
+
+Demande propriétaire : enrichir le panneau « Trades RÉELS en cours » (profit total, P&L
+réalisé, ROI, marge, P&L latent, entrée/mark, liquidation, SL, TP partiel, TP final,
+frais). Deux sources, chacune AUDITÉE et lecture seule :
+- **`real_positions.futures()` enrichi** depuis le MÊME appel position Bitget déjà utilisé
+  (`/api/v2/mix/position/all-position`, endpoint /position/, hors namespace d'ordre) :
+  `achievedProfits` (P&L réalisé), `totalFee` (frais), `liquidationPrice`, `breakEvenPrice`,
+  + calculés `total_pnl_usdt` (réalisé+latent), `roi_pct` (latent/marge).
+- **SL / TP final / TP partiel** : PAS via l'API d'ordre (le dépôt interdit `/api/v2/mix/order`
+  dans le code de lecture — `security_agent` le flague en WARNING, principe « zéro chemin
+  d'ordre » de `bitget_explorer`). Source = le LEDGER de l'exécuteur (`futures_real_ledger.json`,
+  audité) : les valeurs que le BOT a lui-même posées (`presetStopLossPrice`/`presetStopSurplusPrice`
+  à l'ouverture §45, event `FUTURES_TP_PARTIAL` §82). `real_positions._parse_ledger_sltp()`
+  (PUR) prend la dernière ouverture + le dernier TP partiel réussi par symbole ; `futures_sltp()`
+  lit le ledger. Rattaché aux positions dans `snapshot()`. Best-effort : valeur absente -> « — »
+  (jamais une valeur douteuse sur le risque réel).
+- Front : chaque position garde sa ligne résumé + une sous-ligne `.rt-d` de détail. 2 tests
+  (parse position enrichie + parse ledger SL/TP). 452/452.
+Note : première tentative via `/api/v2/mix/order/orders-plan-pending` REJETÉE par
+`security_agent` (WARNING) — d'où le pivot vers le ledger, plus propre ET plus fidèle (ce
+que le bot a réellement posé). `bgc` n'expose pas de lecteur d'ordres plan futures.

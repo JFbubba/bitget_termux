@@ -128,6 +128,12 @@ def futures():
             continue
         entry = _num(row.get("openPriceAvg") or row.get("averageOpenPrice"))
         mark = _num(row.get("markPrice"))
+        margin = _num(row.get("marginSize") or row.get("margin"))
+        upnl = _num(row.get("unrealizedPL"))
+        realized = _num(row.get("achievedProfits"))            # P&L réalisé sur la position
+        fee = _num(row.get("totalFee"))                        # frais/coût cumulés
+        liq = _num(row.get("liquidationPrice"))
+        be = _num(row.get("breakEvenPrice"))
         out.append({
             "symbol": row.get("symbol"),
             "side": str(row.get("holdSide") or "").upper(),         # LONG / SHORT
@@ -136,12 +142,68 @@ def futures():
             "mark": round(mark, 6) if mark else None,
             "leverage": _num(row.get("leverage")),
             "margin_mode": str(row.get("marginMode") or "").lower(),  # isolated / crossed
-            "margin_usdt": round(_num(row.get("marginSize") or row.get("margin")), 4),
-            "upnl_usdt": round(_num(row.get("unrealizedPL")), 4),
+            "margin_usdt": round(margin, 4),
+            "upnl_usdt": round(upnl, 4),                        # P&L variable (latent)
+            "realized_usdt": round(realized, 4),               # P&L réalisé
+            "total_pnl_usdt": round(realized + upnl, 4),       # profit total (réalisé + latent)
+            "fee_usdt": round(fee, 4),                         # coût de transaction
+            "roi_pct": round(100.0 * upnl / margin, 2) if margin > 0 else None,  # ROI sur marge
+            "liq": round(liq, 6) if liq else None,             # prix de liquidation
+            "break_even": round(be, 6) if be else None,        # seuil de rentabilité
             "notional_usdt": round(size * (mark or entry or 0), 2),
         })
     out.sort(key=lambda r: -abs(r["upnl_usdt"]))
     return out
+
+
+def _parse_ledger_sltp(events):
+    """PUR/testable (§99). SL / TP final / TP partiel PAR SYMBOLE depuis le ledger de
+    l'EXÉCUTEUR — les valeurs que le BOT a POSÉES lui-même (presetStopLoss/Surplus à
+    l'ouverture §45 ; ordre reduce GTC pour le partiel §82), lues dans SON journal audité.
+    On NE touche JAMAIS le namespace d'ordre Bitget (principe du dépôt, cf. security_agent /
+    bitget_explorer « zéro chemin d'ordre »). Retient la dernière OUVERTURE (reduce=False) et
+    le dernier TP partiel réussi par symbole. {} si rien. Une valeur ≤ 0 -> absente (« — »)."""
+    last_open, last_part = {}, {}
+    for e in events or []:
+        if not isinstance(e, dict):
+            continue
+        o = e.get("order") or {}
+        sym = str(o.get("symbol") or "").upper()
+        ts = _num(e.get("ts"), 0.0)
+        if not sym:
+            continue
+        if e.get("action") == "FUTURES_REAL" and not o.get("reduce"):
+            if ts >= last_open.get(sym, (-1.0, None))[0]:
+                bo = e.get("bitget_order") or {}
+                sl = _num(bo.get("presetStopLossPrice")) or _num(o.get("stop_loss"))
+                tp = _num(bo.get("presetStopSurplusPrice")) or _num(o.get("take_profit"))
+                last_open[sym] = (ts, {"sl": round(sl, 6) if sl > 0 else None,
+                                       "tp_final": round(tp, 6) if tp > 0 else None})
+        elif e.get("action") == "FUTURES_TP_PARTIAL" and e.get("ok"):
+            px = _num(o.get("price"))
+            if px > 0 and ts >= last_part.get(sym, (-1.0, 0.0))[0]:
+                last_part[sym] = (ts, round(px, 6))
+    out = {}
+    for sym, (_, d) in last_open.items():
+        dd = {k: v for k, v in d.items() if v is not None}
+        if dd:
+            out[sym] = dd
+    for sym, (_, px) in last_part.items():
+        out.setdefault(sym, {})["tp_partiel"] = px
+    return out
+
+
+def futures_sltp():
+    """SL / TP final / TP partiel par symbole depuis le ledger de l'exécuteur (audité,
+    lecture seule, best-effort {}). AUCUN appel au namespace d'ordre Bitget (§99)."""
+    import json as _json
+    from pathlib import Path as _Path
+    try:
+        led = _json.loads((_Path(__file__).resolve().parent / "futures_real_ledger.json")
+                          .read_text(encoding="utf-8"))
+        return _parse_ledger_sltp(led.get("events") or [])
+    except Exception:
+        return {}
 
 
 def parse_all_account_balance(rows):
@@ -174,6 +236,14 @@ def snapshot():
             out[name] = fn()
         except Exception as exc:                    # noqa: BLE001 — best-effort par catégorie
             out["errors"].append(f"{name}: {type(exc).__name__}")
+    # SL / TP final / TP partiel par symbole (best-effort), rattachés aux positions futures
+    if out["futures"]:
+        try:
+            tpsl = futures_sltp()
+            for p in out["futures"]:
+                p.update(tpsl.get(p["symbol"], {}))
+        except Exception as exc:                        # noqa: BLE001 — best-effort
+            out["errors"].append(f"tpsl: {type(exc).__name__}")
     out["counts"] = {k: len(out[k]) for k in ("spot", "margin_iso", "margin_cross", "futures")}
     out["totals"] = {
         "spot_usdt": round(sum((r["value_usdt"] or 0) for r in out["spot"]), 2),

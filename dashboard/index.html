@@ -152,6 +152,10 @@
   .rt-r:hover{border-color:#3A3222;background:var(--panel2)}
   .rt-r .sym{color:var(--accent);font-weight:600}
   .rt-r .num{white-space:nowrap}
+  .rt-d{display:flex;flex-wrap:wrap;gap:3px 14px;padding:2px 8px 8px;font-size:10px;
+    letter-spacing:0;border-bottom:1px solid var(--line);margin:-1px 0 4px}
+  .rt-d span b{color:var(--dim);font-weight:400;text-transform:uppercase;font-size:8.5px;
+    letter-spacing:.05em;margin-right:3px}
   .rt-empty{color:var(--dim);padding:10px 6px;letter-spacing:.08em}
   /* ===== chat (questions au bot) + explorateur API Bitget ===== */
   .chat-log{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
@@ -268,7 +272,7 @@
   </div>
 
   <div class="panel full" id="panel-trades" style="margin-bottom:8px">
-    <h2>Trades RÉELS en cours <span class="dim" style="letter-spacing:0">— futures · PnL latent vivant (rafraîchi ~10 s) · lecture seule</span>
+    <h2>Trades RÉELS en cours <span class="dim" style="letter-spacing:0">— futures · PnL latent vivant (rafraîchi ~10 s) · détail par position (Bitget) · SL/TP = posés par le bot · lecture seule</span>
       <span id="rt-tot" style="float:right;letter-spacing:0" class="dim">—</span></h2>
     <div id="rt-scroll">
     <div class="rt-h"><span>SYMBOLE</span><span>SENS</span><span class="r">TAILLE</span><span class="r">ENTRÉE</span><span class="r">MARK</span><span class="r">uPnL $</span><span class="r">uPnL %</span><span class="r">LEVIER</span><span class="r">MARGE</span><span class="r">NOTIONNEL</span></div>
@@ -1056,6 +1060,22 @@ function renderTrades(rp){
     const pnl=+r.upnl_usdt||0,pc=(+r.margin_usdt>0)?100*pnl/(+r.margin_usdt):null;
     const key=r.symbol+"|"+r.side,prev=_rtPrev[key];_rtPrev[key]=pnl;
     const fl=(prev!=null&&pnl!==prev)?(pnl>prev?" flash-up":" flash-dn"):"";
+    // sous-ligne de détail : champs supplémentaires lus sur Bitget (§99)
+    const px=v=>(v==null?"—":fmt(v));
+    const usd=(v,sign)=>v==null?"—":((sign&&v>=0?"+":"")+(+v).toFixed(2)+" $");
+    const cls=v=>v==null?"dim":(v>=0?"green":"red");
+    const fld=(lab,val)=>"<span><b>"+lab+"</b> "+val+"</span>";
+    const det='<div class="rt-d">'
+      +fld("P&L réalisé",'<span class="'+cls(r.realized_usdt)+'">'+usd(r.realized_usdt,1)+'</span>')
+      +fld("Profit total",'<span class="'+cls(r.total_pnl_usdt)+'">'+usd(r.total_pnl_usdt,1)+'</span>')
+      +fld("ROI (marge)",r.roi_pct==null?"—":'<span class="'+(r.roi_pct>=0?"green":"red")+'">'+(r.roi_pct>=0?"+":"")+r.roi_pct.toFixed(1)+'%</span>')
+      +fld("Frais",'<span class="dim">'+(r.fee_usdt==null?"—":(+r.fee_usdt).toFixed(4)+" $")+'</span>')
+      +fld("Liquidation",'<span class="red">'+px(r.liq)+'</span>')
+      +fld("Break-even",px(r.break_even))
+      +fld("SL",r.sl==null?'<span class="dim">—</span>':'<span class="red">'+fmt(r.sl)+'</span>')
+      +fld("TP partiel",r.tp_partiel==null?'<span class="dim">—</span>':'<span class="amber">'+fmt(r.tp_partiel)+'</span>')
+      +fld("TP final",r.tp_final==null?'<span class="dim">—</span>':'<span class="green">'+fmt(r.tp_final)+'</span>')
+      +'</div>';
     return '<div class="rt-r">'
       +'<span class="sym">'+(r.symbol||"").replace(/USDT$/,"")+'</span>'
       +'<span><span class="rt-side '+(long?"long":"short")+'">'+(long?"▲ LONG":"▼ SHORT")+'</span></span>'
@@ -1067,7 +1087,7 @@ function renderTrades(rp){
       +'<span class="r num">×'+(r.leverage||"—")+((r.margin_mode||"")[0]?(" "+(r.margin_mode||"")[0]):"")+'</span>'
       +'<span class="r num">$'+(+r.margin_usdt||0).toFixed(2)+'</span>'
       +'<span class="r num">$'+(+r.notional_usdt||0).toFixed(0)+'</span>'
-      +'</div>';
+      +'</div>'+det;
   }).join("");
 }
 // --- méthodes autonomes §76-83 + §94 : alt-carry, liquidité, market making, labo + barre xs ---

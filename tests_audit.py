@@ -8430,7 +8430,8 @@ def test_real_positions_futures_parse():
     rp._signed_get = lambda path, params=None, timeout=10: [
         {"symbol": "BTCUSDT", "holdSide": "long", "total": "0.01", "openPriceAvg": "60000",
          "markPrice": "61000", "leverage": "5", "marginMode": "isolated",
-         "marginSize": "120", "unrealizedPL": "10"},
+         "marginSize": "120", "unrealizedPL": "10", "achievedProfits": "3",
+         "totalFee": "0.5", "liquidationPrice": "54000", "breakEvenPrice": "60050"},
         {"symbol": "ETHUSDT", "holdSide": "short", "total": "0", "unrealizedPL": "0"},  # taille 0 -> filtré
     ]
     try:
@@ -8439,8 +8440,41 @@ def test_real_positions_futures_parse():
         p = out[0]
         assert p["side"] == "LONG" and p["entry"] == 60000.0 and p["upnl_usdt"] == 10.0
         assert p["margin_mode"] == "isolated" and p["leverage"] == 5.0
+        # §99 : champs enrichis depuis le MÊME appel position Bitget
+        assert p["realized_usdt"] == 3.0 and p["total_pnl_usdt"] == 13.0   # réalisé + latent
+        assert p["fee_usdt"] == 0.5 and p["liq"] == 54000.0 and p["break_even"] == 60050.0
+        assert p["roi_pct"] == round(100.0 * 10 / 120, 2)                  # ROI sur marge
     finally:
         rp._signed_get = orig
+
+
+def test_real_positions_ledger_sltp_parse():
+    """§99 : SL / TP final / TP partiel depuis le LEDGER de l'exécuteur (valeurs posées
+    par le bot), PUR — aucun accès au namespace d'ordre Bitget."""
+    import real_positions as rp
+    events = [
+        # ancienne ouverture BTC (SL/TP différents) — écrasée par la plus récente
+        {"ts": 100, "action": "FUTURES_REAL",
+         "order": {"symbol": "BTCUSDT", "reduce": False}, "bitget_order": {"presetStopLossPrice": "1"}},
+        # ouverture BTC courante : SL/TP via preset Bitget de l'ordre du bot
+        {"ts": 200, "action": "FUTURES_REAL", "order": {"symbol": "BTCUSDT", "reduce": False},
+         "bitget_order": {"presetStopLossPrice": "58000", "presetStopSurplusPrice": "65000"}},
+        # TP partiel réussi BTC
+        {"ts": 210, "action": "FUTURES_TP_PARTIAL", "ok": True,
+         "order": {"symbol": "BTCUSDT", "price": 63000}},
+        # ouverture ETH : SL/TP en repli sur les champs order (pas de bitget_order)
+        {"ts": 150, "action": "FUTURES_REAL",
+         "order": {"symbol": "ETHUSDT", "reduce": False, "stop_loss": 3000, "take_profit": 4000}},
+        # une RÉDUCTION ne définit pas de SL/TP
+        {"ts": 300, "action": "FUTURES_REAL", "order": {"symbol": "XRPUSDT", "reduce": True}},
+        # TP partiel ÉCHOUÉ -> ignoré
+        {"ts": 220, "action": "FUTURES_TP_PARTIAL", "ok": False, "order": {"symbol": "SOLUSDT", "price": 1}},
+    ]
+    out = rp._parse_ledger_sltp(events)
+    assert out["BTCUSDT"] == {"sl": 58000.0, "tp_final": 65000.0, "tp_partiel": 63000.0}  # dernière ouverture
+    assert out["ETHUSDT"] == {"sl": 3000.0, "tp_final": 4000.0}                            # repli champs order
+    assert "XRPUSDT" not in out and "SOLUSDT" not in out                                   # reduce / échec ignorés
+    assert rp._parse_ledger_sltp([]) == {}                                                 # vide -> {}
 
 
 def test_real_positions_snapshot_failsafe():
