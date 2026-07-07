@@ -1043,6 +1043,10 @@ function renderMethodes(m, ov){
       +`<br><span class="dim">labo xs :</span> <span class="${q?"green":"amber"}">${q?"QUALIFIÉ":"en cours"}</span> `
       +`${xs.jours!=null?xs.jours:"—"} j/${(xs.barre||{}).jours||30} · ${xs.rebalances||0} rebal · PnL ${xs.pnl_usdt!=null?(+xs.pnl_usdt).toFixed(2):"—"} $`;
     const nx=$("mc-lab-next");if(nx){nx.textContent=promus?((lab.promus||[]).length+" promues"):"";nx.className="green";}
+    const board=(m.board||[]).filter(b=>!b.pret&&b.progression!=null).sort((a,b)=>b.progression-a.progression);
+    const prets=(m.board||[]).filter(b=>b.pret).map(b=>b.nom);
+    el.innerHTML+=`<br><span class="dim">barres :</span> ${prets.length?`<span class="green">${prets.join(", ")} PRÊT</span> · `:""}`
+      +board.slice(0,2).map(b=>`${b.nom} <b class="accent">${Math.round(b.progression*100)}%</b>`).join(" · ");
   }}
   // voix opt-in (§77) : IC quand mesurable, sinon compte de votes parlés
   const al=$("audit-live");

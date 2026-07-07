@@ -3109,3 +3109,35 @@ Précision propriétaire : « il y a toujours les deux réseaux » — le pannea
 ~15 Ko plus léger). Il ne reste que la carte de connectivité animée §74, enrichie
 du seul ajout jugé utile (§87 : état MUETTE/PARLE de la voix). `neural_net.anatomy()`
 et `anatomy_live()` restent disponibles en CLI/API pour inspection ponctuelle.
+
+## §88 — Forensique des trades réels, digest quotidien, tableau des promotions (mandat « 1→5 »)
+
+Mandat propriétaire : exécuter les 5 suggestions dans l'ordre.
+
+**1+4+5 — `trade_forensics.py`** (SAFE, lecture seule) : reconstruit les
+ALLERS-RETOURS RÉELS depuis événements exécuteur + fills (les sorties par SL/TP
+préréglés et TP1 partiels n'émettent PAS d'événement -> détection pilotée par les
+fills), mesure MFE/MAE sur bougies (granularité par ÂGE du trip), R réalisé
+(distance au SL préréglé), slippage d'ouverture vs bougie 1 min de la décision,
+attribution PnL PAR MÉTHODE (agent). Premiers verdicts sur données réelles :
+SOL short +0.19 $ sorti à R+0.64 sur MFE+0.71R (90 % capturé, MAE −0.03R — sortie
+consensus EXCELLENTE) ; ETH −0.13 $ (MFE +0.11R/MAE −0.46R) ; slippage médian
++2.4 bps (le limit IOC ne coûte presque rien) ; trade LAB 13:26 = IOC accepté
+JAMAIS rempli (0 fill — position jamais ouverte), désormais flaggé « NON REMPLIS ».
+DEUX BUGS RÉELS corrigés en chemin : fetch_fills était BTCUSDT-only depuis §47
+(PnL bot sous-compté — désormais multi-symboles par ledger, cache par symbole) ;
+convention hedge-mode VÉRIFIÉE : le champ side d'un fill = côté de la POSITION
+(short s'ouvre ET se ferme en sell), seul tradeSide distingue open/close.
+
+**3 — `promotion_board.py`** : toutes les barres en une vue (voix t=ic·√n ≥ 3,
+nn wf_edge > 0, xs 30 j/20 rebal/PnL>0, grille 2 runs lab consécutifs, alt-carry
+1 moisson propre) — consommé par le digest + dashboard (colonne Labo). PREMIER
+VERDICT MAJEUR : les voix opt-in sont ANTI-PRÉDICTIVES mesurées — classics IC
+−0.21 (t = −11 !, n = 2770), llm IC −0.17 (t = −4.5, n = 671). COUPÉES le 07/07
+(levier env — le banc 14 + overlays restent) : c'est exactement le travail de
+l'instrument §77. Réactivation = nouvelle mesure positive, pas une envie.
+
+**2 — `daily_digest.py`** (cron 07:00, Telegram) : PnL 24 h par méthode +
+allers-retours avec R/MFE + slippage + equity/MDD/kill-switch + actions alt-carry
+& liquidité + tableau des promotions + santé apprentissage. Le « pourquoi je ne
+vois pas X » a désormais une réponse quotidienne automatique.

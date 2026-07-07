@@ -6219,6 +6219,68 @@ def test_liquidity_manager_politique():
     assert lm.decider(60, 38, spot_min=15, spot_max=120, fut_min=40, cap_op=25)["action"] == "rien"
 
 
+def test_trade_forensics_round_trips():
+    """§88 : reconstruction des allers-retours sur la CONVENTION HEDGE-MODE VÉRIFIÉE
+    (un short s'ouvre ET se ferme en sell, seul tradeSide distingue), sorties
+    partielles (TP1 + reste), PnL net de frais, R réalisé, ordres IOC non remplis."""
+    import trade_forensics as tf
+    evs = [{"ts": 1000.0, "symbol": "SOLUSDT", "side": "short", "reduce": False,
+            "agent": "auto_dir", "notional": 45.0, "size_btc": 0.5, "sl": 82.6},
+           {"ts": 2000.0, "symbol": "LABUSDT", "side": "long", "reduce": False,
+            "agent": "auto_dir", "notional": 25.0, "size_btc": 1.0, "sl": None}]
+    fills = [
+        {"ts": 1005.0, "symbol": "SOLUSDT", "side": "sell", "trade_side": "open",
+         "price": 82.0, "base": 0.5, "quote": 41.0, "profit": 0.0, "fee": 0.02, "order_id": "o1"},
+        # TP1 partiel (ordre distinct) puis fermeture du reste
+        {"ts": 1500.0, "symbol": "SOLUSDT", "side": "sell", "trade_side": "close",
+         "price": 81.4, "base": 0.25, "quote": 20.35, "profit": 0.15, "fee": 0.01, "order_id": "o2"},
+        {"ts": 1800.0, "symbol": "SOLUSDT", "side": "sell", "trade_side": "close",
+         "price": 81.8, "base": 0.25, "quote": 20.45, "profit": 0.05, "fee": 0.01, "order_id": "o3"},
+    ]
+    rt = tf.round_trips(evs, fills)
+    assert len(rt["trips"]) == 1
+    t0 = rt["trips"][0]
+    assert t0["clos"] and t0["partiel"] and t0["side"] == "short"
+    assert abs(t0["pnl_usdt"] - (0.15 + 0.05 - 0.02 - 0.01 - 0.01)) < 1e-9
+    assert t0["ret_pct"] > 0 and t0["r_realise"] is not None and t0["r_realise"] > 0
+    # LAB : événement accepté mais AUCUN fill -> non rempli (jamais ouvert)
+    import time as _t
+    depuis = 0
+    s_evs = tf.charger_events  # non utilisé : on teste la logique pure via snapshot-like
+    apparies = {(x["symbol"], x["ts_in"]) for x in rt["trips"]}
+    non_remplis = [e for e in evs if not e["reduce"] and (e["symbol"], e["ts"]) not in apparies]
+    assert len(non_remplis) == 1 and non_remplis[0]["symbol"] == "LABUSDT"
+    # MFE/MAE sur bougies injectées : short 82 -> plus bas 81.2 => MFE, pic 82.3 => MAE
+    candles = [{"ts": 1100, "high": 82.3, "low": 81.9},
+               {"ts": 1400, "high": 82.0, "low": 81.2}]
+    ex = tf.mfe_mae(t0, candles=candles)
+    assert ex["mfe_pct"] > 0.9 and ex["mae_pct"] < 0 and ex["mfe_r"] > 1.0
+    # slippage PUR : référence injectée — short rempli PLUS BAS que la réf = coût positif
+    slip = tf.slippage([{"ts_in": 1005.0, "symbol": "SOLUSDT", "side": "short",
+                         "entry": 81.9}], refs={("SOLUSDT", 960): 82.0})
+    assert len(slip) == 1 and slip[0]["bps"] > 0
+    # attribution
+    att = tf.attribution(rt["trips"])
+    assert att["auto_dir"]["n"] == 1 and att["auto_dir"]["win_rate"] == 1.0
+
+
+def test_promotion_board_pur():
+    """§88 : le tableau des promotions — significativité des voix (t = ic·√n),
+    consécutivité des runs grille, barre xs reflétée."""
+    import promotion_board as pb
+    v = pb._voix(overlay=[{"agent": "classics", "ic": -0.21, "n": 2770}], comptes={})
+    assert v[0]["pret"] is False and "t -11" in v[0]["etat"]
+    v = pb._voix(overlay=[{"agent": "bonne", "ic": 0.12, "n": 900}], comptes={})
+    assert v[0]["pret"] is True                      # t = 0.12·30 = 3.6 ≥ 3
+    g = pb._grille(runs=[{"rsi_reversion_14"}, {"evo_grid_49_7"}, {"grid_60_8", "bollinger_20"}])
+    assert g[0]["pret"] is True and "2 consécutif" in g[0]["etat"]
+    g = pb._grille(runs=[{"evo_grid_49_7"}, {"bollinger_20"}])
+    assert g[0]["pret"] is False                     # le dernier run casse la série
+    x = pb._xs(st={"qualifie": False, "jours": 3.0, "rebalances": 116, "pnl_usdt": -1.5,
+                   "barre": {"jours": 30, "rebalances": 20, "pnl": "> 0"}})
+    assert x[0]["pret"] is False and x[0]["progression"] <= 0.5
+
+
 def test_alt_carry_decideur_et_jambes():
     """§82 : moisson de funding multi-symboles — n'ouvre que sur extrême POSITIF
     (percentile + APR), ferme quand ça ne paie plus, tient en fail-safe si le funding

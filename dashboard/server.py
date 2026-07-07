@@ -781,6 +781,11 @@ def build_state(symbol=None, tf="5m"):
             out["xs"] = xs_paper.promotion_status()
         except Exception:
             out["xs"] = {}
+        try:                                          # tableau des promotions (§88)
+            import promotion_board as pb
+            out["board"] = pb.snapshot().get("items", [])
+        except Exception:
+            out["board"] = []
         return out
     state["methodes"] = _cached("methodes", 60, lambda: _safe(_methodes, {}))
 

@@ -218,21 +218,52 @@ def compte_events(events):
 
 # ---------- lectures (best-effort, cachées) ----------
 
-def fetch_fills(limit=100):
-    """Fills futures BTCUSDT (lecture seule, cachés 10 min). [] si indisponible."""
-    def _fetch():
-        import bitget_hub_bridge as hub
-        d = hub._read(["futures", "futures_get_fills", "--productType", "USDT-FUTURES",
-                       "--symbol", SYMBOL, "--limit", str(int(limit))])
-        rows = (d or {}).get("data")
-        if isinstance(rows, dict):
-            rows = rows.get("fillList") or rows.get("list") or []
-        return rows if isinstance(rows, list) else []
+def _symboles_trades():
+    """Symboles réellement tradés par le bot (ledger exécuteur) + BTCUSDT.
+    §88 : les fills n'étaient lus QUE sur BTCUSDT alors que la boucle trade tout
+    l'univers depuis §47 — le PnL bot sous-comptait (SOL/ETH/LAB invisibles)."""
+    syms = {SYMBOL}
     try:
-        import runtime_cache as rc
-        return rc.get("fut_fills", 600, _fetch, fallback=[])
+        import json as _json
+        from pathlib import Path as _P
+        led = _json.loads((_P(__file__).resolve().parent / "futures_real_ledger.json")
+                          .read_text(encoding="utf-8"))
+        for e in led.get("events", []):
+            s = ((e.get("order") or {}).get("symbol") or "").upper()
+            if s and e.get("action") in ("FUTURES_REAL", "FUTURES_REAL_FAILED"):
+                syms.add(s)
     except Exception:
-        return []
+        pass
+    return sorted(syms)
+
+
+def fetch_fills(limit=100, symbol=None):
+    """Fills futures (lecture seule, cachés 10 min par symbole). Sans `symbol` :
+    TOUS les symboles tradés par le bot, fusionnés et triés par date."""
+    def _one(sym):
+        def _fetch():
+            import bitget_hub_bridge as hub
+            d = hub._read(["futures", "futures_get_fills", "--productType", "USDT-FUTURES",
+                           "--symbol", sym, "--limit", str(int(limit))])
+            rows = (d or {}).get("data")
+            if isinstance(rows, dict):
+                rows = rows.get("fillList") or rows.get("list") or []
+            return rows if isinstance(rows, list) else []
+        try:
+            import runtime_cache as rc
+            return rc.get(f"fut_fills:{sym}", 600, _fetch, fallback=[])
+        except Exception:
+            return []
+    if symbol:
+        return _one(str(symbol).upper())
+    rows = []
+    for sym in _symboles_trades():
+        rows.extend(_one(sym) or [])
+    try:
+        rows.sort(key=lambda r: float(r.get("cTime") or 0))
+    except Exception:
+        pass
+    return rows
 
 
 def snapshot():
