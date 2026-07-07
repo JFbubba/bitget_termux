@@ -112,6 +112,17 @@ CARRY_FORBIDDEN = [
 CARRY_REQUIRED = ["alt_carry_live", "spot_trader", "margin_trader", "futures_executor",
                   "account_transfers", "confirm", "compensation", "fail-closed"]
 
+# Module de DÉCISION market making §94 : même classe que liquidité/carry — il
+# calcule un plan de cotation et DÉLÈGUE toute écriture à spot_trader (quote/cancel,
+# verrous LIVE + caps mm + kill-switch). Aucun vocabulaire d'écriture directe.
+MM_DECISION_FILE = "market_maker.py"
+MM_FORBIDDEN = [
+    "withdraw", "transfer", "place_order", "set_leverage", "change_leverage",
+    "setleverage", "margin_borrow", "margin_repay", "sub_account", "subaccount",
+    "broker_", "hub._write", "hub._exec", "_run_bgc", "order/place",
+]
+MM_REQUIRED = ["mm_auto", "spot_trader", "confirm", "kill", "fail-closed"]
+
 # Fichier de STATUT lecture seule §67 : agrège l'état des surfaces pour le dashboard.
 # Il référence les noms des exécuteurs (d'où 'transfer') mais ne doit contenir AUCUN
 # vocabulaire d'ÉCRITURE — on prouve ainsi qu'il ne peut QUE lire.
@@ -159,6 +170,7 @@ FILES_TO_SCAN = [
     "earn_manager.py",
     "liquidity_manager.py",
     "alt_carry.py",
+    "market_maker.py",
     "trade_forensics.py",
     "promotion_board.py",
     "daily_digest.py",
@@ -333,6 +345,20 @@ def scan_carry_decision(filename):
     return issues
 
 
+def scan_mm_decision(filename):
+    """Audit du module de DÉCISION market making (§94) : délégation obligatoire à
+    spot_trader, aucun vocabulaire d'écriture directe, gate MM_AUTO + kill-switch +
+    fail-closed présents."""
+    path = Path(filename)
+    if not path.exists():
+        return []
+    text = path.read_text(errors="ignore").lower()
+    issues = [f"interdit:{kw}" for kw in MM_FORBIDDEN if kw.lower() in text]
+    issues += [f"garde manquante:{req}" for req in MM_REQUIRED
+               if req.lower() not in text]
+    return issues
+
+
 def scan_status_readonly(filename):
     """Audit d'un fichier de STATUT lecture seule §67 : il peut référencer les noms
     d'exécuteurs, mais ne doit contenir AUCUN vocabulaire d'écriture (il ne fait que lire
@@ -406,6 +432,9 @@ def main():
         elif filename == CARRY_DECISION_FILE:
             hits = scan_carry_decision(filename)
             label = "décision carry non conforme"
+        elif filename == MM_DECISION_FILE:
+            hits = scan_mm_decision(filename)
+            label = "décision market making non conforme"
         elif filename in STATUS_READONLY_FILES:
             hits = scan_status_readonly(filename)
             label = "statut read-only non conforme"

@@ -3239,3 +3239,64 @@ CONSTITUTION (ce que la délégation ne peut PAS toucher — protection du manda
 murs absolus en dur, stop journalier −5 % -> kill-switch, 3 portes avant push,
 mesure-d'abord (pas d'armement sans chiffre, coupe sur chiffre), retrait
 inexistant (clé Trade-only). CLAUDE.md règles 2-3 réécrites en conséquence.
+
+## §93 — DASHBOARD SUR LE TAILNET (régularisation d'écriture, 07/07/2026)
+
+Section écrite APRÈS coup pour régulariser la numérotation : le commit
+« Dashboard (§93) : double écoute localhost + IP Tailscale » référençait un §93
+jamais versé ici. Décision : le dashboard lecture seule écoute AUSSI sur l'IP
+Tailscale de la machine (accès smartphone via le tailnet privé WireGuard) —
+JAMAIS 0.0.0.0, l'interface publique reste fermée (dashboard/server.py).
+
+## §94 — MARKET MAKING SPOT BORNÉ, PRINCIPES VIRTU (instruction propriétaire du 07/07/2026)
+
+Le propriétaire demande d'ajouter au bot la technique de market making de Virtu
+Financial (synthèse fournie : non-directionnel, capture de spread, contrôle
+d'inventaire, verrous multicouches — versée à docs/SAVOIR.md §9 avec ses
+implications et ses NON-transpositions retail).
+
+ARCHITECTURE (même patron que liquidité §76 et carry §82-83) :
+- `market_maker.py` — module de DÉCISION (aucune écriture directe, audité à part
+  par security_agent/scan_mm_decision) : fair = 0.70×microprice + 0.30×mid ;
+  spread cible = max(plancher 8 bps, spread carnet, frais aller-retour 2×fee+
+  buffer = 23 bps, vol courte ×2.5), plafonné 80 bps ; prix de réservation glissé
+  CONTRE l'inventaire (Avellaneda-Stoikov simplifié — écart volontaire vs le
+  script fourni : décalage en fraction du DEMI-SPREAD, borné, pas du prix entier,
+  qui aurait décalé la réservation de ±40 % au démarrage) ; clamp post-only ;
+  tailles asymétriques [0,2] ; côté coupé au-delà de ±0.30 de déviation.
+- `spot_trader.py` (surface §67 étendue) : quote() = cotation limit POST-ONLY
+  bornée (surface ledger « mm », caps dédiés MM_MAX_PER_QUOTE_USDT 5 $/mur 25 $,
+  MM_MAX_DAILY_QUOTED_USDT 400 $/mur 2000 $ — le notionnel COTÉ puis annulé sans
+  fill n'a pas le même sens que le notionnel acheté ; anti-boucle-folle) ;
+  cancel() = annulation par orderId, possible verrou coupé ET kill actif
+  (retirer ses cotations RÉDUIT le risque — fail-safe inverse) ; open_orders()/
+  order_info() lecture seule via hub.
+- `bitget_market_data.fetch_spot_orderbook` : carnet SPOT public (le merge-depth
+  existant est futures).
+
+INVENTAIRE : celui du MODULE SEUL (fills de ses cotations, clientOid « mmq »,
+coût moyen pondéré, PnL réalisé/latent) — le stock d'accumulation §44 est
+INTOUCHABLE, la vente est bornée à l'inventaire acquis par le MM. Budget de
+référence MM_BUDGET_USDT 20 $, inventaire max 15 $.
+
+VERROUS (defense-in-depth) : gate maître MM_AUTO défaut OFF (DRY : plan
+journalisé dans .mm_journal.jsonl, rien de placé) ; gardes pré-cotation
+fail-closed (carnet illisible/incohérent, spread carnet >120 bps, warm-up <20
+mids, premium cross-exchange >0.5 % via fair_price §44 = anti adverse-selection
+minimal) ; stop LOCAL journalier du module (PnL réalisé+latent ≤ −1 $ -> cotations
+retirées, reprise le lendemain, notifié) ; kill-switch global fail-closed ; puis
+TOUTES les gardes de la surface (verrou SPOT_TRADE_LIVE, caps, kill re-vérifié).
+La réconciliation/annulation des cotations DÉJÀ ouvertes reste réelle même
+désarmé.
+
+HONNÊTETÉ (SAVOIR §9) : un MM retail REST en secondes fournit de la liquidité
+stale — l'edge n'est PAS acquis. Mesure-d'abord : boucle */5 min en DRY, mesurer
+dans .mm_journal.jsonl le spread capturable et (après armement éventuel micro)
+le PnL par fill AVANT toute montée. Armement = décision mesurée (délégation §92),
+jamais par défaut. Tests : moteur pur, gardes, fills/coût moyen, surface quote/
+cancel (tests_audit). TTL des cotations = 1 cycle (annule-et-recote).
+
+CRON À INSTALLER PAR LE PROPRIÉTAIRE (l'environnement de la session a refusé
+l'écriture du crontab — persistance non explicitement demandée) ; décommenter
+en même temps l'entrée .mm_journal.jsonl de la CARTE_FRAICHEUR du watchdog :
+    */5 * * * * cd ~/bitget_termux_repo && /usr/bin/python3 market_maker.py --cycle >> ~/market_maker.log 2>&1

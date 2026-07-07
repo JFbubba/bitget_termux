@@ -6410,7 +6410,129 @@ def test_alt_carry_decideur_et_jambes():
                                                spec={"min_size": 0.01, "min_usdt": 5.0},
                                                px=4165.0, caps=(20.0, 20.0, 50.0))
     assert taille is None and besoin > plafond
-    # anti-jambe-nue : perp échoue -> compensation vend le spot
+
+
+def test_market_maker_moteur_pur():
+    """§94 : moteur de cotation PUR — microprice, spread jamais sous les frais,
+    prix de réservation borné (décalage en fraction du demi-spread, PAS du prix),
+    clamp post-only, tailles asymétriques, côtés coupés aux extrêmes d'inventaire."""
+    import market_maker as mm
+    # microprice : pondéré par le déséquilibre L1 ; repli mid si tailles nulles
+    assert mm.microprice(99.0, 101.0, 0, 0) == 100.0
+    assert mm.microprice(99.0, 101.0, 3.0, 1.0) == (101.0 * 3 + 99.0 * 1) / 4
+    # vol : historique insuffisant -> 0 (warm-up)
+    assert mm.vol_bps([100.0] * 5) == 0.0
+    assert mm.vol_bps([100.0 + (i % 2) for i in range(60)]) > 0.0
+    c = {"symbol": "BTCUSDT", "notional": 5.0, "min_notional": 1.0, "per_quote_cap": 5.0,
+         "min_spread_bps": 8.0, "max_spread_bps": 80.0, "fee_bps": 10.0, "buffer_bps": 3.0,
+         "vol_mult": 2.5, "budget": 20.0, "target_base_pct": 0.5, "skew_strength": 0.8,
+         "max_dev": 0.30, "max_inventory": 15.0, "max_book_spread": 120.0,
+         "max_premium_pct": 0.5, "max_daily_loss": 1.0, "price_decimals": 2}
+    # spread cible : jamais sous les frais aller-retour (2×10+3=23 bps), plafonné à 80
+    assert mm.target_spread_bps(1.0, 0.0, c) == 23.0
+    assert mm.target_spread_bps(1.0, 100.0, c) == 80.0
+    # tailles asymétriques bornées [0, 2]
+    assert mm.size_multipliers(0.0, 0.30) == (1.0, 1.0)
+    b, s = mm.size_multipliers(0.30, 0.30)
+    assert b == 0.0 and s == 2.0
+    # snapshot : carnet vide/incohérent -> None (fail-closed)
+    assert mm.build_snapshot({"bids": [], "asks": []}, []) is None
+    assert mm.build_snapshot({"bids": [[101, 1]], "asks": [[100, 1]]}, []) is None
+    book = {"bids": [[99990.0, 2.0]], "asks": [[100010.0, 2.0]]}
+    snap = mm.build_snapshot(book, [100000.0] * 30)
+    assert snap and abs(snap["mid"] - 100000.0) < 1e-6 and snap["spread_bps"] < 3
+    # inventaire vide (dev -0.5) -> vente coupée, bid sous le meilleur bid (post-only)
+    inv0 = mm.inventory_view(0.0, 0.0, snap["mid"], c)
+    assert inv0["dev_pct"] == -0.5
+    p = mm.build_plan(snap, inv0, c)
+    assert p["ask_price"] is None and p["bid_price"] is not None
+    assert p["bid_price"] <= snap["bid"] and p["bid_usdt"] <= c["per_quote_cap"]
+    # réservation BORNÉE : à ±half-spread max du fair (jamais ±40 % du prix)
+    assert abs(p["reservation"] - snap["fair"]) <= snap["fair"] * p["spread_bps"] / 10_000
+    # inventaire plein -> achat coupé, ask au-dessus du meilleur ask
+    inv1 = mm.inventory_view(0.00017, 95000.0, snap["mid"], c)     # ~17 $ > max 15
+    p1 = mm.build_plan(snap, inv1, c)
+    assert p1["bid_price"] is None and p1["ask_price"] is not None
+    assert p1["ask_price"] >= snap["ask"]
+    # la vente est bornée au stock du MODULE (jamais l'accumulation §44)
+    inv_mini = mm.inventory_view(1e-8, 95000.0, snap["mid"], c)
+    assert mm.build_plan(snap, inv_mini, c)["ask_usdt"] == 0.0
+
+
+def test_market_maker_gardes_et_fills():
+    """§94 : gardes pré-cotation fail-closed (carnet illisible, warm-up, spread
+    disloqué, premium cross-exchange, stop local) ; fills -> coût moyen pondéré,
+    PnL réalisé, inventaire jamais négatif ; gate MM_AUTO défaut OFF."""
+    import os
+    import market_maker as mm
+    old = os.environ.pop("MM_AUTO", None)
+    try:
+        assert mm.enabled() is False                        # défaut OFF
+    finally:
+        if old is not None:
+            os.environ["MM_AUTO"] = old
+    c = {"max_book_spread": 120.0, "max_premium_pct": 0.5, "max_daily_loss": 1.0}
+    ok_snap = {"bid": 99990.0, "ask": 100010.0, "spread_bps": 2.0, "n_mids": 30}
+    assert mm.no_quote_reasons(ok_snap, 0.1, 0.0, c) == []
+    assert mm.no_quote_reasons(None, None, 0.0, c)          # carnet illisible
+    assert mm.no_quote_reasons({**ok_snap, "n_mids": 3}, None, 0.0, c)      # warm-up
+    assert mm.no_quote_reasons({**ok_snap, "spread_bps": 500.0}, None, 0.0, c)
+    assert mm.no_quote_reasons(ok_snap, 2.5, 0.0, c)        # premium disloqué
+    assert mm.no_quote_reasons(ok_snap, None, 0.0, c) == [] # premium inconnu -> pas de blocage
+    assert mm.no_quote_reasons(ok_snap, 0.0, -1.5, c)       # stop local
+    assert mm.no_quote_reasons(ok_snap, 0.0, 0.0, c, halted=True)
+    # fills : achat -> coût moyen pondéré ; vente -> PnL réalisé, stock ≥ 0
+    st = {"inv_base": 0.0, "avg_cost": 0.0, "realized_today": 0.0}
+    mm.apply_fill(st, "buy", 0.0001, 100000.0)
+    mm.apply_fill(st, "buy", 0.0001, 90000.0)
+    assert abs(st["inv_base"] - 0.0002) < 1e-12 and st["avg_cost"] == 95000.0
+    mm.apply_fill(st, "sell", 0.0001, 96000.0)
+    assert abs(st["realized_today"] - 0.1) < 1e-9           # (96000-95000)×0.0001
+    mm.apply_fill(st, "sell", 1.0, 96000.0)                 # sur-vente impossible
+    assert st["inv_base"] == 0.0 and st["avg_cost"] == 0.0
+    fills_invalides = dict(st)
+    mm.apply_fill(fills_invalides, "buy", 0, 100.0)         # taille/prix nuls ignorés
+    assert fills_invalides == st
+
+
+def test_spot_trader_cotations_maker():
+    """§94 : surface de cotation maker — post-only STRICT, caps mm dédiés (per-quote
+    + notionnel coté/jour, murs absolus), DRY par défaut, verrou LIVE requis ;
+    annulation possible même verrou coupé/kill actif (retirer = réduire le risque)."""
+    import json as _json
+    import spot_trader as st
+    # args PURS : post-only, prix/taille décimaux, prix invalide -> None
+    args = st.build_quote_args("BTCUSDT", "buy", 5.0, 100000.0, "oid1")
+    assert args[0] == "spot" and "--orders" in args
+    o = _json.loads(args[-1])[0]
+    assert o["force"] == "post_only" and o["orderType"] == "limit"
+    assert o["price"] == "100000.00" and o["size"] == "0.000050"
+    assert st.build_quote_args("BTCUSDT", "buy", 5.0, "n/a", "x") is None
+    assert st.build_quote_args("BTCUSDT", "buy", 5.0, 0, "x") is None
+    # DRY par défaut : gardes vertes injectées -> aperçu, rien d'exécuté
+    r = st.quote("BTCUSDT", "buy", 5.0, 100000.0, live=True, kill=False, spent=0.0)
+    assert r["ok"] and r.get("dry") and not r["executed"]
+    # verrou LIVE coupé -> refus ; cap per-quote (mur 25) -> refus au-delà
+    r = st.quote("BTCUSDT", "buy", 5.0, 100000.0, live=False, kill=False, spent=0.0)
+    assert not r["ok"] and any("verrou" in x for x in r["reasons"])
+    r = st.quote("BTCUSDT", "buy", 26.0, 100000.0, live=True, kill=False, spent=0.0)
+    assert not r["ok"]
+    # annulation : DRY par défaut, réelle avec confirm même sans verrou/kill
+    assert st.build_cancel_args("BTCUSDT", order_id="42")[-1] == "42"
+    assert st.build_cancel_args("BTCUSDT", cancel_all=True)[-1] == "true"
+    assert st.build_cancel_args("BTCUSDT") is None
+    r = st.cancel("BTCUSDT", order_id="42")
+    assert r["ok"] and r.get("dry")
+    r = st.cancel("BTCUSDT", order_id="42", confirm=True,
+                  runner=lambda a: '{"code":"00000","data":{"orderId":"42"}}')
+    assert r["executed"] is True
+    r = st.cancel("BTCUSDT")
+    assert not r["ok"]
+
+
+def test_alt_carry_compensation_jambe_nue():
+    """§82 (suite) : anti-jambe-nue — la jambe perp échoue -> compensation vend le spot."""
+    import alt_carry as ac
     import futures_auto as fa
     import futures_executor as fe
     import spot_trader as st

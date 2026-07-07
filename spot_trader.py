@@ -78,6 +78,117 @@ def execute(symbol, side, usdt, confirm=False, runner=None, live=None, kill=None
                   meta={"symbol": symbol, "side": side})
 
 
+# ---------- cotations MAKER (market making §94) — surface ledger "mm" ----------
+# Le module de DÉCISION market_maker.py délègue ici. Caps DÉDIÉS : le notionnel COTÉ
+# (placé puis souvent annulé sans fill) n'a pas le même sens que le notionnel ACHETÉ —
+# le risque réel du MM est borné côté décision (inventaire max + stop journalier local)
+# et côté surface par ces murs (per-quote + total coté/jour, anti-boucle folle).
+
+MM_SURFACE = "mm"
+ABS_MM_PER_QUOTE_USDT = 25.0      # mur ABSOLU par cotation
+ABS_MM_DAILY_QUOTED_USDT = 2000.0  # mur ABSOLU de notionnel coté par jour
+
+
+def _decimal(x, decimals=6):
+    """Notation DÉCIMALE (jamais scientifique) — Bitget rejette '8.3e-05'."""
+    return f"{round(float(x), decimals):.{decimals}f}"
+
+
+def build_quote_args(symbol, side, usdt, price, oid, price_decimals=2, size_decimals=6):
+    """Arguments bgc pour UNE cotation limit POST-ONLY (maker, jamais taker). PUR.
+    size en BASE = usdt/price. Retourne None si prix invalide."""
+    try:
+        px = float(price)
+    except (TypeError, ValueError):
+        return None
+    if px <= 0:
+        return None
+    order = {"symbol": symbol, "side": side, "orderType": "limit", "force": "post_only",
+             "price": _decimal(px, price_decimals), "size": _decimal(float(usdt) / px, size_decimals),
+             "clientOid": str(oid)}
+    return ["spot", "spot_place_order", "--orders", json.dumps([order])]
+
+
+def quote(symbol, side, usdt, price, confirm=False, runner=None, live=None, kill=None,
+          spent=None, balance=None, price_decimals=2):
+    """Cotation maker RÉELLE SI confirm=True ET gardes vertes, sinon DRY. Post-only :
+    l'ordre est REJETÉ par l'exchange s'il croiserait le carnet (jamais preneur).
+    Verrou surface SPOT_TRADE_LIVE + kill-switch fail-closed + caps mm dédiés."""
+    symbol = symbol.upper()
+    side = str(side).lower()
+    reasons = [] if side in ("buy", "sell") else [f"side invalide '{side}' (buy|sell)"]
+    per_op = ex.capped("MM_MAX_PER_QUOTE_USDT", 5.0, ABS_MM_PER_QUOTE_USDT)
+    daily = ex.capped("MM_MAX_DAILY_QUOTED_USDT", 400.0, ABS_MM_DAILY_QUOTED_USDT)
+    oid = ex.new_oid("mmq")
+    args = build_quote_args(symbol, side, usdt, price, oid, price_decimals=price_decimals)
+    if args is None:
+        reasons.append(f"prix invalide '{price}'")
+        args = ["spot", "spot_place_order", "--orders", "[]"]
+    ok, reasons = ex.guard(MM_SURFACE, LIVE_FLAG, usdt, per_op, daily,
+                           live=live, kill=kill, spent=spent, balance=balance,
+                           extra_reasons=reasons)
+    return ex.run(args, ok, reasons, MM_SURFACE, usdt, oid, confirm=confirm, runner=runner,
+                  meta={"symbol": symbol, "side": side, "maker": True, "price": str(price)})
+
+
+def build_cancel_args(symbol, order_id=None, cancel_all=False):
+    """Arguments bgc pour ANNULER une cotation (ou toutes celles du symbole). PUR.
+    Le hub n'accepte QUE orderId/orderIds/cancelAll (pas de clientOid)."""
+    base = ["spot", "spot_cancel_orders", "--symbol", symbol]
+    if order_id:
+        return base + ["--orderId", str(order_id)]
+    if cancel_all:
+        return base + ["--cancelAll", "true"]
+    return None
+
+
+def cancel(symbol, order_id=None, cancel_all=False, confirm=False, runner=None):
+    """Annule une cotation ouverte. Une annulation RETIRE du risque : elle reste possible
+    verrou LIVE coupé ET kill-switch actif (fail-safe inverse — pouvoir toujours retirer
+    ses cotations du carnet). DRY par défaut : confirm=True requis pour le réel.
+    Aucun montant engagé -> pas de caps ; rien n'est journalisé au ledger."""
+    symbol = symbol.upper()
+    args = build_cancel_args(symbol, order_id=order_id, cancel_all=cancel_all)
+    if args is None:
+        return {"ok": False, "executed": False,
+                "reasons": ["préciser order_id ou cancel_all=True"], "preview": None}
+    preview = "bgc " + " ".join(str(a) for a in args)
+    if not confirm:
+        return {"ok": True, "executed": False, "dry": True, "preview": preview,
+                "note": "DRY — relance avec confirm=True pour annuler réellement"}
+    out = ex._run_bgc(args, runner=runner)
+    return {"ok": True, "executed": ex._ok_response(out), "preview": preview, "response": out}
+
+
+def open_orders(symbol, runner=None):
+    """Cotations spot OUVERTES du symbole (lecture seule via le hub).
+    Liste (peut être vide) ; None si illisible (≠ vide : fail-closed chez l'appelant)."""
+    try:
+        import bitget_hub_bridge as hub
+        if runner is not None:
+            d = runner(["spot", "spot_get_orders", "--symbol", symbol.upper(), "--status", "open"])
+        else:
+            d = hub._read(["spot", "spot_get_orders", "--symbol", symbol.upper(), "--status", "open"])
+        data = (d or {}).get("data") if isinstance(d, dict) else None
+        return data if isinstance(data, list) else None
+    except Exception:
+        return None
+
+
+def order_info(symbol, order_id, runner=None):
+    """Détail d'une cotation par orderId (lecture seule). Dict ou None si illisible."""
+    try:
+        import bitget_hub_bridge as hub
+        args = ["spot", "spot_get_orders", "--orderId", str(order_id)]
+        d = runner(args) if runner is not None else hub._read(args)
+        data = (d or {}).get("data") if isinstance(d, dict) else None
+        if isinstance(data, list):
+            return data[0] if data else None
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
 def kelly_usdt():
     """Taille recommandée par le critère de Kelly, rebornée par le cap/opération spot.
     0 si edge négatif (cas actuel). Retourne (montant, détail_kelly)."""

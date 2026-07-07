@@ -109,6 +109,10 @@ strategy-lab dimanche 05:00 (§68/§70).
 - **Liquidité** : `liquidity_manager.py` (§76, décision — délègue aux surfaces §67 :
   virement spot↔futures + Earn USDT flexible ; gated `LIQUIDITY_AUTO`, cron horaire,
   1 action/cycle bornée [5 $, caps §67], jamais de retrait).
+- **Market making** : `market_maker.py` (§94, décision — cotations bid/ask post-only
+  autour de fair=0.7×microprice+0.3×mid, inventaire du module seul, stop local −1 $/j ;
+  délègue à `spot_trader.quote/cancel` ; gated `MM_AUTO` défaut OFF, boucle */5 min DRY
+  — cron à poser, voir §94 ; principes Virtu versés à `docs/SAVOIR.md` §9).
 - **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
   spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
   `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
@@ -130,6 +134,8 @@ CLASSICS_AGENT_ENABLED=0    # 17ᵉ voix stratégies classiques du lab (opt-in, 
 ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
 FUTURES_AUTO_NOTIONAL_USDT=10  # taille/trade boucle directionnelle (env-aware ; MONTÉE à 25 le 06/07, §76)
 LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
+MM_AUTO=0                   # market making spot borné §94 (défaut OFF -> DRY ; exécution via SPOT_TRADE_LIVE)
+MM_QUOTE_NOTIONAL_USDT=5    # taille/cotation (caps mm : 5 $/cotation mur 25, 400 $/j coté mur 2000)
 # Surfaces de trading bornées §67 — TOUTES défaut OFF (armer = décision propriétaire) :
 SPOT_TRADE_LIVE=0           # spot libre (achat/vente)   · caps SPOT_TRADE_MAX_PER_OP/DAILY_USDT
 MARGIN_TRADE_LIVE=0         # marge isolée/croisée        · caps MARGIN_MAX_PER_OP/DAILY_USDT

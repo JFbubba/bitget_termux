@@ -66,6 +66,19 @@ def fetch_orderbook(symbol, product_type=None, limit="50"):
         return {"bids": [], "asks": []}
 
 
+def fetch_spot_orderbook(symbol, limit="15"):
+    """Carnet d'ordres SPOT (public v2, sans clé). Best-effort : carnet vide si la
+    source est injoignable. Sert le market making §94 (le carnet mix ci-dessus est
+    celui des FUTURES — les cotations spot exigent le carnet spot)."""
+    try:
+        return _get("/api/v2/spot/market/orderbook", {
+            "symbol": symbol,
+            "limit": str(limit),
+        })
+    except Exception:
+        return {"bids": [], "asks": []}
+
+
 def fetch_recent_trades(symbol, product_type=None, limit=100):
     # best-effort : aucune trade si la source est injoignable
     try:

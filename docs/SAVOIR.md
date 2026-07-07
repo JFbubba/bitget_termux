@@ -182,6 +182,49 @@ NOTRE replay 6 ans qui fait foi pour nos actifs.
 
 ---
 
+## 9. Market making HFT : les principes Virtu Financial (ajouté le 07/07/2026, §94)
+
+**Le savoir** (prospectus IPO + rapports annuels Virtu, synthèse propriétaire) :
+Virtu est un teneur de marché non-directionnel : cotations passives bid/ask
+simultanées, capture de micro-écarts sur des volumes colossaux (5,3 M trades/jour
+en 2014), ~51-52 % de trades gagnants seulement — mais 1 seule journée perdante
+sur 1 278 (loi des grands nombres + neutralité). Piliers : (1) NON-DIRECTIONNEL
+— toute exposition est immédiatement adossée/fermée, le profit vient du spread,
+jamais de la tendance ; (2) CONTRÔLE D'INVENTAIRE strict (taille notionnelle
+plafonnée, exposition réduite automatiquement aux seuils) ; (3) GESTION DU RISQUE
+multicouche — contrôles pré-négociation qui VERROUILLENT la stratégie sur
+anomalie (reset manuel requis), limites par modèle, surveillance temps réel
+mark-to-market, comités indépendants ; (4) diversification 235+ places, 36 pays,
+aucune zone >30 % des revenus ; (5) technologie propriétaire bout-en-bout
+(latence milliseconde, 24 h/24 sans intervention humaine). Limites connues :
+compression des spreads (concurrence HFT), dépendance totale à la techno (un bug
+= pertes immédiates), régulation (l'AMF a sanctionné Madison Tyler en 2015 pour
+arbitrage cross-plateformes trompeur — la frontière manipulation est proche),
+adverse selection (besoin de ML pour la détecter).
+
+**Ce qui NE se transpose PAS chez nous** : la vitesse (REST retail = secondes,
+pas microsecondes — on PERD la course à la file d'attente), la colocation, le
+rebate maker des bourses actions, l'échelle. Un retail qui « copie Virtu »
+naïvement fournit de la liquidité STALE : il se fait cueillir par plus rapide
+que lui (adverse selection structurelle). Réf. académique du cadre d'inventaire :
+Avellaneda & Stoikov (2008) — déjà noté « exigeant » dans simons_agent.py.
+
+**Implications pour le bot (§94 — market_maker.py, transposition HONNÊTE)** :
+- market making LENT et post-only STRICT : jamais preneur, spread cible JAMAIS
+  sous les frais aller-retour (2×fee+buffer = 23 bps par défaut) — sous ce
+  plancher, chaque aller-retour PERD par construction ;
+- prix théorique = 0.70×microprice + 0.30×mid ; réservation glissée CONTRE
+  l'inventaire (Avellaneda-Stoikov simplifié, décalage borné au demi-spread) ;
+- l'équivalent retail du « verrouillage » Virtu : gardes pré-cotation
+  fail-closed (carnet illisible/disloqué, premium cross-exchange = notre
+  détection d'adverse selection minimale via fair_price §44, warm-up de vol),
+  stop local journalier du module, kill-switch global, murs de surface ;
+- mesure-d'abord (§45) : DRY par défaut (MM_AUTO=0), le journal .mm_journal.jsonl
+  mesure le spread capturable AVANT tout armement — l'edge du MM retail lent
+  n'est PAS acquis, il doit être PROUVÉ sur nos fills.
+
+---
+
 ## Traçabilité
 
 Constitué le 03/07/2026 (§56 des RESEARCH_NOTES). Sources primaires citées par
