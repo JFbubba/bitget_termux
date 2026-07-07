@@ -1094,6 +1094,39 @@ def anatomy():
         return None
 
 
+def anatomy_live(symbol="BTCUSDT", votes=None):
+    """ACTIVATIONS LIVE du réseau (§86, dashboard) : le vecteur d'entrée RÉEL du
+    symbole et les activations des couches cachées (passe directe g(x), moyennées
+    sur l'ensemble — la passe miroir de l'antisymétrie n'est pas affichée). Sert à
+    MODULER les faisceaux de l'anatomie : on voit le signal traverser le réseau.
+    None si modèle indisponible (fail-safe)."""
+    models, meta = _load_model()
+    if not models:
+        return None
+    try:
+        import torch
+        x = assemble_live(symbol, votes)
+        xt = torch.tensor([x], dtype=torch.float32)
+        h1s, h2s, ps = [], [], []
+        with torch.no_grad():
+            for m in models:
+                g = m.g
+                z1 = torch.relu(g[0](xt))             # Linear -> ReLU (dropout inactif en eval)
+                z2 = torch.relu(g[3](z1))
+                out = g[6](z2)
+                h1s.append(z1[0])
+                h2s.append(z2[0])
+                ps.append(torch.sigmoid(out)[0, 0])
+        h1 = torch.stack(h1s).mean(0)
+        h2 = torch.stack(h2s).mean(0)
+        return {"x": [round(v, 3) for v in x],
+                "h1": [round(float(v), 3) for v in h1.tolist()],
+                "h2": [round(float(v), 3) for v in h2.tolist()],
+                "p_up": round(float(torch.stack(ps).mean().item()), 4)}
+    except Exception:
+        return None
+
+
 def connectivity_map(symbol="BTCUSDT", votes=None, prediction=None, brain=None, smc=None):
     """Carte de connectivité pour le dashboard : nœuds (éléments) + arêtes (flux de
     données) + activation LIVE. Décrit littéralement le réseau reliant tous les éléments,
@@ -1178,7 +1211,13 @@ def connectivity_map(symbol="BTCUSDT", votes=None, prediction=None, brain=None, 
     edges.append({"from": "guards", "to": "exec"})
     add("exec", "Exécution bornée", "sortie", None)
 
+    acts = None
+    try:
+        acts = anatomy_live(symbol, votes)
+    except Exception:
+        pass
     return {"symbol": symbol, "nodes": nodes, "edges": edges,
+            "anatomy_acts": acts,
             "prediction": prediction, "nn_enabled": nn_on,
             "consensus": (brain or {}).get("consensus"),
             "meta": _CACHE.get("meta") or (_load_model()[1] or {})}

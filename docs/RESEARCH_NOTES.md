@@ -3058,3 +3058,23 @@ Chaque réentraînement de 04:20 changera donc VISIBLEMENT l'anatomie.
 Obsidian : rien à câbler — docs/ est du markdown pur, le dépôt s'ouvre tel quel
 comme coffre si le propriétaire veut la vue graphe ; le bot, lui, apprend dans ses
 journaux mesurés, pas dans de la prose.
+
+## §86 — Carte et anatomie FUSIONNÉES : un seul graphique dynamique, entièrement réel
+
+Demande propriétaire : assembler la carte de connectivité et l'anatomie en un
+graphique dynamique. C'est conceptuellement plus juste : le nœud « fusion » de la
+carte EST l'anatomie. Un seul canvas (340 px) déroule tout le pipeline RÉEL :
+  agents live (activations lissées + particules) -> cerveau -> **MLP DÉPLOYÉ
+  25→32→32→1** -> consensus (rejoint par la voie directe du cerveau) -> murs 🔒 ->
+  exécution.
+Nouveauté qui rend la fusion vivante : `neural_net.anatomy_live()` calcule les
+ACTIVATIONS RÉELLES du réseau pour le symbole affiché (vecteur d'entrée x, couches
+cachées h1/h2 — passe directe g(x), moyennées sur l'ensemble ×5, p_up) — les
+faisceaux de poids appris sont MODULÉS par le signal qui les traverse (alpha ∝
+|poids| × |activation source|), les 25 nœuds d'entrée se colorent par leur valeur
+live, les cachés par leur intensité, la sortie par P(hausse). Performance : le
+faisceau (~1 900 lignes) est PRÉ-RENDU hors écran et recomposé par le RAF — seule
+la colonne vertébrale (particules, respiration) s'anime par frame ; re-rendu du
+faisceau uniquement quand les données changent. prefers-reduced-motion : statique.
+Vérifié : x=25/h1=32/p_up servis par symbole, version du modèle affichée dans le
+titre — chaque fine-tuning de 04:20 change l'anatomie ET son flux sous les yeux.
