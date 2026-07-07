@@ -175,7 +175,10 @@
   .rp-r .a{color:var(--accent)} .rp-r .m{color:var(--dim);font-size:9px;letter-spacing:.02em}
   .rp-r .val{text-align:right;white-space:nowrap}
   .rp-empty{color:var(--dim);font-size:10px;padding:8px 2px;opacity:.6}
-  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}.rp-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(3,1fr)}.brain{grid-template-columns:1fr}.rp-grid{grid-template-columns:1fr 1fr}
+    /* §93 mobile : le tableau des trades défile horizontalement au lieu de s'écraser */
+    #rt-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    #rt-scroll .rt-h,#rt-scroll .rt-r{min-width:690px}}
 </style>
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -234,8 +237,10 @@
   <div class="panel full" id="panel-trades" style="margin-bottom:8px">
     <h2>Trades RÉELS en cours <span class="dim" style="letter-spacing:0">— futures · PnL latent vivant (rafraîchi ~10 s) · lecture seule</span>
       <span id="rt-tot" style="float:right;letter-spacing:0" class="dim">—</span></h2>
+    <div id="rt-scroll">
     <div class="rt-h"><span>SYMBOLE</span><span>SENS</span><span class="r">TAILLE</span><span class="r">ENTRÉE</span><span class="r">MARK</span><span class="r">uPnL $</span><span class="r">uPnL %</span><span class="r">LEVIER</span><span class="r">MARGE</span><span class="r">NOTIONNEL</span></div>
     <div id="rt-rows"></div>
+    </div>
     <div class="dim" style="margin-top:7px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-family:system-ui,sans-serif">Exécutions récentes <span style="text-transform:none;letter-spacing:0">— un trade clos quitte le tableau ci-dessus mais reste ici (heure UTC)</span></div>
     <div id="rt-exec" style="font-size:10.5px;line-height:1.8;letter-spacing:0">—</div>
   </div>
