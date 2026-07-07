@@ -2838,6 +2838,25 @@ def test_revue_recommandations_pures():
     assert any("derivs" in r and "auditer" in r for r in rv.recommandations(d3))
 
 
+def test_revue_concentration_futures():
+    """§97 : re-mesure — l'edge tient-il sur UN trade ? + recommandation associée."""
+    import revue_hebdo as rv
+    # 1 gros gagnant (LAB) + une nuée de perdants BTC : part_top élevée, cœur BTC négatif
+    trips = ([{"symbol": "LABUSDT", "pnl_usdt": 1.43}]
+             + [{"symbol": "BTCUSDT", "pnl_usdt": -0.01} for _ in range(7)]
+             + [{"symbol": "SOLUSDT", "pnl_usdt": 0.19}])
+    c = rv.concentration_futures(trips)
+    assert c["n"] == 9 and c["top"]["symbol"] == "LABUSDT"
+    assert c["part_top"] > 0.8                       # ~82 % sur 1 trade
+    assert c["symboles_negatifs"].get("BTCUSDT") is not None and c["symboles_negatifs"]["BTCUSDT"] < 0
+    assert rv.concentration_futures([]) == {}        # vide -> {}, pas de crash
+    # PnL total négatif -> part_top indéfinie (None), pas de division bancale
+    assert rv.concentration_futures([{"symbol": "X", "pnl_usdt": -1.0}])["part_top"] is None
+    # la recommandation se déclenche sur la concentration
+    recs = rv.recommandations({"futures": {"fills_bot": {}}, "forensics": c})
+    assert any("CONCENTRÉ" in r and "EDGE_GATE_OVERRIDE" in r for r in recs)
+
+
 def test_report_funding_timing():
     # §60 : pas d'ouverture qui PAIERAIT le funding dans les 20 min (00/08/16 UTC).
     import futures_auto as fa

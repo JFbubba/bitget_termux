@@ -117,6 +117,28 @@ def avantage_reel_vs_plat(paires):
         return None
 
 
+def concentration_futures(trips):
+    """PUR (re-mesure §97). L'edge directionnel tient-il sur UN SEUL trade ? Mesure la
+    part du plus gros gagnant dans le PnL total, le PnL SANS lui, et les symboles
+    NET-perdants (le cœur qui saigne les frais). trips : [{symbol, pnl_usdt, ...}].
+    {} si aucun trip. part_top = None si le PnL total est ≤ 0 (part non définie)."""
+    pnls = [(str(t.get("symbol") or "?"), safe_float(t.get("pnl_usdt")) or 0.0)
+            for t in (trips or [])]
+    if not pnls:
+        return {}
+    total = round(sum(p for _, p in pnls), 4)
+    top_sym, top_pnl = max(pnls, key=lambda x: x[1])
+    par_sym = {}
+    for s, p in pnls:
+        par_sym[s] = round(par_sym.get(s, 0.0) + p, 4)
+    negatifs = {s: v for s, v in par_sym.items() if v < 0}
+    part_top = round(top_pnl / total, 3) if total > 1e-9 and top_pnl > 0 else None
+    return {"n": len(pnls), "pnl_total": total,
+            "top": {"symbol": top_sym, "pnl": round(top_pnl, 4)},
+            "part_top": part_top, "pnl_sans_top": round(total - top_pnl, 4),
+            "symboles_negatifs": negatifs}
+
+
 # ---------- collecte (lecture seule, best-effort) ----------
 
 def collecter(now=None):
@@ -164,6 +186,13 @@ def collecter(now=None):
             _cfg("FUTURES_AUTO_SEUIL_ENTREE", 0.35)), depuis_ts=depuis)
     except Exception:
         out["decisions"], out["consensus"] = {}, {}
+
+    # forensique futures : concentration du PnL (re-mesure §97 — l'edge tient-il sur 1 trade ?)
+    try:
+        import trade_forensics as tf
+        out["forensics"] = concentration_futures((tf.snapshot(168) or {}).get("trips") or [])
+    except Exception:
+        out["forensics"] = {}
 
     # carry : répartition sur la semaine
     try:
@@ -230,6 +259,12 @@ def recommandations(d):
     elif n < 30:
         recs.append(f"Directionnel réel : {n}/30 fills — pas de verdict avant 30 "
                     "(discipline anti-conclusion-hâtive).")
+    fo = d.get("forensics") or {}
+    if fo.get("part_top") is not None and fo["part_top"] >= 0.5 and fo.get("n", 0) >= 5:
+        recs.append(f"⚠️ Edge futures CONCENTRÉ : {fo['part_top'] * 100:.0f} % du PnL vient d'UN "
+                    f"trade ({fo['top']['symbol']}) — sans lui {fo['pnl_sans_top']:+.4f} $ sur "
+                    f"{fo['n']} trips. L'edge n'est pas prouvé (§97) : envisager "
+                    "FUTURES_EDGE_GATE_OVERRIDE=0 tant qu'il tient sur 1-2 coups.")
     el = d.get("exit_lab") or {}
     pl = el.get("paper") or {}
     if pl.get("ratio_tp_sl") is not None and pl["ratio_tp_sl"] < 0.6:
@@ -293,6 +328,16 @@ def build_report(d=None):
         f"p90 {_n(c.get('p90'))} · max {_n(c.get('max'))} · "
         f"≥ seuil : {_n(c.get('pct_seuil'), '{:.1f}')} % des cycles",
         f"Décisions 7 j : {d.get('decisions') or 'journal trop jeune'}",
+        (lambda fo: ("\n— FORENSIQUE FUTURES (re-mesure §97 : l'edge tient-il ?) —\n"
+                     f"{fo.get('n', 0)} round-trips · PnL {_n(fo.get('pnl_total'), '{:+.4f}')} $"
+                     + (f" · dont {_n((fo.get('part_top') or 0) * 100, '{:.0f}')} % sur 1 trade "
+                        f"({fo['top']['symbol']} {_n(fo['top']['pnl'], '{:+.3f}')} $)"
+                        if fo.get("part_top") is not None else "")
+                     + f"\nPnL SANS le meilleur : {_n(fo.get('pnl_sans_top'), '{:+.4f}')} $"
+                     + (" · cœur négatif : " + ", ".join(
+                         f"{s} {v:+.3f}$" for s, v in fo["symboles_negatifs"].items())
+                        if fo.get("symboles_negatifs") else ""))
+         if fo else "")(d.get("forensics") or {}),
         "",
         "— CARRY —",
         f"Répartition 7 j : {ca.get('comptes') or 'journal trop jeune'} · "
@@ -319,9 +364,16 @@ def build_report(d=None):
                    f"réel : {rl.get('note', 'n/a')}"]
     audit = (d.get("audit_live") or {}).get("agents") or []
     if audit:
-        lignes += ["", "— AUDIT IC LIVE (1 h, votes émis §60) —"]
+        try:
+            from live_ic_audit import _signe_divergent as _sd
+        except Exception:
+            _sd = lambda r: False
+        lignes += ["", "— AUDIT IC LIVE (1 h, votes émis §60 ; rank + pearson §96) —"]
         for r in audit[:5]:
-            lignes.append(f"{r['agent']:<12} {r['ic']:+.4f} (t {r['ic_t']:+.2f})")
+            pic = r.get("pic")
+            pbloc = f" · pearson {pic:+.4f}" if pic is not None else ""
+            flag = "  ⚠ signes opposés (poids suit pearson)" if _sd(r) else ""
+            lignes.append(f"{r['agent']:<12} rank {r['ic']:+.4f} (t {r['ic_t']:+.2f}){pbloc}{flag}")
     recs = recommandations(d)
     if recs:
         lignes += ["", "— RECOMMANDATIONS (données -> décision propriétaire) —"]
