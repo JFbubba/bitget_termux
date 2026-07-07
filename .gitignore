@@ -85,3 +85,5 @@ neural_net_pretrained.pt
 .alt_carry_state.json
 .alt_carry_journal.jsonl
 .xs_promotion_alerted
+.trades_archive.jsonl
+.daily_digest_stamp

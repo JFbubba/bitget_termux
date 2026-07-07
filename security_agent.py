@@ -162,6 +162,7 @@ FILES_TO_SCAN = [
     "trade_forensics.py",
     "promotion_board.py",
     "daily_digest.py",
+    "backup_restore_drill.py",
     "trading_status.py",
     "account_equity.py",
     "git_version.py",

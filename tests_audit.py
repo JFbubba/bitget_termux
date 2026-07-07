@@ -6219,6 +6219,50 @@ def test_liquidity_manager_politique():
     assert lm.decider(60, 38, spot_min=15, spot_max=120, fut_min=40, cap_op=25)["action"] == "rien"
 
 
+def test_breakeven_decision():
+    """§89 : le runner protégé — ferme le RESTE à l'entrée seulement si TP1 encaissé
+    (taille réduite) ET prix revenu à l'entrée ; jamais sinon."""
+    import stop_guardian as sg
+    opens = {("ETHUSDT", "long"): 0.02, ("SOLUSDT", "short"): 0.5}
+    # long : TP1 encaissé (0.01 ≤ 0.02×0.6) + mark revenu sous l'entrée -> fermer
+    rows = [{"symbol": "ETHUSDT", "holdSide": "long", "total": 0.01,
+             "openPriceAvg": 1800.0, "markPrice": 1799.5}]
+    d = sg._breakeven_decision(rows, opens, frac=0.5)
+    assert len(d) == 1 and d[0]["symbol"] == "ETHUSDT" and d[0]["size"] == 0.01
+    # prix encore AU-DESSUS de l'entrée (long) -> on laisse courir
+    rows[0]["markPrice"] = 1810.0
+    assert sg._breakeven_decision(rows, opens, frac=0.5) == []
+    # TP1 PAS encaissé (taille pleine) même prix à l'entrée -> rien
+    rows[0].update(total=0.02, markPrice=1799.5)
+    assert sg._breakeven_decision(rows, opens, frac=0.5) == []
+    # short symétrique : mark REMONTÉ à l'entrée -> fermer
+    rows = [{"symbol": "SOLUSDT", "holdSide": "short", "total": 0.25,
+             "openPriceAvg": 82.0, "markPrice": 82.02}]
+    d = sg._breakeven_decision(rows, opens, frac=0.5)
+    assert len(d) == 1 and d[0]["side"] == "short"
+    # position inconnue du ledger (pas de taille d'ouverture) -> fail-safe rien
+    assert sg._breakeven_decision([{"symbol": "XRPUSDT", "holdSide": "long", "total": 0.1,
+                                    "openPriceAvg": 2.0, "markPrice": 1.99}], opens) == []
+
+
+def test_conviction_par_quantile_pur():
+    """§89.5 : la mesure du filtre de conviction (rejeté) — alignement du signe,
+    quantiles sur |consensus|, fenêtres sans réutilisation du même point forward."""
+    import live_ic_audit as lia
+    entrees = []
+    px = 100.0
+    for i in range(600):
+        # consensus positif systématiquement CONTRARIEN (le prix baisse après)
+        entrees.append({"ts": i * 60, "symbol": "TESTUSDT", "price": px, "votes": {},
+                        "consensus": 0.3 if i % 2 == 0 else -0.05})
+        px *= (1 - 0.001) if i % 2 == 0 else (1 + 0.0002)
+    r = lia.conviction_par_quantile(entrees, horizon_s=3600, quantiles=(0.0, 0.5))
+    assert r["n"] >= 400
+    tous, top = r["quantiles"][0], r["quantiles"][1]
+    assert top["seuil"] >= tous["seuil"]
+    assert top["esperance_bps"] < 0                    # le fort consensus perd (construit ainsi)
+
+
 def test_trade_forensics_round_trips():
     """§88 : reconstruction des allers-retours sur la CONVENTION HEDGE-MODE VÉRIFIÉE
     (un short s'ouvre ET se ferme en sell, seul tradeSide distingue), sorties

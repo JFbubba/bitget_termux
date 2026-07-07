@@ -105,6 +105,10 @@ def main():
     except Exception:
         pass
     msg = build_message()
+    try:
+        (ROOT / ".daily_digest_stamp").write_text(str(int(time.time())), encoding="utf-8")
+    except Exception:
+        pass
     print(msg)
     if "--send" in sys.argv[1:]:
         try:

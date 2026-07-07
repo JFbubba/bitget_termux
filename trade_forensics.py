@@ -27,6 +27,43 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+ARCHIVE = ROOT / ".trades_archive.jsonl"
+
+
+# ---------- ARCHIVE persistante (§89) ----------
+# L'API des fills n'a qu'une profondeur limitée (~40-100/symbole) : sans archive
+# locale, l'historique de NOS PROPRES trades s'évapore. Chaque trip reconstruit
+# est persisté (append-only, dédupliqué) — fondation du Kelly par méthode.
+
+def charger_archive():
+    out = {}
+    try:
+        with ARCHIVE.open(encoding="utf-8") as f:
+            for l in f:
+                try:
+                    t = json.loads(l)
+                    out[(t.get("symbol"), int(t.get("ts_in") or 0))] = t
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return out
+
+
+def archiver(trips):
+    """Ajoute les trips NOUVEAUX (clé symbol+ts_in) à l'archive. Retourne n ajoutés."""
+    deja = charger_archive()
+    nouveaux = [t for t in trips or []
+                if t.get("clos") and (t.get("symbol"), int(t.get("ts_in") or 0)) not in deja]
+    if not nouveaux:
+        return 0
+    try:
+        with ARCHIVE.open("a", encoding="utf-8") as f:
+            for t in nouveaux:
+                f.write(json.dumps(t, ensure_ascii=False) + "\n")
+    except Exception:
+        return 0
+    return len(nouveaux)
 
 
 # ---------- chargement (lecture seule) ----------
@@ -259,9 +296,11 @@ def snapshot(heures=168):
     for t in trips:
         t["excursion"] = mfe_mae(t)
     slip = slippage(trips)
+    archives = archiver(trips)                     # l'historique s'accumule (§89)
     return {"heures": heures, "n_events": len(events), "n_fills": len(fills),
             "trips": trips, "encore_ouverts": len(rt["ouverts"]),
-            "non_remplis": non_remplis,
+            "non_remplis": non_remplis, "archives_nouveaux": archives,
+            "archive_total": len(charger_archive()),
             "slippage": slip,
             "slippage_median_bps": (sorted(s["bps"] for s in slip)[len(slip) // 2]
                                     if slip else None),
@@ -292,6 +331,8 @@ def build_report(s=None, heures=168):
     for k, a in sorted((s.get("attribution") or {}).items()):
         L.append(f"  {k:10s} n={a['n']:3d} · PnL {a['pnl']:+8.4f} $ · win {a['win_rate']}"
                  f" · durée méd. {a['duree_mediane_min']} min")
+    if s.get("archive_total") is not None:
+        L.append(f"archive locale : {s['archive_total']} trip(s) (l'API des fills oublie, pas nous)")
     L.append("Aucun ordre. Lecture seule. VERDICT: SAFE")
     return "\n".join(L)
 

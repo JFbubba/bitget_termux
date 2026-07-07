@@ -447,6 +447,12 @@ CARTE_FRAICHEUR = [
     (".runtime_cache.json", 20), (".carry_journal.json", 120),
     ("microstructure_history.jsonl", 20), ("validation_report.json", 420),
     (".stop_guardian_heartbeat.json", 5),   # enforceur stop −5 % (tick ~20s) : mort visible
+    # §89 : la machinerie §76-88 aussi — « rien d'aveugle » vaut pour les nouveaux organes.
+    (".alt_carry_journal.jsonl", 130),      # moisson funding (cron :35, marge 2 cycles)
+    (".liquidity_journal.jsonl", 130),      # gestion de liquidité (cron :15)
+    (".daily_digest_stamp", 26 * 60),       # digest quotidien 07:00
+    ("neural_net_meta.json", 26 * 60),      # fine-tune NN 04:20
+    ("strategies_out", 80 * 60),            # lab mar/jeu/sam (gap max sam->mar + marge)
 ]
 
 

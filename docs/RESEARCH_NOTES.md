@@ -3141,3 +3141,42 @@ l'instrument §77. Réactivation = nouvelle mesure positive, pas une envie.
 allers-retours avec R/MFE + slippage + equity/MDD/kill-switch + actions alt-carry
 & liquidité + tableau des promotions + santé apprentissage. Le « pourquoi je ne
 vois pas X » a désormais une réponse quotidienne automatique.
+
+## §89 — Mandat « 1→6 » : archive, ombre NN, breakeven, watchdog, conviction (rejeté), drill
+
+**1. Archive persistante des round-trips** : l'API des fills n'a que ~40-100 de
+profondeur/symbole -> `.trades_archive.jsonl` (append-only, dédup symbol+ts_in),
+alimentée à chaque snapshot forensique (digest 07:00 = archivage quotidien garanti).
+L'historique de NOS trades s'accumule au lieu de s'évaporer — fondation du Kelly
+par méthode.
+
+**2. Ombre de la voix NN** : la leçon classics/llm institutionnalisée — muette par
+la porte d'edge, la voix n'accumulait AUCUN IC live (jamais journalisée). Désormais
+`nn_shadow` part au journal overlay à chaque cycle (même juge que les 14, zéro
+influence sur le consensus). Sa réactivation exigera DEUX preuves : wf_edge > 0 ET
+IC live. Vérifié : 22 entrées dès les premières minutes (vote actuel −0.146, short).
+
+**3. Breakeven logiciel (armé, FUTURES_BREAKEVEN=1)** : le hub n'a AUCUN outil
+modify-TPSL (place/cancel/get seulement) -> enforcement dans stop_guardian (tick
+20 s, organe indépendant) : TP1 encaissé (taille ≤ 60 % de l'ouverture au ledger)
+ET prix revenu à l'entrée (±4 bps de frais) -> le RESTE est soldé (réduction pure :
+exempte caps, permise même kill-switch). Le SL préréglé d'origine reste le filet
+dur. Leçon ETH §88 (+0.11R -> −0.32R) devenue impossible à rejouer en pire.
+Décision PURE testée (long/short/pas-de-TP1/prix-au-dessus/position-inconnue).
+
+**4. Watchdog** : carte de fraîcheur §61 étendue à la machinerie §76-88 —
+alt_carry (130 min), liquidité (130), digest (tampon .daily_digest_stamp, 26 h),
+neural_net_meta (26 h), strategies_out (80 h, gap max sam->mar). Rien d'aveugle.
+
+**5. Filtre de conviction : REJETÉ par la mesure** (39 973 obs, horizon 1 h) :
+l'espérance alignée est NÉGATIVE et EMPIRE avec |consensus| — top 10 % : −19 bps
+vs −9 global. Le consensus historique (poids majoritairement pré-ridge) est
+contrarien à 1 h, cohérent avec le régime range couronné par le lab. Pas de gate
+shippé ; mesure rendue RÉPÉTABLE (`live_ic_audit.conviction_par_quantile`) — à
+re-juger quand la cible ridge aura une semaine dans les poids. NE PAS inverser
+sans validation profonde §54.
+
+**6. Drill de restauration** : `backup_restore_drill.py` — archive->chiffre->
+déchiffre->dépaquette->vérifie (liste complète, JSON re-parsés, tailles). PREMIER
+DRILL : ✅ 15 registres restaurables, la passphrase de production ouvre bien
+l'artefact. Cron mensuel (1ᵉʳ, 08:00) avec alerte Telegram en cas d'échec.

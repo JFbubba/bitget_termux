@@ -51,6 +51,36 @@ def _gate_mode():
     return v if v in ("prudent", "brut") else "prudent"
 
 
+def _journalise_ombre(symbol, pred):
+    """§89 — OMBRE de la voix muette : la leçon classics/llm institutionnalisée.
+    On a coupé deux voix qui parlaient SANS mesure live préalable ; la voix NN a le
+    problème inverse — muette, ses prédictions n'étaient journalisées nulle part,
+    donc AUCUN IC live ne s'accumulait. Ici, même tue par la porte d'edge, sa
+    prédiction part au journal overlay sous le nom `nn_shadow` (jugée par le même
+    audit IC que les 14, sans jamais toucher le consensus). Sa réactivation pourra
+    s'appuyer sur DEUX preuves (wf_edge ET IC live) au lieu d'une. Best-effort."""
+    try:
+        import json
+        import time
+        from pathlib import Path
+        import runtime_cache as rc
+
+        def _px():
+            import technicals as tk
+            c = tk.fetch_candles(symbol, "1m", 1)
+            return float(c[-1]["close"]) if c else None
+        px = rc.get(f"nnshadow_px:{symbol}", 45, _px)
+        v = float(pred.get("vote") or 0.0)
+        if not px or abs(v) < 1e-9:
+            return
+        import journal_append as ja
+        ja.append_jsonl(Path(__file__).resolve().parent / ".overlay_votes.jsonl",
+                        {"ts": int(time.time()), "symbol": symbol, "price": px,
+                         "votes": {"nn_shadow": round(v, 3)}})
+    except Exception:
+        pass
+
+
 def _produce_vote(symbol, context=None):
     """Une inférence -> vote FRAIS. LÈVE si le modèle est indisponible (torch/poids
     absents) pour que runtime_cache dégrade proprement (stale/fallback neutre)."""
@@ -65,6 +95,7 @@ def _produce_vote(symbol, context=None):
     mode = _gate_mode()
     edge = pred.get("val_edge_brut") if mode == "brut" else pred.get("val_edge")
     if edge is not None and float(edge) <= 0.0:
+        _journalise_ombre(symbol, pred)              # §89 : muette mais MESURÉE
         return {"vote": 0, "confidence": 0,
                 "note": f"nn:sans-edge({float(edge):+.3f},{mode})"}
     # confiance BORNÉE : une voix opt-in ne doit pas dominer le banc déterministe.

@@ -114,6 +114,46 @@ def build_report(s=None):
     return "\n".join(lignes)
 
 
+def conviction_par_quantile(entrees=None, horizon_s=3600, quantiles=(0.0, 0.5, 0.7, 0.9)):
+    """§89.5 — MESURE du « filtre de conviction » : espérance du rendement forward
+    ALIGNÉ au signe du consensus, par quantile de |consensus|. PUR si entrees injecté.
+    Verdict du 07/07 (39 973 obs) : plus |c| est FORT, plus l'espérance 1 h est
+    NÉGATIVE (top 10 % : −19 bps vs −9 global) — filtre REJETÉ ; à re-mesurer quand
+    la cible ridge (§78) aura une semaine de vie dans les poids."""
+    from collections import defaultdict
+    entrees = charger_entrees() if entrees is None else entrees
+    rows_sym = defaultdict(list)
+    for e in entrees:
+        c = e.get("consensus")
+        if c is None or not e.get("price") or not e.get("symbol"):
+            continue
+        rows_sym[e["symbol"]].append((e["ts"], float(c), float(e["price"])))
+    echant = []
+    for sym, rows in rows_sym.items():
+        rows.sort()
+        j = 0
+        for i, (ts, c, px) in enumerate(rows):
+            if j <= i:
+                j = i + 1
+            while j < len(rows) and rows[j][0] < ts + horizon_s:
+                j += 1
+            if j >= len(rows):
+                break
+            fwd = rows[j][2] / px - 1.0
+            if abs(c) > 1e-9:
+                echant.append((abs(c), (fwd if c > 0 else -fwd) * 10000))
+    echant.sort()
+    n = len(echant)
+    out = {"n": n, "quantiles": []}
+    if n < 200:
+        return out
+    for q in quantiles:
+        sous = [r for _, r in echant[int(n * q):]]
+        out["quantiles"].append({"top_pct": round(100 - q * 100), "seuil": round(echant[int(n * q)][0], 3),
+                                 "n": len(sous), "esperance_bps": round(sum(sous) / len(sous), 2)})
+    return out
+
+
 def bloc_mfe_mae_reels():
     """Bloc texte MFE/MAE des ROUND-TRIPS RÉELS (via exit_lab, §63) — pour /audit.
     Best-effort : chaîne vide si l'instrument n'est pas disponible. Lecture seule."""

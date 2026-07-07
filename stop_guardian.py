@@ -99,6 +99,98 @@ def _write_heartbeat(payload):
         pass
 
 
+def _breakeven_on():
+    """Gate FUTURES_BREAKEVEN (§89, armé par décision propriétaire du 07/07)."""
+    v = (os.getenv("FUTURES_BREAKEVEN") or "").strip().lower()
+    if v in ("1", "true", "on", "yes"):
+        return True
+    if v in ("0", "false", "off", "no"):
+        return False
+    return bool(_cfg("FUTURES_BREAKEVEN", False))
+
+
+def _breakeven_decision(rows, opens, frac=0.5, buf=0.0004):
+    """PUR. Décide les fermetures « breakeven » : pour chaque position dont le TP1
+    partiel a ENCAISSÉ (taille restante ≤ (1 − frac·0.8) × taille d'ouverture) et
+    dont le prix est REVENU à l'entrée (± buffer de frais), fermer le reste — le
+    trade fini au pire à ~0 au lieu de repartir au SL (leçon ETH §88 : +0.11R puis
+    retour à −0.32R). Le SL préréglé d'origine reste le filet dur derrière.
+      rows  : positions ouvertes [{symbol, holdSide, total, openPriceAvg, markPrice}]
+      opens : {(symbol, side): size_btc à l'OUVERTURE (ledger)}
+    -> [{symbol, side, size, mark}]"""
+    fermetures = []
+    for r in rows or []:
+        try:
+            sym = str(r.get("symbol") or "").upper()
+            side = str(r.get("holdSide") or "").lower()
+            taille = float(r.get("total") or 0)
+            entree = float(r.get("openPriceAvg") or r.get("averageOpenPrice") or 0)
+            mark = float(r.get("markPrice") or r.get("marketPrice") or 0)
+        except (TypeError, ValueError):
+            continue
+        ouverte = opens.get((sym, side))
+        if not (sym and side in ("long", "short") and taille > 0 and entree > 0
+                and mark > 0 and ouverte):
+            continue
+        if taille > float(ouverte) * (1.0 - float(frac) * 0.8):
+            continue                                   # TP1 pas (encore) encaissé
+        touche = (mark <= entree * (1.0 + buf)) if side == "long"             else (mark >= entree * (1.0 - buf))
+        if touche:
+            fermetures.append({"symbol": sym, "side": side, "size": taille, "mark": mark})
+    return fermetures
+
+
+def _tailles_ouverture(fe):
+    """{(symbol, side): size_btc} de la DERNIÈRE ouverture du ledger par position."""
+    opens = {}
+    try:
+        led = json.loads(fe._ledger_path().read_text(encoding="utf-8"))
+        for e in led.get("events", []):
+            if e.get("action") != "FUTURES_REAL":
+                continue
+            o = e.get("order") or {}
+            if o.get("reduce"):
+                continue
+            k = (str(o.get("symbol") or "").upper(), str(o.get("side") or "").lower())
+            if o.get("size_btc"):
+                opens[k] = float(o["size_btc"])
+    except Exception:
+        pass
+    return opens
+
+
+def _enforce_breakeven(fe, now=None):
+    """Applique les fermetures breakeven décidées (réductions pures : exemptes des
+    caps d'ouverture, permises même kill-switch armé — fermer n'aggrave jamais).
+    Best-effort : un échec réessaie au tick suivant."""
+    if not _breakeven_on():
+        return None
+    rows = fe.positions_ouvertes() or []
+    if not rows:
+        return {"n": 0}
+    import futures_auto as fa
+    frac = float(os.getenv("FUTURES_TP_PARTIAL_FRAC") or _cfg("FUTURES_TP_PARTIAL_FRAC", 0.5))
+    fermetures = _breakeven_decision(rows, _tailles_ouverture(fe), frac=frac)
+    faits = []
+    for f in fermetures:
+        try:
+            res = fe.execute("breakeven", f["side"], round(f["size"] * f["mark"], 2), 1.0,
+                             symbol=f["symbol"], reduce=True, size_btc=f["size"],
+                             confirm=True, gross_open_usdt=fa.gross_book_usdt(),
+                             equity_curve=fe.equity_curve())
+            faits.append({"symbol": f["symbol"], "ok": bool(res.get("executed"))})
+            if res.get("executed"):
+                try:
+                    import telegram_notifier as tn
+                    tn.send_telegram(f"⚖️ BREAKEVEN : reste de {f['side']} {f['symbol']} "
+                                     f"soldé à ~l'entrée (TP1 déjà encaissé) — trade fini ≥ 0.")
+                except Exception:
+                    pass
+        except Exception:
+            faits.append({"symbol": f["symbol"], "ok": False})
+    return {"n": len(fermetures), "faits": faits}
+
+
 def tick(now=None):
     """Un cycle d'enforcement (best-effort, fail-closed). Retourne un récapitulatif.
     Toute exception est absorbée en un état d'erreur (le daemon ne meurt jamais sur
@@ -114,6 +206,9 @@ def tick(now=None):
             out["note"] = (f"STOP −5 % CONFIRMÉ — {flat.get('soldees', 0)}/"
                            f"{flat.get('tentees', 0)} position(s) soldée(s).")
             _alerter_flatten(flat)
+        bk = _enforce_breakeven(fe, now=now)          # §89 : runner protégé après TP1
+        if bk and bk.get("n"):
+            out["breakeven"] = bk
     except Exception as exc:
         out["ok"] = False
         out["erreur"] = type(exc).__name__
