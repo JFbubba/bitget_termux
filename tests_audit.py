@@ -1799,6 +1799,24 @@ def test_situation_memory_recall_and_reflection():
     assert json.loads(p.read_text().splitlines()[-1])["outcome"] == 1.0
 
 
+def test_situation_memory_evaluate_measures_predictiveness():
+    """§97 : le « read » qui manquait — evaluate() MESURE si la mémoire prédit (walk-forward)."""
+    import situation_memory as sm
+    A = sorted(sm.tokens({"bias": "long", "force": "fort"}))
+    B = sorted(sm.tokens({"bias": "short", "force": "fort"}))
+    # motif PRÉDICTIF : A -> +1, B -> -1 systématiquement -> hint doit prédire
+    pred = [{"ts": i, "tokens": (A if i % 2 == 0 else B),
+             "outcome": (1.0 if i % 2 == 0 else -1.0)} for i in range(200)]
+    r = sm.evaluate(store=pred, max_eval=150, min_warm=20)
+    # verdict sur l'IC régime-neutre : motif parfait -> IC élevé et significatif
+    assert r["n"] >= 30 and r["ic"] > 0.8 and r["ic_t"] > 2.0
+    # motif SANS structure : même situation A, résultats alternés -> IC ~0 (pas d'edge)
+    noise = [{"ts": i, "tokens": A, "outcome": (1.0 if i % 2 == 0 else -1.0)} for i in range(200)]
+    rn = sm.evaluate(store=noise, max_eval=150, min_warm=20)
+    assert rn.get("n", 0) == 0 or abs(rn.get("ic", 0)) < 0.3
+    assert sm.evaluate(store=[], min_warm=20) == {"n": 0}          # vide -> pas de crash
+
+
 def test_brain_agent_invalidation_contract():
     """#8 (idée NERVA) : contrat d'agent enrichi — un vote avec invalid_if est NEUTRALISÉ
     (confidence 0) si le prix COURANT le viole (stop-out de signal) ; evidence préservé."""

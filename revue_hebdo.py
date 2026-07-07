@@ -194,6 +194,13 @@ def collecter(now=None):
     except Exception:
         out["forensics"] = {}
 
+    # mémoire de situations : LA LIRE en la mesurant (§97 — le « read » qui manquait)
+    try:
+        import situation_memory as sm
+        out["situations"] = sm.evaluate()
+    except Exception:
+        out["situations"] = {}
+
     # carry : répartition sur la semaine
     try:
         import carry_monitor as cm
@@ -270,6 +277,11 @@ def recommandations(d):
     if pl.get("ratio_tp_sl") is not None and pl["ratio_tp_sl"] < 0.6:
         recs.append(f"Exit lab : ratio TP/SL paper {pl['ratio_tp_sl']} — le RR 2 "
                     "conventionnel mérite l'examen quand l'échantillon réel suffira.")
+    si = d.get("situations") or {}
+    if si.get("n") and (si.get("ic", 0) or 0) > 0 and (si.get("ic_t", 0) or 0) >= 2.0:
+        recs.append(f"Mémoire situations : IC {si['ic']:+.4f} (t {si['ic_t']:+.1f}) sur {si['n']} obs "
+                    "— devient prédictive ; CONFIRMER sur plusieurs semaines avant un overlay "
+                    "ADVISORY gated OFF (mesure d'abord — jamais un branchement direct).")
     audit = (d.get("audit_live") or {}).get("agents") or []
     for r in audit[:3]:
         if (r.get("ic_t") or 0) >= 3.0:
@@ -374,6 +386,15 @@ def build_report(d=None):
             pbloc = f" · pearson {pic:+.4f}" if pic is not None else ""
             flag = "  ⚠ signes opposés (poids suit pearson)" if _sd(r) else ""
             lignes.append(f"{r['agent']:<12} rank {r['ic']:+.4f} (t {r['ic_t']:+.2f}){pbloc}{flag}")
+    si = d.get("situations") or {}
+    if si.get("n"):
+        ic, ict = si.get("ic", 0) or 0, si.get("ic_t", 0) or 0
+        verdict = (" — IC positif SIGNIFICATIF : à confirmer sur plusieurs semaines (jamais armer sur 1)"
+                   if ic > 0 and ict >= 2.0 else " — aucun edge -> NON branchée dans la décision (correct)")
+        lignes += ["", "— MÉMOIRE SITUATIONS (advisory, mesurée §97 ; verdict = IC régime-neutre) —",
+                   f"n {si['n']} · IC hint→résultat {_n(ic, '{:+.4f}')} (t {_n(ict, '{:+.2f}')}) · "
+                   f"hit {_n(si.get('hit_rate'), '{:.3f}')} vs base {_n(si.get('base_rate'), '{:.3f}')}"
+                   + verdict]
     recs = recommandations(d)
     if recs:
         lignes += ["", "— RECOMMANDATIONS (données -> décision propriétaire) —"]

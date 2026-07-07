@@ -3462,3 +3462,38 @@ directionnelle) laissé à l'arbitrage propriétaire.
 **Faux positif écarté :** `strategy_lab` tourne bien (fichiers `strategies_out/`
 datés 07/07 05:00) ; `knowledge.json` figé au 27/06 relève de `knowledge_base.py`
 (sous-système SAVOIR), pas du lab.
+
+
+## §98 — CODE « ÉCRIT MAIS JAMAIS LU » : mesurer avant de brancher (07/07/2026)
+
+Suite au §97 (question propriétaire : « comment est-ce possible que ça n'ait jamais été
+lu ? assure-toi que tout soit lu »). Deux machineries écrivaient/existaient sans que leur
+moitié LECTURE ne soit branchée. Diagnostic AVANT de câbler quoi que ce soit.
+
+**`situation_memory` (mémoire de situations, réflexion post-trade idée #6).** `record()`
+câblé dans `learn()` (écrit ~18k lignes `.situation_memory.jsonl`), mais `recall()`/
+`expectancy_hint()` JAMAIS appelés (ajoutés au même commit 8c6c5cf, moitié lecture jamais
+connectée — capacité construite, intégration oubliée ; docstring « ADVISORY hors chemin
+critique »). AVANT de la brancher dans la décision, on la MESURE (c'est ça, « la lire »),
+walk-forward sur les 18k lignes : **hit-rate 0.516 < base 0.536, IC hint→résultat −0.01
+(t −1.28) sur 16k** -> AUCUN pouvoir prédictif, la brancher AGGRAVERAIT le consensus.
+Piège rencontré en implémentant le monitor : le `hit-rate vs base` FLIPPE de signe selon
+la fenêtre (−0.35 / −0.02 / +0.09) parce qu'il est confondu par le régime (marché qui
+tend -> base_rate haute -> suivre la tendance « gagne » gratis). VERDICT basé sur l'IC
+RÉGIME-NEUTRE (corrélation, retire le biais constant) : stable à ~0, t < 1.
+- `situation_memory.evaluate()` (le « read » manquant, PUR, `_pearson` inline sans dépendance,
+  fenêtre bornée coût stable) branché dans `revue_hebdo` -> désormais LU et surveillé chaque
+  dimanche ; recommandation d'armement seulement si IC > 0 ET t ≥ 2 sur PLUSIEURS semaines
+  (jamais sur une). Décision : garder l'écriture (accumulation), la lecture reste ADVISORY
+  et NON branchée dans la décision tant que la mesure ne le justifie pas. 1 test.
+
+**`data_guards` (quote_valid / quote_fresh / cap_by_liquidity).** `series_ok` câblé ;
+les 3 autres jamais appelées — mais ce n'est PAS un simple oubli : (a) `quote_valid` est
+déjà appliqué INLINE dans `market_maker.build_snapshot` (`bid<=0 or ask<=bid`), version
+plus stricte -> unifié pour utiliser la garde partagée testée (source unique, zéro
+changement de comportement, `ask<=bid` préservé) ; (b) `cap_by_liquidity` est une garde
+de TAKER (plafonner un IOC par le top-of-book) dont la place est le chemin exécuteur
+(module d'ordre autorisé, money-critique) -> câblage = décision délibérée, pas un patch
+silencieux ; (c) `quote_fresh` exige un âge de cotation non plombé aujourd'hui. Leçon :
+« tout lire » ≠ tout brancher — deux de ces gardes changent un comportement d'exécution
+et relèvent de la décision (mesure/plomberie), pas de l'oubli.

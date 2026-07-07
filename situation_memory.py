@@ -94,3 +94,62 @@ def expectancy_hint(situation, min_samples=3, store=None, path=None):
     wsum = sum(x["sim"] for x in sims) or 1.0
     hint = sum(x["sim"] * x["outcome"] for x in sims) / wsum
     return {"n": len(sims), "hint": round(hint, 3)}
+
+
+def _pearson(xs, ys):
+    """PUR, sans dépendance. Corrélation de Pearson entre deux listes. 0.0 si dégénéré.
+    On l'utilise plutôt que hit-rate-vs-base parce qu'elle est RÉGIME-NEUTRE : le
+    hit-rate est confondu par le biais directionnel de la fenêtre (un marché qui tend
+    -> base_rate haute -> suivre la tendance « gagne » gratuitement, §97), la corrélation
+    retire ce biais constant et mesure la vraie information."""
+    n = min(len(xs), len(ys))
+    if n < 3:
+        return 0.0
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    dx = sum((x - mx) ** 2 for x in xs)
+    dy = sum((y - my) ** 2 for y in ys)
+    d = (dx * dy) ** 0.5
+    return num / d if d > 0 else 0.0
+
+
+def evaluate(store=None, path=None, max_eval=1200, min_warm=300, min_samples=3):
+    """LE « read » qui manquait (§97). Mesure walk-forward : la mémoire PRÉDIT-elle ?
+    Pour chaque situation de la fenêtre récente, `expectancy_hint` est calculé sur le
+    PASSÉ SEUL (store=rows[:i]) et confronté au résultat réalisé. Sans cette mesure, on
+    écrivait 17k lignes sans jamais savoir si elles servaient — elles ne servaient pas
+    (IC hint↔résultat −0.01, t −1.3 sur 16k au 07/07). VERDICT sur l'IC (régime-neutre),
+    PAS sur hit-rate-vs-base (confondu par le régime, flippe de signe selon la fenêtre).
+    Retourne {n, ic, ic_t, hit_rate, base_rate, edge_vs_base} ou {n:<30}. Fenêtre bornée
+    (coût stable quand le journal grossit). PUR si store injecté."""
+    import math
+    rows = [r for r in _load(store, path)
+            if isinstance(r, dict) and r.get("tokens") and r.get("outcome") is not None]
+    rows.sort(key=lambda r: r.get("ts", 0))
+    if len(rows) > 5000:                  # borne le coût (prédictivité RÉCENTE), stable en croissance
+        rows = rows[-5000:]
+    if len(rows) < int(min_warm) + 30:
+        return {"n": 0}
+    debut = max(int(min_warm), len(rows) - int(max_eval))
+    preds, outs, hits = [], [], 0
+    for i in range(debut, len(rows)):
+        situ = dict(t.split("=", 1) for t in rows[i]["tokens"] if "=" in t)
+        h = expectancy_hint(situ, min_samples=min_samples, store=rows[:i])
+        if h is None:
+            continue
+        hint, real = h["hint"], rows[i]["outcome"]
+        if hint == 0 or real == 0:
+            continue
+        preds.append(hint)
+        outs.append(real)
+        hits += 1 if (hint > 0) == (real > 0) else 0
+    n = len(preds)
+    if n < 30:
+        return {"n": n}
+    base = sum(1 for o in outs if o > 0) / n
+    ic = _pearson(preds, outs)
+    ic_t = ic * math.sqrt((n - 2) / max(1e-9, 1.0 - ic * ic))   # eps : t grand mais fini si ic≈1
+    return {"n": n, "ic": round(ic, 4), "ic_t": round(ic_t, 2),
+            "hit_rate": round(hits / n, 3), "base_rate": round(max(base, 1.0 - base), 3),
+            "edge_vs_base": round(hits / n - max(base, 1.0 - base), 3)}

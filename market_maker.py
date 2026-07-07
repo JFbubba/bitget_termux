@@ -206,7 +206,8 @@ def build_snapshot(book, mids):
     if not bids or not asks:
         return None
     (bid, bid_size), (ask, ask_size) = bids[0], asks[0]
-    if bid <= 0 or ask <= bid:
+    import data_guards as dg
+    if not dg.quote_valid(bid, ask) or ask <= bid:      # book sain (garde partagée) ET spread > 0
         return None
     mid = (bid + ask) / 2.0
     micro = microprice(bid, ask, bid_size, ask_size)
