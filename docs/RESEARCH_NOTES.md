@@ -3689,6 +3689,21 @@ Le baseline confirme la prémisse : à 1H (horizon de PRODUCTION) l'agent est PL
 change de signe aux horizons longs — **son poids bas piloté par EARCP est CORRECT**.
 **Verdict : rien à brancher, banc gelé à 14 (§62) inchangé.** Outils installés dispo ailleurs.
 
+RAFFINEMENT MÉTHODO (ré-audit du sous-agent, sanity_libs.py/rapport_vol.py — les libs sont
+bien calibrées : dcor détecte y=x² à 0.49 quand Pearson=0) : la plupart de ces features sont
+SYMÉTRIQUES (forme/structure/rugosité) — les tester contre le rendement SIGNÉ donne ~0 PAR
+CONSTRUCTION (une mesure symétrique ne peut pas prédire un signe). Sur le canal VOL (feature
+vs |rendement forward|) elles corrèlent — w1_drift 21/59 cellules |t|≥3, dcor/pearson croisés
+forts aux TF rapides, nolds_dfa cohérent en signe. MAIS (i) prédire |rendement| est TRIVIAL
+(clustering de vol universel), (ii) aucune n'est un candidat cross-TF propre (w1_drift
+`candidate:false` — signes ±1 incohérents), (iii) AUCUN comparatif incrémental vs l'EWMA/GARCH
+(§labo 2 : figé solide) / le détecteur de régime (§labo 1 : bat l'EWMA) — le SEUL filtre qui
+compte, absent. Le bot ayant déjà une bonne estimation de vol, une feature de vol redondante
+n'ajoute rien. Conclusion inchangée : rien à brancher ; l'axe honnête est « rien en directionnel
+(normal, symétrique) ; en vol, redondant avec l'existant tant qu'un test INCRÉMENTAL ne prouve
+pas le contraire — non fait, et peu probable ». Le test en gate proposé ne se justifie pas sans
+ce préalable incrémental.
+
 Bilan mesure-d'abord : aucun des trois ne justifie de brancher quoi que ce soit en prod
 aujourd'hui. Le SEUL fil vivant = la modulation du consensus live par le régime (1c),
 +0.12/+0.16 mais 1 bloc — à re-mesurer ~15/07 (journal ≥2 semaines) avant toute décision.

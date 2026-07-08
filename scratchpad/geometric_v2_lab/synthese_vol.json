@@ -1,0 +1,186 @@
+{
+ "d_lambda2_dcor_pearson": {
+  "n_strong": 0,
+  "n_cells": 33,
+  "tfs": [],
+  "signs": [],
+  "candidate": false
+ },
+ "dcor_btc_eth": {
+  "n_strong": 9,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1W",
+   "1m",
+   "5m"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "dcor_excess_btc_eth": {
+  "n_strong": 8,
+  "n_cells": 59,
+  "tfs": [
+   "1H",
+   "1W",
+   "1m"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "geom_vote": {
+  "n_strong": 7,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1H",
+   "1m",
+   "30m",
+   "4H"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "lambda2_agent_rmt": {
+  "n_strong": 0,
+  "n_cells": 33,
+  "tfs": [],
+  "signs": [],
+  "candidate": false
+ },
+ "lambda2_dcor": {
+  "n_strong": 0,
+  "n_cells": 33,
+  "tfs": [],
+  "signs": [],
+  "candidate": false
+ },
+ "lambda2_pearson": {
+  "n_strong": 1,
+  "n_cells": 33,
+  "tfs": [
+   "5m"
+  ],
+  "signs": [
+   1
+  ],
+  "candidate": false
+ },
+ "nolds_corr_dim": {
+  "n_strong": 3,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1m"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "nolds_dfa": {
+  "n_strong": 7,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1D",
+   "1H",
+   "4H",
+   "5m"
+  ],
+  "signs": [
+   -1
+  ],
+  "candidate": false
+ },
+ "nolds_hurst_rs": {
+  "n_strong": 2,
+  "n_cells": 59,
+  "tfs": [
+   "1D",
+   "5m"
+  ],
+  "signs": [
+   1
+  ],
+  "candidate": false
+ },
+ "nolds_sampen": {
+  "n_strong": 5,
+  "n_cells": 59,
+  "tfs": [
+   "1D",
+   "1H",
+   "1m"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "pearson_btc_eth": {
+  "n_strong": 10,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1m",
+   "5m"
+  ],
+  "signs": [
+   1
+  ],
+  "candidate": false
+ },
+ "w1_drift": {
+  "n_strong": 21,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1D",
+   "1H",
+   "1m",
+   "30m"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "w1_drift_shape": {
+  "n_strong": 2,
+  "n_cells": 59,
+  "tfs": [
+   "15m",
+   "1D"
+  ],
+  "signs": [
+   -1,
+   1
+  ],
+  "candidate": false
+ },
+ "w1_gauss_pot": {
+  "n_strong": 2,
+  "n_cells": 59,
+  "tfs": [
+   "1m"
+  ],
+  "signs": [
+   1
+  ],
+  "candidate": false
+ }
+}
