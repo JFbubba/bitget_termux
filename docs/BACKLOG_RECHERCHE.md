@@ -43,12 +43,23 @@ c'est le filtre qui décide de n'importe quelle voix.
 - Cross-cutting : **le survivorship-bias dataset** (univers historique complet listing/delisting)
   pour que les rejeux 6 ans ne soient pas biaisés (à confirmer par le sous-agent validation).
 
-## PRIORITÉ 2 — la porte de RÉGIME (le thème convergent de TOUTES les sources)
+## PRIORITÉ 2 — la porte de RÉGIME ⚠️ THÈSE MESURÉE et RÉFUTÉE (démotée)
 
 BuildAlpha (200-SMA), BlackBull (multi-TF, squeeze), MQL5, LuxAlgo pointent tous vers le même
-principe : **ne pas chercher un meilleur indicateur directionnel, CONDITIONNER le signal par le
-régime.** Et le labo geometric (§103) a montré que gater sur la VOLATILITÉ ne sert à rien —
-mais ces gates portent sur une variable DIFFÉRENTE (persistance/efficience de tendance).
+principe : **conditionner le signal par le régime.** Cette « sagesse convergente » a été TESTÉE
+deux fois et **ne survit PAS à la mesure rigoureuse dans les données de ce bot** :
+- **Gate-VOLATILITÉ** (§103, tâche 1 geometric) : gater le momentum par le régime de vol/dérive
+  n'ajoute aucun edge robuste (séparation d'IC nulle).
+- **Gate-EFFICIENCE de tendance KER** (kaufman_gate.py, mesuré CPCV/WF purgé) : REJETÉ. 4/24
+  cellules |t_diff|≥3, toutes 5m/15m, s'évanouit à 1H/4H (pas cohérent cross-TF), et surtout
+  **signe INVERSÉ** — quand l'efficience de tendance est haute, le momentum devient PLUS réversif,
+  pas plus tendanciel (fait stylisé crypto §35-38 retrouvé). L'hypothèse « le momentum marche
+  mieux en tendance efficiente » est FAUSSE ici.
+**Conclusion : gater le signal directionnel par le régime = piste plausible mais non prouvée,
+rejetée sur deux régresseurs de gate indépendants.** Ne pas brancher. Résultat négatif de valeur
+(évite un gate séduisant mais faux). Reste théoriquement ouvert : gater le SIZING (pas la
+direction) par le régime de vol — mais c'est déjà ce que fait le vol-targeting GARCH de `mandate`.
+Les items ci-dessous sont donc DÉMOTÉS (mesure d'abord requise, prior défavorable) :
 
 - **Gate KER (Kaufman Efficiency Ratio)** : efficience de tendance (trend vs chop) → module la
   confiance des voix momentum. **Distinct du gate-vol réfuté §103** (gate sur la persistance
