@@ -16,6 +16,21 @@ piste suit la même discipline avant tout usage :
   clair** (le badge GitHub ment souvent `NOASSERTION`) : ne vendoriser QUE MIT/BSD/Apache ;
 - **jamais** un desserrage de `guards()` (murs 50/250, ×5, stop −5 %, kill-switch).
 
+**⚠️ CAVEAT SUR LES t-STATS de cette campagne** (4ᵉ audit indépendant) : les |t| cités dans ce
+fichier sont **GONFLÉS ~2-2,5×** (fenêtre de 160 barres non embarguée + chemins CPCV corrélés →
+observations effectives surestimées). Les SIGNES et les CONCLUSIONS tiennent (look-ahead testé à
++1.000000 exact = machinerie saine ; bruit ≈0 ; off-by-one s'effondre), mais toute magnitude de t
+est à déflater avant de s'y fier. Correctif à porter si on re-mesure : embargo = taille de fenêtre
+dans `purged_folds` + comptage d'obs effectives.
+
+**BILAN ÉCONOMIQUE (le vrai enseignement)** : les signaux directionnels §72 ont un edge de
+RÉVERSION réel mais **≈ −0,04 d'IC → quelques bps/trade, MANGÉS par les frais aller-retour
+(~10-20 bps)**. Ils basculent momentum-positif à horizon LONG (h=96) et en CROSS-SECTIONAL, pas en
+time-series court. **CONSÉQUENCE : le vrai levier n°1 du bot n'est PAS de nouveaux signaux
+directionnels — c'est l'EXÉCUTION (maker post-only, ~−4 bps/jambe vs taker), qui change le signe de
+la rentabilité de ces edges.** La mesure valide donc la priorisation : exécution + durcir le juge
+(P1) > chasser des indicateurs (P3).
+
 ---
 
 ## PRIORITÉ 1 — durcir le JUGE (sert TOUTES les voix, meilleur ROI)
