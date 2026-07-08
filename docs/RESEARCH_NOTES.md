@@ -3725,3 +3725,20 @@ Bilan mesure-d'abord : aucun des trois ne justifie de brancher quoi que ce soit 
 aujourd'hui. Le SEUL fil vivant = la modulation du consensus live par le régime (1c),
 +0.12/+0.16 mais 1 bloc — à re-mesurer ~15/07 (journal ≥2 semaines) avant toute décision.
 Murs argent, stop −5 %, portes : intouchés (pure mesure).
+
+## §104 — CAMPAGNE DE RECHERCHE BOT-LARGE : backlog de pistes (08/07/2026)
+
+Décision propriétaire « assumer la campagne » : une arborescence de sous-agents a dépouillé
+des sources externes (BuildAlpha, MQL5, BlackBull, TradingView, LuxAlgo, GitHub MetaTrader,
+écosystème quant Python) et produit des PISTES testables mappées par sous-système. Le livrable
+est `docs/BACKLOG_RECHERCHE.md` (backlog VIVANT, priorisé ROI). TOUT y est NON VÉRIFIÉ.
+
+Têtes de file (meilleur ROI) : (1) durcir le JUGE — `skfolio` (BSD, sklearn déjà là :
+CombinatorialPurgedCV + Deflated Sharpe pour `agent_validation`, HRP pour le sizing ; remplace
+`mlfinlab` devenu propriétaire) ; (2) porte de RÉGIME — gate KER (efficience de tendance, DISTINCT
+du gate-vol réfuté §103, thème convergent de toutes les sources). Discipline inchangée : labo §72
+opt-in, échelle M1..W1, apport marginal vs existant, anti-repaint, licence MIT/BSD/Apache seule,
+jamais le banc gelé ni les murs `guards()`. Les mesures qui trancheront iront ici (RESEARCH_NOTES),
+pas dans le backlog. Convergence forte notée : les 3 sources externes pointent le GATING de régime,
+pas un meilleur indicateur directionnel — ce qui recadre positivement la piste geometric (§103, 1c :
+régime × consensus live) vers le conditionnement, pas le vote.
