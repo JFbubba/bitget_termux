@@ -1,0 +1,18 @@
+{
+ "baseline geometric_agent.signal": 4157.6,
+ "w1_gauss_pot": 110.4,
+ "w1_drift": 121.3,
+ "w1_drift_shape": 158.1,
+ "w1_gauss numpy (agent, r\u00e9f.)": 57.1,
+ "dcor_pair (160)": 144.5,
+ "dcor_excess (160)": 208.5,
+ "lambda2_dcor_graph (10 sym)": 7112.6,
+ "lambda2_pearson_graph (10 sym)": 59.9,
+ "lambda2_dcor_graph (4 sym)": 916.4,
+ "agent correlation_graph_metrics (10 sym, RMT)": 106.0,
+ "nolds_dfa (160)": 15046.1,
+ "nolds_hurst_rs (160)": 16955.9,
+ "nolds_sampen (160)": 4022.3,
+ "nolds_corr_dim (160)": 5237.1,
+ "agent dfa_hurst (r\u00e9f.)": 2034.2
+}

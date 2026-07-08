@@ -3635,3 +3635,43 @@ poids carry 3.0 → ~0.4). Réversion : supprimer la ligne du `.env`.
 À re-mesurer (~15/07, journal ≥ 2 semaines) : le plateau λ tient-il hors de cette
 fenêtre ; l'affaissement d'edge des plis récents est-il un régime passager ou une
 dérive ; carry rouvre-t-il hors-échantillon.
+
+## §103 — TROIS LABOS QUANT : régime, GARCH fitté, geometric v2 (08/07/2026)
+
+Suite au balayage PyPI (§92) et à l'installation de ruptures/hmmlearn/arch/POT/dcor/nolds
+(protocole ERR-004, pivots numpy/scipy/sklearn/torch inchangés), trois laboratoires
+hors-ligne (scratchpad/{regime,garch,geometric_v2}_lab, lecture seule, walk-forward purgé).
+Les sous-agents ont été coupés sur la limite de session ; les mesures avaient abouti
+(resultats.json), verdicts rejoués/agrégés dans la boucle principale.
+
+**1. Détecteur de régime (ruptures + hmmlearn)** — motivé par l'affaissement d'edge §102.
+Flags STRICTEMENT causaux (HMM filtré forward pas-à-pas, pas de Viterbi qui regarde en avant ;
+ruptures Pelt). Deux mesures distinctes, échelle 5m→1W sur BTC+ETH :
+- Pertinence-vol (le flag prédit-il |rendement| forward ?) : FORTE — ic_phaut_absfwd
+  t médian +6.33, significatif 7/8 séries (s'affaiblit en 1D/1W, échantillon mince).
+- Séparation directionnelle (le régime sépare-t-il l'IC d'un signal momentum de réf ?) :
+  NULLE — |t_delta| max 3.11, 1/26 (série×flag) au-dessus de 3, deltas négatifs.
+Verdict : instrument de VOLATILITÉ (utile pour vol-targeting / sizing / contexte de risque),
+PAS une porte d'edge directionnelle. Ne pas en faire un filtre de direction. Re-mesure
+dédiée requise avant tout branchement côté mandat.
+
+**2. GARCH fitté vs figé (arch)** — arch GARCH(1,1) MLE fitté par fenêtre (refit /40 pas,
+filtrage forward entre) contre volatility.garch11_vol figé (α=0.10/β=0.85), EWMA(0.94) et
+écart-type naïf. Prévision de variance 1 pas, QLIKE (principale) + MSE, 5 plis, t apparié.
+Résultat sans ambiguïté : QLIKE médian figé 1.8535 < arch 1.8916 < ewma 1.9164 < naïf 1.9981.
+Le figé bat arch sur 11/12 séries ; arch est SIGNIFICATIVEMENT PIRE (t≥3) sur BTC 1H et 1D ;
+vol-targeting à égalité (6/12). Le fit par fenêtre surapprend le bruit local ; les paramètres
+robustes façon RiskMetrics généralisent mieux hors-échantillon. **Décision : volatility.py
+INCHANGÉ ; arch reste un outil de labo (pas de dépendance ajoutée en prod).**
+
+**3. Features geometric v2 (POT / dcor / nolds)** — W1(rendements, gaussien), W1 de dérive
+de régime, DFA/Hurst/SampEn/corr_dim, dcor BTC↔ETH vs Pearson, contre le baseline (le score
+geom_vote de l'agent rejoué). Le sous-agent n'a bouclé que le TF 1m avant la coupure
+(ERR-001 INCOMPLÈTE — cohérence inter-TF non mesurable). Sur ce TF : 2/48 (feature×sym×horizon)
+franchissent |t|≥3, mais aucune n'est cohérente entre rang et pearson ni répliquée sur ETH ;
+le baseline actuel a déjà un meilleur signal (t 6.7, BTC 1m/h1). **Verdict : rien à brancher.**
+Le poids bas de l'agent geometric reste CORRECT. Outils installés dispo pour d'autres usages.
+
+Bilan mesure-d'abord : aucun des trois ne justifie de brancher quoi que ce soit en prod
+aujourd'hui ; seule piste vivante = régime → vol-targeting, à mesurer spécifiquement.
+Murs argent, stop −5 %, portes : intouchés (pure mesure).
