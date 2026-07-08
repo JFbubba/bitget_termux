@@ -8963,6 +8963,11 @@ def test_collector_digest_bloc_pur():
     assert lignes[2].startswith("  kraken-banque ×1")
     assert db.resume([], {}, now) == []                  # rien -> bloc absent
     assert db.resume([{"ts": now, "title": "x"}], {}, now) == []   # sans catégorie -> absent
+    # résumé STRUCTURÉ (dashboard) : mêmes règles, forme dict
+    st = db.stats(items, cats, now)
+    assert st["n"] == 3 and st["cats"] == 2 and st["creees"] == 1
+    assert st["top"][0] == {"cat": "etf", "n": 2, "titre": "ETF titre le plus récent"}
+    assert db.stats([], {}, now) == {}
 
 
 def test_collector_trieur_categorise_et_cree():

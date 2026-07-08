@@ -26,41 +26,65 @@ TOP_CATS = 4            # catégories dominantes affichées
 TITRE_MAX = 70          # troncature des titres (le digest reste compact)
 
 
-def resume(items, categories, now, fenetre_s=FENETRE_S, top=TOP_CATS):
-    """PUR. Lignes du bloc digest à partir des éléments TRIÉS et des profils de
-    catégories — [] si rien de collecté dans la fenêtre. items : [{ts, title,
-    category, ...}] ; categories : {nom: {n_items, created_ts, ...}}."""
+def stats(items, categories, now, fenetre_s=FENETRE_S, top=TOP_CATS):
+    """PUR. Résumé STRUCTURÉ de la collecte sur la fenêtre (partagé digest +
+    dashboard) — {} si rien de collecté. items : [{ts, title, category, ...}] ;
+    categories : {nom: {n_items, created_ts, ...}}."""
     recents = [i for i in (items or [])
                if i.get("category") and (now - float(i.get("ts") or 0)) <= fenetre_s]
     if not recents:
-        return []
+        return {}
     par_cat = Counter(i["category"] for i in recents)
     nouvelles = sum(1 for meta in (categories or {}).values()
                     if (now - float(meta.get("created_ts") or 0)) <= fenetre_s)
-    lignes = [f"\n📡 Collecte 24 h : {len(recents)} élément(s) · "
-              f"{len(par_cat)} catégorie(s) touchée(s)"
-              + (f" · {nouvelles} créée(s)" if nouvelles else "")]
-    for cat, n in par_cat.most_common(top):
-        titre = next((i.get("title") or "" for i in reversed(recents)
-                      if i["category"] == cat), "")
-        lignes.append(f"  {cat} ×{n} — {titre[:TITRE_MAX]}")
+    return {"n": len(recents), "cats": len(par_cat), "creees": nouvelles,
+            "top": [{"cat": cat, "n": n,
+                     "titre": next((i.get("title") or "" for i in reversed(recents)
+                                    if i["category"] == cat), "")[:TITRE_MAX]}
+                    for cat, n in par_cat.most_common(top)]}
+
+
+def resume(items, categories, now, fenetre_s=FENETRE_S, top=TOP_CATS):
+    """PUR. Lignes du bloc digest — [] si rien de collecté dans la fenêtre."""
+    st = stats(items, categories, now, fenetre_s, top)
+    if not st:
+        return []
+    lignes = [f"\n📡 Collecte 24 h : {st['n']} élément(s) · "
+              f"{st['cats']} catégorie(s) touchée(s)"
+              + (f" · {st['creees']} créée(s)" if st["creees"] else "")]
+    for t in st["top"]:
+        lignes.append(f"  {t['cat']} ×{t['n']} — {t['titre']}")
     return lignes
 
 
+def _charger():
+    """(items, categories) depuis les artefacts locaux — lève si indisponibles
+    (les appelants fail-safe attrapent)."""
+    items = []
+    for ligne in SORTED_PATH.read_text(encoding="utf-8").splitlines()[-5000:]:
+        try:
+            items.append(json.loads(ligne))
+        except Exception:
+            continue
+    return items, json.loads(CATS_PATH.read_text(encoding="utf-8"))
+
+
 def bloc(now=None):
-    """Chargeur FAIL-SAFE pour le digest : lit les artefacts locaux et rend les
-    lignes du bloc ([] si indisponibles — jamais d'exception)."""
+    """Chargeur FAIL-SAFE pour le digest : lignes du bloc ([] si indisponibles)."""
     try:
-        items = []
-        for ligne in SORTED_PATH.read_text(encoding="utf-8").splitlines()[-5000:]:
-            try:
-                items.append(json.loads(ligne))
-            except Exception:
-                continue
-        cats = json.loads(CATS_PATH.read_text(encoding="utf-8"))
+        items, cats = _charger()
         return resume(items, cats, now if now is not None else time.time())
     except Exception:
         return []
+
+
+def stats_24h(now=None):
+    """Chargeur FAIL-SAFE pour le dashboard : résumé structuré ({} si indisponible)."""
+    try:
+        items, cats = _charger()
+        return stats(items, cats, now if now is not None else time.time())
+    except Exception:
+        return {}
 
 
 if __name__ == "__main__":

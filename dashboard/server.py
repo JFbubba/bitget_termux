@@ -934,6 +934,23 @@ def build_state(symbol=None, tf="5m"):
         capital=(_cap or None), W=_W, R=_wr.get("tp_sl_ratio")), {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
+
+    def _apprentissage():
+        """Santé de l'apprentissage + garde §96 (le dashboard n'affichait que le
+        Rank IC alors que le sizing se juge en PEARSON — signes opposés pour ~5
+        agents ; ici l'état de la garde non-circulaire devient visible)."""
+        import learning_health as lh
+        s = lh.snapshot()
+        return {"healthy": s.get("healthy"), "cible": s.get("cible"),
+                "corr_weight_cible": s.get("corr_weight_cible"),
+                "overweight_negatifs": s.get("overweight_negatifs") or []}
+    state["learning"] = _cached("learning", 600, lambda: _safe(_apprentissage, {}))
+
+    def _collecte():
+        """Collecte de données §101 (scraper+trieur, cron 06:20) — résumé 24 h."""
+        from data_collector import digest_bloc as db
+        return db.stats_24h()
+    state["collecte"] = _cached("collecte", 900, lambda: _safe(_collecte, {}))
     try:
         import json as _json
         state["hitrates"] = _cached("hitrates", 120, lambda: _safe(

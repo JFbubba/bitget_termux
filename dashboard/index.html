@@ -531,8 +531,9 @@
         <div class="dim" id="syn-info" style="font-size:10px;line-height:1.5">—</div>
       </div>
       <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
-        <h2 style="border:0;padding:0;margin:0 0 6px">Audit IC live <span class="dim" style="letter-spacing:0">— votes émis, horizon 1 h §60</span></h2>
+        <h2 style="border:0;padding:0;margin:0 0 6px">Audit IC live <span class="dim" style="letter-spacing:0">— votes émis, horizon 1 h §60 · rang/pearson (le sizing juge en pearson, §96)</span></h2>
         <div id="audit-live" class="dim" style="font-size:10px;line-height:1.7">—</div>
+        <div id="garde96" class="dim" style="font-size:10px;line-height:1.7;margin-top:4px">—</div>
       </div>
     </div>
     <div class="panel">
@@ -541,6 +542,10 @@
       <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
         <h2 style="border:0;padding:0;margin:0 0 6px">Prochains rendez-vous</h2>
         <div id="rdv" class="dim" style="font-size:10.5px;line-height:1.8">—</div>
+      </div>
+      <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+        <h2 style="border:0;padding:0;margin:0 0 6px">Collecte de données <span class="dim" style="letter-spacing:0">— §101 · scraper+trieur (cron 06:20) · fenêtre 24 h</span></h2>
+        <div id="collecte" class="dim" style="font-size:10.5px;line-height:1.8">—</div>
       </div>
     </div>
     <div class="panel">
@@ -1393,6 +1398,8 @@ function renderState(){
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
     try{ renderKelly(st.kelly||{}); }catch(e){}
     try{ renderMethodes(st.methodes||{}, st.overlay_ic||{}); }catch(e){}
+    try{ renderGarde96(st.learning||{}); }catch(e){}
+    try{ renderCollecte(st.collecte||{}); }catch(e){}
     try{ renderPortfolio(st.portfolio||{}); }catch(e){}
     try{ renderReflexion(st); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
@@ -1475,6 +1482,24 @@ document.addEventListener("visibilitychange",()=>{
   if(document.hidden){ _stopStream(); _stopPoll(); } else { _connect(); }
 });
 _connect();
+
+// ===== garde §96 (santé de l'apprentissage) + collecte de données §101 =====
+const escH=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function renderGarde96(le){
+  const g=$("garde96"); if(!g) return;
+  if(!Object.keys(le).length){g.textContent="—";return;}
+  const sus=le.overweight_negatifs||[];
+  const corr=` <span class="dim">· corr poids↔cible ${le.corr_weight_cible!=null?le.corr_weight_cible:"—"} (${escH(le.cible||"ic")})</span>`;
+  g.innerHTML=(sus.length
+    ?`<span class="red">⚠ garde §96</span> : `+sus.map(x=>`${escH(x.agent)} <span class="red">poids ${x.poids} · pearson ${(x.pearson_ic>=0?"+":"")+(+x.pearson_ic).toFixed(3)} (t ${x.pearson_t})</span>`).join(" · ")
+    :(le.healthy?`<span class="green">garde §96 OK — aucun sur-poids négatif en pearson</span>`:`<span class="red">⚠ apprentissage désaligné</span>`))+corr;
+}
+function renderCollecte(c){
+  const el=$("collecte"); if(!el) return;
+  if(!c||!c.n){el.textContent="aucune collecte sur 24 h";return;}
+  el.innerHTML=`${c.n} élément(s) · ${c.cats} catégorie(s)`+(c.creees?` · ${c.creees} créée(s)`:"")+"<br>"+
+    (c.top||[]).map(t=>`<span class="accent">${escH(t.cat)}</span> ×${t.n} <span class="dim">— ${escH(t.titre)}</span>`).join("<br>");
+}
 
 // ===== journal de bord + rendez-vous (§63) =====
 const ICO={ordre:"⚡",dca:"🟠",sl_tp:"🎯",echec:"⚠️",blackout:"⏸"};
@@ -1834,7 +1859,10 @@ function dessineViz(viz){
   const pan=xs.panier||{};
   const al=viz.audit_live||[];
   if($("audit-live")&&al.length){
-    const fmt=r=>`${r.agent} <span class="${r.ic>0.02?"green":r.ic<-0.02?"red":"dim"}">${(r.ic>=0?"+":"")+r.ic.toFixed(3)}</span>`;
+    // rang ET pearson (§96) : signes opposés pour ~5 agents — n'afficher que le
+    // rang masquait la métrique qui pilote réellement le sizing.
+    const cls=v=>v>0.02?"green":v<-0.02?"red":"dim";
+    const fmt=r=>`${r.agent} <span class="${cls(r.ic)}">${(r.ic>=0?"+":"")+r.ic.toFixed(3)}</span>/<span class="${cls(r.pic!=null?r.pic:0)}">${r.pic!=null?((r.pic>=0?"+":"")+r.pic.toFixed(3)):"—"}</span>`;
     $("audit-live").innerHTML="meilleurs : "+al.slice(0,3).map(fmt).join(" · ")+
       "<br>pires : "+al.slice(-3).map(fmt).join(" · ");
   }
