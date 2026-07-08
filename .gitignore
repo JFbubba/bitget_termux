@@ -46,6 +46,7 @@ accumulation_real_ledger.json
 futures_real_ledger.json
 .accum_spend_alert.json
 .market_timing_alert.json
+.learning_health_alert_state.json
 .carry_journal.json
 
 # Claude Code : hooks locaux (machine-specifique, contient des mots-cles d'ordre

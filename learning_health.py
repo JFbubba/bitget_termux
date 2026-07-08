@@ -8,13 +8,17 @@ que le correctif tient : il mesure la corrélation de rang entre les POIDS APPRI
 l'IC live. Si elle décroche (les poids n'anticipent plus la prédictivité), il ALERTE
 (Telegram, best-effort). Il rapporte aussi la décorrélation hit-rate↔IC (cause racine).
 
-Aucun ordre, aucune écriture d'état de trading. CLI : python learning_health.py [--alert]
+Aucun ordre, aucune écriture d'état de trading (seul un fichier de déduplication
+d'ALERTES est écrit — `.learning_health_alert_state.json`, gitignored).
+CLI : python learning_health.py [--alert]
 """
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CORR_MIN = 0.2          # sous ce seuil, les poids n'anticipent plus l'IC -> alerte
+ETAT_ALERTE = ROOT / ".learning_health_alert_state.json"
+RAPPEL_S = 24 * 3600    # une tension §96 peut persister des JOURS : rappel au plus 1×/jour
 
 
 def _load_env():
@@ -147,22 +151,62 @@ def snapshot():
     return out
 
 
+def _signature(s):
+    """PUR. Signature stable de l'état de santé : santé globale + agents signalés
+    par la garde §96 (les valeurs chiffrées fluctuent, la LISTE fait l'état)."""
+    return {"healthy": bool(s.get("healthy")),
+            "agents": sorted(x["agent"] for x in (s.get("overweight_negatifs") or []))}
+
+
+def _decision_alerte(sig, precedent, now):
+    """PUR. (envoyer, motif) — la garde §96 peut rester tendue des JOURS sur un
+    désaccord légitime (marginal vs multivarié) : marteler le même message toutes
+    les 6 h fabrique de la fatigue d'alarme. On alerte au CHANGEMENT d'état
+    (nouvel état malsain, liste d'agents modifiée, rétablissement — une fois),
+    avec un rappel au plus quotidien tant que l'alerte persiste inchangée."""
+    if precedent is None:
+        return ((not sig["healthy"]), "nouvel état")
+    if sig != precedent.get("sig"):
+        return (True, "rétabli" if sig["healthy"] else "changement")
+    if not sig["healthy"] and now - float(precedent.get("ts", 0)) >= RAPPEL_S:
+        return (True, "rappel quotidien")
+    return (False, "")
+
+
 def check_and_alert():
-    """Calcule la santé et ALERTE Telegram si désaligné. Retourne le snapshot."""
+    """Calcule la santé et ALERTE Telegram sur CHANGEMENT d'état (voir
+    _decision_alerte). Retourne le snapshot. Fail-safe : ne lève jamais ;
+    l'état de déduplication n'est écrit qu'après un envoi réussi (un envoi
+    raté sera retenté au prochain passage)."""
+    import time
     s = snapshot()
-    if s.get("healthy") is False:
+    sig = _signature(s)
+    precedent = None
+    try:
+        precedent = json.loads(ETAT_ALERTE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    envoyer, motif = _decision_alerte(sig, precedent, time.time())
+    if envoyer:
         try:
             import telegram_notifier as tn
-            sus = s.get("overweight_negatifs") or []
-            ligne_sus = ("\n· ⚠ sur-poids négatifs (pearson) : "
-                         + ", ".join(f"{x['agent']} {x['poids']}/{x['pearson_ic']:+.3f}" for x in sus)
-                         if sus else "")
-            tn.send_message(
-                "⚠️ SANTÉ APPRENTISSAGE — " + s["note"]
-                + f"\n· corr poids↔cible {s.get('corr_weight_cible')} ({s.get('cible')})"
-                + f"\n· corr hit-rate↔IC {s['corr_hitrate_ic']} (cause racine)"
-                + f"\n· IC-align {'ARMÉ' if s['ic_align'] else 'OFF'}"
-                + ligne_sus)
+            if sig["healthy"]:
+                tn.send_message(
+                    "✅ SANTÉ APPRENTISSAGE rétablie — garde §96 OK, "
+                    f"corr poids↔cible {s.get('corr_weight_cible')} ({s.get('cible')})")
+            else:
+                sus = s.get("overweight_negatifs") or []
+                ligne_sus = ("\n· ⚠ sur-poids négatifs (pearson) : "
+                             + ", ".join(f"{x['agent']} {x['poids']}/{x['pearson_ic']:+.3f}" for x in sus)
+                             if sus else "")
+                tn.send_message(
+                    f"⚠️ SANTÉ APPRENTISSAGE ({motif}) — " + s["note"]
+                    + f"\n· corr poids↔cible {s.get('corr_weight_cible')} ({s.get('cible')})"
+                    + f"\n· corr hit-rate↔IC {s['corr_hitrate_ic']} (cause racine)"
+                    + f"\n· IC-align {'ARMÉ' if s['ic_align'] else 'OFF'}"
+                    + ligne_sus)
+            ETAT_ALERTE.write_text(json.dumps({"sig": sig, "ts": time.time()}),
+                                   encoding="utf-8")
         except Exception:
             pass
     return s

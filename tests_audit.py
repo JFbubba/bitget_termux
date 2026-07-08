@@ -3568,6 +3568,31 @@ def test_learning_health_pearson_guard_non_circular():
     assert lh.overweight_negatifs({}, {}) == [] and lh.overweight_negatifs(None, None) == []
 
 
+def test_learning_health_deduplication_alertes():
+    """Anti fatigue d'alarme : alerte au CHANGEMENT d'état, rappel 1×/jour max,
+    rétablissement notifié une fois (une tension §96 peut durer des jours)."""
+    import learning_health as lh
+    malade = {"healthy": False, "agents": ["simons"]}
+    sain = {"healthy": True, "agents": []}
+    pire = {"healthy": False, "agents": ["carry", "simons"]}
+    t0 = 1_000_000.0
+    # premier passage (aucun état mémorisé)
+    assert lh._decision_alerte(malade, None, t0) == (True, "nouvel état")
+    assert lh._decision_alerte(sain, None, t0)[0] is False
+    # même alerte dans les 24 h -> silence ; après 24 h -> rappel
+    prec = {"sig": malade, "ts": t0}
+    assert lh._decision_alerte(malade, prec, t0 + 6 * 3600)[0] is False
+    assert lh._decision_alerte(malade, prec, t0 + lh.RAPPEL_S) == (True, "rappel quotidien")
+    # la liste d'agents change -> alerte immédiate
+    assert lh._decision_alerte(pire, prec, t0 + 60) == (True, "changement")
+    # rétablissement -> notifié une fois, puis silence
+    assert lh._decision_alerte(sain, prec, t0 + 60) == (True, "rétabli")
+    assert lh._decision_alerte(sain, {"sig": sain, "ts": t0}, t0 + 90 * 86400)[0] is False
+    # signature : stable et triée
+    s = {"healthy": False, "overweight_negatifs": [{"agent": "simons"}, {"agent": "carry"}]}
+    assert lh._signature(s) == {"healthy": False, "agents": ["carry", "simons"]}
+
+
 def test_validation_purged_non_overlapping():
     import numpy as np
     import agent_validation as v
