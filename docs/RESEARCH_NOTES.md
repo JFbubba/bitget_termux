@@ -3543,3 +3543,35 @@ frais). Deux sources, chacune AUDITÉE et lecture seule :
 Note : première tentative via `/api/v2/mix/order/orders-plan-pending` REJETÉE par
 `security_agent` (WARNING) — d'où le pivot vers le ledger, plus propre ET plus fidèle (ce
 que le bot a réellement posé). `bgc` n'expose pas de lecteur d'ordres plan futures.
+
+## §100 — 18ᵉ VOIX QUANTIQUE : circuit variationnel opt-in, inférence numpy pure (08/07/2026)
+
+Demande propriétaire : « branche la 18ᵉ voix quantique ». Prolonge le prototype QML
+(`qml_prototype/`, 6 qubits PennyLane/PyTorch) en une VOIX du cerveau, strictement sur le
+patron des 15ᵉ/16ᵉ/17ᵉ (opt-in, additive, fail-safe, bornée, banc 14 gelé intact §62,
+murs `guards()` intouchés).
+
+**Architecture (contrainte ERR-004 : PennyLane INTERDIT dans le Python système)** :
+- **Entraînement au labo** (`qml_prototype/train_voice.py`, venv isolé) : circuit 6 qubits ×
+  4 couches (AmplitudeEmbedding L2 + StronglyEntanglingLayers), MÊMES features que la 16ᵉ
+  voix (`neural_net._dataset` : 14 votes du banc + contextuelles causales, étiquettes §71/§73),
+  MÊME validation (walk-forward 6 plis temporels, purge anti-fuite, edge = acc − base,
+  borne prudente − se). Poids exportés en JSON (`qml_voice_weights.json`, 4×6×3, committable).
+- **Inférence LIVE en numpy PUR** (`qml_quantum_sim.py`, SAFE) : simulation EXACTE du
+  vecteur d'état 64 amplitudes — Rot/CNOT/embedding aux conventions PennyLane, PARITÉ
+  vérifiée à 5e-16 (`train_voice.py --parity`). AUCUNE dépendance nouvelle, inférence ~µs.
+- **`qml_agent.py` (18ᵉ voix, SAFE)** : gated `QML_AGENT_ENABLED` (défaut OFF), porte
+  d'edge `QML_EDGE_GATE` prudent/brut (§71), confiance plafonnée `QML_AGENT_CONF_CAP` 0.5,
+  cache TTL, `feature_hash` refusant un modèle désaligné, ombre `qml_shadow` journalisée
+  quand la porte la tait (§89 — IC live jugé par le même audit que les 14), alerte Telegram
+  à chaque transition de porte au réentraînement. Câblée dans `swarm_brain._collect_votes`
+  après la 17ᵉ voix (votes en context, pas de recalcul).
+
+**Première mesure (6000 exemples récents, cap journalisé `QML_TRAIN_MAX_N`)** :
+wf_edge −0.0519 (se 0.0399), borne prudente −0.0918, acc 0.522 vs base 0.574 → **la porte
+TAIT la voix** (comme NN v4 §73/§88). La voix est branchée et ARMABLE sans risque : elle ne
+parlera que si un réentraînement démontre un edge positif (alerte Telegram automatique) ;
+en attendant, `qml_shadow` accumule l'IC live. Verdict honnête : à 6 qubits/72 paramètres,
+la fusion quantique ne bat pas (encore) le taux de base — c'est un INSTRUMENT DE MESURE de
+plus, pas une promesse. Tests : 4 ajoutés (neutralité OFF, porte configurable + muette,
+exactitude/invariances du simulateur, refus des poids désalignés).

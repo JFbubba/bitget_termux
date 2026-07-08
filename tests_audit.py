@@ -8830,6 +8830,87 @@ def test_dashboard_chat_context():
     assert mod.chat_context(None)["mode"] is None
 
 
+def test_qml_agent_disabled_is_neutral():
+    import os
+    import qml_agent
+    # défaut OFF -> vote neutre de confiance nulle (ignoré par l'agrégation), jamais d'erreur
+    old = os.environ.pop("QML_AGENT_ENABLED", None)
+    try:
+        assert qml_agent.enabled() is False
+        r = qml_agent.agent("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        if old is not None:
+            os.environ["QML_AGENT_ENABLED"] = old
+
+
+def test_qml_agent_sans_edge_reste_muet_et_porte_configurable():
+    import os
+    import qml_agent
+    # même philosophie que la 16ᵉ voix (Kelly=0 sur edge négatif, §68/§71) : sans edge
+    # hors-échantillon prouvé, la voix quantique se TAIT, même très directionnelle.
+    orig = qml_agent.predict
+    old_env = os.environ.pop("QML_EDGE_GATE", None)
+    os.environ["QML_EDGE_GATE"] = "prudent"
+    qml_agent.predict = lambda symbol, votes=None: {
+        "p_up": 0.9, "vote": 0.8, "confidence": 0.8,
+        "val_edge": -0.05, "val_edge_brut": 0.01, "note": "qml v1"}
+    old_shadow = qml_agent._journalise_ombre
+    qml_agent._journalise_ombre = lambda symbol, pred: None   # test hors-ligne
+    try:
+        r = qml_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r["vote"] == 0 and r["confidence"] == 0
+        assert "sans-edge" in r["note"] and "prudent" in r["note"]
+        # porte brut : l'edge moyen +0.01 ouvre, confiance bornée par le cap
+        os.environ["QML_EDGE_GATE"] = "brut"
+        assert qml_agent._gate_mode() == "brut"
+        r2 = qml_agent._produce_vote("BTCUSDT", context={"votes": {}})
+        assert r2["vote"] == 0.8 and 0 < r2["confidence"] <= 0.5
+        # valeur inconnue -> défaut sûr (prudent)
+        os.environ["QML_EDGE_GATE"] = "n'importe"
+        assert qml_agent._gate_mode() == "prudent"
+    finally:
+        qml_agent.predict = orig
+        qml_agent._journalise_ombre = old_shadow
+        os.environ.pop("QML_EDGE_GATE", None)
+        if old_env is not None:
+            os.environ["QML_EDGE_GATE"] = old_env
+
+
+def test_qml_sim_exact_et_invariances():
+    import numpy as np
+    import qml_quantum_sim as qs
+    # poids nuls -> Rot(0,0,0)=I ; |e0> = |000000> est point fixe des CNOT -> <Z0>=+1 ;
+    # l'état de base d'index 32 (bit fort=1) -> <Z0>=-1. Simulation EXACTE attendue.
+    w0 = np.zeros((4, 6, 3))
+    e0 = np.zeros(64); e0[0] = 1.0
+    e32 = np.zeros(64); e32[32] = 1.0
+    assert abs(qs.predict_score(e0, w0) - 1.0) < 1e-12
+    assert abs(qs.predict_score(e32, w0) + 1.0) < 1e-12
+    # invariance d'échelle de l'encodage d'amplitude (normalisation L2 interne)
+    rng = np.random.default_rng(7)
+    x = rng.normal(size=25)
+    w = rng.uniform(0, 2 * np.pi, size=(4, 6, 3))
+    assert abs(qs.predict_score(x, w) - qs.predict_score(5.0 * x, w)) < 1e-12
+    # sortie physique : une valeur moyenne de Pauli-Z reste dans [-1, 1]
+    assert -1.0 <= qs.predict_score(x, w) <= 1.0
+    # vecteur nul -> état neutre |0...0> déterministe, pas de division par zéro
+    assert abs(qs.predict_score(np.zeros(25), w0) - 1.0) < 1e-12
+
+
+def test_qml_poids_desalignes_refuses():
+    import qml_agent
+    # un feature_hash qui ne correspond plus au banc -> predict() refuse (None) au
+    # lieu de prédire n'importe quoi ; _produce_vote lève -> fail-safe amont.
+    old = qml_agent._load_weights
+    qml_agent._load_weights = lambda: ([[[0.0] * 3] * 6] * 4,
+                                       {"feature_hash": "désaligné", "n_qubits": 6})
+    try:
+        assert qml_agent.predict("BTCUSDT", votes={}) is None
+    finally:
+        qml_agent._load_weights = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

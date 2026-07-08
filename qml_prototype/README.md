@@ -11,6 +11,11 @@ Laboratoire isolé : aucun lien avec le chemin d'exécution réel du bot.
   sur le qubit 0. Device `lightning.qubit` (C++) + différentiation adjointe,
   repli automatique sur `default.qubit`.
 - `train.py` — entraînement autonome : données synthétiques, Adam, MSE/MAE.
+- `train_voice.py` — **18ᵉ voix du cerveau (§100)** : entraîne le circuit sur
+  les données RÉELLES de la 16ᵉ voix (`neural_net._dataset`), walk-forward
+  6 plis, exporte les poids vers `../qml_voice_weights.json`. L'inférence
+  live est faite en numpy pur par `../qml_quantum_sim.py` (ERR-004 : pas de
+  PennyLane hors du venv) — `--parity` prouve l'équivalence des deux chemins.
 
 ## Usage
 

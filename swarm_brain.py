@@ -1152,6 +1152,18 @@ def gather_votes(symbol):
             votes["classics"] = classics_agent.agent(symbol)
     except Exception:                            # fail-safe : jamais de casse de collecte
         pass
+    # 18ᵉ voix : circuit QUANTIQUE variationnel (OPT-IN, §100) — fusionne les votes DÉJÀ
+    # calculés (passés en context -> pas de recalcul/récursion) via un circuit 6 qubits
+    # entraîné au labo ; l'inférence live est du numpy PUR (qml_quantum_sim, ERR-004).
+    # Additive, fail-safe, bornée, gardée par sa porte d'edge (muette tant que wf_edge
+    # non prouvé, ombre qml_shadow journalisée), jamais persistée -> banc 14 inchangé.
+    # Absente tant que QML_AGENT_ENABLED est OFF.
+    try:
+        import qml_agent
+        if qml_agent.enabled():
+            votes["qml"] = qml_agent.agent(symbol, context={"votes": votes})
+    except Exception:                            # fail-safe : jamais de casse de collecte
+        pass
     return votes
 
 

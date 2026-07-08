@@ -9,7 +9,10 @@ LLM 15ᵉ, `llm_agent.py`, gated `LLM_AGENT_ENABLED`, défaut OFF ; **réseau ne
 fusion 16ᵉ voix, `nn_agent.py`/`neural_net.py` — MLP PyTorch entraîné sur les votes du
 banc, gated `NN_AGENT_ENABLED`, défaut OFF, §65 ; stratégies classiques 17ᵉ voix,
 `classics_agent.py` — MACD/Bollinger/Donchian/VWAP/grille/pairs du laboratoire, gated
-`CLASSICS_AGENT_ENABLED`, défaut OFF, §72**) : **déterministe d'abord**
+`CLASSICS_AGENT_ENABLED`, défaut OFF, §72 ; **circuit quantique 18ᵉ voix,
+`qml_agent.py`/`qml_quantum_sim.py` — variationnel 6 qubits entraîné au labo
+(`qml_prototype/`), inférence numpy PURE (ERR-004), gated `QML_AGENT_ENABLED`, défaut
+OFF, porte d'edge, §100**) : **déterministe d'abord**
 (le banc 14 reste le socle), **fail-safe** (LLM/NN indispo/lent/incohérent → vote ignoré,
 jamais de crash ni de blocage), et surtout **les murs argent de `guards()` restent ABSOLUS
 et déterministes** — un LLM peut influencer la direction/le sizing suggéré, jamais desserrer
@@ -131,6 +134,8 @@ LLM_AGENT_ENABLED=0         # 15ᵉ voix LLM (opt-in, surcouche fail-safe)
 NN_AGENT_ENABLED=0          # 16ᵉ voix réseau neuronal de fusion (opt-in, §65 — ARMÉ le 06/07)
 NN_EDGE_GATE=prudent        # porte d'edge 16ᵉ voix (§71) : prudent (wf_edge − se) | brut (wf_edge seul)
 CLASSICS_AGENT_ENABLED=0    # 17ᵉ voix stratégies classiques du lab (opt-in, §72)
+QML_AGENT_ENABLED=0         # 18ᵉ voix circuit quantique (opt-in, §100 — inférence numpy pure)
+QML_EDGE_GATE=prudent       # porte d'edge 18ᵉ voix : prudent (wf_edge − se) | brut (wf_edge seul)
 ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
 FUTURES_AUTO_NOTIONAL_USDT=10  # taille/trade boucle directionnelle (env-aware ; MONTÉE à 25 le 06/07, §76)
 LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
