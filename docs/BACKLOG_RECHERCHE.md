@@ -128,6 +128,43 @@ Ordre suggéré (gratuit + causal + testable) :
   balayer des milliers de combos M1..W1 en secondes et PRÉ-filtrer avant la validation maison
   rigoureuse (ne REMPLACE pas `agent_validation` — pas de forward purgé).
 
+## PRIORITÉ 3bis — FUSION NEURONALE (16ᵉ voix `neural_net.py`) + QML (18ᵉ)
+
+Salve NN/QML (08/07), toutes CPU/dépendance-légère (torch/sklearn déjà là), benchmark dur =
+la **cible ridge §78** (une technique qui ne la bat pas en IC OOS purgé = ne pas armer).
+Ordre d'attaque : **FUS-02 d'abord** (l'instrument de mesure honnête), puis le reste — sinon
+les gains sont des mirages de régime ([[measurement-blind-spot]]).
+
+- **FUS-02 [VALID] — purged K-fold + embargo + CPCV + MDA POUR le NN.** Converge avec le n°1
+  (P1) : mêmes plis CPCV que le NN pour comparer voix à voix ; MDA (permutation d'un vote →
+  chute d'IC OOS) sous CV purgée pour classer les 14 votes réellement exploités. Prérequis à
+  tout le reste. sklearn déjà là.
+- **FUS-03 [ARCHI] — régularisation, coût CPU nul, la plus prête** : AdamW (weight decay
+  découplé) + Dropout(0.2–0.5) + early-stopping sur l'IC du pli PURGÉ (pas la loss de train).
+  → `neural_net.py`, zéro dépendance.
+- **FUS-01 [ARCHI] — meta-labeling + poids d'unicité** (López de Prado) : le NN devient méta-modèle
+  (cible = « le banc a-t-il eu raison ? » → module la TAILLE, pas la direction), échantillons
+  pondérés unicité×|rendement|. Cohérent « déterministe d'abord ». À mesurer sur 6 ans (rare/
+  déséquilibré → mémorise le régime en petit échantillon).
+- **FUS-04 [ARCHI post-hoc] — calibration** : température (déjà §73) → Platt/isotonic sur plis OOS
+  purgés (sizing = proba fiable). Isotonic sur-apprend en petit N → rester température tant que N bas.
+- **FUS-05 [ARCHI] — ensembles bon marché** : SWA (`torch.optim.swa_utils`, quasi gratuit à
+  l'inférence CPU) + snapshot ensembles ; réduit la variance inter-plis, pas le biais.
+- **QML-01 [ARCHI, LABO seulement] — durcir le circuit §100** (venv isolé, ERR-004) : data
+  re-uploading (expressivité à 6 qubits sans empiler de portes), **budget de portes borné**
+  (généralisation ~√(T/N) → LIMITER T = contrôle direct du sur-apprentissage), anti-barren-plateaus
+  (init blocs-identité, profondeur modeste). Ajouter des portes aggrave à la fois sur-apprentissage
+  ET barren plateau ET le rejeu numpy prod. Voix reste muette par porte d'edge.
+- **QML-02 [VERDICT] — hardware quantique réel (IBM/OpenQuantum/…) = RIEN de mesurable au stade
+  NISQ.** Un seul verdict tous fournisseurs : files cloud minutes-heures (rédhibitoire pour un vote
+  1 min), bruit NISQ, zéro avantage quantique reproductible en ML financier ; tout circuit à erreur
+  mitigeable est classiquement simulable. **La simu numpy-pure §100 est le BON choix.** Ne rien
+  brancher tant que qml_shadow ne bat pas le ridge §78 en WF purgé sur 6 ans + edge>0 après porte
+  prudente sur plusieurs plis CPCV. NB : le « seul chantier légitime » cité (poser le cron de
+  réentraînement §100) est **DÉJÀ FAIT** (posé cette session, dim 04:40) — reste à laisser l'ombre
+  mesurer. Si un jour l'edge classique est prouvé, l'accès hardware passe par `pennylane-qiskit`
+  en venv isolé — jamais un 2ᵉ SDK.
+
 ## ÉCARTÉS (nommés, pour ne pas les re-tester)
 
 - **SMC / Order-Blocks / FVG / Liquidity / Market-Structure / ICT / Nadaraya-Watson brut** :
