@@ -1,0 +1,2 @@
+pennylane>=0.35
+torch>=2.0
