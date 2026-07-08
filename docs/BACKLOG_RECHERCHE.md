@@ -53,6 +53,45 @@ mais ces gates portent sur une variable DIFFÉRENTE (persistance/efficience de t
 - Protocole gate : mesurer si le gate CONCENTRE l'edge d'une voix qui a DÉJÀ de l'edge (pas
   fabriquer de l'edge sur du bruit — leçon §103) ; valeur économique (Sharpe) requise.
 
+## PRIORITÉ 2bis — SOURCES DE DONNÉES ALPHA HORS-OHLCV (élargir l'information, pas transformer le prix)
+
+Salve on-chain/dérivés/sentiment/macro (08/07). Plus haute valeur potentielle que P3 : c'est de
+la NOUVELLE information, pas un énième transform du prix. Le bot a déjà funding 8 h
+(`funding_history`), FEAR_GREED, qualité CoinGecko, `funding_fade` §75, black-out Kalshi §59.
+⚠️ Caveats TRANSVERSES : (a) **ERR-003** — re-confirmer chaque endpoint contre l'API live avant
+intégration ; (b) **fréquence native ≠ TF de test** — funding 8 h, flux/F&G/macro journaliers →
+tester aux TF ≥ fréquence native seulement (sinon valeur stale répétée = IC gonflé) ; (c) **ERR-007**
+— étiquetage d'adresses on-chain RÉVISÉ a posteriori = look-ahead : verrouiller la date d'observation ;
+(d) jamais desserrer `guards()` — ces signaux sont des GATES/voix opt-in §72, pas des murs.
+
+Ordre suggéré (gratuit + causal + testable) :
+1. **Skew d'options 25Δ + DVOL (Deribit, API publique SANS auth)** — NOUVEL AXE (options), absent du
+   bot. `RR25 = IV(put25Δ)−IV(call25Δ)` + DVOL (VIX crypto, depuis 2021, 1 min). Contrarien
+   (RR25 très négatif = peur → forward +) ET gate vol-targeting (`mandate.py`). Couverture BTC/ETH(+SOL)
+   seulement → alts = NaN (ne pas fabriquer). Deribit ≠ flux Bitget (proxy).
+2. **Base perp-spot annualisée (Bitget public + spot CoinGecko)** — `basis=(mark−index)/index`,
+   LATENCE NULLE (pas d'attente settlement), continue (~1 min, tous TF). Mean-rev : base très
+   positive → forward −. Gate « euphorie de levier » ou voix §72 si incrément au funding. Quasi-
+   fonction du funding cumulé → tester l'incrément.
+3. **Flux d'OI = sign(ΔP)·ΔlnOI (Bitget public snapshot, À LOGGER — pas d'historique gratuit)** —
+   momentum si OI monte avec le prix ; rebond sur collapse d'OI (capitulation). Voix §72 + gate
+   « deleveraging ». Cold-start (historique dès branchement) ; wash-trading gonfle l'OI.
+4. **Net-inflow USDT vers exchanges (Coin Metrics Community API, gratuit, sans clé)** — le mieux
+   étayé (arXiv 2411.06327 : USDT netflow prédit BTC/ETH à 1-6 h ; netflow ETH prédit NÉGATIVEMENT
+   ETH). + SSR = mcap(BTC)/mcap(stables) comme gate lent. Gratuit = journalier (D1/W1 propres) ;
+   l'edge 1-6 h exige le flux horaire (payant) — reproduire en D1 gratuit d'abord.
+5. **Pente de structure de terme du funding** — `z=(funding−médiane90j)/MAD90j` + pente vs EWMA.
+   Contrarien, enrichit `funding_fade` §75 (test d'incrémentalité). Native 8 h → edge propre ≥ H4.
+6. **F&G + ratio long/short en gate contrarien** (alternative.me + Bitget long-short) — ⚠️ CIRCULARITÉ :
+   le F&G intègre déjà vol+momentum de prix → fuite depuis l'OHLCV, mesurer l'incrément NET. Gate lent.
+7. **Gate macro risk-off (FRED clé gratuite / Alpha Vantage / Stooq — PAS investing.com)** —
+   `risk_off_z` = z composite {ΔDXY(FRED DTWEXBGS), ΔDGS2, ΔVIXCLS} (+ or/BTC). Gate lent D1/W1,
+   complète §59. ⚠️ investing.com = Cloudflare/anti-bot → NE PAS tenter sur le VPS (précédent
+   TradingView headless abandonné 06/07). ⚠️ ERR-003 : dans le MCP Alpha Vantage, `DX` = Directional
+   Movement Index, PAS le dollar index (utiliser FRED DTWEXBGS ou proxy EUR/USD). Désync crypto 24/7
+   vs TradFi fermé nuit/WE → forward-fill = look-ahead si mal fait ; signal LENT (faible pour un
+   cerveau 1 min).
+
 ## PRIORITÉ 3 — signaux candidats voix §72 (chacun opt-in, marginal-vs-existant)
 
 - **SuperTrend** (trailing ATR, bascule de régime) — surtout comme **trailing-stop / sizing**
