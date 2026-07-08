@@ -93,6 +93,12 @@ def build_message():
         L.append(f"\n🧠 Apprentissage : {'SAIN' if s.get('healthy') else '⚠️ ALERTE'} — {s.get('note', '')[:100]}")
     except Exception:
         pass
+
+    try:                                            # — collecte de données (§101) —
+        from data_collector import digest_bloc
+        L.extend(digest_bloc.bloc())
+    except Exception:
+        pass
     L.append("\n(lecture seule — détails : dashboard & rapports CLI)")
     return "\n".join(L)
 

@@ -8942,6 +8942,29 @@ def test_qml_sim_exact_et_invariances():
     assert abs(qs.predict_score(np.zeros(25), w0) - 1.0) < 1e-12
 
 
+def test_collector_digest_bloc_pur():
+    """§101 suite 2 : le bloc digest résume la collecte 24 h — fenêtre respectée,
+    catégories dominantes en tête avec leur DERNIER titre, [] si rien de récent."""
+    from data_collector import digest_bloc as db
+    now = 1_000_000.0
+    items = [
+        {"ts": now - 3600, "category": "etf", "title": "ETF ancien du matin"},
+        {"ts": now - 60, "category": "etf", "title": "ETF titre le plus récent"},
+        {"ts": now - 7200, "category": "kraken-banque", "title": "Kraken veut une licence"},
+        {"ts": now - 200_000, "category": "vieux-theme", "title": "hors fenêtre"},
+        {"ts": now - 100, "category": None, "title": "non classé — ignoré"},
+    ]
+    cats = {"etf": {"n_items": 2, "created_ts": now - 90_000},
+            "kraken-banque": {"n_items": 1, "created_ts": now - 7300}}
+    lignes = db.resume(items, cats, now)
+    assert "3 élément(s)" in lignes[0] and "2 catégorie(s)" in lignes[0]
+    assert "1 créée(s)" in lignes[0]                     # kraken-banque seule dans la fenêtre
+    assert lignes[1].startswith("  etf ×2") and "le plus récent" in lignes[1]
+    assert lignes[2].startswith("  kraken-banque ×1")
+    assert db.resume([], {}, now) == []                  # rien -> bloc absent
+    assert db.resume([{"ts": now, "title": "x"}], {}, now) == []   # sans catégorie -> absent
+
+
 def test_collector_trieur_categorise_et_cree():
     from data_collector import sorter_agent as sa
     # deux éléments sur le MÊME thème -> même catégorie (le profil s'enrichit) ;
