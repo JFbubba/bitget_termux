@@ -8970,6 +8970,18 @@ def test_collector_digest_bloc_pur():
     assert db.stats([], {}, now) == {}
 
 
+def test_collector_strip_boilerplate():
+    """§101 : retrait du suffixe de site d'un <title> (cause de l'agglutination
+    MQL5 85/101, 08/07) — sans casser tiret interne ni titre court."""
+    from data_collector import scraper_agent as sc
+    assert sc._strip_boilerplate("Building a Layer in MQL5 - MQL5 Articles") == "Building a Layer in MQL5"
+    assert sc._strip_boilerplate("Analyse du marché | CoinDesk") == "Analyse du marché"
+    # garde-fous : tiret interne SANS espaces intacts, titre trop court non coupé
+    assert sc._strip_boilerplate("Broker-Agnostic design") == "Broker-Agnostic design"
+    assert sc._strip_boilerplate("BTC - up") == "BTC - up"          # reste < 15 car -> intact
+    assert sc._strip_boilerplate("Un titre parfaitement normal") == "Un titre parfaitement normal"
+
+
 def test_collector_suivre_liens_enrichit():
     """suivre_liens (§101/mql5) : un élément au texte maigre est enrichi depuis sa
     page ; page morte ou texte déjà riche -> intacts. Mock aligné sur l'API réelle

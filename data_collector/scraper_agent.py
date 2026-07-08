@@ -52,6 +52,21 @@ def _item_id(url, title):
     return hashlib.sha1(base.encode("utf-8", "replace")).hexdigest()[:16]
 
 
+def _strip_boilerplate(title):
+    """Retire le suffixe de site répété d'un <title> HTML (« Titre - MQL5 Articles »
+    -> « Titre »). Sans lui, un boilerplate identique sur chaque page (pesé ×3 par le
+    trieur) crée une similarité ARTIFICIELLE qui agglutine tout un domaine dans une
+    seule catégorie (constaté le 08/07 : 85/101 articles MQL5). PUR. Garde-fous : ne
+    coupe que sur «  -  »/«  |  » (séparateurs entourés d'espaces, pas un tiret
+    interne), suffixe court (≤ 30 car) et reste substantiel (≥ 15 car)."""
+    for sep in (" | ", " - ", " — "):
+        if sep in title:
+            tete, _, queue = title.rpartition(sep)
+            if len(queue) <= 30 and len(tete) >= 15:
+                return tete.strip()
+    return title
+
+
 def _known_ids():
     """Ids déjà collectés (scan du journal brut existant — collecte incrémentale)."""
     ids = set()
@@ -126,7 +141,7 @@ def parse_html(page, url, source_name, cap_texte=2000):
     -> liste Selectors indexable ; css_first N'EXISTE PAS sur Response."""
     try:
         titres = page.css("title::text")
-        title = _clean(str(titres[0]) if titres else "")
+        title = _strip_boilerplate(_clean(str(titres[0]) if titres else ""))
         paras = " ".join(str(p) for p in page.css("p::text")[:60])
         if not title:
             return []
