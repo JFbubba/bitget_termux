@@ -6,6 +6,13 @@ l'encodage d'amplitude), entraîne le circuit avec Adam et affiche
 les métriques (MSE, MAE) au fil des époques.
 """
 
+import os
+
+# Cap de threads PAR DÉFAUT (note C1-C4 : VPS 2 cœurs partagé avec le bot
+# LIVE) — doit être posé AVANT l'import de torch/pennylane pour être pris
+# en compte. Reste surchargeable par l'environnement appelant.
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+
 import torch
 from torch import nn
 

@@ -16,4 +16,7 @@
 # NE PAS executer "pip install --upgrade pip" sous Termux (instable/interdit).
 requests>=2.31.0
 python-dotenv>=1.0.0
-numpy>=1.24.0
+# numpy BORNÉ <2 (ERR-004) : la pile système du VPS (matplotlib/scipy apt) est
+# compilée contre NumPy 1.x — un numpy 2.x installé par le repli d'update_vps.sh
+# sur machine reconstruite casserait le bot. Pivot attesté 08/07 : numpy 1.26.4.
+numpy>=1.24.0,<2

@@ -38,6 +38,7 @@ else
     sudo apt-get install -y python3-numpy python3-requests python3-dotenv 2>/dev/null || true
   fi
   if ! python -c "import numpy, requests, dotenv" 2>/dev/null; then
+    # deps-syst-ok : dernier recours seulement si import KO ; requirements borne numpy<2 (ERR-004)
     python -m pip install -r requirements.txt 2>/dev/null \
       || python -m pip install --break-system-packages -r requirements.txt 2>/dev/null \
       || true

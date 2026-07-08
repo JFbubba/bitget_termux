@@ -72,3 +72,28 @@ propriétaire indique le contraire.
 n'est pas disponible ») dans une décision ou un doc doit être adossée à une vérification, pas
 à un souvenir.
 **Statut.** RÈGLE ACTIVE (08/07).
+
+## ERR-004 · 2026-07-08 · Dépendance de laboratoire dans l'environnement système du bot
+**Contexte.** Déploiement du prototype QML (`qml_prototype/`) : la demande « lance train.py
+sur mon environnement » aurait pu conduire à `pip install pennylane` dans le Python SYSTÈME.
+Le `pip install --dry-run` a montré que cela forçait numpy 1.26.4 → 2.5.1 et scipy
+1.11.4 → 1.18.0 — rupture probable de la pile du bot LIVE (le matplotlib système casse
+déjà sous numpy 2). Quasi-erreur évitée : venv isolé `qml_prototype/.venv` à la place.
+**Cause racine.** Réflexe « pip install » direct face à une demande ambiguë, sur une machine
+qui fait tourner de l'argent réel — l'environnement système du bot n'est pas un bac à sable.
+**Solution.** Tout laboratoire/prototype a son venv isolé + `requirements.txt` dédiés (venv
+gitignored). Avant TOUTE installation dans le Python système : `pip install --dry-run` et
+REFUS si un pivot du bot bouge (numpy, scipy, pandas, torch, sklearn). Les versions pivots
+attestées au 08/07 : numpy 1.26.4 · scipy 1.11.4 · torch 2.12.1+cpu.
+**Contrôle (détection ailleurs).** (1) `grep -rn "break-system-packages" *.sh *.py` — toute
+occurrence exécutable = suspect ; une occurrence LÉGITIME (repli guardé, conseil apt-first)
+porte l'annotation **`# deps-syst-ok : <raison>`** (même convention que `tf-ladder-ok`) qui
+la sort du scan. (2) Chaque dossier de labo a un `requirements.txt` et son venv ignoré
+(`git check-ignore`). (3) Comparer numpy/scipy du système aux versions attestées ; dérive
+non journalisée = anomalie. (4) Les bornes hautes des pivots dans `requirements.txt`
+(`numpy<2`) ne doivent jamais sauter sans décision. Note : `docs/NOTE_CORRECTION_QML.md`.
+**Statut.** RÈGLE ACTIVE (08/07). Issue du déploiement quantique. Correction globale du
+08/07 : `requirements.txt` borné `numpy<2` (faille latente — une machine reconstruite via
+le repli d'`update_vps.sh` aurait reçu numpy 2.5.1) ; occurrences d'`update_vps.sh` et
+`book_collector.py` auditées et annotées `deps-syst-ok` ; cap `OMP_NUM_THREADS` posé par
+défaut dans `qml_prototype/train.py` (C4).

@@ -110,6 +110,7 @@ def _rest_poll_fallback(symbols, cadence):
     """Repli BASSE FIDÉLITÉ si websocket-client est absent : poll REST round-robin via
     microstructure.collect_once. Le service reste UTILE (pas de crash-loop)."""
     import microstructure
+    # deps-syst-ok : simple conseil apt-first ; paquet pur-Python sans lien numpy (ERR-004)
     print("book_collector: 'websocket-client' absent -> repli REST-poll (basse fidélité). "
           "Pour la haute fidélité : sudo apt install -y python3-websocket (ou "
           "pip install --break-system-packages websocket-client), puis redémarrer le service.")
