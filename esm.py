@@ -153,7 +153,7 @@ def directional_signal(ned, price, w=2):
 # ---------- analyse multi-timeframe résiliente ----------
 
 # court / moyen / long (intraday crypto) — « le fin contient le grossier »
-TIMEFRAMES = ("5m", "15m", "1h")
+TIMEFRAMES = ("5m", "15m", "1h")  # tf-ladder-ok : confluence MTF opérationnelle (3 échelles), pas un test de stratégie
 
 
 def _candles(symbol, tf, limit):

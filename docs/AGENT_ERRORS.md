@@ -10,6 +10,14 @@ son *Contrôle* sur le dépôt. Toute occurrence trouvée = à corriger selon la
 journaliser, notifier. C'est le pendant « code/méthode » du `watchdog.py --heal` (qui, lui,
 répare le RUNTIME : timers morts, escalade). Ici on répare la MÉTHODE.
 
+**Agent qui l'exécute : `autodidacte.py`** (SAFE, lecture seule ; cron hebdo dim 17:30 ;
+`python autodidacte.py [--alert]`). Il AUTOMATISE les contrôles automatisables (ex. ERR-001)
+et croise le savoir (`knowledge_base`) avec ce que le lab a mesuré (bras autodidacte). Les
+contrôles de JUGEMENT (ERR-002/003) restent à repasser à la main. Convention : une config
+opérationnelle légitime (confluence MTF, granularité par âge, schéma de limites) porte une
+annotation **`# tf-ladder-ok : <raison>`** (inline ou ligne au-dessus) qui la sort du scan —
+l'outil converge ainsi à zéro et n'attrape que les VRAIES nouvelles violations.
+
 **Format d'une entrée** : `ID · date · titre` — Contexte · Cause racine · Solution ·
 Contrôle (détection ailleurs) · Statut.
 

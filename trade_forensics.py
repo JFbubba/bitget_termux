@@ -201,6 +201,7 @@ def mfe_mae(trip, candles=None):
             # la granularité se choisit par l'ÂGE du trip (il faut REMONTER jusqu'à
             # lui — fetch_candles rend les N dernières bougies), pas par sa durée
             age_s = max(60.0, time.time() - trip["ts_in"])
+            # tf-ladder-ok : granularité choisie par l'ÂGE du trip (opérationnel), pas un test
             gran, step = ("1m", 60) if age_s <= 55000 else (("5m", 300) if age_s <= 280000 else ("15m", 900))
             n = min(1000, int(age_s / step) + 10)
             candles = tk.fetch_candles(trip["symbol"], gran, n) or []

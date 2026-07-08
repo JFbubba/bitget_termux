@@ -1799,6 +1799,31 @@ def test_situation_memory_recall_and_reflection():
     assert json.loads(p.read_text().splitlines()[-1])["outcome"] == 1.0
 
 
+def test_autodidacte_incomplete_tf_lists():
+    """Agent autocorrecteur : repère les listes de timeframes INCOMPLÈTES (ERR-001)."""
+    import autodidacte as ad
+    # config de test incomplète -> flaguée avec les TF manquants
+    r = ad.incomplete_tf_lists('TFS = [("5m", 8000), ("15m", 8000), ("1h", 8000)]')
+    assert len(r) == 1
+    ln, tfs, miss = r[0]
+    assert tfs == ["5m", "15m", "1h"] and set(miss) == {"1m", "30m", "4h", "1d", "1w"}
+    # échelle complète -> rien
+    assert ad.incomplete_tf_lists('TFS = ["1m","5m","15m","30m","1h","4h","1d","1w"]') == []
+    # un seul TF (config opérationnelle, pas un test) -> pas flagué
+    assert ad.incomplete_tf_lists('GRAN = "1h"') == []
+    # ligne sans mot-clé config -> ignorée même si des TF traînent
+    assert ad.incomplete_tf_lists('x = f("5m","15m")') == []
+    # littéral MULTI-LIGNES reconstitué -> dict complet sur 2 lignes = OK
+    multi = ('GRAN_MS = {"1m": 1, "5m": 2, "15m": 3, "30m": 4,\n'
+             '           "1h": 5, "4h": 6, "1d": 7, "1w": 8}')
+    assert ad.incomplete_tf_lists(multi) == []
+    # suppression justifiée par annotation (inline OU ligne au-dessus) -> pas flagué
+    assert ad.incomplete_tf_lists('TFS = ("5m","15m","1h")  # tf-ladder-ok: confluence MTF') == []
+    assert ad.incomplete_tf_lists('# tf-ladder-ok\nGRANS = ("5m","15m","1h")') == []
+    # snapshot ne casse jamais et reste SAFE
+    assert isinstance(ad.snapshot(), dict)
+
+
 def test_situation_memory_evaluate_measures_predictiveness():
     """§97 : le « read » qui manquait — evaluate() MESURE si la mémoire prédit (walk-forward)."""
     import situation_memory as sm

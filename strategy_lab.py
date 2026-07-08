@@ -193,7 +193,7 @@ def strat_grid(candles, window=60, levels=8):
 
 
 _GRANU_MS = {60_000: "1m", 300_000: "5m", 900_000: "15m", 1_800_000: "30m",
-             3_600_000: "1H", 14_400_000: "4H", 86_400_000: "1D"}
+             3_600_000: "1H", 14_400_000: "4H", 86_400_000: "1D", 604_800_000: "1W"}
 
 
 def strat_pairs(candles, ref_symbol="BTCUSDT", window=20, z_entry=2.0, ref_candles=None):

@@ -1,6 +1,7 @@
 import config
 
 
+# tf-ladder-ok : dict de LIMITES de config (les TF y sont des valeurs autorisées opérationnelles, pas un test)
 SAFE_LIMITS = {
     "RISK_PER_TRADE_PERCENT": {
         "min": 0.1,
