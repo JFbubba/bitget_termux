@@ -1,0 +1,436 @@
+{
+ "A_profonde": {
+  "calendrier": [
+   "2020-09-30",
+   "2026-07-06"
+  ],
+  "tfs": [
+   "1H",
+   "4H",
+   "1D"
+  ],
+  "res": {
+   "w1_drift|BTCUSDT|1H|h1": {
+    "vol_ic": 0.0858,
+    "t": 5.72,
+    "n_folds": 6,
+    "n": 24976
+   },
+   "w1_drift|BTCUSDT|1H|h4": {
+    "vol_ic": 0.0876,
+    "t": 5.08,
+    "n_folds": 6,
+    "n": 24976
+   },
+   "w1_drift|ETHUSDT|1H|h1": {
+    "vol_ic": 0.0755,
+    "t": 4.66,
+    "n_folds": 6,
+    "n": 24976
+   },
+   "w1_drift|ETHUSDT|1H|h4": {
+    "vol_ic": 0.0756,
+    "t": 3.64,
+    "n_folds": 6,
+    "n": 24976
+   },
+   "w1_drift|BTCUSDT|4H|h1": {
+    "vol_ic": 0.0095,
+    "t": 0.29,
+    "n_folds": 6,
+    "n": 6123
+   },
+   "w1_drift|BTCUSDT|4H|h4": {
+    "vol_ic": 0.0227,
+    "t": 0.83,
+    "n_folds": 6,
+    "n": 6123
+   },
+   "w1_drift|ETHUSDT|4H|h1": {
+    "vol_ic": 0.022,
+    "t": 0.72,
+    "n_folds": 6,
+    "n": 6123
+   },
+   "w1_drift|ETHUSDT|4H|h4": {
+    "vol_ic": 0.0331,
+    "t": 0.81,
+    "n_folds": 6,
+    "n": 6123
+   },
+   "w1_drift|BTCUSDT|1D|h1": {
+    "vol_ic": 0.0592,
+    "t": 1.11,
+    "n_folds": 6,
+    "n": 880
+   },
+   "w1_drift|BTCUSDT|1D|h4": {
+    "vol_ic": 0.0263,
+    "t": 0.35,
+    "n_folds": 6,
+    "n": 880
+   },
+   "w1_drift|ETHUSDT|1D|h1": {
+    "vol_ic": 0.0524,
+    "t": 0.72,
+    "n_folds": 6,
+    "n": 880
+   },
+   "w1_drift|ETHUSDT|1D|h4": {
+    "vol_ic": -0.0086,
+    "t": -0.13,
+    "n_folds": 6,
+    "n": 880
+   },
+   "nolds_dfa|BTCUSDT|1H|h1": {
+    "vol_ic": 0.0163,
+    "t": 0.74,
+    "n_folds": 6,
+    "n": 1468
+   },
+   "nolds_dfa|BTCUSDT|1H|h4": {
+    "vol_ic": -0.0224,
+    "t": -1.41,
+    "n_folds": 6,
+    "n": 1468
+   },
+   "nolds_dfa|ETHUSDT|1H|h1": {
+    "vol_ic": -0.0322,
+    "t": -2.04,
+    "n_folds": 6,
+    "n": 1470
+   },
+   "nolds_dfa|ETHUSDT|1H|h4": {
+    "vol_ic": -0.0048,
+    "t": -0.54,
+    "n_folds": 6,
+    "n": 1470
+   },
+   "nolds_dfa|BTCUSDT|4H|h1": {
+    "vol_ic": -0.0636,
+    "t": -2.45,
+    "n_folds": 6,
+    "n": 1225
+   },
+   "nolds_dfa|BTCUSDT|4H|h4": {
+    "vol_ic": -0.0846,
+    "t": -3.25,
+    "n_folds": 6,
+    "n": 1225
+   },
+   "nolds_dfa|ETHUSDT|4H|h1": {
+    "vol_ic": -0.0314,
+    "t": -0.97,
+    "n_folds": 6,
+    "n": 1225
+   },
+   "nolds_dfa|ETHUSDT|4H|h4": {
+    "vol_ic": -0.096,
+    "t": -3.25,
+    "n_folds": 6,
+    "n": 1225
+   },
+   "nolds_dfa|BTCUSDT|1D|h1": {
+    "vol_ic": -0.0064,
+    "t": -0.17,
+    "n_folds": 6,
+    "n": 880
+   },
+   "nolds_dfa|BTCUSDT|1D|h4": {
+    "vol_ic": 0.0581,
+    "t": 0.94,
+    "n_folds": 6,
+    "n": 880
+   },
+   "nolds_dfa|ETHUSDT|1D|h1": {
+    "vol_ic": 0.062,
+    "t": 1.62,
+    "n_folds": 6,
+    "n": 880
+   },
+   "nolds_dfa|ETHUSDT|1D|h4": {
+    "vol_ic": 0.0472,
+    "t": 0.92,
+    "n_folds": 6,
+    "n": 880
+   },
+   "corr_dcor|BTCETH|1H|h1": {
+    "vol_ic": 0.0559,
+    "t": 2.75,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|1H|h4": {
+    "vol_ic": 0.0541,
+    "t": 2.92,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|4H|h1": {
+    "vol_ic": 0.0101,
+    "t": 0.3,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|4H|h4": {
+    "vol_ic": 0.0264,
+    "t": 1.1,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|1D|h1": {
+    "vol_ic": 0.0133,
+    "t": 0.3,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|1D|h4": {
+    "vol_ic": -0.0057,
+    "t": -0.15,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1H|h1": {
+    "vol_ic": 0.0365,
+    "t": 2.77,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1H|h4": {
+    "vol_ic": 0.0369,
+    "t": 2.56,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|4H|h1": {
+    "vol_ic": -0.002,
+    "t": -0.07,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|4H|h4": {
+    "vol_ic": 0.0046,
+    "t": 0.2,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1D|h1": {
+    "vol_ic": -0.0185,
+    "t": -0.4,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1D|h4": {
+    "vol_ic": -0.0417,
+    "t": -0.84,
+    "n_folds": 6
+   }
+  }
+ },
+ "B_probe15m": {
+  "calendrier": [
+   "2025-06-01",
+   "2026-07-08"
+  ],
+  "tfs": [
+   "15m",
+   "30m",
+   "1H"
+  ],
+  "res": {
+   "w1_drift|BTCUSDT|15m|h1": {
+    "vol_ic": -0.0532,
+    "t": -2.9,
+    "n_folds": 6,
+    "n": 19037
+   },
+   "w1_drift|BTCUSDT|15m|h4": {
+    "vol_ic": -0.0468,
+    "t": -1.9,
+    "n_folds": 6,
+    "n": 19037
+   },
+   "w1_drift|ETHUSDT|15m|h1": {
+    "vol_ic": -0.0526,
+    "t": -3.01,
+    "n_folds": 6,
+    "n": 19037
+   },
+   "w1_drift|ETHUSDT|15m|h4": {
+    "vol_ic": -0.0418,
+    "t": -2.01,
+    "n_folds": 6,
+    "n": 19037
+   },
+   "w1_drift|BTCUSDT|30m|h1": {
+    "vol_ic": 0.0597,
+    "t": 2.53,
+    "n_folds": 6,
+    "n": 9438
+   },
+   "w1_drift|BTCUSDT|30m|h4": {
+    "vol_ic": 0.0456,
+    "t": 1.41,
+    "n_folds": 6,
+    "n": 9438
+   },
+   "w1_drift|ETHUSDT|30m|h1": {
+    "vol_ic": 0.037,
+    "t": 1.47,
+    "n_folds": 6,
+    "n": 9438
+   },
+   "w1_drift|ETHUSDT|30m|h4": {
+    "vol_ic": 0.0349,
+    "t": 0.9,
+    "n_folds": 6,
+    "n": 9438
+   },
+   "w1_drift|BTCUSDT|1H|h1": {
+    "vol_ic": 0.1224,
+    "t": 5.98,
+    "n_folds": 6,
+    "n": 4638
+   },
+   "w1_drift|BTCUSDT|1H|h4": {
+    "vol_ic": 0.1189,
+    "t": 4.58,
+    "n_folds": 6,
+    "n": 4638
+   },
+   "w1_drift|ETHUSDT|1H|h1": {
+    "vol_ic": 0.0647,
+    "t": 2.37,
+    "n_folds": 6,
+    "n": 4638
+   },
+   "w1_drift|ETHUSDT|1H|h4": {
+    "vol_ic": 0.0437,
+    "t": 1.4,
+    "n_folds": 6,
+    "n": 4638
+   },
+   "nolds_dfa|BTCUSDT|15m|h1": {
+    "vol_ic": -0.0023,
+    "t": -0.11,
+    "n_folds": 6,
+    "n": 1464
+   },
+   "nolds_dfa|BTCUSDT|15m|h4": {
+    "vol_ic": -0.0425,
+    "t": -0.76,
+    "n_folds": 6,
+    "n": 1464
+   },
+   "nolds_dfa|ETHUSDT|15m|h1": {
+    "vol_ic": -0.0275,
+    "t": -1.13,
+    "n_folds": 6,
+    "n": 1465
+   },
+   "nolds_dfa|ETHUSDT|15m|h4": {
+    "vol_ic": -0.0546,
+    "t": -1.26,
+    "n_folds": 6,
+    "n": 1465
+   },
+   "nolds_dfa|BTCUSDT|30m|h1": {
+    "vol_ic": 0.0067,
+    "t": 0.18,
+    "n_folds": 6,
+    "n": 1349
+   },
+   "nolds_dfa|BTCUSDT|30m|h4": {
+    "vol_ic": -0.052,
+    "t": -1.88,
+    "n_folds": 6,
+    "n": 1349
+   },
+   "nolds_dfa|ETHUSDT|30m|h1": {
+    "vol_ic": -0.0303,
+    "t": -0.75,
+    "n_folds": 6,
+    "n": 1349
+   },
+   "nolds_dfa|ETHUSDT|30m|h4": {
+    "vol_ic": -0.064,
+    "t": -2.28,
+    "n_folds": 6,
+    "n": 1349
+   },
+   "nolds_dfa|BTCUSDT|1H|h1": {
+    "vol_ic": -0.054,
+    "t": -2.37,
+    "n_folds": 6,
+    "n": 1160
+   },
+   "nolds_dfa|BTCUSDT|1H|h4": {
+    "vol_ic": -0.0766,
+    "t": -2.14,
+    "n_folds": 6,
+    "n": 1160
+   },
+   "nolds_dfa|ETHUSDT|1H|h1": {
+    "vol_ic": -0.059,
+    "t": -2.41,
+    "n_folds": 6,
+    "n": 1160
+   },
+   "nolds_dfa|ETHUSDT|1H|h4": {
+    "vol_ic": -0.0439,
+    "t": -0.85,
+    "n_folds": 6,
+    "n": 1160
+   },
+   "corr_dcor|BTCETH|15m|h1": {
+    "vol_ic": 0.0833,
+    "t": 2.52,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|15m|h4": {
+    "vol_ic": 0.0895,
+    "t": 2.37,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|30m|h1": {
+    "vol_ic": 0.042,
+    "t": 1.61,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|30m|h4": {
+    "vol_ic": 0.0239,
+    "t": 0.76,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|1H|h1": {
+    "vol_ic": 0.039,
+    "t": 0.88,
+    "n_folds": 6
+   },
+   "corr_dcor|BTCETH|1H|h4": {
+    "vol_ic": 0.0261,
+    "t": 0.81,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|15m|h1": {
+    "vol_ic": 0.0619,
+    "t": 2.87,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|15m|h4": {
+    "vol_ic": 0.0661,
+    "t": 3.47,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|30m|h1": {
+    "vol_ic": 0.027,
+    "t": 1.11,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|30m|h4": {
+    "vol_ic": 0.027,
+    "t": 1.3,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1H|h1": {
+    "vol_ic": -0.0036,
+    "t": -0.11,
+    "n_folds": 6
+   },
+   "corr_pearson|BTCETH|1H|h4": {
+    "vol_ic": -0.0165,
+    "t": -0.73,
+    "n_folds": 6
+   }
+  }
+ }
+}

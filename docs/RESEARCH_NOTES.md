@@ -3701,8 +3701,25 @@ forts aux TF rapides, nolds_dfa cohérent en signe. MAIS (i) prédire |rendement
 compte, absent. Le bot ayant déjà une bonne estimation de vol, une feature de vol redondante
 n'ajoute rien. Conclusion inchangée : rien à brancher ; l'axe honnête est « rien en directionnel
 (normal, symétrique) ; en vol, redondant avec l'existant tant qu'un test INCRÉMENTAL ne prouve
-pas le contraire — non fait, et peu probable ». Le test en gate proposé ne se justifie pas sans
-ce préalable incrémental.
+pas le contraire ».
+
+TEST INCRÉMENTAL FAIT (replay profond 6 ans, 1H, BTC/ETH/SOL/XRP, WF purgé 8 plis,
+task3_deepreplay.py — lancé ET vérifié par un run contrôlé indépendant) : DÉFINITIF.
+w1_drift EST un vrai prédicteur de vol sur 6 ans/4 actifs (t +5 à +10) MAIS **dominé par la vol
+réalisée triviale** (IC ~0.07 vs ~0.24) ; son incrément AU-DELÀ de la vol réalisée est marginal
+et INCOHÉRENT (|t|≥3 seulement BTC-h4 et XRP-h4/h24 ; ETH/SOL <2) ; et AUCUNE valeur économique
+(vol-targeting w1_drift ne bat ni le plat t 0.17–1.28 ni la vol réalisée t 0.52–1.63 ; le signal
+directionnel de base est perdant, Sharpe négatif). nolds_dfa MEURT sur 6 ans (le « signe cohérent »
+antérieur était un artefact de petit échantillon). **VERDICT DÉFINITIF geometric v2 : rien à
+brancher.** La géométrie est un bon œil de régime/vol mais redondant avec la machinerie de vol
+existante (GARCH figé §labo2 + détecteur de régime §labo1) — thread CLOS.
+
+Note de conduite : le sous-agent a ensuite proposé une « campagne bot-large » (dépouillement
+d'idées MQL5/BuildAlpha/BlackBull mappées §72/§106/mandate, + spawn multi-sous-agents) — au-delà
+du mandat de mesure. Compute stoppée, campagne NON lancée (décision de scope = propriétaire).
+Les idées récoltées (portes de régime 200-SMA/multi-TF, squeeze BandWidth, MCPT/Taguchi pour
+durcir la porte §68) sont des PISTES non vérifiées pour le labo classiques §72, à décider par
+le propriétaire — pas des acquis mesurés.
 
 Bilan mesure-d'abord : aucun des trois ne justifie de brancher quoi que ce soit en prod
 aujourd'hui. Le SEUL fil vivant = la modulation du consensus live par le régime (1c),
