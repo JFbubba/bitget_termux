@@ -120,20 +120,39 @@ def parse_rss(xml_text, source_name):
     return out
 
 
-def parse_html(page, url, source_name):
+def parse_html(page, url, source_name, cap_texte=2000):
     """Page HTML générique -> un élément (titre + paragraphes) via scrapling.
     API RÉELLE scrapling 0.4 (constatée le 08/07, ERR-007) : Response.css(sel)
     -> liste Selectors indexable ; css_first N'EXISTE PAS sur Response."""
     try:
         titres = page.css("title::text")
         title = _clean(str(titres[0]) if titres else "")
-        paras = " ".join(str(p) for p in page.css("p::text")[:40])
+        paras = " ".join(str(p) for p in page.css("p::text")[:60])
         if not title:
             return []
         return [{"id": _item_id(url, title), "source": source_name, "url": url,
-                 "title": title, "text": _clean(paras)[:2000], "published": ""}]
+                 "title": title, "text": _clean(paras)[:cap_texte], "published": ""}]
     except Exception:                            # noqa: BLE001 — fail-safe par source
         return []
+
+
+def enrichir_texte(items, source_name, seuil=200, cap_texte=3000):
+    """SUIVI DE LIENS (opt-in par source, clé « suivre_liens ») : certains flux ne
+    livrent que le titre (mql5 : description vide) — pour chaque NOUVEL élément au
+    texte maigre, GET poli de sa page et extraction parse_html. Fail-safe par
+    élément (page morte -> le titre seul reste). Ne touche qu'aux éléments FRAIS :
+    le coût réseau reste borné par MAX_PAR_SOURCE/jour."""
+    for it in items:
+        if len(it.get("text") or "") >= seuil or not it.get("url"):
+            continue
+        time.sleep(PAUSE_S)
+        page = _fetch(it["url"])
+        if page is None:
+            continue
+        art = parse_html(page, it["url"], source_name, cap_texte=cap_texte)
+        if art and art[0].get("text"):
+            it["text"] = art[0]["text"]
+    return items
 
 
 def collect():
@@ -151,6 +170,8 @@ def collect():
             else:
                 items = parse_html(page, url, name)
             fresh = [it for it in items if it["id"] not in known]
+            if src.get("suivre_liens"):
+                fresh = enrichir_texte(fresh, name)
             for it in fresh:
                 it["ts"] = int(time.time())
                 fh.write(json.dumps(it, ensure_ascii=False) + "\n")

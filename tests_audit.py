@@ -8970,6 +8970,33 @@ def test_collector_digest_bloc_pur():
     assert db.stats([], {}, now) == {}
 
 
+def test_collector_suivre_liens_enrichit():
+    """suivre_liens (§101/mql5) : un élément au texte maigre est enrichi depuis sa
+    page ; page morte ou texte déjà riche -> intacts. Mock aligné sur l'API réelle
+    scrapling 0.4 (observée le 08/07 : Response.css(sel) -> liste ; ERR-007)."""
+    from data_collector import scraper_agent as sc
+    vieux_fetch, vieille_pause = sc._fetch, sc.PAUSE_S
+    try:
+        sc.PAUSE_S = 0
+
+        class _Page:
+            def css(self, sel):
+                return (["Titre de page"] if "title" in sel
+                        else ["contenu riche de l'article mql5 " * 4])
+        sc._fetch = lambda url: None if "morte" in url else _Page()
+        items = [
+            {"id": "a", "url": "https://x/1", "title": "T1", "text": ""},
+            {"id": "b", "url": "https://morte/2", "title": "T2", "text": ""},
+            {"id": "c", "url": "https://x/3", "title": "T3", "text": "d" * 300},
+        ]
+        out = sc.enrichir_texte(items, "src", seuil=200, cap_texte=50)
+        assert "contenu riche" in out[0]["text"] and len(out[0]["text"]) <= 50
+        assert out[1]["text"] == ""                      # page morte -> titre seul
+        assert out[2]["text"] == "d" * 300               # déjà riche -> pas touché
+    finally:
+        sc._fetch, sc.PAUSE_S = vieux_fetch, vieille_pause
+
+
 def test_collector_ingest_url_dedup_et_flux():
     """§101 : ingestion d'un lien collé — détection flux vs article, dédup contre
     le journal existant, fail-safe URL morte. Sans réseau (fetch détourné)."""

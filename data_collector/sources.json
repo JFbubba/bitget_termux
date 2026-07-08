@@ -1,10 +1,13 @@
 {
-  "_doc": "Sources du collecteur (lecture seule, GET uniquement). type: rss | html.",
+  "_doc": "Sources du collecteur (lecture seule, GET uniquement). type: rss | html. suivre_liens: le flux ne donne que des titres -> GET poli de chaque NOUVEL article pour le texte.",
   "sources": [
     {"name": "coindesk", "type": "rss", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
     {"name": "cointelegraph", "type": "rss", "url": "https://cointelegraph.com/rss"},
     {"name": "decrypt", "type": "rss", "url": "https://decrypt.co/feed"},
     {"name": "bitcoinmagazine", "type": "rss", "url": "https://bitcoinmagazine.com/feed"},
-    {"name": "theblock", "type": "rss", "url": "https://www.theblock.co/rss.xml"}
+    {"name": "theblock", "type": "rss", "url": "https://www.theblock.co/rss.xml"},
+    {"name": "mql5-articles", "type": "rss", "url": "https://www.mql5.com/en/articles/rss", "suivre_liens": true},
+    {"name": "mql5-code", "type": "rss", "url": "https://www.mql5.com/en/code/rss", "suivre_liens": true},
+    {"name": "mql5-blogs", "type": "rss", "url": "https://www.mql5.com/en/blogs/rss", "suivre_liens": true}
   ]
 }
