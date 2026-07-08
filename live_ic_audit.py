@@ -14,7 +14,7 @@ CLI : python live_ic_audit.py [horizon_s]
 
 import json
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 
 HISTORY = Path(__file__).resolve().parent / "brain_log_history.jsonl"
@@ -22,19 +22,21 @@ HORIZONS_S = (900, 3600, 14400)               # 15 min, 1 h, 4 h
 
 
 def charger_entrees(chemin=None, max_lignes=100_000):
-    """Entrées exploitables de brain_log_history (votes + prix). Best-effort []."""
+    """Entrées exploitables de brain_log_history (votes + prix). Best-effort [].
+    Le cap prend la QUEUE du journal (fenêtre récente) : lu depuis la tête, un
+    journal append-only figerait l'instrument sur les données les plus anciennes
+    dès qu'il dépasse max_lignes (ERR-006)."""
     entrees = []
     try:
         with open(chemin or HISTORY, "r", encoding="utf-8") as f:
-            for ligne in f:
-                try:
-                    e = json.loads(ligne)
-                    if e.get("votes") and e.get("price") and e.get("symbol"):
-                        entrees.append(e)
-                except Exception:
-                    continue
-                if len(entrees) >= max_lignes:
-                    break
+            dernieres = deque(f, maxlen=max_lignes)
+        for ligne in dernieres:
+            try:
+                e = json.loads(ligne)
+                if e.get("votes") and e.get("price") and e.get("symbol"):
+                    entrees.append(e)
+            except Exception:
+                continue
     except Exception:
         return []
     return entrees

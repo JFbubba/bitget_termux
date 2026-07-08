@@ -97,3 +97,43 @@ non journalisée = anomalie. (4) Les bornes hautes des pivots dans `requirements
 le repli d'`update_vps.sh` aurait reçu numpy 2.5.1) ; occurrences d'`update_vps.sh` et
 `book_collector.py` auditées et annotées `deps-syst-ok` ; cap `OMP_NUM_THREADS` posé par
 défaut dans `qml_prototype/train.py` (C4).
+
+## ERR-005 · 2026-07-08 · Vérifier une porte à travers un pipe qui avale le code de sortie
+**Contexte.** Pendant un `/lance-correction`, j'ai exécuté les 3 portes en
+`python tests_audit.py 2>&1 | tail -5 && …` : le `&&` teste le code de sortie de `tail`,
+pas celui de la porte. RÉCIDIVE exacte de l'incident du 03/07 (deux pushes partis avec un
+test rouge) — documenté dans CLAUDE.md règle 5 mais sans entrée-journal ni contrôle,
+donc reproduit quand même. Auto-détecté, refait en forme stricte dans la foulée.
+**Cause racine.** Vouloir à la fois tronquer l'affichage (pipe) et chaîner sur le succès
+(`&&`) : les deux sont incompatibles dans un même maillon — le pipe substitue son propre
+code de sortie.
+**Solution.** Une porte ne se vérifie QUE via `bash gates.sh` (codes de sortie stricts,
+maillon par maillon). Si l'on veut tronquer la sortie d'une porte pour l'AFFICHAGE,
+l'exécuter SEULE, jamais comme condition d'une chaîne `&&`/push/commit.
+**Contrôle (détection ailleurs).** Grep des scripts/skills/docs pour une porte pipée en
+position conditionnelle : `grep -rnE "(tests_audit|security_agent|safe_push_check|gates)[^|]*\|[^|]" *.sh .claude/ docs/` —
+toute occurrence où le maillon pipé est suivi d'un `&&` (ou précède un commit/push) = violation.
+**Statut.** RÈGLE ACTIVE (08/07).
+
+## ERR-006 · 2026-07-08 · Cap de lignes pris en TÊTE d'un journal append-only
+**Contexte.** `swarm_brain._ridge_mults` et `live_ic_audit.charger_entrees` lisaient
+`brain_log_history.jsonl` depuis le DÉBUT avec `break` au cap (100 000) : sur un journal
+append-only, le cap sélectionne les lignes les plus ANCIENNES. Latent au moment de la
+découverte (56 894 lignes, ~11 400/jour) : à J+4, la cible ridge, les mults IC-align,
+les t-stats §77, learning_health et le dashboard se seraient TOUS figés silencieusement
+sur la première fenêtre de 100k — l'instrument aurait cessé de voir le présent sans
+aucune alerte (la fraîcheur du FICHIER, elle, serait restée verte).
+**Cause racine.** Confusion entre « borner le coût de lecture » et « choisir la fenêtre » :
+un `break` en tête borne le coût mais fige la fenêtre sur l'ancien ; la sémantique voulue
+(fenêtre récente) exige la QUEUE.
+**Solution.** Tout lecteur cappé d'un journal append-only prend la QUEUE :
+`deque(f, maxlen=N)` puis parse/filtre. Un seul point de vérité : `charger_entrees`
+(réutilisé par `_ridge_mults`). Test de non-régression
+`test_live_ic_audit_queue_du_journal`.
+**Contrôle (détection ailleurs).** Pour chaque lecteur d'un `*.jsonl`/journal croissant
+avec un cap (`grep -rnE "maxlen|max_lignes|>= *[0-9_]{4,}" *.py` + revue des boucles
+`for ligne in f` contenant un `break` sur compteur) : vérifier que le cap garde la FIN du
+fichier. Un cap-tête n'est légitime que si le journal est trié du plus récent au plus
+ancien (annoter `# head-cap-ok : <raison>`).
+**Statut.** RÉSOLU (08/07) — corrigé le jour de la découverte, règle active pour les
+futurs lecteurs.

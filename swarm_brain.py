@@ -697,18 +697,12 @@ def _ridge_mults():
 
         def _compute():
             import math
+            import live_ic_audit as lia
             lam_frac = float(os.getenv("BRAIN_RIDGE_LAMBDA") or _cfg("BRAIN_RIDGE_LAMBDA", 0.2))
-            rows = []
-            with open(ROOT / "brain_log_history.jsonl", "r", encoding="utf-8") as f:
-                for ligne in f:
-                    try:
-                        e = json.loads(ligne)
-                        if e.get("votes") and e.get("price") and e.get("symbol"):
-                            rows.append(e)
-                    except Exception:
-                        continue
-                    if len(rows) >= 100_000:
-                        break
+            # Queue du journal (fenêtre récente, cap 100k) via le lecteur partagé —
+            # l'ancienne relecture maison prenait la TÊTE du fichier et aurait figé
+            # la cible ridge sur les données les plus anciennes (ERR-006).
+            rows = lia.charger_entrees(ROOT / "brain_log_history.jsonl")
             par_sym = {}
             for e in rows:
                 par_sym.setdefault(e["symbol"], []).append(e)

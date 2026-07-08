@@ -172,7 +172,8 @@ def main():
     print()
 
     # Pause
-    print(f"État pause: {'EN PAUSE' if PAUSE_FILE.exists() else 'ACTIF'}")
+    # « État pause: ACTIF » se lisait comme « pause active » — libellé sans ambiguïté.
+    print(f"Pause volontaire: {'OUI (agent_paused.flag)' if PAUSE_FILE.exists() else 'non'}")
     print()
 
     # Tailles des journaux

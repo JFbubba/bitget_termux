@@ -2854,6 +2854,25 @@ def test_live_ic_audit_pur():
     assert la.ic_par_agent([], 3600) == {}                       # vide -> {}
 
 
+def test_live_ic_audit_queue_du_journal():
+    # ERR-006 : le cap max_lignes doit garder la QUEUE du journal (fenêtre
+    # récente), jamais la tête — sinon l'instrument se fige sur l'ancien.
+    import json as _json
+    import os
+    import tempfile
+    import live_ic_audit as la
+    fd, chemin = tempfile.mkstemp(suffix=".jsonl")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for i in range(30):
+                f.write(_json.dumps({"symbol": "X", "ts": i, "price": 1.0,
+                                     "votes": {"a": 1.0}}) + "\n")
+        res = la.charger_entrees(chemin, max_lignes=10)
+        assert [e["ts"] for e in res] == list(range(20, 30))
+    finally:
+        os.unlink(chemin)
+
+
 def test_xs_paper_purs():
     import xs_paper as xp
     rend = {"A": 0.10, "B": 0.05, "C": -0.02, "D": -0.08, "E": None}
