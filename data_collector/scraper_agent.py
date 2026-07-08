@@ -67,10 +67,17 @@ def _known_ids():
 
 
 def _fetch(url):
-    """GET via scrapling (page rendue = Adaptor). Fail-safe : None si erreur."""
+    """GET via scrapling. Fail-safe : None si erreur OU statut HTTP ≠ 200 —
+    sinon une page 404/403 devient un faux « article » (catégorie poubelle,
+    constaté le 08/07 avec un 404 Decrypt ingéré comme contenu)."""
     try:
         from scrapling.fetchers import Fetcher
-        return Fetcher.get(url, timeout=TIMEOUT_S, stealthy_headers=True)
+        page = Fetcher.get(url, timeout=TIMEOUT_S, stealthy_headers=True)
+        statut = getattr(page, "status", 200)
+        if statut != 200:
+            print(f"  ! fetch KO (HTTP {statut}): {url}")
+            return None
+        return page
     except Exception as exc:                     # noqa: BLE001 — une source ne casse pas la collecte
         print(f"  ! fetch KO ({type(exc).__name__}): {url}")
         return None
@@ -114,9 +121,12 @@ def parse_rss(xml_text, source_name):
 
 
 def parse_html(page, url, source_name):
-    """Page HTML générique -> un élément (titre + paragraphes) via scrapling."""
+    """Page HTML générique -> un élément (titre + paragraphes) via scrapling.
+    API RÉELLE scrapling 0.4 (constatée le 08/07, ERR-007) : Response.css(sel)
+    -> liste Selectors indexable ; css_first N'EXISTE PAS sur Response."""
     try:
-        title = _clean((page.css_first("title::text") or ""))
+        titres = page.css("title::text")
+        title = _clean(str(titres[0]) if titres else "")
         paras = " ".join(str(p) for p in page.css("p::text")[:40])
         if not title:
             return []

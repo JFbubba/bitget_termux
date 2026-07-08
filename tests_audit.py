@@ -8970,6 +8970,41 @@ def test_collector_digest_bloc_pur():
     assert db.stats([], {}, now) == {}
 
 
+def test_collector_ingest_url_dedup_et_flux():
+    """§101 : ingestion d'un lien collé — détection flux vs article, dédup contre
+    le journal existant, fail-safe URL morte. Sans réseau (fetch détourné)."""
+    import os
+    import tempfile
+    from data_collector import ingest_url as iu
+    from data_collector import scraper_agent as sc
+    assert iu._est_flux('<?xml version="1.0"?><rss><channel></channel></rss>')
+    assert iu._est_flux("  <feed xmlns='http://www.w3.org/2005/Atom'>")
+    assert not iu._est_flux("<!doctype html><html><title>x</title></html>")
+    vieux_fetch, vieux_raw, vieux_path = sc._fetch, sc._raw_body, sc.RAW_PATH
+    fd, tmp = tempfile.mkstemp(suffix=".jsonl")
+    os.close(fd)
+    try:
+        sc.RAW_PATH = __import__("pathlib").Path(tmp)
+        html = ("<html><head><title>Un article crypto</title></head>"
+                "<body><p>contenu pertinent bitcoin</p></body></html>")
+
+        class _Page:
+            # mime l'API RÉELLE scrapling 0.4 (observée le 08/07 : Response.css
+            # -> liste ; PAS de css_first — le 1er mock imitait le code, ERR-007)
+            def css(self, sel):
+                return (["Un article crypto"] if "title" in sel
+                        else ["contenu pertinent bitcoin"])
+        sc._fetch = lambda url: None if "morte" in url else _Page()
+        sc._raw_body = lambda page: html
+        res = iu.ingest(["https://ex.com/a", "https://morte.com/x"])
+        assert len(res) == 1 and res[0]["title"] == "Un article crypto"
+        assert res[0]["source"] == iu.SOURCE_COLLE and res[0]["ts"]
+        assert iu.ingest(["https://ex.com/a"]) == []     # re-collé -> déjà connu
+    finally:
+        sc._fetch, sc._raw_body, sc.RAW_PATH = vieux_fetch, vieux_raw, vieux_path
+        os.unlink(tmp)
+
+
 def test_collector_trieur_categorise_et_cree():
     from data_collector import sorter_agent as sa
     # deux éléments sur le MÊME thème -> même catégorie (le profil s'enrichit) ;

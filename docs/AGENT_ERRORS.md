@@ -137,3 +137,25 @@ fichier. Un cap-tête n'est légitime que si le journal est trié du plus récen
 ancien (annoter `# head-cap-ok : <raison>`).
 **Statut.** RÉSOLU (08/07) — corrigé le jour de la découverte, règle active pour les
 futurs lecteurs.
+
+## ERR-007 · 2026-07-08 · Adaptateur tiers jamais exercé + mock qui imite le code
+**Contexte.** En construisant l'ingestion d'URL collées (§101), le smoke test RÉEL a
+révélé que `scraper_agent.parse_html` était CASSÉ depuis sa naissance :
+`Response.css_first` n'existe pas dans scrapling 0.4 (l'API réelle est `css(sel)` ->
+liste). Jamais vu : les 5 sources de production sont toutes RSS — ce chemin n'avait
+JAMAIS tourné en réel. Pire : mon test unitaire tout neuf PASSAIT, car son mock imitait
+l'API SUPPOSÉE (celle du code), pas le système réel. Bonus découvert au même passage :
+une page 404 était ingérée comme « article » (catégorie poubelle).
+**Cause racine.** Double circularité : (1) un adaptateur vers une API tierce écrit de
+mémoire et jamais exercé ; (2) un mock dérivé du code testé — le test valide alors la
+supposition, pas la réalité. Parent d'ERR-003 (affirmer sans vérifier), version « code ».
+**Solution.** Tout chemin d'intégration tierce est exercé AU MOINS UNE FOIS en réel
+(smoke) avant d'être considéré fonctionnel. Un mock se dérive d'une OBSERVATION du
+système réel, et le test la CITE (date + commande d'observation en commentaire).
+Vérifier le statut HTTP avant de parser (garde 200 dans `_fetch`).
+**Contrôle (détection ailleurs).** Pour chaque import tiers (`grep -rn "from scrapling\|import pennylane\|import sklearn" --include="*.py"`),
+vérifier que chaque chemin adaptateur a une trace d'exécution réelle (artefact, journal,
+sortie CLI notée). Dans les tests : tout mock d'API tierce sans commentaire « observé
+le … via … » = suspect.
+**Statut.** RÉSOLU pour le collecteur (parse_html réparé, garde HTTP, mock aligné sur
+l'API observée) · RÈGLE ACTIVE pour les futurs adaptateurs.
