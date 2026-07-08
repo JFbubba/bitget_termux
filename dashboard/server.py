@@ -710,6 +710,46 @@ def build_state(symbol=None, tf="5m"):
                 "per_buy_eff": se._capped("ACCUM_REAL_MAX_PER_BUY_USDT", 5.0, se.ACCUM_ABS_MAX_PER_BUY_USDT),
                 "abs_daily": se.ACCUM_ABS_MAX_DAILY_USDT}
 
+    def _verrous():
+        """État EFFECTIF des verrous d'exécution (.env OR config) + SOURCE + écarts.
+        Vue consolidée orthogonale : montre ce qui est réellement armé/paper et d'où
+        ça vient (config.py peut dire False alors que .env arme via le OR)."""
+        import verrous_effectifs
+        return verrous_effectifs.summary()
+
+    def _labos():
+        """Verdicts des labos de recherche (scratchpad, NON committés) — lecture tolérante.
+        Affiche 'absent' si un labo n'est pas là (les artefacts sont locaux/éphémères)."""
+        import re
+        scr = Path(__file__).resolve().parents[1] / "scratchpad"
+        out = {}
+        fl = scr / "openbb_forecast_lab"
+        vp, pd = fl / "VERDICT.md", fl / "preds"
+        preds = list(pd.glob("*.json")) if pd.exists() else []
+        if vp.exists():
+            txt = vp.read_text(encoding="utf-8", errors="ignore")
+            m = re.search(r"AUCUNE configuration|(\d+) configuration\(s\) PASSENT", txt)
+            verdict = ("0/… passent — rien à brancher" if (m and "AUCUNE" in m.group(0))
+                       else (m.group(0) if m else "verdict rendu"))
+            out["forecast"] = {"present": True, "verdict": verdict, "n_preds": len(preds)}
+        elif preds:
+            out["forecast"] = {"present": True, "verdict": f"en cours ({len(preds)} configs)",
+                               "n_preds": len(preds)}
+        else:
+            out["forecast"] = {"present": False}
+        vj = scr / "mql5_codebase_tester" / "verdicts.jsonl"
+        if vj.exists():
+            rows = [json.loads(l) for l in vj.read_text(encoding="utf-8").splitlines() if l.strip()]
+            last = rows[-1] if rows else {}
+            out["mql5"] = {"present": True, "testes": len(rows),
+                           "edge": sum(1 for r in rows if r.get("verdict") == "EDGE"),
+                           "dernier": (f"{last.get('candidat', '?')}: {last.get('verdict', '?')}"
+                                       if last else "—")}
+        else:
+            out["mql5"] = {"present": (scr / "mql5_codebase_tester").exists(), "testes": 0}
+        out["strategy_tester"] = {"present": (scr / "strategy_tester" / "run.py").exists()}
+        return out
+
     def _microstructure_live():
         """Microstructure TEMPS RÉEL du collecteur (OFI, queue, trade-sign, spread, markout, toxicité)."""
         import microstructure as ms
@@ -841,6 +881,10 @@ def build_state(symbol=None, tf="5m"):
     # 1 GET signé de consultation, ventilation officielle. Lecture seule, cache 2 min.
     state["portfolio"] = _cached("portfolio", 120, lambda: _safe(
         lambda: __import__("real_positions").all_account_balance(), {}))
+    # Verrous EFFECTIFS d'exécution (.env OR config) + source + écarts — vue consolidée.
+    state["verrous"] = _cached("verrous", 30, lambda: _safe(_verrous, {}))
+    # Labos de recherche (scratchpad, non committés) : probe forecast / mql5 tester / strategy tester.
+    state["labos"] = _cached("labos", 30, lambda: _safe(_labos, {}))
 
     # --- MÉTHODES AUTONOMES §76-83 (fichiers locaux uniquement — zéro appel réseau) ---
     def _tail_jsonl(path, n=1):

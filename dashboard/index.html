@@ -525,6 +525,22 @@
       </div>
     </div>
     <div class="panel">
+      <h2>Verrous — état effectif &amp; source <span class="dim" style="letter-spacing:0">— .env OR config · consolidé (lecture seule)</span></h2>
+      <div class="row"><span class="k">armement</span><span id="vx-resume" class="amber">—</span></div>
+      <div class="row"><span class="k">verrou maître (mandat)</span><span id="vx-mandate">—</span></div>
+      <div class="row"><span class="k">futures auto</span><span id="vx-fut">—</span></div>
+      <div class="row"><span class="k">accumulation auto</span><span id="vx-acc">—</span></div>
+      <div class="row"><span class="k">porte edge · notional</span><span id="vx-edge">—</span></div>
+      <div class="row"><span class="k">surfaces §67 · kill-switch</span><span id="vx-surf">—</span></div>
+      <div class="row"><span class="k">écarts .env↔config</span><span id="vx-ecart" class="dim">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
+      <div class="row"><span class="k">probe forecast (Darts)</span><span id="lb-fc">—</span></div>
+      <div class="row"><span class="k">testeur code base mql5</span><span id="lb-mql5">—</span></div>
+      <div class="row"><span class="k">strategy tester (MT5-like)</span><span id="lb-st">—</span></div>
+    </div>
+    <div class="panel">
       <h2>Palette du savant <span class="dim" style="letter-spacing:0">— formes ordinales §50 · (le consensus de l'univers est dans le radar MiroFish, en haut)</span></h2>
       <div style="display:flex;align-items:flex-end;gap:10px">
         <div id="syn-formes" style="display:flex;align-items:flex-end;gap:3px;height:44px"></div>
@@ -1329,6 +1345,27 @@ function renderState(){
     $("cp-caps").textContent=(cp.daily_eff!=null)?("$"+cp.daily_eff+"/j · mur $"+(cp.abs_daily!=null?cp.abs_daily:25)):"—";
     $("eg-micro").textContent=(mi.n_records)?(mi.n_records+" obs · "+(mi.best_feature||"—")+" t="+(mi.best_ic_t!=null?mi.best_ic_t:"—")):"accumule…";
     $("eg-mtim").textContent=(mtm.n_records)?(mtm.n_records+"j · macro t="+(mtm.macro_ic_t!=null?mtm.macro_ic_t:"—")+" · sent t="+(mtm.sentiment_ic_t!=null?mtm.sentiment_ic_t:"—")):"accumule…";
+    // --- Verrous EFFECTIFS (.env OR config) + source + écarts ---
+    const vx=st.verrous||{};
+    if(vx.resume){
+      $("vx-resume").textContent=vx.resume;
+      $("vx-resume").className=vx.kill_switch?"red":(/RÉEL/.test(vx.resume)?"green":"amber");
+      $("vx-mandate").textContent=vx.mandate_live?"ARMÉ":"coupé";$("vx-mandate").className=vx.mandate_live?"green":"amber";
+      const fx=vx.futures||{},ax=vx.accum||{};
+      $("vx-fut").textContent=(fx.actif?"ARMÉ":"paper")+" (src "+(fx.source||"—")+")";$("vx-fut").className=fx.actif?"green":"amber";
+      $("vx-acc").textContent=(ax.actif?"ARMÉ":"paper")+" (src "+(ax.source||"—")+")";$("vx-acc").className=ax.actif?"green":"amber";
+      $("vx-edge").textContent="edge-gate "+(vx.edge_gate_override?"outrepassée":"fermée")+" · notional $"+(vx.notional_futures!=null?vx.notional_futures:"—");
+      $("vx-surf").textContent=(vx.surfaces_armees!=null?vx.surfaces_armees:"—")+"/4 armées · kill "+(vx.kill_switch?"ACTIF":"non");
+      $("vx-surf").className=vx.kill_switch?"red":"";
+      const ec=vx.ecarts||[];
+      $("vx-ecart").textContent=ec.length?("⚠ "+ec.join(", ")+" (armé via .env, config=False)"):"aucun";
+      $("vx-ecart").className=ec.length?"amber":"dim";
+    }
+    // --- Recherche & Labos (scratchpad, non committés) ---
+    const lb=st.labos||{},lf=lb.forecast||{},lm=lb.mql5||{},ls=lb.strategy_tester||{};
+    $("lb-fc").textContent=lf.present?((lf.verdict||"—")+(lf.n_preds?(" · "+lf.n_preds+" configs"):"")):"absent";
+    $("lb-mql5").textContent=lm.present?((lm.testes||0)+" testés · "+(lm.edge||0)+" edge · "+(lm.dernier||"—")):"absent";
+    $("lb-st").textContent=ls.present?"opérationnel":"absent";
     // --- microstructure LIVE (collecteur 24/7) + santé système (fleet) ---
     const ml=st.micro_live||{},sysd=st.system||{},lp=sysd.loop||{},sv=sysd.services||{};
     if(ml.n){
