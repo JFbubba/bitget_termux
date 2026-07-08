@@ -157,5 +157,17 @@ python carry_auto.py --status                   # jambes carry (CONSULTATION —
 python universe.py                              # univers d'analyse courant
 ```
 
+## Méthodologie d'agent & auto-correction (`docs/AGENT_ERRORS.md`)
+
+Journal versionné des erreurs MÉTHODOLOGIQUES de l'agent, avec cause/solution et un
+**contrôle de détection** réutilisable (pendant « code/méthode » de l'auto-amélioration
+§68, qui, elle, améliore le TRADING). **À chaque erreur constatée : y ajouter une entrée.**
+On peut demander à un agent de « vérifier le reste du bot » = exécuter les *Contrôles* du
+journal sur le dépôt. Deux règles déjà actives (détails dans le fichier) :
+- **ERR-001** : tout test de stratégie/signal couvre l'échelle COMPLÈTE de timeframes
+  `M1·M5·M15·M30·H1·H4·D1·W1` — jamais un sous-ensemble.
+- **ERR-002** : un système conçu comme un TOUT (séquence/machine à états, ex. modèle ICT)
+  se teste D'ABORD entier et dans l'ordre ; on ne décompose qu'ensuite pour l'attribution.
+
 Commits : messages clairs en français, et **ne jamais inclure d'identifiant de modèle**
 dans un commit/PR/artefact. Pousser seulement après les 3 portes vertes.
