@@ -3597,3 +3597,41 @@ des gros thèmes (bitcoin-bulls-battle ×14, crypto-sec-propose ×8) ; les singl
 consolident au fil des collectes (le profil des catégories s'enrichit). Artefacts
 locaux gitignorés. Test déterministe du trieur dans `tests_audit`. Cron éventuel de
 collecte périodique = acte propriétaire (couche de permissions).
+
+## §102 — RE-MESURE WALK-FORWARD DU RIDGE : λ 0.2 → 2.0, l'artefact carry éliminé (08/07/2026)
+
+Déclencheur : l'alerte §96 (learning_health) — carry sur-pondéré (poids 3.0) avec un
+pearson marginal NÉGATIF (−0.042, t −9.9). Diagnostic du /lance-correction : les poids
+suivent la cible ridge ; c'est le ridge qui donnait à carry le mult MAX (2.5).
+
+Protocole (scratchpad/wf_ridge_remeasure.py, lecture seule) : réplique du §78 sur le
+journal ACTUEL (56 977 entrées, ~5.3 j) — 6 plis temporels, purge H+600 s, cible réapprise
+à chaque pli via `_ridge_solve` (code de production), IC consensus pearson + rang, aux
+3 horizons instrumentés 900/3600/14400 s (D1/W1 infaisables sur 5 j de journal —
+tf-ladder-ok). Comparaison biaisée EN FAVEUR des poids courants (dérivés de la cible
+calculée sur tout le journal, test inclus).
+
+Résultats (horizon de production 3600 s) :
+- La PROCÉDURE ridge vaut toujours : wf pearson +0.034 vs +0.021 (poids courants)
+  vs −0.051 (poids égaux), ridge>courants 3/5 plis. Le chiffre-titre du §78
+  (+0.123 vs +0.076, 6/6) ne tient plus : l'IC consensus décroît nettement sur les
+  2 plis récents (régime) — l'edge du banc s'est affaissé cette semaine.
+- **carry = artefact** : coefficient au PLANCHER (0.25) sur 15/15 réajustements
+  hors-échantillon (5 plis × 3 horizons) ; le 2.5 du fit plein-journal vient
+  ENTIÈREMENT du dernier bloc (~1 j) en-échantillon. Le fit plein-journal SANS le
+  dernier bloc (80 % des données) donne déjà 0.25.
+- Balayage λ (appariés par pli) : 0.2 → wf +0.0348 ; plateau 1.5–3.0 → +0.040/+0.041,
+  gains concentrés sur les plis récents (~0 vs négatifs à 0.2) ; et dès λ≥1 le fit
+  plein-journal cesse de contredire le walk-forward (carry_full 2.5 → 0.25 à λ=2).
+
+Décision (§92, palier motivé/réversible) : `BRAIN_RIDGE_LAMBDA=2.0` posé dans `.env`
+(milieu du plateau ; défaut code inchangé à 0.2). Nouvelle cible plein-journal à λ=2 :
+carry 2.5→0.25, savant 2.5→1.11, technicals 0.81→2.5, simons 2.18→1.73, leadlag 2.5 —
+réalignée sur le classement pearson marginal §96 (technicals +0.058 t 13.9 en tête).
+Les DEUX instruments (garde §96 et cible ridge) convergent désormais ; l'alerte carry
+devrait s'éteindre d'elle-même au prochain rafraîchissement (cache 1 h, mélange α=0.85 :
+poids carry 3.0 → ~0.4). Réversion : supprimer la ligne du `.env`.
+
+À re-mesurer (~15/07, journal ≥ 2 semaines) : le plateau λ tient-il hors de cette
+fenêtre ; l'affaissement d'edge des plis récents est-il un régime passager ou une
+dérive ; carry rouvre-t-il hors-échantillon.
