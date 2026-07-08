@@ -23,11 +23,18 @@ piste suit la même discipline avant tout usage :
 Améliorer la porte de promotion §68 / `agent_validation` rapporte plus qu'une voix de plus :
 c'est le filtre qui décide de n'importe quelle voix.
 
-- **`skfolio`** (BSD-3, bâti sur scikit-learn DÉJÀ installé — friction quasi nulle). Fournit
-  clés en main **`CombinatorialPurgedCV` + Deflated Sharpe** (CV purgée combinatoire plus robuste
-  que le walk-forward simple actuel) et **HRP / risk-parity** (sizing du book 3 symboles dans
-  `mandate`). C'est le **remplaçant open et propre de `mlfinlab` devenu PROPRIÉTAIRE** (à ne
-  surtout pas prendre en dépendance). → n°1 à évaluer.
+- **CPCV (Combinatorial Purged CV) — n°1, PROUVÉ FAISABLE SANS DÉPENDANCE.** Précision post-vérif :
+  `agent_validation.py` a DÉJÀ le Deflated Sharpe (`deflated_sharpe`), le PSR et les rendements
+  purgés (`purged_forward_returns`) — mais en walk-forward MONO-chemin. Le vrai gap = la CPCV
+  MULTI-chemins de López de Prado : au lieu d'UN train/test, tester C(N,k) combinaisons de groupes
+  (purge+embargo) → une DISTRIBUTION d'IC OOS, pas un point. Un edge fragile s'effondre sur la
+  dispersion. **DÉMONTRÉ en numpy pur (scratchpad/geometric_v2_lab/cpcv_demo.py, AUCUN install) sur
+  w1_drift/XRP-1H-h4** : le WF simple « validait » un incrément +0.047 ; la CPCV (45 chemins) révèle
+  p10 = −0.000 (l'apport s'annule sur ~11 % des chemins) → fragile. C'est exactement la sur-détection
+  d'overfitting recherchée. → À PORTER dans `agent_validation` comme check de promotion DURCI
+  (~60 lignes numpy, zéro dépendance, strictement plus de rigueur, ne touche PAS guards()). Passe
+  par les 3 portes. `skfolio` (BSD) l'automatise mais N'EST PAS nécessaire (remplaçant de `mlfinlab`
+  devenu propriétaire — utile seulement pour HRP/risk-parity du sizing `mandate`, secondaire).
 - **`finance_ml`** (port MIT de López de Prado, figé 2020 → PORTER les fonctions, ne pas
   `pip install`) : poids d'unicité, **fractional differentiation** (stationnarité en gardant la
   mémoire), meta-labeling → `agent_validation`.
