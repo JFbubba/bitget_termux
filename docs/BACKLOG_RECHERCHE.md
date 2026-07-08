@@ -112,8 +112,22 @@ Ordre suggéré (gratuit + causal + testable) :
 
 ## PRIORITÉ 3 — signaux candidats voix §72 (chacun opt-in, marginal-vs-existant)
 
-- **SuperTrend** (trailing ATR, bascule de régime) — surtout comme **trailing-stop / sizing**
-  (distance à la bande = dimensionnement), pas juste un vote.
+⚠️ MESURÉ (SuperTrend/Vortex/CMF, WF purgé sur 6 ans) : en TIME-SERIES ils ont un IC directionnel
+NÉGATIF court terme (|IC|~0.03, t jusqu'à −10), identique à un contrôle `mom` (rendement brut) →
+c'est la **réversion crypto canonique §35-38 mesurée 4 fois** (signaux colinéaires « le prix vient
+de monter »), PAS 3 signaux indépendants. Reformulé : « fader » ces signaux a un IC +0.03 cohérent
+— mais c'est **très probablement REDONDANT avec le cœur réversion existant** du bot (à prouver par
+orthogonalisation + net de frais avant toute valeur ; prior = redondant, pas d'alpha neuf). LE
+momentum POSITIF en crypto n'est pas là : il vit en **CROSS-SECTIONAL** (rang entre coins,
+Liu-Tsyvinski-Wu) et à horizon long, pas en time-series court → **piste #8 à ÉLEVER** (facteur
+momentum cross-sectionnel, axe distinct du bot actuel). Leçon : tester chaque signal sur l'axe/
+horizon où il est conçu pour payer, pas contre le rendement signé court où la réversion écrase tout.
+
+- **Momentum CROSS-SECTIONAL (#8, Liu-Tsyvinski-Wu)** — ÉLEVÉ : rang de performance entre coins de
+  l'univers (pas time-series). Le vrai gisement de momentum positif crypto. Voix/tilt §72, à mesurer
+  en priorité parmi les signaux (nécessite l'univers multi-coins, pas juste BTC/ETH).
+- **SuperTrend** (trailing ATR) — comme **trailing-stop / sizing** (distance à la bande), pas un
+  vote directionnel (son IC time-series = réversion redondante, cf. ci-dessus).
 - **Ultimate RSI** [LuxAlgo] (RSI reconçu pour la tendance via rolling range) — momentum, à
   décorréler de RSI/MACD. Meurt en range → à coupler au gate KER.
 - **Predictive Ranges** [LuxAlgo] (niveau central ATR à crémaillère + bandes) — mean-rev/niveaux
