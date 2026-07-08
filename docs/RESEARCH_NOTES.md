@@ -3646,14 +3646,23 @@ Les sous-agents ont été coupés sur la limite de session ; les mesures avaient
 
 **1. Détecteur de régime (ruptures + hmmlearn)** — motivé par l'affaissement d'edge §102.
 Flags STRICTEMENT causaux (HMM filtré forward pas-à-pas, pas de Viterbi qui regarde en avant ;
-ruptures Pelt). Deux mesures distinctes, échelle 5m→1W sur BTC+ETH :
-- Pertinence-vol (le flag prédit-il |rendement| forward ?) : FORTE — ic_phaut_absfwd
-  t médian +6.33, significatif 7/8 séries (s'affaiblit en 1D/1W, échantillon mince).
-- Séparation directionnelle (le régime sépare-t-il l'IC d'un signal momentum de réf ?) :
-  NULLE — |t_delta| max 3.11, 1/26 (série×flag) au-dessus de 3, deltas négatifs.
-Verdict : instrument de VOLATILITÉ (utile pour vol-targeting / sizing / contexte de risque),
-PAS une porte d'edge directionnelle. Ne pas en faire un filtre de direction. Re-mesure
-dédiée requise avant tout branchement côté mandat.
+ruptures Pelt), échelle 5m→1W sur BTC+ETH, 3 mesures (le sous-agent a été coupé sur la limite
+de session puis a repris — verdict complet ci-dessous, plus riche que la 1ʳᵉ extraction) :
+- (a) Pertinence-vol (le flag prédit-il |rendement| forward ?) : FORTE — ic_phaut_absfwd
+  t médian +6.33, significatif 7/8 séries ; bat même la vol EWMA (net à 1H : +0.176 vs +0.118),
+  cohérent BTC↔ETH (phi +0.62 à 1H). S'affaiblit en 1D/1W (échantillon mince).
+- (b) Séparation directionnelle sur un momentum NU : NULLE — |t_delta| max 3.11, 1/26
+  (série×flag) au-dessus de 3, deltas négatifs ; et le momentum n'a de toute façon aucun edge
+  propre dans l'un ou l'autre régime.
+- (c) MODULATION DU CONSENSUS LIVE (le twist) : sur brain_log_history 1H, le flag HMM (ajusté
+  sur l'historique strictement antérieur puis filtré forward) CONCENTRE la conviction du banc —
+  IC de rang BTC +0.058→+0.178 (régime haut, delta +0.120), ETH +0.115→+0.28 (delta +0.156).
+  L'edge du banc DOUBLE en haute-vol. MAIS : journal de 5,3 j, UN SEUL bloc coïncidant avec le
+  régime que §102 pointe (18 bascules de flag) — CONTRÔLE DE COHÉRENCE, PAS UNE PREUVE.
+Verdict : instrument de VOLATILITÉ (vol-targeting / sizing / contexte de risque), PAS une porte
+d'edge directionnelle sur signal nu. Le seul fil prometteur = (c), la modulation du consensus
+par le régime — à RE-MESURER en walk-forward multi-plis vers ~15/07 quand le journal aura
+≥2 semaines, AVANT toute idée de branchement. Sweet-spot 1H/4H.
 
 **2. GARCH fitté vs figé (arch)** — arch GARCH(1,1) MLE fitté par fenêtre (refit /40 pas,
 filtrage forward entre) contre volatility.garch11_vol figé (α=0.10/β=0.85), EWMA(0.94) et
@@ -3664,14 +3673,23 @@ vol-targeting à égalité (6/12). Le fit par fenêtre surapprend le bruit local
 robustes façon RiskMetrics généralisent mieux hors-échantillon. **Décision : volatility.py
 INCHANGÉ ; arch reste un outil de labo (pas de dépendance ajoutée en prod).**
 
-**3. Features geometric v2 (POT / dcor / nolds)** — W1(rendements, gaussien), W1 de dérive
-de régime, DFA/Hurst/SampEn/corr_dim, dcor BTC↔ETH vs Pearson, contre le baseline (le score
-geom_vote de l'agent rejoué). Le sous-agent n'a bouclé que le TF 1m avant la coupure
-(ERR-001 INCOMPLÈTE — cohérence inter-TF non mesurable). Sur ce TF : 2/48 (feature×sym×horizon)
-franchissent |t|≥3, mais aucune n'est cohérente entre rang et pearson ni répliquée sur ETH ;
-le baseline actuel a déjà un meilleur signal (t 6.7, BTC 1m/h1). **Verdict : rien à brancher.**
-Le poids bas de l'agent geometric reste CORRECT. Outils installés dispo pour d'autres usages.
+**3. Features geometric v2 (POT / dcor / nolds)** — 14 features candidates (W1-gauss/POT,
+W1-dérive de régime et de forme, dcor BTC↔ETH et dcor_excess non-linéaire pur, λ₂ du graphe
+re-pondéré dcor vs Pearson vs RMT de l'agent, DFA/Hurst/SampEn/corr_dim), contre le baseline
+geom_vote rejoué. Le sous-agent a REPRIS après la coupure et bouclé l'ÉCHELLE COMPLÈTE
+1m→1W × 2-4 symboles (ERR-001 satisfaite), walk-forward 6 plis purgés, horizons {1,4,24}.
+Résultat robuste : **0/14 features franchissent la barre** (|t|≥3 cohérent sur ≥3 TFs, signe
+stable) ; le meilleur atteint 2 TFs. Points clés : dcor n'apporte RIEN au-delà de Pearson —
+dcor_excess (part non-linéaire pure) plafonne à |t| 2.8, ne franchit 3 nulle part ; dcor_btc_eth
+monte à |t| 13.2 mais sur un SEUL TF (30m, un régime) ; le λ₂ re-pondéré dcor n'améliore ni le
+λ₂ Pearson ni la jambe RMT actuelle, pour un coût ×70 (7 ms vs 0.1 ms) ; nolds prohibitif
+(DFA 15 ms, Hurst 17 ms par appel — 4× le coût de tout l'agent, chaque minute) pour un signal
+plat ; les pics 1D/1W sont des mirages de petit échantillon (motif [[geometric-mirage-24h]]).
+Le baseline confirme la prémisse : à 1H (horizon de PRODUCTION) l'agent est PLAT (t 2.1), et
+change de signe aux horizons longs — **son poids bas piloté par EARCP est CORRECT**.
+**Verdict : rien à brancher, banc gelé à 14 (§62) inchangé.** Outils installés dispo ailleurs.
 
 Bilan mesure-d'abord : aucun des trois ne justifie de brancher quoi que ce soit en prod
-aujourd'hui ; seule piste vivante = régime → vol-targeting, à mesurer spécifiquement.
+aujourd'hui. Le SEUL fil vivant = la modulation du consensus live par le régime (1c),
++0.12/+0.16 mais 1 bloc — à re-mesurer ~15/07 (journal ≥2 semaines) avant toute décision.
 Murs argent, stop −5 %, portes : intouchés (pure mesure).

@@ -7446,5 +7446,55 @@
     }
    }
   }
+ },
+ "journal_1h": {
+  "horizon_s": 3600,
+  "n_entrees_journal": 58416,
+  "avertissement": "journal peu profond (quelques jours), un seul bloc — contrôle de cohérence, pas une preuve",
+  "par_symbole": {
+   "BTCUSDT": {
+    "n": 6085,
+    "ic_global": {
+     "pearson": 0.08683902862069671,
+     "rang": 0.09359517696786537
+    },
+    "n_bascules_flag": 18,
+    "regime_0": {
+     "n": 4864,
+     "pearson": 0.05956535114193059,
+     "rang": 0.057556026790354736
+    },
+    "regime_1": {
+     "n": 1221,
+     "pearson": 0.1481613697803249,
+     "rang": 0.17754557116259245
+    },
+    "delta_rang": 0.11998954437223772
+   },
+   "ETHUSDT": {
+    "n": 6084,
+    "ic_global": {
+     "pearson": 0.12197051237038348,
+     "rang": 0.13300070173989556
+    },
+    "n_bascules_flag": 18,
+    "regime_0": {
+     "n": 5474,
+     "pearson": 0.10351423752925908,
+     "rang": 0.11529133592803334
+    },
+    "regime_1": {
+     "n": 610,
+     "pearson": 0.2855637640479517,
+     "rang": 0.2712331845054985
+    },
+    "delta_rang": 0.15594184857746515
+   }
+  },
+  "periode_journal": [
+   "2026-07-03 05:52",
+   "2026-07-08 13:40"
+  ],
+  "profondeur_journal_jours": 5.33
  }
 }
