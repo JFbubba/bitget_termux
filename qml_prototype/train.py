@@ -9,11 +9,11 @@ les métriques (MSE, MAE) au fil des époques.
 import torch
 from torch import nn
 
-from quantum_model import NB_FEATURES, QuantumModel
+from quantum_model import DIFF_METHOD, NB_FEATURES, NOM_DEVICE, QuantumModel
 
 # Hyperparamètres de l'entraînement.
 NB_ECHANTILLONS = 64
-NB_EPOQUES = 30
+NB_EPOQUES = 40
 TAUX_APPRENTISSAGE = 0.05
 GRAINE = 42
 
@@ -53,7 +53,8 @@ def main():
 
     print(
         f"Entraînement QML : {NB_ECHANTILLONS} échantillons, "
-        f"{NB_EPOQUES} époques, {NB_FEATURES} features -> 4 qubits."
+        f"{NB_EPOQUES} époques, {NB_FEATURES} features -> 6 qubits "
+        f"(device {NOM_DEVICE}, diff {DIFF_METHOD})."
     )
 
     for epoque in range(1, NB_EPOQUES + 1):

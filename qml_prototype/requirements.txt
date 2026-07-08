@@ -1,2 +1,3 @@
 pennylane>=0.35
+pennylane-lightning>=0.35
 torch>=2.0
