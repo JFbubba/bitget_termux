@@ -3575,3 +3575,25 @@ en attendant, `qml_shadow` accumule l'IC live. Verdict honnête : à 6 qubits/72
 la fusion quantique ne bat pas (encore) le taux de base — c'est un INSTRUMENT DE MESURE de
 plus, pas une promesse. Tests : 4 ajoutés (neutralité OFF, porte configurable + muette,
 exactitude/invariances du simulateur, refus des poids désalignés).
+
+## §101 — COLLECTEUR DE DONNÉES : agent scraper + agent trieur thématique (08/07/2026)
+
+Demande propriétaire : « un collecteur de données avec un agent scraper (scrapling) et
+un agent trieur qui classe les résultats en catégories qu'il crée selon les thèmes ».
+Pipeline SAFE en deux agents découplés par fichiers (`data_collector/`) :
+- **Scraper** (`scraper_agent.py`) : scrapling 0.4 (`[fetchers]`, curl_cffi) dans le venv
+  ISOLÉ `data_collector/.venv` — ERR-004 : dépendance tierce jamais dans le Python
+  système. Sources `sources.json` (5 flux RSS crypto publics), GET poli (pause 1,5 s,
+  timeout 25 s, ≤ 20 éléments/source), RSS parsé en stdlib (les parseurs HTML mutilent
+  `<link>`), dédup par sha1(url|titre), sortie `raw_items.jsonl`. Fail-safe par source
+  (mesuré : theblock 403 -> ignoré proprement, 4/5 sources OK).
+- **Trieur** (`sorter_agent.py`) : Python système PUR (zéro dépendance). Mots-clés
+  pondérés (titre ×3, stopwords FR/EN, accents pliés) ; cosinus ≥ 0.18 avec une
+  catégorie existante -> l'élément la REJOINT et enrichit son profil (Counter borné à
+  40 termes) ; sinon CRÉATION d'une catégorie nommée des 3 mots-clés dominants.
+  DÉTERMINISTE (pas de LLM, pas d'aléa) ; état incrémental (`sorter_state.json`).
+Première exécution réelle : 70 éléments -> 38 catégories créées, agrégation correcte
+des gros thèmes (bitcoin-bulls-battle ×14, crypto-sec-propose ×8) ; les singletons se
+consolident au fil des collectes (le profil des catégories s'enrichit). Artefacts
+locaux gitignorés. Test déterministe du trieur dans `tests_audit`. Cron éventuel de
+collecte périodique = acte propriétaire (couche de permissions).

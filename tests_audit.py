@@ -8898,6 +8898,31 @@ def test_qml_sim_exact_et_invariances():
     assert abs(qs.predict_score(np.zeros(25), w0) - 1.0) < 1e-12
 
 
+def test_collector_trieur_categorise_et_cree():
+    from data_collector import sorter_agent as sa
+    # deux éléments sur le MÊME thème -> même catégorie (le profil s'enrichit) ;
+    # un thème étranger -> l'agent CRÉE une nouvelle catégorie. Déterministe.
+    cats = {}
+    a = {"title": "Bitcoin ETF inflows hit record", "text": "blackrock bitcoin etf demand"}
+    b = {"title": "Bitcoin ETF demand grows again", "text": "etf inflows accelerate bitcoin"}
+    c = {"title": "Solana NFT marketplace launches", "text": "nft solana mint art"}
+    n1, _, cree1 = sa.classer(a, cats)
+    n2, sim2, cree2 = sa.classer(b, cats)
+    n3, _, cree3 = sa.classer(c, cats)
+    assert cree1 is True and cree2 is False and cree3 is True
+    assert n2 == n1 and sim2 >= sa.SIM_MIN and n3 != n1
+    assert cats[n1]["n_items"] == 2 and cats[n3]["n_items"] == 1
+    # mots vides exclus, titre boosté, pas de chiffres purs
+    kw = sa.keywords({"title": "The Bitcoin and the ETF", "text": "of 2026 the bitcoin"})
+    assert "the" not in kw and "and" not in kw and "2026" not in kw
+    assert kw.get("bitcoin", 0) > kw.get("etf", 0) * 0.9   # titre pèse POIDS_TITRE
+    # noms de catégories uniques même à mots-clés identiques
+    assert sa._nom_categorie({"a": 1, "b": 1}, {"a-b": {}}) == "a-b-2"
+    # déterminisme : mêmes entrées -> mêmes noms/catégories
+    cats_bis = {}
+    assert sa.classer(a, cats_bis)[0] == n1
+
+
 def test_qml_poids_desalignes_refuses():
     import qml_agent
     # un feature_hash qui ne correspond plus au banc -> predict() refuse (None) au

@@ -95,3 +95,9 @@ trading_real_ledger.json
 
 # Venv du prototype QML (qml_prototype)
 .venv/
+
+# Collecteur de données (data_collector) : artefacts locaux, jamais committés
+data_collector/raw_items.jsonl
+data_collector/sorted_items.jsonl
+data_collector/categories.json
+data_collector/sorter_state.json

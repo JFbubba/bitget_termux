@@ -1,0 +1,4 @@
+# Dépendances du SCRAPER uniquement (venv isolé data_collector/.venv — ERR-004 :
+# jamais dans le Python système du bot). Le TRIEUR (sorter_agent.py) est en
+# Python pur et tourne sur le Python système sans rien installer.
+scrapling[fetchers]>=0.4

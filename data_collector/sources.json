@@ -1,0 +1,10 @@
+{
+  "_doc": "Sources du collecteur (lecture seule, GET uniquement). type: rss | html.",
+  "sources": [
+    {"name": "coindesk", "type": "rss", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
+    {"name": "cointelegraph", "type": "rss", "url": "https://cointelegraph.com/rss"},
+    {"name": "decrypt", "type": "rss", "url": "https://decrypt.co/feed"},
+    {"name": "bitcoinmagazine", "type": "rss", "url": "https://bitcoinmagazine.com/feed"},
+    {"name": "theblock", "type": "rss", "url": "https://www.theblock.co/rss.xml"}
+  ]
+}

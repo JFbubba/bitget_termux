@@ -119,6 +119,10 @@ strategy-lab dimanche 05:00 (§68/§70).
 - **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
   spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
   `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
+- **Collecte de données** : `data_collector/` (§101, SAFE hors trading) — agent
+  scraper (scrapling, venv isolé ERR-004, RSS/HTML publics, GET poli) + agent
+  trieur (Python pur déterministe : catégories AUTO-CRÉÉES par thème, cosinus sur
+  mots-clés). Artefacts locaux non committés.
 - **Fusion neuronale** : `neural_net.py` (MLP PyTorch, méta-modèle + carte de
   connectivité), `nn_agent.py` (16ᵉ voix opt-in). `python neural_net.py --train`
   (réentraîne sur `brain_log.json`) · `--predict SYMBOL` · `--map SYMBOL`.
