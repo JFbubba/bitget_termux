@@ -1224,6 +1224,40 @@ def _order_fill_state(symbol, order_id, runner=None):
     return (state, filled)
 
 
+def _pending_order_by_client_oid(symbol, client_oid, runner=None):
+    """orderId d'un ordre futures OUVERT (orders-pending) portant ce clientOid ; "" si le
+    carnet d'ordres ouverts est LISIBLE mais ne le contient pas ; None si la lecture échoue
+    ou est douteuse (fail-closed). Sert à réconcilier un placement MAKER (post-only) dont la
+    RÉPONSE est perdue : un post-only qui a atterri RESTE vivant (il ne prend jamais de
+    liquidité) -> il figure ici. Distingue « vraiment non placé » (repli taker SÛR) de
+    « lecture KO / ordre présent » (pas de repli : l'ordre a peut-être atterri -> anti-doublon)."""
+    if not client_oid:
+        return None
+    d = _read_hub(["futures", "futures_get_orders", "--productType", PRODUCT_TYPE,
+                   "--symbol", str(symbol).upper(), "--clientOid", str(client_oid)], runner=runner)
+    if not isinstance(d, dict):
+        return None                                   # lecture KO -> fail-closed
+    data = d.get("data")
+    if data is None:
+        return None                                   # pas de bloc data -> douteux -> fail-closed
+    if isinstance(data, dict):
+        rows = data.get("entrustedList") or data.get("orderList") or []
+    elif isinstance(data, list):
+        rows = data
+    else:
+        rows = []
+    for row in (rows or []):
+        if isinstance(row, dict) and str(row.get("clientOid")) == str(client_oid):
+            oid = row.get("orderId")
+            return str(oid) if oid else None          # atterri mais id illisible -> fail-closed
+    if rows:
+        # des ordres OUVERTS existent mais aucun ne matche notre clientOid : soit un autre
+        # ordre, soit le CLI n'a pas renvoyé le champ clientOid -> on NE conclut PAS « absent »
+        # (risque de stacker un taker sur un maker atterri) -> fail-closed.
+        return None
+    return ""                                         # carnet VIDE -> ordre vraiment non placé -> repli taker SÛR
+
+
 def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit_ioc"):
     """Placement TAKER (limit_ioc plafonné à l'ouverture / market pour une réduction) —
     chemin éprouvé §45. Construit le bo, envoie via l'Agent Hub, lit le succès. Retourne
@@ -1275,10 +1309,30 @@ def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
         wait_s, poll_s = 12.0, 2.0
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
     order_id = _order_id_from(out)                       # succès = un orderId RÉELLEMENT extrait
-    if not order_id:                                     # post-only rejeté / réponse illisible -> taker
-        taker = _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
-        taker["exec_style"] = "taker_apres_rejet_maker"
-        return taker
+    if not order_id:
+        # Pas d'orderId : soit post-only REJETÉ (code d'erreur EXPLICITE -> RIEN placé, repli
+        # taker SÛR), soit réponse PERDUE/vide (l'ordre a peut-être ATTERRI). Un post-only qui
+        # atterrit reste VIVANT -> sur une réponse AMBIGUË (sans code d'erreur) on le cherche
+        # par clientOid dans les ordres OUVERTS AVANT tout repli taker, sinon un taker s'empile
+        # sur un maker déjà posé = DOUBLE POSITION.
+        parsed = _parse_hub_json(out)
+        raw_code = parsed.get("code") if isinstance(parsed, dict) else None
+        code = str(raw_code) if raw_code is not None else ""            # code ABSENT -> "" (pas "None")
+        rejet_definitif = bool(code) and code not in ("00000", "0")     # erreur explicite -> rien placé
+        rec = "" if rejet_definitif else _pending_order_by_client_oid(
+            symbole, order.get("clientOid"), runner=runner)
+        if rec:                                          # l'ordre maker est VIVANT -> on le gère (pas de taker)
+            order_id = rec
+        elif rec == "":                                  # rejet explicite OU carnet VIDE -> rien placé -> taker sûr
+            taker = _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
+            taker["exec_style"] = "taker_apres_rejet_maker"
+            return taker
+        else:                                            # rec is None : réponse ambiguë + lecture KO/douteuse
+            return {"ok": True, "executed": False, "bitget_order": bo,   # -> fail-closed, PAS de taker
+                    "exec_style": "maker_incertain", "filled": 0.0,
+                    "response": (out or "")[:2000], "clientOid": order.get("clientOid"),
+                    "reasons": ["réponse de placement maker illisible ET réconciliation par "
+                                "clientOid indisponible — repli taker SUPPRIMÉ (anti-doublon)"]}
 
     def _res(exec_style, executed, filled_q, reasons=None):
         r = {"ok": True, "executed": bool(executed), "bitget_order": bo,

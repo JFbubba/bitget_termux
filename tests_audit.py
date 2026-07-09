@@ -977,6 +977,136 @@ def test_futures_cli_open_goes_through_gate():
         fe.execute, fe.gated_open, sys.argv = orig
 
 
+# ---------- double-position sur réponse perdue : réconciliation clientOid (maker) ----------
+# Le placement maker (post-only) qui ATTERRIT reste VIVANT (il ne prend jamais de liquidité)
+# -> il apparaît dans les ordres OUVERTS. Sur une réponse de placement PERDUE (pas d'orderId),
+# on réconcilie par clientOid AVANT tout repli taker : sinon un taker s'empile sur un maker
+# déjà posé = DOUBLE POSITION. (Le rejeu CROSS-CYCLE des boucles auto est, lui, déjà neutralisé
+# par le throttle 4 h/8 h + reflet du livre : la position réapparaît bien avant le prochain open.)
+
+def test_pending_order_by_client_oid_three_way():
+    """orderId si un ordre OUVERT porte ce clientOid ; "" si carnet lisible mais absent ;
+    None si lecture KO (fail-closed) — les trois issues qui pilotent le repli maker."""
+    import json as _json
+    import futures_executor as fe
+    r_found = lambda cmd: _json.dumps({"data": {"entrustedList": [{"orderId": "42", "clientOid": "cid1"}]}})
+    r_absent = lambda cmd: _json.dumps({"data": {"entrustedList": []}})
+    r_fail = lambda cmd: "pas du json (lecture KO)"
+    assert fe._pending_order_by_client_oid("BTCUSDT", "cid1", runner=r_found) == "42"
+    assert fe._pending_order_by_client_oid("BTCUSDT", "cid1", runner=r_absent) == ""
+    assert fe._pending_order_by_client_oid("BTCUSDT", "cid1", runner=r_fail) is None
+    # carnet NON vide mais sans notre clientOid (autre ordre, ou champ non renvoyé) -> fail-closed
+    r_other = lambda cmd: _json.dumps({"data": {"entrustedList": [{"orderId": "5", "clientOid": "autre"}]}})
+    assert fe._pending_order_by_client_oid("BTCUSDT", "cid1", runner=r_other) is None
+
+
+def test_maker_ambiguous_landed_no_taker():
+    """RÉGRESSION double-position : réponse de placement maker PERDUE mais l'ordre post-only a
+    ATTERRI (vivant). Retrouvé par clientOid -> AUCUN taker empilé (sinon 2× la taille)."""
+    import os, json as _json
+    import futures_executor as fe
+    place = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            place.append(s); return ""                          # réponse PERDUE (pas d'orderId)
+        if "futures_get_orders" in s and "--clientOid" in s:    # l'ordre maker est VIVANT sous notre oid
+            return _json.dumps({"data": {"entrustedList": [{"orderId": "9001", "clientOid": "cidMK"}]}})
+        if "futures_get_orders" in s and "--orderId" in s:      # poll -> rempli, on sort vite
+            return _json.dumps({"data": {"orderId": "9001", "state": "filled", "baseVolume": "0.1"}})
+        return ""
+    order = {"symbol": "BTCUSDT", "side": "long", "notional_usdt": 10.0, "clientOid": "cidMK"}
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+    old = {k: os.environ.get(k) for k in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S")}
+    try:
+        os.environ["FUTURES_MAKER_WAIT_S"] = "0"; os.environ["FUTURES_MAKER_POLL_S"] = "0.2"
+        res = fe._place_maker(order, runner, spec, 100.0, "crossed", "hedge_mode",
+                              {"bid": 100.0, "ask": 100.1})
+        assert sum(1 for c in place if "futures_place_order" in c) == 1     # UN seul placement, pas de taker
+        assert res.get("executed") is True and "taker" not in (res.get("exec_style") or "")
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_maker_ambiguous_unreadable_no_taker():
+    """Réponse maker PERDUE ET carnet d'ordres ouverts ILLISIBLE -> fail-closed : PAS de taker
+    (l'ordre maker a peut-être atterri) ; résultat non-exécuté prudent."""
+    import futures_executor as fe
+    place = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            place.append(s); return ""
+        if "futures_get_orders" in s and "--clientOid" in s:
+            return "erreur reseau"                              # lecture KO
+        return ""
+    order = {"symbol": "BTCUSDT", "side": "long", "notional_usdt": 10.0, "clientOid": "cidX"}
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+    res = fe._place_maker(order, runner, spec, 100.0, "crossed", "hedge_mode",
+                          {"bid": 100.0, "ask": 100.1})
+    assert sum(1 for c in place if "futures_place_order" in c) == 1         # PAS de repli taker
+    assert res.get("executed") is False
+
+
+def test_maker_ambiguous_absent_falls_back_taker():
+    """Réponse maker perdue MAIS carnet lisible et ordre ABSENT (post-only vraiment non placé/
+    rejeté) -> repli taker SÛR (comportement préservé, aucun double possible)."""
+    import json as _json
+    import futures_executor as fe
+    place = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            place.append(s)
+            n = sum(1 for p in place if "futures_place_order" in p)
+            return "" if n == 1 else _json.dumps({"data": {"orderId": "7"}})   # maker perdu, taker OK
+        if "futures_get_orders" in s and "--clientOid" in s:
+            return _json.dumps({"data": {"entrustedList": []}})                 # absent
+        return ""
+    order = {"symbol": "BTCUSDT", "side": "long", "notional_usdt": 10.0, "clientOid": "cidA"}
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+    res = fe._place_maker(order, runner, spec, 100.0, "crossed", "hedge_mode",
+                          {"bid": 100.0, "ask": 100.1})
+    assert sum(1 for c in place if "futures_place_order" in c) == 2          # maker + taker de repli
+    assert res.get("executed") is True and "taker" in (res.get("exec_style") or "")
+
+
+def test_maker_codeless_ambiguous_reconciles():
+    """Réponse de placement SANS code d'erreur ET sans orderId (dict tronqué) = AMBIGUË ->
+    on RÉCONCILIE par clientOid (jamais de repli taker aveugle). Un code ABSENT ne doit pas
+    être pris pour un rejet définitif (piège str(None) == 'None')."""
+    import os, json as _json
+    import futures_executor as fe
+    place, queried = [], []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            place.append(s); return _json.dumps({"data": {"unexpected": 1}})   # dict SANS code ni orderId
+        if "futures_get_orders" in s and "--clientOid" in s:
+            queried.append(s)
+            return _json.dumps({"data": {"entrustedList": [{"orderId": "77", "clientOid": "cidC"}]}})
+        if "futures_get_orders" in s and "--orderId" in s:
+            return _json.dumps({"data": {"orderId": "77", "state": "filled", "baseVolume": "0.1"}})
+        return ""
+    order = {"symbol": "BTCUSDT", "side": "long", "notional_usdt": 10.0, "clientOid": "cidC"}
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+    old = {k: os.environ.get(k) for k in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S")}
+    try:
+        os.environ["FUTURES_MAKER_WAIT_S"] = "0"; os.environ["FUTURES_MAKER_POLL_S"] = "0.2"
+        res = fe._place_maker(order, runner, spec, 100.0, "crossed", "hedge_mode",
+                              {"bid": 100.0, "ask": 100.1})
+        assert len(queried) == 1                                # a bien RÉCONCILIÉ (pas de rejet supposé)
+        assert sum(1 for c in place if "futures_place_order" in c) == 1 and res.get("executed") is True
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 # ---------- agent LLM (15ᵉ agent OPT-IN, §06/07) : opt-in, fail-safe, borné ----------
 
 def test_llm_agent_off_is_neutral():
