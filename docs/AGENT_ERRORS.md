@@ -220,3 +220,37 @@ alors que l'endpoint réel renvoie l'autre champ, est un faux-vert.
 
 **Statut.** RÉSOLU (test ré-ancré sur `/detail` réel ; `_order_fill_state` lit `state`+
 `baseVolume` via `hub._read`) · RÈGLE ACTIVE.
+
+---
+
+## ERR-010 · 2026-07-09 · Instrument de lecture affichant un cap d'une AUTRE couche à la place du mur d'exécution
+
+**Contexte.** `etat_effectif.py` (créé le 08/07 POUR consolider les verrous et tuer le piège
+des caps éparpillés, cf. `verrous-env-vs-config`) affichait sous « CAPS DURS (murs) :
+futures » la valeur `MAX_TOTAL_NOTIONAL_USDT = 300` — le cap notionnel de PORTEFEUILLE
+(couche `risk_limits`), PAS le mur cumulé futures. Le mur d'exécution futures réel est
+`FUT_ABS_MAX_GROSS_USDT = 250` (effectif **200** via `_capped("FUTURES_REAL_MAX_GROSS_USDT"=200, 250)`),
+appliqué fail-closed dans `guards()`. Un lecteur (humain/agent) croyait donc le mur cumulé
+futures à 300 alors qu'il est 200/250. **Sécurité INTACTE** (guards applique bien 200/250) ;
+seul l'INSTRUMENT DE LECTURE trompait — ironie : l'outil censé être la source de vérité
+reproduisait une variante du piège qu'il devait tuer. De même le per-trade affiché lisait
+`MAX_POSITION_USD` (50) au lieu du cap effectif `FUTURES_REAL_MAX_PER_TRADE_USDT` (50) : même
+valeur par coïncidence, donc pas trompeur mais mal sourcé (fragile si l'un des deux bouge).
+**Cause racine.** Afficher un cap en le lisant depuis une variable config HOMONYME/voisine
+(d'une autre couche de risque) au lieu de la SOURCE qui l'APPLIQUE (le module d'exécution).
+Parent d'ERR-003/ERR-008 : supposer qu'une variable nommée « notionnel total » EST le mur
+futures, sans vérifier quelle constante `guards()` applique réellement.
+**Solution.** Tout instrument de lecture (etat_effectif, dashboard, verrous) affiche les
+caps/murs en les lisant à la SOURCE qui les APPLIQUE — ici les constantes `FUT_ABS_MAX_*`
+et la fonction `_capped` de `futures_executor` — jamais une variable config d'une autre
+couche. Fix : `etat_effectif` importe `FUT_ABS_MAX_PER_TRADE/GROSS_USDT` + `_capped` et
+affiche le cap EFFECTIF (50/200) ET le mur (50/250) ; le cap portefeuille 300 est affiché
+séparément et étiqueté « couche risk_limits ».
+**Contrôle (détection ailleurs).** Pour tout affichage de cap/mur d'exécution, vérifier
+qu'il provient de la constante/fonction du module qui l'APPLIQUE, pas d'une variable config
+homonyme : `grep -rnE "MAX_TOTAL_NOTIONAL_USDT|MAX_POSITION_USD" --include=*.py dashboard/ *.py`
+dans un contexte d'AFFICHAGE = suspect. Une string de mur codée en dur (ex.
+`dashboard/server.py:231` « futures 50/250 $ ») est tolérable SI la valeur = les murs absolus
+réels, mais fragile — à re-vérifier si un mur bouge (annoter `# mur-hardcode-ok : <raison>`).
+**Statut.** RÉSOLU (etat_effectif.py corrigé le 09/07, 3 portes vertes 465/465 · SAFE ·
+SAFE PUSH OK) · RÈGLE ACTIVE. Cas toléré signalé : `dashboard/server.py:231` (murs 50/250 en dur, valeur juste).
