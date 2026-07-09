@@ -69,22 +69,34 @@ def _autonomous_on():
     return env_on or bool(_cfg("FUTURES_AUTONOMOUS_LIVE", False))
 
 
-def _exec_style():
-    """Style d'exécution des OUVERTURES futures : .env > config > défaut 'limit_ioc'.
-    Levier ARMABLE via .env (comme les verrous live) sans éditer un fichier suivi par git.
-    Valeurs : 'limit_ioc' (taker plafonné, défaut) | 'maker' (post-only + repli taker,
-    §exec-frais) | 'market'. Lu au ROUTAGE (_place_real) ; le builder `to_bitget_order`
-    reste piloté par son paramètre `style` explicite (hermétique)."""
+def _env_str(name, default):
+    """Chaîne .env > config > défaut (charge dotenv best-effort, idempotent). Base commune des
+    leviers-chaîne lus au RUNTIME sans éditer un fichier suivi par git."""
     import os
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except Exception:
         pass
-    v = os.getenv("FUTURES_EXEC_STYLE")
-    if v and v.strip():
-        return v.strip().lower()
-    return str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+    v = os.getenv(name)
+    if v is not None and str(v).strip():
+        return str(v)
+    return str(_cfg(name, default))
+
+
+def _exec_style():
+    """Style d'exécution des OUVERTURES futures : .env > config > 'limit_ioc'. ARMABLE via .env.
+    Valeurs : 'limit_ioc' (taker plafonné, défaut) | 'maker' (post-only + repli taker) | 'market'.
+    Lu au ROUTAGE (_place_real) ; le builder `to_bitget_order` reste piloté par son `style`
+    explicite (hermétique)."""
+    return _env_str("FUTURES_EXEC_STYLE", "limit_ioc").strip().lower()
+
+
+def _maker_symbols():
+    """Symboles autorisés au mode maker (CSV, .env > config). VIDE = tous. Sert à restreindre
+    le maker à un périmètre PRUDENT (ex. BTCUSDT seul) pendant la validation en réel — un
+    symbole hors liste retombe sur le taker éprouvé même si FUTURES_EXEC_STYLE=maker."""
+    return {s.strip().upper() for s in _env_str("FUTURES_MAKER_SYMBOLS", "").split(",") if s.strip()}
 
 
 def _execution_mode():
@@ -1161,7 +1173,9 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
     style = _exec_style()                              # .env > config > 'limit_ioc' (armable)
-    if style == "maker" and not bool(order.get("reduce")) and top_of_book:
+    allowed = _maker_symbols()                         # {} = tous ; sinon périmètre prudent (ex. BTCUSDT)
+    if (style == "maker" and not bool(order.get("reduce")) and top_of_book
+            and (not allowed or symbole in allowed)):
         return _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book)
     return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
 

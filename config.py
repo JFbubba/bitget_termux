@@ -196,6 +196,9 @@ FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-s
 FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)
 FUTURES_MAKER_WAIT_S = 12             # mode maker : délai d'attente du remplissage post-only avant repli taker
 FUTURES_MAKER_POLL_S = 2              # mode maker : intervalle de poll de l'état de l'ordre pendant l'attente
+FUTURES_MAKER_SYMBOLS = ""            # mode maker : CSV des symboles autorisés (VIDE = tous). Restreint le
+                                      # maker à un périmètre prudent (ex. "BTCUSDT") pendant la validation ;
+                                      # un symbole hors liste retombe sur le taker éprouvé
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
                                          # compte en mode multi-devises (assetMode union,
                                          # constaté le 02/07) -> crossed FORCÉ (Bitget

@@ -5942,6 +5942,7 @@ def test_futures_executor_maker_et_repli():
 
     _orig = fe._cfg
     _orig_style = fe._exec_style
+    _orig_syms = fe._maker_symbols
     fe._cfg = lambda n, d=None: 0 if n in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S") else _orig(n, d)
     try:
         # 1) REMPLI -> maker ; TAILLE au mark (size_for(13,60000)=0.0002), PRIX au BID (post_only)
@@ -6012,9 +6013,23 @@ def test_futures_executor_maker_et_repli():
         res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=MARK,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
         assert res["bitget_order"]["force"] == "ioc" and res["bitget_order"]["orderType"] == "limit"
+
+        # 10) FILTRE PAR SYMBOLE : maker restreint à BTCUSDT -> BTC=maker, tout autre=taker
+        fe._exec_style = lambda: "maker"
+        fe._maker_symbols = lambda: {"BTCUSDT"}
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
+        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=MARK,      # order() = BTCUSDT
+                             marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
+        assert res["exec_style"] == "maker"                # BTCUSDT dans le périmètre -> maker
+        eth = fe.build_futures_order("geometric", "long", 13.0, 5.0, client_oid="e", symbol="ETHUSDT")
+        r2, _ = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
+        res2 = fe._place_real(eth, runner=r2, spec=_FUT_SPEC, price=MARK,
+                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
+        assert res2["bitget_order"]["force"] == "ioc"      # ETHUSDT hors périmètre -> taker éprouvé
     finally:
         fe._cfg = _orig
         fe._exec_style = _orig_style
+        fe._maker_symbols = _orig_syms
 
 
 def test_futures_executor_size_et_mapping_bitget():
