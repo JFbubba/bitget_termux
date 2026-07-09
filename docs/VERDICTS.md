@@ -41,6 +41,7 @@ Statuts : **REJETÉ** (mesuré perdant, ne pas re‑tester) · **GARDÉ** (branc
 |---|---|---|
 | **régime → consensus (c)** | edge banc DOUBLE en haute‑vol +0.12/+0.16 mais 1 seul bloc | re‑mesurer ~15/07 · mém. `pypi-tools-watchlist` |
 | **EXÉCUTION / frais** = le vrai levier | les signaux §72 sont mangés par les frais → travailler l'exécution, pas plus de signaux | `docs/BACKLOG_RECHERCHE.md` §104 |
+| mode MAKER futures (post-only + repli taker) | **CODÉ 09/07** : `FUTURES_EXEC_STYLE=maker` (opt-in, défaut OFF), post-only au bid/ask + poll court + annulation + repli taker du RESTANT (garde anti-double-position) ; testé hermétiquement (`test_futures_executor_maker_et_repli`). **À ARMER puis MESURER** l'économie réelle (~4 bps/side attendus vs taker) et le taux de fill maker | `futures_executor.py` `_place_maker` · §exec-frais |
 | futures edge directionnel | notional 25 $, edge robuste mais fragile | re‑mesurer ~14/07 · mém. `futures-edge-unproven` |
 | momentum cross‑sectionnel | à élever (les signaux mono‑actif sont de la réversion redondante) | BACKLOG §104 |
 | forecast Darts — panier diversifié → **REJETÉ 09/07** | 21 sym × 8 TF net de frais : 0/477 passe (seule UNI 1D = faux positif multiple-testing). IC RÉEL surtout actions US (0.20 t4.7)/alts (0.23 t3.5) mais mangé par frais (§104) | fait — ne pas re-tester |

@@ -159,3 +159,35 @@ sortie CLI notée). Dans les tests : tout mock d'API tierce sans commentaire « 
 le … via … » = suspect.
 **Statut.** RÉSOLU pour le collecteur (parse_html réparé, garde HTTP, mock aligné sur
 l'API observée) · RÈGLE ACTIVE pour les futurs adaptateurs.
+
+---
+
+## ERR-008 · 2026-07-09 · Conclure à l'ABSENCE d'une capacité sur un grep partiel
+
+**Contexte.** En travaillant le levier exécution/frais (mode maker futures), il fallait
+savoir si le bot pouvait ANNULER un ordre futures (indispensable au repli d'un post-only
+non rempli). J'ai grep les commandes d'annulation dans le code PYTHON + lu l'aide générique
+`bgc --help` -> conclu « aucune annulation futures, le CLI ne l'expose pas », et j'ai même
+RETIRÉ le builder maker déjà écrit en jugeant le repli irréalisable. **FAUX** :
+`futures_cancel_orders` (+ `futures_get_orders`, `futures_modify_order`) existent bel et
+bien dans `agent_hub/packages/bitget-core/src/tools/futures-trade.ts`. Le grep Python était
+vide parce que le bot ne les UTILISE pas encore — pas parce qu'ils n'EXISTENT pas.
+
+**Cause racine.** Variante d'ERR-003 : prendre l'absence d'USAGE dans un sous-système (le
+code Python appelant) pour l'absence de la CAPACITÉ dans le système (le CLI/API réel).
+L'aide `bgc --help` ne liste pas les tools un par un -> faux négatif renforcé. Preuve
+d'absence tirée d'une recherche au mauvais niveau d'abstraction.
+
+**Solution.** « Absence de preuve ≠ preuve d'absence » : pour statuer qu'une capacité
+N'EXISTE PAS, inspecter la SOURCE qui la DÉFINIT (ici le registre de tools de bitget-core),
+pas seulement ses appelants. Ne JAMAIS retirer du code déjà écrit sur une conclusion
+d'infaisabilité tant que la source définissante n'a pas été lue.
+
+**Contrôle (détection ailleurs).** Avant d'écrire « X n'est pas possible / non exposé /
+absent » : localiser le module qui DÉFINIT X (`find … -name '*.ts'`, registre, doc d'API)
+et l'inspecter, pas seulement `grep` ses usages. Pour les capacités de l'Agent Hub, la
+vérité est `agent_hub/packages/bitget-core/src/tools/*.ts` (fonctions `register*Tools`),
+PAS l'aide CLI ni le code Python appelant.
+
+**Statut.** RÉSOLU (mode maker livré avec `futures_cancel_orders`/`futures_get_orders`) ·
+RÈGLE ACTIVE.

@@ -644,7 +644,7 @@ def size_for(notional_usdt, price, spec):
     return size
 
 
-def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None):
+def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None, style=None):
     """PUR. Demande bornée -> ordre API Bitget v2, au FORMAT DU MODE DE POSITION :
       • hedge_mode (cible depuis le 03/07 — long ET short simultanés) : side = côté
         de la POSITION (buy=long, sell=short, convention Bitget), tradeSide
@@ -683,12 +683,21 @@ def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None):
         o["side"] = side_exec
         o["reduceOnly"] = "YES" if reduce else "NO"
     # style d'exécution (parité avec spot_executor, audit « plein potentiel ») :
-    #   • OUVERTURE en limit IOC plafonné à ±tol% du prix : remplit immédiatement
-    #     comme un market mais JAMAIS au-delà du plafond (anti-slippage borné ;
-    #     remplissage partiel possible = risque réduit, jamais aggravé) ;
+    #   • MAKER : OUVERTURE post-only au prix FOURNI (l'appelant passe le meilleur bid pour
+    #     un achat / ask pour une vente). Bitget REJETTE si l'ordre croiserait -> jamais de
+    #     frais taker (~2 bps vs ~6). Un non-fill est géré en aval (_place_maker : poll court
+    #     -> annulation -> repli taker du restant). Le `style` peut être forcé par l'appelant
+    #     (le repli taker construit un limit_ioc même quand FUTURES_EXEC_STYLE=maker).
+    #   • LIMIT_IOC (défaut) : OUVERTURE en limit IOC plafonné à ±tol% : remplit tout de suite
+    #     comme un market mais JAMAIS au-delà du plafond (anti-slippage borné ; partiel = risque
+    #     réduit) ;
     #   • RÉDUCTION en market : la sortie doit TOUJOURS réussir.
-    style = str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
-    if not reduce and style == "limit_ioc" and safe_float(price):
+    style = str(style if style is not None else _cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+    if not reduce and style == "maker" and safe_float(price):
+        o["orderType"] = "limit"
+        o["force"] = "post_only"
+        o["price"] = f"{round(float(price), price_place):.{price_place}f}"
+    elif not reduce and style == "limit_ioc" and safe_float(price):
         tol = float(_cfg("FUTURES_SLIPPAGE_TOL_PCT", 0.10)) / 100.0
         cap = float(price) * (1.0 + tol) if side_exec == "buy" else float(price) * (1.0 - tol)
         o["orderType"] = "limit"
@@ -892,11 +901,172 @@ def _ensure_leverage(leverage, runner=None, marge_mode=None, symbol=None):
     return True
 
 
-def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_mode=None):
+def _parse_hub_json(out):
+    """STRING de sortie bgc -> dict (best-effort ; isole le 1er objet JSON si du bruit
+    l'entoure). None si illisible."""
+    if not out:
+        return None
+    try:
+        return json.loads(out)
+    except Exception:
+        try:
+            i, j = out.index("{"), out.rindex("}")
+            return json.loads(out[i:j + 1])
+        except Exception:
+            return None
+
+
+def _order_id_from(out):
+    """orderId d'une réponse futures_place_order (single, ou 1er du batch). None si absent."""
+    d = _parse_hub_json(out)
+    data = d.get("data") if isinstance(d, dict) else None
+    if isinstance(data, dict):
+        oid = data.get("orderId")
+        if not oid:
+            lst = data.get("orderInfo") or data.get("successList") or []
+            oid = lst[0].get("orderId") if lst and isinstance(lst[0], dict) else None
+        return str(oid) if oid else None
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        oid = data[0].get("orderId")
+        return str(oid) if oid else None
+    return None
+
+
+def _order_fill_state(symbol, order_id, runner=None):
+    """(state, filled_qty) d'un ordre futures. state ∈ filled/partial/live/canceled/None ;
+    filled_qty en unités de base (0.0 si le champ manque). Lecture via _run (runner
+    injectable -> hermétique). None si TOTALEMENT illisible : l'appelant traite None en
+    fail-closed (jamais de repli aveugle)."""
+    from numeric_utils import safe_float
+    out = _run(["futures", "futures_get_orders", "--productType", PRODUCT_TYPE,
+                "--symbol", str(symbol).upper(), "--orderId", str(order_id)], runner=runner)
+    d = _parse_hub_json(out)
+    data = d.get("data") if isinstance(d, dict) else None
+    row = None
+    if isinstance(data, dict):
+        row = data if (data.get("orderId") or data.get("state") or data.get("status")) else None
+        if row is None:
+            lst = data.get("entrustedList") or data.get("orderList") or []
+            row = lst[0] if lst and isinstance(lst[0], dict) else None
+    elif isinstance(data, list) and data and isinstance(data[0], dict):
+        row = data[0]
+    if not isinstance(row, dict):
+        return None
+    raw = str(row.get("state") or row.get("status") or "").lower()
+    filled = safe_float(row.get("baseVolume") or row.get("fillSize")
+                        or row.get("filledQty") or row.get("accBaseVolume")) or 0.0
+    if "partial" in raw:
+        state = "partial"
+    elif "fill" in raw:
+        state = "filled"
+    elif "cancel" in raw:
+        state = "canceled"
+    elif raw in ("live", "new", "init", "open"):
+        state = "live"
+    else:
+        state = raw or None
+    return (state, filled)
+
+
+def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit_ioc"):
+    """Placement TAKER (limit_ioc plafonné à l'ouverture / market pour une réduction) —
+    chemin éprouvé §45. Construit le bo, envoie via l'Agent Hub, lit le succès. Retourne
+    un dict. Le style est FORCÉ (jamais post_only ici) : ce chemin n'exécute que du taker."""
+    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode, pos_mode=pos_mode, style=style)
+    if bo is None:
+        return {"ok": False, "executed": False,
+                "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
+                            "sous les minima du contrat)"]}
+    out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    success = (bool(out) and '"ok":false' not in compact and "error" not in compact
+               and ("orderid" in compact or '"data"' in compact))
+    return {"ok": True, "executed": success, "bitget_order": bo, "exec_style": style,
+            "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+
+
+def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
+    """MAKER post-only + repli taker (§exec-frais). Poste au meilleur bid (achat) / ask
+    (vente) ; attend un remplissage court (FUTURES_MAKER_WAIT_S) ; sinon ANNULE et replie
+    le RESTANT en taker.
+
+    GARDE ANTI-DOUBLE-POSITION : le restant à replier n'est calculé QUE sur la taille
+    remplie RELUE APRÈS annulation ; tout état illisible -> restant NUL (fail-closed :
+    jamais de position en double, quitte à ne remplir qu'une partie). Ouvertures seulement
+    (une réduction ne passe jamais ici : cf. routage dans `_place_real`)."""
+    from numeric_utils import safe_float
+    symbole = str(order.get("symbol") or SYMBOL).upper()
+    long_ = str(order.get("side")) == "long"
+    bid, ask = safe_float(top_of_book.get("bid")), safe_float(top_of_book.get("ask"))
+    prix_maker = bid if long_ else ask
+    if not prix_maker or prix_maker <= 0:                 # carnet illisible -> taker direct
+        return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
+    bo = to_bitget_order(order, spec, prix_maker, marge_mode=marge_mode,
+                         pos_mode=pos_mode, style="maker")
+    if bo is None:
+        return {"ok": False, "executed": False, "reasons": ["taille infaisable (maker)"]}
+    demande = safe_float(bo.get("size")) or 0.0
+    out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    placed = bool(out) and '"ok":false' not in compact and "error" not in compact
+    order_id = _order_id_from(out) if placed else None
+    if not placed or not order_id:                       # post-only rejeté/illisible -> taker
+        taker = _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
+        taker["exec_style"] = "taker_apres_rejet_maker"
+        return taker
+    wait_s = float(_cfg("FUTURES_MAKER_WAIT_S", 12))
+    poll_s = max(0.2, float(_cfg("FUTURES_MAKER_POLL_S", 2)))
+    deadline = time.time() + max(0.0, wait_s)
+    state, filled, first = None, 0.0, True
+    while first or time.time() < deadline:
+        first = False
+        st = _order_fill_state(symbole, order_id, runner=runner)
+        if st is not None:
+            state, filled = st
+            if state == "filled":
+                break
+        if time.time() >= deadline:
+            break
+        time.sleep(poll_s)
+    if state == "filled":
+        return {"ok": True, "executed": True, "bitget_order": bo, "exec_style": "maker",
+                "filled": filled, "response": (out or "")[:2000],
+                "clientOid": order.get("clientOid")}
+    # non / partiellement rempli -> ANNULER, puis RELIRE le rempli CONFIRMÉ
+    _run(["futures", "futures_cancel_orders", "--productType", PRODUCT_TYPE,
+          "--symbol", symbole, "--orderId", str(order_id)], runner=runner)
+    st = _order_fill_state(symbole, order_id, runner=runner)
+    filled_confirme = st[1] if st is not None else None
+    if filled_confirme is None:                          # état inconnu -> AUCUN repli (anti-doublon)
+        return {"ok": True, "executed": bool(filled), "bitget_order": bo,
+                "exec_style": "maker_indetermine", "filled": filled,
+                "reasons": ["état post-annulation illisible : repli taker SUPPRIMÉ (anti-doublon)"],
+                "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+    min_size = safe_float((spec or {}).get("min_size")) or 0.0
+    restant = max(0.0, demande - filled_confirme)
+    if restant < max(min_size, 1e-12):                   # tout rempli en maker (ou reste négligeable)
+        return {"ok": True, "executed": bool(filled_confirme > 0), "bitget_order": bo,
+                "exec_style": "maker", "filled": filled_confirme,
+                "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+    # repli TAKER du RESTANT confirmé : notional = restant (base) × prix
+    reste = dict(order)
+    reste["notional_usdt"] = restant * float(price)
+    reste["reduce"] = False
+    taker = _submit_taker(reste, runner, spec, price, marge_mode, pos_mode)
+    taker["exec_style"] = "maker_puis_taker"
+    taker["filled_maker"] = filled_confirme
+    return taker
+
+
+def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_mode=None,
+                top_of_book=None):
     """Chemin RÉEL (étape 2, §45). Résout le mode de position EFFECTIF (position
     ouverte = autorité ; à plat = bascule vers la cible hedge_mode, décision 03/07),
-    mappe la demande au format de CE mode, fixe le levier borné, exécute via l'Agent
-    Hub. FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
+    fixe le levier borné, puis ROUTE l'exécution :
+      • MAKER post-only + repli taker (§exec-frais) SI FUTURES_EXEC_STYLE=maker, sur une
+        OUVERTURE, et si le carnet (top_of_book) est fourni ;
+      • sinon TAKER limit_ioc (défaut ; et TOUTE réduction reste market).
+    FAIL-CLOSED à chaque étape illisible. Retourne un dict."""
     symbole = str(order.get("symbol") or SYMBOL).upper()
     spec = _contract_spec(symbole) if spec is None else spec
     if not spec:
@@ -912,21 +1082,14 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
     if pos_mode is None:
         return {"ok": False, "executed": False,
                 "reasons": ["mode de position irrésoluble/refusé (fail-closed)"]}
-    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode, pos_mode=pos_mode)
-    if bo is None:
-        return {"ok": False, "executed": False,
-                "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
-                            "sous les minima du contrat)"]}
     if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode,
                             symbol=symbole):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
-    out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
-    compact = (out or "").replace(" ", "").lower()
-    success = (bool(out) and '"ok":false' not in compact and "error" not in compact
-               and ("orderid" in compact or '"data"' in compact))
-    return {"ok": True, "executed": success, "bitget_order": bo,
-            "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+    style = str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+    if style == "maker" and not bool(order.get("reduce")) and top_of_book:
+        return _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book)
+    return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
 
 
 def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
@@ -992,7 +1155,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
         return {"ok": False, "executed": False, "preview": preview, "clientOid": oid,
                 "reasons": ["stop de perte journalier franchi (kill-switch armé)"]}
     res = _place_real(order, runner=runner, spec=spec, price=price, marge_mode=marge_mode,
-                      pos_mode=pos_mode)
+                      pos_mode=pos_mode, top_of_book=top_of_book)
     if journal:
         _journal({"action": "FUTURES_REAL" if res.get("executed") else "FUTURES_REAL_FAILED",
                   "ts": now, "order": order, "bitget_order": res.get("bitget_order"),

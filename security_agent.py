@@ -47,17 +47,20 @@ EXEC_REQUIRED_GUARDS = ["mandate_live_enabled", "kill_switch", "confirm"]
 FUTURES_EXEC_FILES = ["futures_executor.py"]
 # §45 (02/07/2026, décision propriétaire) : le chemin réel futures est câblé — le
 # réglage du levier (BORNÉ au mur ×5 par les gardes) et le side 'sell' (shorts du
-# carry/directionnel) font désormais partie du périmètre du module. Restent INTERDITS
-# DURS : retrait, virement, annulation (aucun besoin : ordres market/IOC), les noms
-# de fonctions de vente spot (_sell/sell_), et le MARGIN TRADING — motif précisé le
-# 02/07 (option 1 approuvée par le propriétaire) : l'ancien motif large "margin_"
-# matchait par accident les paramètres API légitimes (marginCoin/marginMode via
-# MARGIN_COIN) ; on interdit désormais la liste EXACTE et complète des outils du
-# module margin de bitget-core (écritures ET lectures : ce module n'a RIEN à y faire).
+# carry/directionnel) font désormais partie du périmètre du module.
+# §exec-frais (09/07/2026) : le MODE MAKER (post-only + repli taker) exige d'ANNULER un
+# ordre futures NON rempli -> l'annulation FUTURES (futures_cancel_orders) devient
+# LÉGITIME. Elle est SÛRE par nature : retirer un ordre du carnet ne peut ni sortir des
+# fonds, ni dépasser un cap, ni changer le levier — c'est RÉDUCTEUR de risque. L'ancien
+# motif d'interdit "aucun besoin d'annuler (ordres market/IOC)" ne tient plus. Restent
+# INTERDITS DURS : retrait, virement, annulation SPOT/MARGE (le module ne touche QUE le
+# futures), les noms de vente spot (_sell/sell_), et le MARGIN TRADING — motif précisé
+# le 02/07 (option 1) : l'ancien "margin_" large matchait des paramètres API légitimes
+# (marginCoin/marginMode via MARGIN_COIN) ; on interdit la liste EXACTE des outils margin.
 FUTURES_EXEC_FORBIDDEN = [
     "withdraw", "transfer", "_sell", "sell_",
-    "cancel_order", "cancelorder",
-    "margin_borrow", "margin_repay", "margin_place_order", "margin_cancel_orders",
+    "spot_cancel_orders", "margin_cancel_orders",   # annulation FUTURES OK (maker §exec-frais) ; spot/marge NON
+    "margin_borrow", "margin_repay", "margin_place_order",
     "margin_get_assets", "margin_get_orders", "margin_get_records",
 ]
 FUTURES_EXEC_REQUIRED_GUARDS = [
@@ -265,9 +268,10 @@ def scan_authorized_exec(filename):
 
 def scan_futures_exec(filename):
     """Audit du 2e module d'exécution BORNÉ (futures, §34). Tolère le vocabulaire d'ordre
-    futures borné mais reste STRICT sur l'interdit dur (retrait/transfert/levier hors mur/
-    vente/annulation) et EXIGE les verrous (double verrou + edge + kill_switch + confirm).
-    Retourne la liste des soucis."""
+    futures borné — Y COMPRIS l'annulation FUTURES (mode maker §exec-frais : sûre, retire un
+    ordre du carnet) — mais reste STRICT sur l'interdit dur (retrait/transfert/vente/margin,
+    et annulation SPOT/MARGE) et EXIGE les verrous (double verrou + edge + kill_switch +
+    confirm). Retourne la liste des soucis."""
     path = Path(filename)
     if not path.exists():
         return []

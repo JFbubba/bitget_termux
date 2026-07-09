@@ -5896,6 +5896,108 @@ def test_futures_executor_dry_and_real_path():
     assert r6["executed"] is True                     # fermer n'aggrave jamais le risque
 
 
+def test_futures_executor_maker_et_repli():
+    """Mode maker (§exec-frais) : post-only au bid/ask + repli taker GARDÉ. Hermétique
+    (runner injecté ; attente maker forcée à 0). Couvre : rempli, non-rempli->taker,
+    partiel->restant, GARDE anti-doublon (état illisible après annulation -> AUCUN repli),
+    rejet post_only->taker direct, et le routage (réduction / sans-carnet / défaut ne
+    postent JAMAIS de post_only orphelin)."""
+    import futures_executor as fe
+    tob = {"bid": 60000.0, "ask": 60006.0, "bid_size": 5.0, "ask_size": 5.0}
+
+    def order(reduce=False, side="long"):
+        return fe.build_futures_order("geometric", side, 13.0, 5.0, client_oid="c1", reduce=reduce)
+
+    def make_runner(go_fn, reject1=False):
+        c = {"place": 0, "get_orders": 0, "cancel": 0}
+
+        def runner(cmd):
+            t = cmd[1] if len(cmd) > 1 else cmd[0]
+            if t in ("futures_set_leverage", "futures_update_config"):
+                return '{"data":{"ok":true}}'
+            if t == "futures_place_order":
+                c["place"] += 1
+                if reject1 and c["place"] == 1:
+                    return '{"msg":"post only order would immediately match","error":true}'
+                return '{"data":{"orderId":"OID%d"}}' % c["place"]
+            if t == "futures_get_orders":
+                c["get_orders"] += 1
+                return go_fn(c["get_orders"], c["cancel"])
+            if t == "futures_cancel_orders":
+                c["cancel"] += 1
+                return '{"data":{"orderId":"OID1"}}'
+            return '{"data":{}}'
+        return runner, c
+
+    _orig = fe._cfg
+    fe._cfg = lambda n, d=None: 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d)
+    try:
+        # 1) REMPLI en maker -> exec_style=maker, 1 place, 0 cancel, post_only AU BID
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker" and res["executed"]
+        assert c["place"] == 1 and c["cancel"] == 0
+        assert res["bitget_order"]["force"] == "post_only" and res["bitget_order"]["price"] == "60000.0"
+
+        # 2) NON REMPLI -> annulation -> repli TAKER (force ioc), 2 place, 1 cancel
+        def g2(n, cx):
+            return ('{"data":{"state":"live","baseVolume":"0"}}' if cx == 0
+                    else '{"data":{"state":"canceled","baseVolume":"0"}}')
+        r, c = make_runner(g2)
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_puis_taker" and c["place"] == 2 and c["cancel"] == 1
+        assert res["bitget_order"]["force"] == "ioc"
+
+        # 3) PARTIEL -> repli du RESTANT seulement (filled_maker relu APRÈS annulation)
+        def g3(n, cx):
+            return ('{"data":{"state":"partial","baseVolume":"0.0001"}}' if cx == 0
+                    else '{"data":{"state":"canceled","baseVolume":"0.0001"}}')
+        r, c = make_runner(g3)
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_puis_taker" and abs(res["filled_maker"] - 0.0001) < 1e-9
+        assert c["place"] == 2 and c["cancel"] == 1
+
+        # 4) GARDE ANTI-DOUBLON : état ILLISIBLE après annulation -> AUCUN repli taker
+        def g4(n, cx):
+            return ('{"data":{"state":"live","baseVolume":"0"}}' if cx == 0 else 'PAS_DU_JSON')
+        r, c = make_runner(g4)
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_indetermine"
+        assert c["place"] == 1 and c["cancel"] == 1        # annulé, mais JAMAIS re-placé
+
+        # 5) POST-ONLY REJETÉ à la soumission -> taker DIRECT (aucun poll, aucune annulation)
+        r, c = make_runner(lambda n, cx: '{"data":{}}', reject1=True)
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "taker_apres_rejet_maker"
+        assert c["place"] == 2 and c["get_orders"] == 0 and c["cancel"] == 0
+
+        # 6) SHORT -> poste à l'ASK, side=sell
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
+        res = fe._place_maker(order(side="short"), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["bitget_order"]["price"] == "60006.0" and res["bitget_order"]["side"] == "sell"
+
+        # 7) ROUTAGE _place_real : RÉDUCTION en mode maker -> market (jamais post_only)
+        fe._cfg = lambda n, d=None: ("maker" if n == "FUTURES_EXEC_STYLE"
+                                     else 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d))
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
+        res = fe._place_real(order(reduce=True), runner=r, spec=_FUT_SPEC, price=60000.0,
+                             marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
+        assert res["bitget_order"]["orderType"] == "market"
+
+        # 8) ROUTAGE : mode maker mais SANS carnet -> taker limit_ioc (pas de post_only orphelin)
+        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
+                             marge_mode="isolated", pos_mode="hedge_mode", top_of_book=None)
+        assert res["bitget_order"]["force"] == "ioc"
+    finally:
+        fe._cfg = _orig
+
+    # 9) DÉFAUT (limit_ioc) STRICTEMENT inchangé : ouverture -> force ioc, jamais post_only
+    r, c = make_runner(lambda n, cx: '{"data":{}}')
+    res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
+                         marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
+    assert res["bitget_order"]["force"] == "ioc" and res["bitget_order"]["orderType"] == "limit"
+
+
 def test_futures_executor_size_et_mapping_bitget():
     import futures_executor as fe
     # taille : arrondie VERS LE BAS au pas, refus sous les minima (taille OU notional)

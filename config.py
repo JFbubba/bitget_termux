@@ -189,8 +189,13 @@ FUTURES_POSITION_MODE = "hedge_mode"  # mode CIBLE (déclaré par le propriétai
                                       # simultanés (carry + directionnel). ADAPTATIF : une position
                                       # OUVERTE fait autorité (Bitget refuse de basculer en position) ;
                                       # la bascule s'applique au premier ordre à plat.
-FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut
+FUTURES_EXEC_STYLE = "limit_ioc"      # ouvertures : limit IOC plafonné (anti-slippage) ; "market" = brut ;
+                                      # "maker" = post-only au bid/ask + repli taker (§exec-frais, opt-in) :
+                                      # vise ~2 bps maker au lieu de ~6 taker ; non rempli sous le délai ->
+                                      # annulation puis repli taker du RESTANT (garde anti-double-position)
 FUTURES_SLIPPAGE_TOL_PCT = 0.10       # plafond de slippage des ouvertures (% au-delà du mark)
+FUTURES_MAKER_WAIT_S = 12             # mode maker : délai d'attente du remplissage post-only avant repli taker
+FUTURES_MAKER_POLL_S = 2              # mode maker : intervalle de poll de l'état de l'ordre pendant l'attente
 FUTURES_MARGIN_MODE = "isolated"         # perte max d'une position = sa marge ; ADAPTATIF :
                                          # compte en mode multi-devises (assetMode union,
                                          # constaté le 02/07) -> crossed FORCÉ (Bitget
