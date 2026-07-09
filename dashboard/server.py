@@ -181,6 +181,21 @@ def radar_univers(entries, symbols, now=None, fenetre_s=21600, max_pts=48,
     return out
 
 
+def _murs_futures_txt():
+    """Murs/caps futures affichés depuis la SOURCE qui les APPLIQUE (futures_executor),
+    jamais une chaîne codée en dur (cf. docs/AGENT_ERRORS.md ERR-010). Fail-safe :
+    repli sur les murs absolus connus si l'import échoue."""
+    try:
+        import futures_executor as _fx
+        pe = _fx._capped("FUTURES_REAL_MAX_PER_TRADE_USDT", 10.0, _fx.FUT_ABS_MAX_PER_TRADE_USDT)
+        ge = _fx._capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0, _fx.FUT_ABS_MAX_GROSS_USDT)
+        return (f"futures {pe:.0f}$/trade (mur {_fx.FUT_ABS_MAX_PER_TRADE_USDT:.0f}) · "
+                f"{ge:.0f}$ cumulé (mur {_fx.FUT_ABS_MAX_GROSS_USDT:.0f}) · "
+                f"levier ≤×5 · stop −5 % · retrait impossible")
+    except Exception:
+        return "futures 50/250 $ · levier ≤×5 · stop −5 % · retrait impossible"
+
+
 def chat_context(state):
     """Contexte COMPACT pour le chat du dashboard (PUR, testable) : l'essentiel de
     l'état déjà construit, SANS les blobs (bougies, carnet, viz, smc, future…) et
@@ -228,7 +243,7 @@ def chat_context(state):
         },
         "gardes": {"kill_switch": (st.get("system") or {}).get("kill_switch"),
                    "caps_accumulation_jour": st.get("caps"),
-                   "murs": "futures 50/250 $ · levier ≤×5 · stop −5 % · retrait impossible"},
+                   "murs": _murs_futures_txt()},
         "evenements_recents": (st.get("bord") or [])[:8],
         "rendez_vous": st.get("rdv") or [],
         "consensus_univers": ((st.get("viz") or {}).get("consensus_univers") or [])[:10],
