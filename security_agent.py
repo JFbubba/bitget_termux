@@ -59,9 +59,15 @@ FUTURES_EXEC_FILES = ["futures_executor.py"]
 # (marginCoin/marginMode via MARGIN_COIN) ; on interdit la liste EXACTE des outils margin.
 FUTURES_EXEC_FORBIDDEN = [
     "withdraw", "transfer", "_sell", "sell_",
-    "spot_cancel_orders", "margin_cancel_orders",   # annulation FUTURES OK (maker §exec-frais) ; spot/marge NON
-    "margin_borrow", "margin_repay", "margin_place_order",
-    "margin_get_assets", "margin_get_orders", "margin_get_records",
+    # AUCUN tool SPOT ni MARGE : le module ne touche QUE le futures. On cible les NOMS de tools
+    # bgc (string literals "spot_..."/"margin_..." via le guillemet ouvrant) -> pas de faux
+    # positif sur les paramètres camelCase marginCoin/marginMode. ALLOW-LIST DE FAIT (durci
+    # §code-review 09/07) : seuls les tools "futures_..." passent (place/cancel/get_orders/
+    # get_fills/get_positions/get_ticker/set_leverage/update_config). Toute surface
+    # d'annulation/placement/modification spot ou marge (spot_modify_order, spot_cancel_order,
+    # plan_cancel, margin_borrow…) est ainsi bloquée sans avoir à l'énumérer.
+    '"spot_', '"margin_', "'spot_", "'margin_",
+    "account_transfer", "earn_",
 ]
 FUTURES_EXEC_REQUIRED_GUARDS = [
     "mandate_live_enabled", "futures_autonomous_live", "futures_live_allowed",

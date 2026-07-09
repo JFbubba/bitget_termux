@@ -191,3 +191,32 @@ PAS l'aide CLI ni le code Python appelant.
 
 **Statut.** RÉSOLU (mode maker livré avec `futures_cancel_orders`/`futures_get_orders`) ·
 RÈGLE ACTIVE.
+
+---
+
+## ERR-009 · 2026-07-09 · Test « ancré sur le réel » mais sur le MAUVAIS endpoint (faux-vert)
+
+**Contexte.** Le poll du mode maker lit l'état d'un ordre via `futures_get_orders --orderId`
+qui route vers `/api/v2/mix/order/detail`. Suite à ERR-007 j'avais « ancré » le test de
+parsing sur une observation réelle… mais celle de `--status history` (`/orders-history`),
+dont le schéma DIFFÈRE (`status` vs `state`). Les 3 portes étaient VERTES alors que le chemin
+réellement emprunté (`/detail`) n'était validé NULLE PART, et le mock du dépôt (`FuturesOrder`)
+n'a aucun champ de quantité remplie. Un `/code-review` xhigh a levé le trou (parmi des bugs de
+double-position dans la garde anti-doublon).
+
+**Cause racine.** « Ancrer sur une observation réelle » (ERR-007) ne suffit pas si
+l'observation porte sur un endpoint/chemin DIFFÉRENT de celui que le code appelle. Un test
+vert sur un schéma voisin ≠ un test du vrai chemin. Ici le code lisait `state OR status` : le
+mock à `status` passait, masquant que `/detail` renvoie `state`.
+
+**Solution.** Le mock/ancrage doit provenir de l'EXACT appel que le code fait en prod (même
+endpoint, mêmes params). Vérifié le 09/07 : `/detail` exige `--symbol` (sinon `data=None`) et
+renvoie `state`+`baseVolume` ; le test ré-ancré dessus.
+
+**Contrôle (détection ailleurs).** Pour tout test qui « ancre » un parsing d'API : confirmer
+que la commande/endpoint OBSERVÉ est IDENTIQUE à celui appelé par le code testé (même
+sous-commande, mêmes flags). Un mock utilisant un champ que le code lit via un `OR` de repli,
+alors que l'endpoint réel renvoie l'autre champ, est un faux-vert.
+
+**Statut.** RÉSOLU (test ré-ancré sur `/detail` réel ; `_order_fill_state` lit `state`+
+`baseVolume` via `hub._read`) · RÈGLE ACTIVE.

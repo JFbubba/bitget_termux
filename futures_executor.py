@@ -662,7 +662,7 @@ def size_for(notional_usdt, price, spec):
     return size
 
 
-def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None, style=None):
+def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None, style=None, maker_price=None):
     """PUR. Demande bornée -> ordre API Bitget v2, au FORMAT DU MODE DE POSITION :
       • hedge_mode (cible depuis le 03/07 — long ET short simultanés) : side = côté
         de la POSITION (buy=long, sell=short, convention Bitget), tradeSide
@@ -712,9 +712,13 @@ def to_bitget_order(order, spec, price, marge_mode=None, pos_mode=None, style=No
     #   • RÉDUCTION en market : la sortie doit TOUJOURS réussir.
     style = str(style if style is not None else _cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
     if not reduce and style == "maker" and safe_float(price):
+        # TAILLE déjà calculée sur `price` (mark, plus haut via size_for) -> respecte le
+        # notional approuvé par guards(). PRIX D'ORDRE = maker_price fourni (meilleur bid pour
+        # un achat / ask pour une vente) pour le post-only ; repli sur `price` si absent.
         o["orderType"] = "limit"
         o["force"] = "post_only"
-        o["price"] = f"{round(float(price), price_place):.{price_place}f}"
+        px = float(maker_price) if safe_float(maker_price) else float(price)
+        o["price"] = f"{round(px, price_place):.{price_place}f}"
     elif not reduce and style == "limit_ioc" and safe_float(price):
         tol = float(_cfg("FUTURES_SLIPPAGE_TOL_PCT", 0.10)) / 100.0
         cap = float(price) * (1.0 + tol) if side_exec == "buy" else float(price) * (1.0 - tol)
@@ -934,6 +938,22 @@ def _parse_hub_json(out):
             return None
 
 
+def _read_hub(cmd, runner=None):
+    """LECTURE PROPRE du hub. En test : via `runner` (string -> _parse_hub_json). En prod :
+    via bitget_hub_bridge._read (force --read-only -> stdout PUR, pas de stderr mêlé comme
+    _run) -> dict déjà parsé. None si indisponible/illisible. Utilisé par les lectures d'état
+    d'ordre (poll maker) pour éviter le parsing fragile d'un flux stdout+stderr fusionné."""
+    if runner is not None:
+        return _parse_hub_json(runner(cmd))
+    try:
+        import bitget_hub_bridge as hub
+        if not hub.available():
+            return None
+        return hub._read(cmd)
+    except Exception:
+        return None
+
+
 def _order_id_from(out):
     """orderId d'une réponse futures_place_order (single, ou 1er du batch). None si absent."""
     d = _parse_hub_json(out)
@@ -951,14 +971,14 @@ def _order_id_from(out):
 
 
 def _order_fill_state(symbol, order_id, runner=None):
-    """(state, filled_qty) d'un ordre futures. state ∈ filled/partial/live/canceled/None ;
-    filled_qty en unités de base (0.0 si le champ manque). Lecture via _run (runner
-    injectable -> hermétique). None si TOTALEMENT illisible : l'appelant traite None en
-    fail-closed (jamais de repli aveugle)."""
+    """(state, filled_qty) d'un ordre futures via /detail (--orderId). state normalisé
+    ∈ filled/partial/live/canceled (ou brut) ; filled_qty en base = baseVolume de /detail
+    (champ standard, confirmé en réel le 09/07). Lecture PROPRE via _read_hub (hub._read en
+    prod = stdout pur ; runner en test). None si la ligne est illisible : l'appelant traite
+    None en fail-closed (jamais de repli aveugle)."""
     from numeric_utils import safe_float
-    out = _run(["futures", "futures_get_orders", "--productType", PRODUCT_TYPE,
-                "--symbol", str(symbol).upper(), "--orderId", str(order_id)], runner=runner)
-    d = _parse_hub_json(out)
+    d = _read_hub(["futures", "futures_get_orders", "--productType", PRODUCT_TYPE,
+                   "--symbol", str(symbol).upper(), "--orderId", str(order_id)], runner=runner)
     data = d.get("data") if isinstance(d, dict) else None
     row = None
     if isinstance(data, dict):
@@ -971,8 +991,13 @@ def _order_fill_state(symbol, order_id, runner=None):
     if not isinstance(row, dict):
         return None
     raw = str(row.get("state") or row.get("status") or "").lower()
-    filled = safe_float(row.get("baseVolume") or row.get("fillSize")
-                        or row.get("filledQty") or row.get("accBaseVolume")) or 0.0
+    # baseVolume = quantité remplie (/detail, champ standard). safe_float sur baseVolume SEUL
+    # d'abord (ne PAS court-circuiter un "0" légitime — chaîne truthy — vers un autre champ) ;
+    # fallback seulement si baseVolume est absent.
+    filled = safe_float(row.get("baseVolume"))
+    if filled is None:
+        filled = safe_float(row.get("fillSize") or row.get("filledQty")
+                            or row.get("accBaseVolume")) or 0.0
     if "partial" in raw:
         state = "partial"
     elif "fill" in raw:
@@ -996,48 +1021,64 @@ def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
-    compact = (out or "").replace(" ", "").lower()
-    success = (bool(out) and '"ok":false' not in compact and "error" not in compact
-               and ("orderid" in compact or '"data"' in compact))
+    success = _order_id_from(out) is not None          # succès = un orderId RÉELLEMENT extrait
     return {"ok": True, "executed": success, "bitget_order": bo, "exec_style": style,
             "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
 
 
 def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
-    """MAKER post-only + repli taker (§exec-frais). Poste au meilleur bid (achat) / ask
-    (vente) ; attend un remplissage court (FUTURES_MAKER_WAIT_S) ; sinon ANNULE et replie
-    le RESTANT en taker.
+    """MAKER post-only + repli taker GARDÉ (§exec-frais). TAILLE au prix de référence `price`
+    (mark -> respecte le notional approuvé par guards) ; PRIX D'ORDRE au meilleur bid (achat)
+    / ask (vente). Attend un remplissage court (FUTURES_MAKER_WAIT_S) ; sinon ANNULE et replie
+    le RESTANT en taker sous un clientOid NEUF.
 
-    GARDE ANTI-DOUBLE-POSITION : le restant à replier n'est calculé QUE sur la taille
-    remplie RELUE APRÈS annulation ; tout état illisible -> restant NUL (fail-closed :
-    jamais de position en double, quitte à ne remplir qu'une partie). Ouvertures seulement
-    (une réduction ne passe jamais ici : cf. routage dans `_place_real`)."""
+    GARDES (argent réel) :
+      • ANTI-DOUBLE-POSITION : on ne replie QUE si l'annulation est CONFIRMÉE — état TERMINAL
+        (canceled/filled) relu après annulation. Si l'ordre reste live/partial (annulation non
+        effective), illisible, ou non confirmé -> AUCUN repli : l'ordre maker reste vivant et
+        remplira en maker, jamais de taker empilé sur un ordre encore actif.
+      • clientOid du repli DISTINCT (Bitget déduplique -> sinon le repli est rejeté).
+      • une position réellement ouverte (fill maker > 0) est signalée executed=True (jamais
+        journalée en échec).
+    Ouvertures seulement (routage dans `_place_real`)."""
     from numeric_utils import safe_float
     symbole = str(order.get("symbol") or SYMBOL).upper()
     long_ = str(order.get("side")) == "long"
     bid, ask = safe_float(top_of_book.get("bid")), safe_float(top_of_book.get("ask"))
     prix_maker = bid if long_ else ask
-    if not prix_maker or prix_maker <= 0:                 # carnet illisible -> taker direct
+    if not prix_maker or prix_maker <= 0 or not safe_float(price):   # carnet/mark illisible -> taker
         return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
-    bo = to_bitget_order(order, spec, prix_maker, marge_mode=marge_mode,
-                         pos_mode=pos_mode, style="maker")
+    # TAILLE au mark (price), PRIX D'ORDRE au bid/ask (maker_price) : respecte le notional
+    # approuvé par guards() et poste en post-only (§exec-frais).
+    bo = to_bitget_order(order, spec, price, marge_mode=marge_mode, pos_mode=pos_mode,
+                         style="maker", maker_price=prix_maker)
     if bo is None:
         return {"ok": False, "executed": False, "reasons": ["taille infaisable (maker)"]}
     demande = safe_float(bo.get("size")) or 0.0
+    try:                                                 # réglages lus AVANT le placement
+        wait_s = max(0.0, float(_cfg("FUTURES_MAKER_WAIT_S", 12)))
+        poll_s = max(0.2, float(_cfg("FUTURES_MAKER_POLL_S", 2)))
+    except (TypeError, ValueError):
+        wait_s, poll_s = 12.0, 2.0
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
-    compact = (out or "").replace(" ", "").lower()
-    placed = bool(out) and '"ok":false' not in compact and "error" not in compact
-    order_id = _order_id_from(out) if placed else None
-    if not placed or not order_id:                       # post-only rejeté/illisible -> taker
+    order_id = _order_id_from(out)                       # succès = un orderId RÉELLEMENT extrait
+    if not order_id:                                     # post-only rejeté / réponse illisible -> taker
         taker = _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
         taker["exec_style"] = "taker_apres_rejet_maker"
         return taker
-    wait_s = float(_cfg("FUTURES_MAKER_WAIT_S", 12))
-    poll_s = max(0.2, float(_cfg("FUTURES_MAKER_POLL_S", 2)))
-    deadline = time.time() + max(0.0, wait_s)
-    state, filled, first = None, 0.0, True
-    while first or time.time() < deadline:
-        first = False
+
+    def _res(exec_style, executed, filled_q, reasons=None):
+        r = {"ok": True, "executed": bool(executed), "bitget_order": bo,
+             "exec_style": exec_style, "filled": filled_q,
+             "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+        if reasons:
+            r["reasons"] = reasons
+        return r
+
+    # poll du remplissage jusqu'au délai (au moins une lecture)
+    deadline = time.time() + wait_s
+    state, filled = None, 0.0
+    while True:
         st = _order_fill_state(symbole, order_id, runner=runner)
         if st is not None:
             state, filled = st
@@ -1047,32 +1088,39 @@ def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
             break
         time.sleep(poll_s)
     if state == "filled":
-        return {"ok": True, "executed": True, "bitget_order": bo, "exec_style": "maker",
-                "filled": filled, "response": (out or "")[:2000],
-                "clientOid": order.get("clientOid")}
-    # non / partiellement rempli -> ANNULER, puis RELIRE le rempli CONFIRMÉ
-    _run(["futures", "futures_cancel_orders", "--productType", PRODUCT_TYPE,
-          "--symbol", symbole, "--orderId", str(order_id)], runner=runner)
-    st = _order_fill_state(symbole, order_id, runner=runner)
-    filled_confirme = st[1] if st is not None else None
-    if filled_confirme is None:                          # état inconnu -> AUCUN repli (anti-doublon)
-        return {"ok": True, "executed": bool(filled), "bitget_order": bo,
-                "exec_style": "maker_indetermine", "filled": filled,
-                "reasons": ["état post-annulation illisible : repli taker SUPPRIMÉ (anti-doublon)"],
-                "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+        return _res("maker", True, filled)
+
+    # non/partiellement rempli -> ANNULER et CONFIRMER un état TERMINAL (retry court).
+    term_state, term_filled = None, None
+    for _ in range(3):
+        _run(["futures", "futures_cancel_orders", "--productType", PRODUCT_TYPE,
+              "--symbol", symbole, "--orderId", str(order_id)], runner=runner)
+        st = _order_fill_state(symbole, order_id, runner=runner)
+        if st is not None and st[0] in ("canceled", "filled"):
+            term_state, term_filled = st
+            break
+        time.sleep(poll_s)
+    if term_state is None or term_filled is None:
+        # annulation NON confirmée : l'ordre maker peut être ENCORE VIVANT -> AUCUN repli taker
+        # (anti-doublon). Il remplira en maker ; position signalée ouverte si déjà remplie.
+        return _res("maker_non_confirme", filled > 0, filled,
+                    reasons=["annulation non confirmée (ordre possiblement encore actif) : "
+                             "repli taker SUPPRIMÉ (anti-doublon)"])
+    if term_state == "filled":
+        return _res("maker", True, term_filled)
+    # CANCELED confirmé -> repli TAKER du RESTANT sous clientOid NEUF
     min_size = safe_float((spec or {}).get("min_size")) or 0.0
-    restant = max(0.0, demande - filled_confirme)
+    restant = max(0.0, demande - term_filled)
     if restant < max(min_size, 1e-12):                   # tout rempli en maker (ou reste négligeable)
-        return {"ok": True, "executed": bool(filled_confirme > 0), "bitget_order": bo,
-                "exec_style": "maker", "filled": filled_confirme,
-                "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
-    # repli TAKER du RESTANT confirmé : notional = restant (base) × prix
+        return _res("maker", term_filled > 0, term_filled)
     reste = dict(order)
     reste["notional_usdt"] = restant * float(price)
     reste["reduce"] = False
+    reste["clientOid"] = (str(order.get("clientOid") or "o") + "t")[-64:]   # clientOid DISTINCT
     taker = _submit_taker(reste, runner, spec, price, marge_mode, pos_mode)
     taker["exec_style"] = "maker_puis_taker"
-    taker["filled_maker"] = filled_confirme
+    taker["filled_maker"] = term_filled
+    taker["executed"] = bool(taker.get("executed")) or term_filled > 0     # position réelle si maker rempli
     return taker
 
 
@@ -1100,6 +1148,14 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
     if pos_mode is None:
         return {"ok": False, "executed": False,
                 "reasons": ["mode de position irrésoluble/refusé (fail-closed)"]}
+    # faisabilité de taille VÉRIFIÉE AVANT de régler le levier : un futures_set_leverage mute
+    # le prix de liquidation d'une position VIVANTE (compte union/crossed) — ne pas le faire
+    # pour un ordre ensuite abandonné (taille sous les minima). Réductions exclues (leur taille
+    # vient de size_btc, pas du notional).
+    if not order.get("reduce") and size_for(order.get("notional_usdt"), price, spec) is None:
+        return {"ok": False, "executed": False,
+                "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
+                            "sous les minima du contrat)"]}
     if not _ensure_leverage(order.get("leverage") or 1, runner=runner, marge_mode=marge_mode,
                             symbol=symbole):
         return {"ok": False, "executed": False,

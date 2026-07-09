@@ -5897,19 +5897,24 @@ def test_futures_executor_dry_and_real_path():
 
 
 def test_futures_executor_maker_et_repli():
-    """Mode maker (§exec-frais) : post-only au bid/ask + repli taker GARDÉ. Hermétique
-    (runner injecté ; attente maker forcée à 0). Couvre : rempli, non-rempli->taker,
-    partiel->restant, GARDE anti-doublon (état illisible après annulation -> AUCUN repli),
-    rejet post_only->taker direct, et le routage (réduction / sans-carnet / défaut ne
-    postent JAMAIS de post_only orphelin)."""
+    """Mode maker CORRIGÉ (§exec-frais) : post-only au bid/ask, TAILLE au mark, repli taker
+    GARDÉ. Hermétique (runner injecté, attente/poll forcés à 0). Couvre : rempli (taille au
+    mark, prix au bid), non-rempli -> cancel CONFIRMÉ (état terminal relu) -> repli sous
+    clientOid NEUF, partiel -> repli du restant (position réelle executed=True), cancel NON
+    confirmé (l'ordre reste live) -> AUCUN repli (anti-doublon), rejet -> taker direct,
+    schéma /detail réel (champ 'state'), et le routage (réduction/sans-carnet/défaut ne
+    postent jamais de post_only orphelin)."""
+    import json
     import futures_executor as fe
-    tob = {"bid": 60000.0, "ask": 60006.0, "bid_size": 5.0, "ask_size": 5.0}
+    # spread LARGE volontaire -> distingue TAILLE (au mark) de PRIX (au bid/ask)
+    tob = {"bid": 43000.0, "ask": 78000.0, "bid_size": 5.0, "ask_size": 5.0}
+    MARK = 60000.0
 
     def order(reduce=False, side="long"):
-        return fe.build_futures_order("geometric", side, 13.0, 5.0, client_oid="c1", reduce=reduce)
+        return fe.build_futures_order("geometric", side, 13.0, 5.0, client_oid="cidM", reduce=reduce)
 
-    def make_runner(go_fn, reject1=False):
-        c = {"place": 0, "get_orders": 0, "cancel": 0}
+    def make_runner(go_fn, place_fn=None):
+        c = {"place": 0, "get_orders": 0, "cancel": 0, "oids": []}
 
         def runner(cmd):
             t = cmd[1] if len(cmd) > 1 else cmd[0]
@@ -5917,8 +5922,14 @@ def test_futures_executor_maker_et_repli():
                 return '{"data":{"ok":true}}'
             if t == "futures_place_order":
                 c["place"] += 1
-                if reject1 and c["place"] == 1:
-                    return '{"msg":"post only order would immediately match","error":true}'
+                try:
+                    c["oids"].append(json.loads(cmd[cmd.index("--orders") + 1])[0].get("clientOid"))
+                except Exception:
+                    c["oids"].append(None)
+                if place_fn:
+                    rr = place_fn(c["place"])
+                    if rr is not None:
+                        return rr
                 return '{"data":{"orderId":"OID%d"}}' % c["place"]
             if t == "futures_get_orders":
                 c["get_orders"] += 1
@@ -5931,79 +5942,74 @@ def test_futures_executor_maker_et_repli():
 
     _orig = fe._cfg
     _orig_style = fe._exec_style
-    fe._cfg = lambda n, d=None: 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d)
+    fe._cfg = lambda n, d=None: 0 if n in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S") else _orig(n, d)
     try:
-        # 1) REMPLI en maker -> exec_style=maker, 1 place, 0 cancel, post_only AU BID
-        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        # 1) REMPLI -> maker ; TAILLE au mark (size_for(13,60000)=0.0002), PRIX au BID (post_only)
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
+        res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
         assert res["exec_style"] == "maker" and res["executed"]
         assert c["place"] == 1 and c["cancel"] == 0
-        assert res["bitget_order"]["force"] == "post_only" and res["bitget_order"]["price"] == "60000.0"
+        assert res["bitget_order"]["force"] == "post_only" and res["bitget_order"]["price"] == "43000.0"
+        assert res["bitget_order"]["size"] == "0.0002"     # taille au MARK, PAS au bid (sinon 0.0003)
 
-        # 2) NON REMPLI -> annulation -> repli TAKER (force ioc), 2 place, 1 cancel
+        # 2) NON REMPLI -> cancel CONFIRMÉ (canceled) -> repli taker sous clientOid DISTINCT
         def g2(n, cx):
             return ('{"data":{"state":"live","baseVolume":"0"}}' if cx == 0
                     else '{"data":{"state":"canceled","baseVolume":"0"}}')
         r, c = make_runner(g2)
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
-        assert res["exec_style"] == "maker_puis_taker" and c["place"] == 2 and c["cancel"] == 1
+        res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_puis_taker" and c["place"] == 2 and c["cancel"] >= 1
         assert res["bitget_order"]["force"] == "ioc"
+        assert c["oids"][0] != c["oids"][1]                # clientOid du repli NEUF (anti-dedup Bitget)
 
-        # 3) PARTIEL -> repli du RESTANT seulement (filled_maker relu APRÈS annulation)
+        # 3) PARTIEL -> repli du RESTANT (filled_maker relu APRÈS annulation), position réelle
         def g3(n, cx):
-            return ('{"data":{"state":"partial","baseVolume":"0.0001"}}' if cx == 0
+            return ('{"data":{"state":"partially_filled","baseVolume":"0.0001"}}' if cx == 0
                     else '{"data":{"state":"canceled","baseVolume":"0.0001"}}')
         r, c = make_runner(g3)
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
         assert res["exec_style"] == "maker_puis_taker" and abs(res["filled_maker"] - 0.0001) < 1e-9
-        assert c["place"] == 2 and c["cancel"] == 1
+        assert res["executed"]                              # position réelle -> jamais journalée FAILED
 
-        # 4) GARDE ANTI-DOUBLON : état ILLISIBLE après annulation -> AUCUN repli taker
-        def g4(n, cx):
-            return ('{"data":{"state":"live","baseVolume":"0"}}' if cx == 0 else 'PAS_DU_JSON')
-        r, c = make_runner(g4)
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
-        assert res["exec_style"] == "maker_indetermine"
-        assert c["place"] == 1 and c["cancel"] == 1        # annulé, mais JAMAIS re-placé
+        # 4) GARDE : cancel NON confirmé (l'ordre reste live après 3 tentatives) -> AUCUN repli
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"live","baseVolume":"0"}}')
+        res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_non_confirme"
+        assert c["place"] == 1 and c["cancel"] == 3        # 3 tentatives d'annulation, JAMAIS re-placé
 
-        # 5) POST-ONLY REJETÉ à la soumission -> taker DIRECT (aucun poll, aucune annulation)
-        r, c = make_runner(lambda n, cx: '{"data":{}}', reject1=True)
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        # 5) POST-ONLY REJETÉ (aucun orderId extrait) -> taker DIRECT
+        r, c = make_runner(lambda n, cx: '{"data":{}}',
+                           place_fn=lambda n: '{"code":"40774","msg":"post only would cross"}' if n == 1 else None)
+        res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
         assert res["exec_style"] == "taker_apres_rejet_maker"
         assert c["place"] == 2 and c["get_orders"] == 0 and c["cancel"] == 0
 
-        # 6) SHORT -> poste à l'ASK, side=sell
-        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
-        res = fe._place_maker(order(side="short"), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
-        assert res["bitget_order"]["price"] == "60006.0" and res["bitget_order"]["side"] == "sell"
+        # 6) SHORT -> prix à l'ASK, side sell
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
+        res = fe._place_maker(order(side="short"), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
+        assert res["bitget_order"]["price"] == "78000.0" and res["bitget_order"]["side"] == "sell"
 
-        # 6bis) SCHÉMA RÉEL ancré (ERR-007) — champs observés le 09/07/2026 en LECTURE SEULE
-        # via hub._read(["futures","futures_get_orders","--productType","USDT-FUTURES",
-        # "--status","history"]) : la clé réelle est 'status' (live/partially_filled/filled/
-        # canceled), PAS 'state', + 'baseVolume' (taille remplie). _order_fill_state doit lire
-        # ce schéma réel, et un 'partially_filled' réel doit déclencher le repli.
+        # 6bis) SCHÉMA RÉEL /detail ancré (ERR-007) — observé le 09/07/2026 via hub._read(
+        # ["futures","futures_get_orders","--symbol",X,"--orderId",Y]) : la clé /detail est
+        # 'state' (filled/canceled/live/partially_filled) + 'baseVolume'. _order_fill_state
+        # interroge /detail (--orderId), PAS /orders-history.
         def real_runner(cmd):
-            return '{"data":{"orderId":"OID1","status":"filled","baseVolume":"0.0003","size":"53"}}'
-        assert fe._order_fill_state("BTCUSDT", "OID1", runner=real_runner) == ("filled", 0.0003)
-        r, c = make_runner(lambda n, cx: ('{"data":{"status":"partially_filled","baseVolume":"0"}}'
-                                          if cx == 0 else '{"data":{"status":"canceled","baseVolume":"0"}}'))
-        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
-        assert res["exec_style"] == "maker_puis_taker"   # champ RÉEL 'status' -> non rempli -> repli taker
+            return '{"data":{"orderId":"OID1","state":"filled","baseVolume":"0.0002","size":"0.0002"}}'
+        assert fe._order_fill_state("BTCUSDT", "OID1", runner=real_runner) == ("filled", 0.0002)
 
-        # 7-8) ROUTAGE _place_real en mode maker — le style est un LEVIER armable via .env,
-        # lu par _exec_style (on le monkeypatche : test indépendant du .env réel armé)
+        # 7-8) ROUTAGE _place_real en mode maker (levier lu par _exec_style, monkeypatché)
         fe._exec_style = lambda: "maker"
-        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
-        res = fe._place_real(order(reduce=True), runner=r, spec=_FUT_SPEC, price=60000.0,
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
+        res = fe._place_real(order(reduce=True), runner=r, spec=_FUT_SPEC, price=MARK,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
         assert res["bitget_order"]["orderType"] == "market"    # réduction -> market, jamais post_only
-        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
+        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=MARK,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=None)
         assert res["bitget_order"]["force"] == "ioc"           # sans carnet -> taker limit_ioc
 
         # 9) DÉFAUT (limit_ioc) STRICTEMENT inchangé : ouverture -> force ioc, jamais post_only
         fe._exec_style = lambda: "limit_ioc"
-        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
+        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=MARK,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
         assert res["bitget_order"]["force"] == "ioc" and res["bitget_order"]["orderType"] == "limit"
     finally:
