@@ -23,6 +23,7 @@ VALIDATION_REPORT = Path(__file__).resolve().parent / "validation_report.json"
 
 
 from config_utils import cfg as _cfg
+import math
 
 
 # ---------- verrou réel ----------
@@ -37,9 +38,19 @@ def live_enabled():
 
 # ---------- levier (mur dur + ajustement autonome) ----------
 
+# Mur ABSOLU de levier — identique à futures_executor.FUT_ABS_MAX_LEVERAGE. Jamais dépassable.
+FUT_ABS_MAX_LEVERAGE = 5.0
+
 def max_leverage():
-    """Plafond DUR de levier. Le bot ne peut JAMAIS le dépasser."""
-    return float(_cfg("MANDATE_MAX_LEVERAGE", 5.0))
+    """Plafond DUR de levier. La config peut l'ABAISSER, jamais dépasser le mur absolu ×5
+    (aligné sur futures_executor) — le bot ne peut JAMAIS le dépasser. (§revue chemin argent)"""
+    try:
+        lev = float(_cfg("MANDATE_MAX_LEVERAGE", 5.0))
+    except (TypeError, ValueError):
+        return FUT_ABS_MAX_LEVERAGE
+    if not math.isfinite(lev) or lev <= 0:
+        return FUT_ABS_MAX_LEVERAGE
+    return min(FUT_ABS_MAX_LEVERAGE, lev)
 
 
 def target_leverage(conviction, volatility, base_vol=0.02):
@@ -50,10 +61,20 @@ def target_leverage(conviction, volatility, base_vol=0.02):
     plus on autorise de levier — mais jamais au-delà de max_leverage().
     """
     cap = max_leverage()
-    c = max(0.0, min(1.0, float(conviction)))
-    vol = max(1e-6, float(volatility))
+    try:
+        conv, vol, bv = float(conviction), float(volatility), float(base_vol)
+    except (TypeError, ValueError):
+        return 1.0
+    # Non-finis (NaN/inf) -> plancher 1.0 (JAMAIS le levier max) : un contrôle de risque
+    # doit échouer vers le BAS. (§revue chemin argent — Thème 4)
+    if not (math.isfinite(conv) and math.isfinite(vol) and math.isfinite(bv)):
+        return 1.0
+    c = max(0.0, min(1.0, conv))
+    vol = max(1e-6, vol)
     # cible ∝ conviction, atténuée par la vol relative ; plancher 1 (pas de levier).
-    lev = 1.0 + (cap - 1.0) * c * min(1.0, base_vol / vol)
+    lev = 1.0 + (cap - 1.0) * c * min(1.0, bv / vol)
+    if not math.isfinite(lev):
+        return 1.0
     return round(max(1.0, min(cap, lev)), 2)
 
 
@@ -94,7 +115,23 @@ def drawdown_halt(equity_curve, max_dd_pct=None):
     """Faut-il HALTER tout nouveau risque ? (drawdown ≥ MDD toléré). PUR.
     Retourne (halt: bool, dd_pct: float)."""
     max_dd = float(_cfg("MANDATE_MAX_DRAWDOWN_PCT", 20.0) if max_dd_pct is None else max_dd_pct)
-    dd_pct = drawdown_from_peak(equity_curve) * 100.0
+    present = [x for x in (equity_curve or []) if x is not None]
+    finite, corrupt = [], False
+    for x in present:
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            corrupt = True
+            continue
+        if math.isfinite(xf):
+            finite.append(xf)
+        else:
+            corrupt = True
+    # Courbe corrompue (NaN/inf/non numérique) -> HALTE : on ne peut pas prouver l'absence
+    # de drawdown. (§revue chemin argent — Thème 4). N'empêche que d'OUVRIR, jamais de sortir.
+    if corrupt:
+        return (True, 0.0)
+    dd_pct = drawdown_from_peak(finite) * 100.0
     return (dd_pct >= max_dd, round(dd_pct, 2))
 
 

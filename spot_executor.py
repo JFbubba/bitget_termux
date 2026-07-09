@@ -27,6 +27,7 @@ REAL_LEDGER = Path(__file__).resolve().parent / "accumulation_real_ledger.json"
 
 
 from config_utils import cfg as _cfg
+import math
 
 
 def _limit(name, fallback):
@@ -152,6 +153,11 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
         amt = float(amount_usdt or 0)
     except (TypeError, ValueError):
         reasons.append("montant invalide (non numérique)")
+        return (False, reasons)
+    if not math.isfinite(amt):
+        # NaN/inf défaisait toutes les comparaisons (amt<=0, amt>cap, sp+amt>cap tous False)
+        # -> ok=True à tort. Fail-closed. (§revue chemin argent — Thème 4)
+        reasons.append("montant non fini (NaN/inf)")
         return (False, reasons)
     if amt <= 0:
         reasons.append("montant ≤ 0")

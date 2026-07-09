@@ -9287,6 +9287,42 @@ def test_arm_kill_switch_returns_false_on_write_error():
         risk_manager.KILL_FILE = saved
 
 
+# ---------- §revue chemin argent — Thèmes 4-5 : non-finis + murs durs ----------
+
+def test_max_leverage_clamped_to_absolute_wall():
+    """La config peut ABAISSER le levier max, jamais DÉPASSER le mur absolu ×5."""
+    import mandate
+    saved = mandate._cfg
+    try:
+        mandate._cfg = lambda k, d=None: 10.0 if k == "MANDATE_MAX_LEVERAGE" else saved(k, d)
+        assert mandate.max_leverage() <= 5.0
+    finally:
+        mandate._cfg = saved
+
+def test_target_leverage_floors_on_nonfinite():
+    """conviction/vol non finies (NaN/inf) -> plancher 1.0, JAMAIS le levier max
+    (un contrôle de risque doit échouer vers le BAS)."""
+    import mandate
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        assert mandate.target_leverage(0.9, bad) == 1.0
+        assert mandate.target_leverage(bad, 0.02) == 1.0
+    assert 1.0 <= mandate.target_leverage(1.0, 1e-9) <= 5.0
+
+def test_drawdown_halt_fail_closed_on_corrupt_curve():
+    """Courbe d'equity corrompue (NaN/inf) -> HALTE (on ne peut prouver l'absence de
+    drawdown) ; courbe saine sans drawdown -> pas de halte."""
+    import mandate
+    assert mandate.drawdown_halt([100.0, float("nan"), 90.0])[0] is True
+    assert mandate.drawdown_halt([100.0, 101.0, 102.0])[0] is False
+
+def test_spot_guards_reject_nonfinite_amount():
+    """spot_executor.guards : un montant NaN/inf défaisait toutes les comparaisons -> REFUSÉ."""
+    import spot_executor as se
+    assert se.guards(float("nan"), spent=0.0)[0] is False
+    assert se.guards(float("inf"), spent=0.0)[0] is False
+    assert se.guards(3.0, spent=0.0)[0] is True    # cas sain : un petit montant passe
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
