@@ -5930,6 +5930,7 @@ def test_futures_executor_maker_et_repli():
         return runner, c
 
     _orig = fe._cfg
+    _orig_style = fe._exec_style
     fe._cfg = lambda n, d=None: 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d)
     try:
         # 1) REMPLI en maker -> exec_style=maker, 1 place, 0 cancel, post_only AU BID
@@ -5989,26 +5990,25 @@ def test_futures_executor_maker_et_repli():
         res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
         assert res["exec_style"] == "maker_puis_taker"   # champ RÉEL 'status' -> non rempli -> repli taker
 
-        # 7) ROUTAGE _place_real : RÉDUCTION en mode maker -> market (jamais post_only)
-        fe._cfg = lambda n, d=None: ("maker" if n == "FUTURES_EXEC_STYLE"
-                                     else 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d))
+        # 7-8) ROUTAGE _place_real en mode maker — le style est un LEVIER armable via .env,
+        # lu par _exec_style (on le monkeypatche : test indépendant du .env réel armé)
+        fe._exec_style = lambda: "maker"
         r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0003"}}')
         res = fe._place_real(order(reduce=True), runner=r, spec=_FUT_SPEC, price=60000.0,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
-        assert res["bitget_order"]["orderType"] == "market"
-
-        # 8) ROUTAGE : mode maker mais SANS carnet -> taker limit_ioc (pas de post_only orphelin)
+        assert res["bitget_order"]["orderType"] == "market"    # réduction -> market, jamais post_only
         res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
                              marge_mode="isolated", pos_mode="hedge_mode", top_of_book=None)
-        assert res["bitget_order"]["force"] == "ioc"
+        assert res["bitget_order"]["force"] == "ioc"           # sans carnet -> taker limit_ioc
+
+        # 9) DÉFAUT (limit_ioc) STRICTEMENT inchangé : ouverture -> force ioc, jamais post_only
+        fe._exec_style = lambda: "limit_ioc"
+        res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
+                             marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
+        assert res["bitget_order"]["force"] == "ioc" and res["bitget_order"]["orderType"] == "limit"
     finally:
         fe._cfg = _orig
-
-    # 9) DÉFAUT (limit_ioc) STRICTEMENT inchangé : ouverture -> force ioc, jamais post_only
-    r, c = make_runner(lambda n, cx: '{"data":{}}')
-    res = fe._place_real(order(), runner=r, spec=_FUT_SPEC, price=60000.0,
-                         marge_mode="isolated", pos_mode="hedge_mode", top_of_book=tob)
-    assert res["bitget_order"]["force"] == "ioc" and res["bitget_order"]["orderType"] == "limit"
+        fe._exec_style = _orig_style
 
 
 def test_futures_executor_size_et_mapping_bitget():

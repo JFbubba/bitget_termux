@@ -69,6 +69,24 @@ def _autonomous_on():
     return env_on or bool(_cfg("FUTURES_AUTONOMOUS_LIVE", False))
 
 
+def _exec_style():
+    """Style d'exécution des OUVERTURES futures : .env > config > défaut 'limit_ioc'.
+    Levier ARMABLE via .env (comme les verrous live) sans éditer un fichier suivi par git.
+    Valeurs : 'limit_ioc' (taker plafonné, défaut) | 'maker' (post-only + repli taker,
+    §exec-frais) | 'market'. Lu au ROUTAGE (_place_real) ; le builder `to_bitget_order`
+    reste piloté par son paramètre `style` explicite (hermétique)."""
+    import os
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+    v = os.getenv("FUTURES_EXEC_STYLE")
+    if v and v.strip():
+        return v.strip().lower()
+    return str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+
+
 def _execution_mode():
     """Mode affiché dans les previews/journaux : RÉEL borné si le double verrou est armé."""
     try:
@@ -1086,7 +1104,7 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
                             symbol=symbole):
         return {"ok": False, "executed": False,
                 "reasons": ["réglage du levier refusé par l'exchange (fail-closed)"]}
-    style = str(_cfg("FUTURES_EXEC_STYLE", "limit_ioc")).lower()
+    style = _exec_style()                              # .env > config > 'limit_ioc' (armable)
     if style == "maker" and not bool(order.get("reduce")) and top_of_book:
         return _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book)
     return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
