@@ -1026,6 +1026,47 @@ def test_futures_cli_refuses_duplicate_open_without_force():
         (fe.gated_open, fa.positions_par_symbole, fa._executor_events, sys.argv) = orig
 
 
+def test_dernier_ordre_auto_ts_counts_submit_marker():
+    """Crash-mid-placement : le marqueur FUTURES_REAL_SUBMIT (journalisé AVANT l'ordre réel)
+    compte pour le throttle -> même si l'issue (REAL/FAILED) est perdue par un SIGKILL, le
+    prochain open reste throttlé (fin du throttle aveugle). Par agent (un SUBMIT d'un autre
+    agent ne compte pas)."""
+    import futures_auto as fa
+    ev = [{"action": "FUTURES_REAL", "ts": 5.0, "order": {"agent": "auto_dir"}},
+          {"action": "FUTURES_REAL_SUBMIT", "ts": 20.0, "order": {"agent": "auto_dir"}}]
+    assert fa.dernier_ordre_auto_ts(ev) == 20.0
+    assert fa.dernier_ordre_auto_ts([{"action": "FUTURES_REAL_SUBMIT", "ts": 30.0,
+                                      "order": {"agent": "carry"}}]) is None      # autre agent
+
+
+def test_execute_journals_submit_before_real_placement():
+    """execute() journalise FUTURES_REAL_SUBMIT AVANT de placer l'ordre réel (durable ->
+    survit à un crash mid-placement) ; l'issue est journalisée APRÈS. Une RÉDUCTION n'en
+    journalise PAS (le throttle ne gate que les ouvertures)."""
+    import futures_executor as fe
+    events, at_place = [], []
+    orig = (fe._journal, fe._place_real)
+    try:
+        fe._journal = lambda e: events.append(e.get("action"))
+        def fake_place(order, **k):
+            at_place.append(list(events))                # snapshot des events AU MOMENT du placement
+            return {"ok": True, "executed": True, "bitget_order": {}, "exec_style": "taker"}
+        fe._place_real = fake_place
+        spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+        gates = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=1)
+        fe.execute("auto_dir", "long", 10, 2, confirm=True, daily_loss=False, spec=spec, price=100.0,
+                   marge_mode="crossed", pos_mode="hedge_mode", now=1000.0, **gates)
+        assert at_place and "FUTURES_REAL_SUBMIT" in at_place[0]    # SUBMIT journalisé AVANT _place_real
+        assert "FUTURES_REAL" in events                            # issue journalisée APRÈS
+        events.clear(); at_place.clear()
+        fe.execute("auto_dir", "long", 10, 2, reduce=True, confirm=True, daily_loss=False, spec=spec,
+                   price=100.0, marge_mode="crossed", pos_mode="hedge_mode", size_btc=0.001,
+                   now=1000.0, **gates)
+        assert "FUTURES_REAL_SUBMIT" not in events                 # réduction : pas de marqueur
+    finally:
+        (fe._journal, fe._place_real) = orig
+
+
 # ---------- double-position sur réponse perdue : réconciliation clientOid (maker) ----------
 # Le placement maker (post-only) qui ATTERRIT reste VIVANT (il ne prend jamais de liquidité)
 # -> il apparaît dans les ordres OUVERTS. Sur une réponse de placement PERDUE (pas d'orderId),

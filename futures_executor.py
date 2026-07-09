@@ -1533,6 +1533,14 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                       "reasons": ["stop de perte journalier franchi"], "real_order_sent": False})
         return {"ok": False, "executed": False, "preview": preview, "clientOid": oid,
                 "reasons": ["stop de perte journalier franchi (kill-switch armé)"]}
+    # Marqueur DURABLE d'attente (crash-mid-placement) : journalisé AVANT l'ordre réel, il
+    # survit à un SIGKILL entre le placement et l'issue (journalisée APRÈS) -> le throttle
+    # (dernier_ordre_auto_ts) le compte, donc reste armé même si l'issue REAL/FAILED est perdue.
+    # OUVERTURES seulement (le throttle ne gate que les ouvertures). Tous les AUTRES
+    # consommateurs du ledger l'ignorent (ils filtrent action == 'FUTURES_REAL').
+    if journal and not reduce:
+        _journal({"action": "FUTURES_REAL_SUBMIT", "ts": now, "order": order,
+                  "real_order_sent": None})     # in-flight : issue inconnue tant que non journalisée
     res = _place_real(order, runner=runner, spec=spec, price=price, marge_mode=marge_mode,
                       pos_mode=pos_mode, top_of_book=top_of_book)
     if journal:

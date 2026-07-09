@@ -194,11 +194,13 @@ def proprietaire_position(events):
 
 
 def dernier_ordre_auto_ts(events, agent="auto_dir",
-                          actions=("FUTURES_REAL", "FUTURES_REAL_FAILED")):
+                          actions=("FUTURES_REAL", "FUTURES_REAL_FAILED", "FUTURES_REAL_SUBMIT")):
     """PUR. ts de la dernière TENTATIVE d'ordre réel de la boucle (throttle). Les
     ÉCHECS comptent aussi : sinon un ordre qui échoue serait retenté à chaque cycle
     de 5 min (martèlement de l'exchange + spam d'alertes) au lieu d'attendre
-    l'intervalle. None si aucune tentative."""
+    l'intervalle. Le marqueur FUTURES_REAL_SUBMIT (journalisé AVANT le placement) compte
+    aussi : un crash-mid-placement perd l'issue REAL/FAILED, mais le SUBMIT survit -> le
+    throttle reste armé (fin du throttle aveugle). None si aucune tentative."""
     for e in reversed(events or []):
         if not isinstance(e, dict) or e.get("action") not in actions:
             continue
