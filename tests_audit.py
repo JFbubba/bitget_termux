@@ -5220,6 +5220,195 @@ def test_spot_executor_error_parsed():
     assert r["executed"] is False and r["error"]["code"] == "40762"
 
 
+# ---------- Thème 3 (chemin exécution spot) : registre fail-closed + réponse ambiguë ----------
+# Sous-item 1 : une écriture de registre ratée était SILENCIEUSE (except:pass) -> dépense non
+# comptée -> cap journalier aveugle (fail-open). Sous-item 2 : sur réponse PERDUE (timeout/None)
+# l'ordre était conclu « rien acheté » sans vérifier le fill réel (cap sous-compté + rejeu).
+
+def test_record_real_buy_returns_false_on_write_failure():
+    """Sous-item 1 : écriture de registre impossible -> retourne False (plus de except:pass
+    silencieux) pour que l'appelant alerte + fail-closed."""
+    import pathlib
+    import spot_executor as se
+    orig = se.REAL_LEDGER
+    try:
+        se.REAL_LEDGER = pathlib.Path("/nonexistent_dir_xyz_zzz/led.json")   # écriture impossible
+        assert se._record_real_buy(3.0, "oidW", now=1_000_000) is False
+    finally:
+        se.REAL_LEDGER = orig
+
+
+def test_record_real_buy_atomic_write_and_true():
+    """Sous-item 1 : écriture ATOMIQUE (tmp + replace, jamais de JSON à moitié écrit) -> True."""
+    import tempfile, pathlib, json as _json
+    import spot_executor as se
+    orig = se.REAL_LEDGER
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            assert se._record_real_buy(3.0, "oidT", now=1_000_000) is True
+            assert not (pathlib.Path(td) / "led.json.tmp").exists()          # tmp nettoyé
+            assert _json.loads(se.REAL_LEDGER.read_text())["buys"][-1]["amount_usdt"] == 3.0
+        finally:
+            se.REAL_LEDGER = orig
+
+
+def test_ledger_ok_fail_closed_on_unreliable_sentinel():
+    """Sous-item 1 : après un échec d'écriture, le sentinel « registre non fiable » fait
+    fail-closed ledger_ok() (donc guards BLOQUE) jusqu'à réconciliation par le propriétaire."""
+    import tempfile, pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se.LEDGER_UNRELIABLE)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            se.LEDGER_UNRELIABLE = pathlib.Path(td) / "unreliable.flag"
+            se.REAL_LEDGER.write_text('{"buys": []}')
+            assert se.ledger_ok() is True
+            se._mark_ledger_unreliable()
+            assert se.LEDGER_UNRELIABLE.exists() and se.ledger_ok() is False   # fail-closed
+        finally:
+            (se.REAL_LEDGER, se.LEDGER_UNRELIABLE) = orig
+
+
+def test_execute_ambiguous_polls_fill_and_records():
+    """Sous-item 2 : réponse PERDUE (runner -> None) mais l'ordre a REMPLI -> on POLLE les
+    fills -> constaté -> executed=True et enregistré (jamais « rien acheté » erroné)."""
+    import tempfile, pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se._confirm_fill)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            se._confirm_fill = lambda oid, **k: {"amount_usdt": 2.0, "size_btc": 0.00003, "price_avg": 64000.0}
+            r = se.execute(3.0, confirm=True, runner=lambda c: None, balance=100, spent=0, now=1_000_000)
+            assert r["executed"] is True and r["fill"]["amount_usdt"] == 2.0
+            assert se._load_real()["buys"][-1]["amount_usdt"] == 2.0
+        finally:
+            (se.REAL_LEDGER, se._confirm_fill) = orig
+
+
+def test_execute_ambiguous_unconfirmed_alerts_no_silent_fail():
+    """Sous-item 2 : réponse perdue ET fill non confirmable -> result['ambiguous'] + ALERTE,
+    JAMAIS une conclusion silencieuse « rien acheté » ; rien enregistré (le proprio réconcilie)."""
+    import tempfile, pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se._confirm_fill, se._alert)
+    alerts = []
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path(td) / "led.json"
+            se._confirm_fill = lambda oid, **k: None
+            se._alert = lambda m: alerts.append(m)
+            r = se.execute(3.0, confirm=True, runner=lambda c: None, balance=100, spent=0, now=1_000_000)
+            assert r.get("ambiguous") is True and r["executed"] is False
+            assert alerts and se._load_real().get("buys", []) == []
+        finally:
+            (se.REAL_LEDGER, se._confirm_fill, se._alert) = orig
+
+
+def test_execute_alerts_and_failcloses_on_record_write_failure():
+    """Sous-item 1 (intégration) : achat RÉEL réussi mais registre NON écrit -> alerte +
+    sentinel fail-closed + result['ledger_write_failed'] (jamais un succès silencieux qui
+    laisserait le cap journalier aveugle)."""
+    import tempfile, pathlib
+    import spot_executor as se
+    orig = (se.REAL_LEDGER, se.LEDGER_UNRELIABLE, se._confirm_fill, se._alert)
+    alerts = []
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            se.REAL_LEDGER = pathlib.Path("/nonexistent_dir_xyz_zzz/led.json")   # écriture impossible
+            se.LEDGER_UNRELIABLE = pathlib.Path(td) / "unreliable.flag"
+            se._confirm_fill = lambda oid, **k: None
+            se._alert = lambda m: alerts.append(m)
+            r = se.execute(3.0, confirm=True, runner=lambda c: '{"code":"00000","data":{"orderId":"O1"}}',
+                           balance=100, spent=0, now=1_000_000)
+            assert r["executed"] is True and r.get("ledger_write_failed") is True
+            assert se.LEDGER_UNRELIABLE.exists() and alerts
+        finally:
+            (se.REAL_LEDGER, se.LEDGER_UNRELIABLE, se._confirm_fill, se._alert) = orig
+
+
+# ---------- Thème 3 (chemin exécution §67) : même durcissement sur bitget_execute ----------
+
+def test_bitget_execute_record_atomic_and_bool():
+    """Sous-item 1 (surfaces §67) : record() écrit ATOMIQUEMENT et retourne True."""
+    import tempfile, pathlib, json as _json
+    import bitget_execute as be
+    orig = be.LEDGER
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.LEDGER = pathlib.Path(td) / "led.json"
+            assert be.record("spot", 3.0, "oidT", now=1_000_000) is True
+            assert not (pathlib.Path(td) / "led.json.tmp").exists()
+            assert _json.loads(be.LEDGER.read_text())["ops"][-1]["amount_usdt"] == 3.0
+        finally:
+            be.LEDGER = orig
+
+
+def test_bitget_execute_record_false_on_write_failure():
+    """Sous-item 1 : écriture impossible -> False (plus de except:pass silencieux)."""
+    import pathlib
+    import bitget_execute as be
+    orig = be.LEDGER
+    try:
+        be.LEDGER = pathlib.Path("/nonexistent_dir_zzz_67/led.json")
+        assert be.record("spot", 3.0, "oidW", now=1_000_000) is False
+    finally:
+        be.LEDGER = orig
+
+
+def test_bitget_execute_ledger_ok_sentinel():
+    """Sous-item 1 : sentinel « journal non fiable » -> ledger_ok() fail-closed (§67 bloqué)."""
+    import tempfile, pathlib
+    import bitget_execute as be
+    orig = (be.LEDGER, be.LEDGER_UNRELIABLE)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.LEDGER = pathlib.Path(td) / "led.json"
+            be.LEDGER_UNRELIABLE = pathlib.Path(td) / "unr.flag"
+            be.LEDGER.write_text('{"ops": []}')
+            assert be.ledger_ok() is True
+            be._mark_ledger_unreliable()
+            assert be.LEDGER_UNRELIABLE.exists() and be.ledger_ok() is False
+        finally:
+            (be.LEDGER, be.LEDGER_UNRELIABLE) = orig
+
+
+def test_bitget_execute_run_failcloses_on_record_failure():
+    """Sous-item 1 (intégration) : op §67 réussie mais journal NON écrit -> alerte + sentinel
+    fail-closed + result['ledger_write_failed']."""
+    import tempfile, pathlib
+    import bitget_execute as be
+    orig = (be.LEDGER, be.LEDGER_UNRELIABLE, be._alert)
+    alerts = []
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.LEDGER = pathlib.Path("/nonexistent_dir_zzz_67/led.json")
+            be.LEDGER_UNRELIABLE = pathlib.Path(td) / "unr.flag"
+            be._alert = lambda m: alerts.append(m)
+            r = be.run(["spot", "spot_place_order"], True, [], "spot", 3.0, "oidR", confirm=True,
+                       runner=lambda a: '{"code":"00000","data":{"orderId":"O1"}}')
+            assert r["executed"] is True and r.get("ledger_write_failed") is True
+            assert be.LEDGER_UNRELIABLE.exists() and alerts
+        finally:
+            (be.LEDGER, be.LEDGER_UNRELIABLE, be._alert) = orig
+
+
+def test_bitget_execute_run_ambiguous_alerts():
+    """Sous-item 2 (§67) : réponse PERDUE (runner -> None) -> result['ambiguous'] + ALERTE,
+    jamais une conclusion silencieuse « rien fait » (l'op a peut-être eu lieu)."""
+    import bitget_execute as be
+    orig = be._alert
+    alerts = []
+    try:
+        be._alert = lambda m: alerts.append(m)
+        r = be.run(["spot", "x"], True, [], "spot", 3.0, "oidA", confirm=True, runner=lambda a: None)
+        assert r.get("ambiguous") is True and r["executed"] is False and alerts
+    finally:
+        be._alert = orig
+
+
 # ---------- carry_monitor : transitions ATTRACTIF (alerte front montant) ----------
 
 def test_carry_transitions_attractif_front_montant():

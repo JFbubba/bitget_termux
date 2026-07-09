@@ -26,6 +26,10 @@ from pathlib import Path
 from config_utils import cfg as _cfg
 
 LEDGER = Path(__file__).resolve().parent / "trading_real_ledger.json"
+# Sentinel « journal non fiable » (§revue chemin argent — Thème 3, chemin exécution) : posé
+# quand une écriture de journal échoue -> ledger_ok() fail-closed (surfaces §67 SUSPENDUES)
+# jusqu'à réconciliation manuelle par le propriétaire (retrait du fichier).
+LEDGER_UNRELIABLE = Path(__file__).resolve().parent / "trading_ledger_unreliable.flag"
 
 
 def gate(flag_name):
@@ -81,7 +85,13 @@ def _load():
 def ledger_ok():
     """False si le journal RÉEL EXISTE mais est illisible/corrompu : la dépense du jour est
     alors invérifiable -> les gardes doivent BLOQUER (fail-closed) au lieu de repartir de 0.
-    Fichier ABSENT = 0 engagé légitime -> True. (§revue chemin argent — Thème 3)"""
+    Fichier ABSENT = 0 engagé légitime -> True. (§revue chemin argent — Thème 3)
+    Fail-closed AUSSI si le sentinel « journal non fiable » est présent (écriture ratée)."""
+    try:
+        if LEDGER_UNRELIABLE.exists():
+            return False                # une écriture de journal a échoué -> engagement non fiable -> BLOQUE
+    except Exception:
+        return False
     try:
         if not LEDGER.exists():
             return True
@@ -89,6 +99,24 @@ def ledger_ok():
         return True
     except Exception:
         return False
+
+
+def _mark_ledger_unreliable():
+    """Pose le sentinel -> ledger_ok() fail-closed (surfaces §67 SUSPENDUES) jusqu'à
+    réconciliation manuelle. Best-effort (sans sentinel, l'ALERTE reste le filet)."""
+    try:
+        LEDGER_UNRELIABLE.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _alert(message):
+    """Alerte Telegram best-effort — jamais bloquante, jamais d'exception propagée."""
+    try:
+        import telegram_notifier as tn
+        tn.send_telegram(message)
+    except Exception:
+        pass
 
 
 def today_spent(surface, now=None, ledger=None):
@@ -111,9 +139,12 @@ def record(surface, amount_usdt, oid, meta=None, now=None):
     led.setdefault("ops", []).append(row)
     led["ops"] = led["ops"][-2000:]
     try:
-        LEDGER.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp = Path(str(LEDGER) + ".tmp")
+        tmp.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, LEDGER)                     # ATOMIQUE : jamais de JSON à moitié écrit
+        return True
     except Exception:
-        pass
+        return False                                # écriture ratée -> l'appelant alerte + fail-closed
 
 
 # ---------- gardes communes (pures si l'état est injecté) ----------
@@ -194,7 +225,15 @@ def run(args, ok, reasons, surface, amount_usdt, oid, confirm=False, runner=None
     success = _ok_response(out)
     result = {"ok": True, "executed": success, "preview": preview, "response": out, "clientOid": oid}
     if success:
-        record(surface, amount_usdt, oid, meta=meta)
+        if not record(surface, amount_usdt, oid, meta=meta):     # Thème 3 sous-item 1 : journal NON écrit
+            _mark_ledger_unreliable()                            # -> ledger_ok() fail-closed (§67 SUSPENDUES)
+            result["ledger_write_failed"] = True
+            _alert(f"🛑 Journal §67 ({surface}) NON écrit (oid {oid} · {amount_usdt}$) — surfaces "
+                   "bornées SUSPENDUES (fail-closed) jusqu'à réconciliation (retirer le sentinel).")
+    elif not out:                                                # Thème 3 sous-item 2 : réponse PERDUE/vide
+        result["ambiguous"] = True                               # l'op a PEUT-ÊTRE eu lieu -> pas de silence
+        _alert(f"⚠️ Opération §67 ({surface}) AMBIGUË (réponse perdue) oid {oid} · {amount_usdt}$ — "
+               "vérifier l'état réel (possible opération non journalisée).")
     return result
 
 

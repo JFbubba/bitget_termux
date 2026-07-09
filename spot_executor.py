@@ -24,6 +24,10 @@ from pathlib import Path
 
 SYMBOL = "BTCUSDT"
 REAL_LEDGER = Path(__file__).resolve().parent / "accumulation_real_ledger.json"
+# Sentinel « registre non fiable » (§revue chemin argent — Thème 3, chemin exécution) : posé
+# quand une écriture de registre échoue -> ledger_ok() fail-closed (achats spot SUSPENDUS)
+# jusqu'à réconciliation manuelle par le propriétaire (accum_reconcile puis retrait du fichier).
+LEDGER_UNRELIABLE = Path(__file__).resolve().parent / "accumulation_ledger_unreliable.flag"
 
 
 from config_utils import cfg as _cfg
@@ -77,12 +81,35 @@ def ledger_ok():
     jour est alors invérifiable -> les gardes doivent BLOQUER (fail-closed) au lieu de
     repartir de 0. Fichier ABSENT = 0 dépensé légitime -> True. (§revue chemin argent — Thème 3)"""
     try:
+        if LEDGER_UNRELIABLE.exists():
+            return False                # une écriture de registre a échoué -> dépense non fiable -> BLOQUE
+    except Exception:
+        return False
+    try:
         if not REAL_LEDGER.exists():
             return True
         json.loads(REAL_LEDGER.read_text(encoding="utf-8"))
         return True
     except Exception:
         return False
+
+
+def _mark_ledger_unreliable():
+    """Pose le sentinel -> ledger_ok() fail-closed (achats spot SUSPENDUS) jusqu'à
+    réconciliation manuelle. Best-effort (n'aggrave jamais : sans sentinel, l'ALERTE reste)."""
+    try:
+        LEDGER_UNRELIABLE.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _alert(message):
+    """Alerte Telegram best-effort — jamais bloquante, jamais d'exception propagée."""
+    try:
+        import telegram_notifier as tn
+        tn.send_telegram(message)
+    except Exception:
+        pass
 
 
 def today_spent(now=None, ledger=None):
@@ -131,9 +158,13 @@ def _record_real_buy(amount_usdt, oid, now=None, extra=None, fill=None):
     led.setdefault("buys", []).append(row)
     led["buys"] = led["buys"][-1000:]
     try:
-        REAL_LEDGER.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+        import os
+        tmp = Path(str(REAL_LEDGER) + ".tmp")
+        tmp.write_text(json.dumps(led, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, REAL_LEDGER)                    # ATOMIQUE : jamais de JSON à moitié écrit
+        return True
     except Exception:
-        pass
+        return False                                    # écriture ratée -> l'appelant alerte + fail-closed
 
 
 # ---------- gardes DURS (purs si on injecte l'état) ----------
@@ -350,16 +381,34 @@ def execute(amount_usdt, confirm=False, runner=None, now=None, balance=None, spe
                and ("orderid" in compact or '"data"' in compact or '"ok":true' in compact))
     result = {"ok": True, "executed": success, "preview": preview, "response": out,
               "clientOid": oid}
-    if success:
-        # #1 : constate le fill RÉEL (limit_ioc partiel) et enregistre le réel dépensé.
+    err = None if success else _parse_error(out)   # #2 : erreur Bitget EXPLICITE (code) si présente
+    ambiguous = (not success) and (err is None)    # ni succès net, ni erreur explicite -> réponse PERDUE/illisible
+    fill = None
+    if success or ambiguous:
+        # Succès net OU réponse AMBIGUË : dans les DEUX cas l'ordre a pu REMPLIR -> on POLLE les
+        # fills AVANT toute conclusion (Thème 3 sous-item 2 : ne jamais conclure « rien acheté »
+        # sur un timeout sans vérifier le fill réel — sinon cap sous-compté + rejeu possible).
         fill = _confirm_fill(oid) if bool(_cfg("ACCUM_CONFIRM_FILL", True)) else None
-        _record_real_buy(amount_usdt, oid, now, extra=extra, fill=fill)
+    if ambiguous:
+        if fill and (fill.get("amount_usdt") or 0) > 0:
+            success = True                         # fill RÉEL constaté -> c'était bien un achat
+            result["executed"] = True
+        else:
+            result["ambiguous"] = True             # indéterminé -> pas de rejeu aveugle, on ALERTE
+            _alert(f"⚠️ Achat spot AMBIGU (réponse perdue) oid {oid} · {amount_usdt}$ — fill NON "
+                   "confirmé. Vérifier accum_reconcile (possible achat non enregistré).")
+    if success:
         if fill:
-            result["fill"] = fill
-    else:
-        err = _parse_error(out)                # #2 : erreur Bitget lisible (pas de retry auto)
-        if err:
-            result["error"] = err
+            result["fill"] = fill                  # #1 : réel dépensé (limit_ioc partiel), sinon demandé
+        recorded = _record_real_buy(amount_usdt, oid, now, extra=extra, fill=fill)
+        if not recorded:                           # Thème 3 sous-item 1 : registre NON écrit
+            _mark_ledger_unreliable()              # -> ledger_ok() fail-closed (achats spot SUSPENDUS)
+            result["ledger_write_failed"] = True
+            _alert(f"🛑 Registre d'achat spot NON écrit (oid {oid} · {amount_usdt}$) — achats spot "
+                   "SUSPENDUS (fail-closed) jusqu'à réconciliation. Voir accum_reconcile puis "
+                   "retirer accumulation_ledger_unreliable.flag.")
+    elif err:
+        result["error"] = err
     return result
 
 

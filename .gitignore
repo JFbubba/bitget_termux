@@ -108,3 +108,7 @@ graphify-out/
 futures_open.lock
 futures_pending.json
 futures_pending.json.tmp
+accumulation_ledger_unreliable.flag
+accumulation_real_ledger.json.tmp
+trading_ledger_unreliable.flag
+trading_real_ledger.json.tmp
