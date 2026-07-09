@@ -72,6 +72,19 @@ def _load_real():
         return {"buys": []}
 
 
+def ledger_ok():
+    """False si le registre d'achats EXISTE mais est illisible/corrompu : la dépense du
+    jour est alors invérifiable -> les gardes doivent BLOQUER (fail-closed) au lieu de
+    repartir de 0. Fichier ABSENT = 0 dépensé légitime -> True. (§revue chemin argent — Thème 3)"""
+    try:
+        if not REAL_LEDGER.exists():
+            return True
+        json.loads(REAL_LEDGER.read_text(encoding="utf-8"))
+        return True
+    except Exception:
+        return False
+
+
 def today_spent(now=None, ledger=None):
     """Total RÉEL acheté aujourd'hui (USDT). PUR si ledger injecté."""
     now = time.time() if now is None else now
@@ -165,6 +178,10 @@ def guards(amount_usdt, balance=None, spent=None, live=None, kill=None):
     if amt > cap:
         reasons.append(f"montant {amt} > plafond/achat {cap}")
     daily_cap = _capped("ACCUM_REAL_MAX_DAILY_USDT", 5.0, ACCUM_ABS_MAX_DAILY_USDT)
+    if spent is None and not ledger_ok():
+        # Registre présent mais corrompu -> dépense du jour invérifiable -> on BLOQUE au
+        # lieu de repartir de 0 (ce qui ré-ouvrirait le cap). (§revue chemin argent — Thème 3)
+        reasons.append("registre d'achats illisible/corrompu — achat bloqué (fail-closed)")
     sp = today_spent() if spent is None else float(spent)
     if sp + amt > daily_cap:
         reasons.append(f"plafond journalier dépassé ({sp}+{amt} > {daily_cap})")

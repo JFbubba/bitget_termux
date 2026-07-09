@@ -9323,6 +9323,54 @@ def test_spot_guards_reject_nonfinite_amount():
     assert se.guards(3.0, spent=0.0)[0] is True    # cas sain : un petit montant passe
 
 
+# ---------- §revue chemin argent — Thème 3 : registres de cap fail-CLOSED ----------
+
+def test_spot_ledger_ok_missing_vs_corrupt():
+    """Registre absent -> 0 légitime (True) ; présent mais corrompu -> invérifiable (False)."""
+    import spot_executor as se, tempfile
+    from pathlib import Path
+    saved = se.REAL_LEDGER
+    d = tempfile.mkdtemp()
+    try:
+        se.REAL_LEDGER = Path(d) / "absent.json"
+        assert se.ledger_ok() is True
+        p = Path(d) / "corrupt.json"; p.write_text("{ pas du json")
+        se.REAL_LEDGER = p
+        assert se.ledger_ok() is False
+    finally:
+        se.REAL_LEDGER = saved
+
+def test_spot_guards_blocked_on_corrupt_ledger():
+    """Un registre d'achats corrompu ne doit PAS ré-ouvrir le cap (spent=0) : achat BLOQUÉ."""
+    import spot_executor as se, tempfile
+    from pathlib import Path
+    saved = se.REAL_LEDGER
+    d = tempfile.mkdtemp()
+    try:
+        p = Path(d) / "corrupt.json"; p.write_text("{{{ corrompu")
+        se.REAL_LEDGER = p
+        ok, reasons = se.guards(3.0)
+        assert ok is False
+        assert any(("illisible" in r) or ("corrompu" in r) for r in reasons)
+    finally:
+        se.REAL_LEDGER = saved
+
+def test_bitget_execute_guard_blocked_on_corrupt_ledger():
+    """§67 : journal réel corrompu -> opération BLOQUÉE (fail-closed), pas cap ré-ouvert."""
+    import bitget_execute as be, tempfile
+    from pathlib import Path
+    saved = be.LEDGER
+    d = tempfile.mkdtemp()
+    try:
+        p = Path(d) / "corrupt.json"; p.write_text("nope{")
+        be.LEDGER = p
+        ok, reasons = be.guard("spot", "SPOT_TRADE_LIVE", 10.0, 200.0, 500.0, live=True, kill=False)
+        assert ok is False
+        assert any(("illisible" in r) or ("corrompu" in r) for r in reasons)
+    finally:
+        be.LEDGER = saved
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

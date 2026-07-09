@@ -78,6 +78,19 @@ def _load():
         return {"ops": []}
 
 
+def ledger_ok():
+    """False si le journal RÉEL EXISTE mais est illisible/corrompu : la dépense du jour est
+    alors invérifiable -> les gardes doivent BLOQUER (fail-closed) au lieu de repartir de 0.
+    Fichier ABSENT = 0 engagé légitime -> True. (§revue chemin argent — Thème 3)"""
+    try:
+        if not LEDGER.exists():
+            return True
+        json.loads(LEDGER.read_text(encoding="utf-8"))
+        return True
+    except Exception:
+        return False
+
+
 def today_spent(surface, now=None, ledger=None):
     """Total RÉEL engagé aujourd'hui sur une surface (USDT). PUR si ledger injecté."""
     now = time.time() if now is None else now
@@ -128,6 +141,10 @@ def guard(surface, live_flag, amount_usdt, per_op_cap, daily_cap,
         reasons.append("montant ≤ 0")
     if amt > per_op_cap:
         reasons.append(f"montant {amt} > plafond/opération {per_op_cap}")
+    if spent is None and not ledger_ok():
+        # Journal présent mais corrompu -> engagement du jour invérifiable -> on BLOQUE au
+        # lieu de repartir de 0 (ce qui ré-ouvrirait le cap). (§revue chemin argent — Thème 3)
+        reasons.append("journal réel illisible/corrompu — opération bloquée (fail-closed)")
     sp = today_spent(surface) if spent is None else float(spent)
     if sp + amt > daily_cap:
         reasons.append(f"plafond journalier dépassé ({sp}+{amt} > {daily_cap})")
