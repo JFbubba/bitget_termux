@@ -252,9 +252,9 @@ def _ouvrir_reverse(sym, usdt, arme):
     depot = {"skipped": True, "raison": f"marge dispo {disponible} ≥ besoin {besoin_collat}"}         if collat <= 0 else at.execute("spot", "crossed_margin", "USDT", collat, confirm=arme)
     if arme and collat > 0 and not depot.get("executed"):
         return {"ok": False, "etape": "collateral", "depot": depot}
-    jambe_perp = fe.execute("alt_carry", "long", usdt, 1.0, symbol=sym, confirm=arme,
-                            gross_open_usdt=fa.gross_book_usdt(),
-                            equity_curve=fe.equity_curve())
+    jambe_perp = fe.gated_open("alt_carry", "long", usdt, 1.0, symbol=sym, confirm=arme,
+                               read_book_gross=fa.gross_book_usdt,   # verrou + gross effectif (Thème 2)
+                               equity_curve=fe.equity_curve())
     if arme and not jambe_perp.get("executed"):
         if collat > 0:
             at.execute("crossed_margin", "spot", "USDT", collat, confirm=arme)   # rend l'ajout
@@ -347,9 +347,9 @@ def _ouvrir(sym, usdt, arme):
     jambe_spot = st.execute(sym, "buy", usdt, confirm=arme)
     if arme and not jambe_spot.get("executed"):
         return {"ok": False, "etape": "spot", "spot": jambe_spot}
-    jambe_perp = fe.execute("alt_carry", "short", usdt, 1.0, symbol=sym, confirm=arme,
-                            gross_open_usdt=fa.gross_book_usdt(),
-                            equity_curve=fe.equity_curve())
+    jambe_perp = fe.gated_open("alt_carry", "short", usdt, 1.0, symbol=sym, confirm=arme,
+                               read_book_gross=fa.gross_book_usdt,   # verrou + gross effectif (Thème 2)
+                               equity_curve=fe.equity_curve())
     if arme and jambe_spot.get("executed") and not jambe_perp.get("executed"):
         compensation = st.execute(sym, "sell", usdt, confirm=arme)   # jamais de jambe nue
         return {"ok": False, "etape": "perp", "spot": jambe_spot,

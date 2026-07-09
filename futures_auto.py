@@ -669,14 +669,18 @@ def _run_cycle(now=None):
                            "raison": d["raison"] + f" [{sym}] — SL introuvable (prix illisible), "
                                      "ouverture refusée (invariant SL exchange)"}
         return out
-    res = fe.execute("auto_dir", d["side"],
-                     _notional_cfg(),
-                     float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
-                     entry=prix, stop_loss=sl, take_profit=tp,
-                     confirm=True, now=now, symbol=sym,
-                     gross_open_usdt=gross,            # exposition TOUS symboles/côtés
-                     equity_curve=fe.equity_curve(),   # halte MDD du mandat (garde 6)
-                     top_of_book=tob)                  # §98 : cap de liquidité (thin alts) + fraîcheur
+    res = fe.gated_open("auto_dir", d["side"],
+                        _notional_cfg(),
+                        float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
+                        read_book_gross=gross_book_usdt,  # gross (re)lu SOUS le verrou d'ouverture (Thème 2)
+                        entry=prix, stop_loss=sl, take_profit=tp,
+                        confirm=True, now=now, symbol=sym,
+                        equity_curve=fe.equity_curve(),   # halte MDD du mandat (garde 6)
+                        top_of_book=tob)                  # §98 : cap de liquidité (thin alts) + fraîcheur
+    if res.get("skipped"):                                # verrou tenu / livre illisible -> pas d'alerte d'échec
+        out["decision"] = {**out["decision"], "action": "rien",
+                           "raison": (res.get("reasons") or ["ouverture suspendue"])[0]}
+        return out
     if res.get("executed"):
         out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now))
     return _finaliser(out, out["decision"], res)

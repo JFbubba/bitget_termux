@@ -703,6 +703,280 @@ def test_futures_leverage_hard_wall_uncrossable():
             os.environ["MANDATE_MAX_LEVERAGE"] = old
 
 
+# ---------- Thème 2 (§revue chemin argent) : mur cumulé 250 sous CONCURRENCE ----------
+# guards() (§45) fait confiance au gross_open_usdt que l'appelant présente. Deux failles
+# fermées ici : (a) AUCUN mutex inter-processus autour de « lire gross -> execute » (un
+# cycle `python futures_auto.py` manuel concurrent d'une passe planifiée lisait le même
+# gross et ouvrait DEUX fois) ; (b) le livre exchange est en cohérence ÉVENTUELLE :
+# carry_auto re-lit ~1 s après l'ouverture de futures_auto et voyait un gross PÉRIMÉ.
+# La porte (open_gate, flock non bloquant) + la réservation in-flight (record_pending_open
+# / effective_gross) ferment les deux — SANS toucher l'herméticité d'execute() ni les murs.
+
+def test_open_gate_is_mutually_exclusive():
+    """Un seul ouvreur à la fois : tant qu'un détenteur tient la porte, une 2ᵉ
+    acquisition NON bloquante échoue (skip fail-closed), puis réussit une fois libérée."""
+    import tempfile, os
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, ".futures_open.lock")
+        with fe.open_gate(path=lock) as a:
+            assert a is True                       # 1er détenteur : porte prise
+            with fe.open_gate(path=lock) as b:
+                assert b is False                  # 2ᵉ ouvreur concurrent : refusé
+        with fe.open_gate(path=lock) as c:
+            assert c is True                       # porte libérée -> re-disponible
+
+
+def test_effective_gross_folds_in_unreflected_pending():
+    """Ouverture placée mais PAS encore reflétée par le livre : le gross effectif
+    inclut la part in-flight -> l'ouvreur suivant voit la VRAIE exposition."""
+    import tempfile, os
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        pend = os.path.join(d, ".futures_pending.json")
+        # A a ouvert 50 alors que le livre valait 190 ; le livre n'a pas rattrapé (toujours 190)
+        fe.record_pending_open("oidA", 50.0, 190.0, now=1000.0, path=pend)
+        assert fe.effective_gross(190.0, now=1001.0, path=pend) == 240.0
+
+
+def test_effective_gross_no_double_count_once_reflected():
+    """Une fois le livre à jour (il a rattrapé l'ouverture), AUCUN double comptage :
+    effective == livre, pas livre + réservation."""
+    import tempfile, os
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        pend = os.path.join(d, ".futures_pending.json")
+        fe.record_pending_open("oidA", 50.0, 190.0, now=1000.0, path=pend)
+        assert fe.effective_gross(240.0, now=1001.0, path=pend) == 240.0
+
+
+def test_effective_gross_multiple_inflight_no_overcount():
+    """Deux réservations CUMULATIVES en vol (claim_A=240, claim_C=260 qui inclut déjà A)
+    et un livre encore à 190 : l'exposition effective = plus haut niveau réclamé (260),
+    PAS la somme des parts (310). Sur-compter figerait le trading ; sous-compter ouvrirait
+    une brèche. Régression du cas multi-ouvreurs (auto_dir + carry + alt_carry même passe)."""
+    import tempfile, os
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        pend = os.path.join(d, ".futures_pending.json")
+        fe.record_pending_open("oidA", 50.0, 190.0, now=1000.0, path=pend)   # claim 240
+        fe.record_pending_open("oidC", 20.0, 240.0, now=1000.0, path=pend)   # claim 260 (cumule A)
+        assert fe.effective_gross(190.0, now=1000.5, path=pend) == 260.0
+
+
+def test_effective_gross_ignores_stale_reservations():
+    """Réservation plus vieille que la fenêtre TTL -> ignorée (borne la sur-prudence)."""
+    import tempfile, os
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        pend = os.path.join(d, ".futures_pending.json")
+        fe.record_pending_open("oidA", 50.0, 190.0, now=1000.0, path=pend)
+        assert fe.effective_gross(190.0, now=1000.0 + fe.PENDING_TTL_S + 10, path=pend) == 190.0
+
+
+def test_effective_gross_failclosed_on_corrupt_pending():
+    """Fichier de réservations corrompu -> gross effectif NON FINI (inf) -> guards
+    rejette toute ouverture (fail-closed : jamais repartir d'une expo sous-estimée)."""
+    import tempfile, os, math
+    import futures_executor as fe
+    with tempfile.TemporaryDirectory() as d:
+        pend = os.path.join(d, ".futures_pending.json")
+        with open(pend, "w") as f:
+            f.write("{ ceci n'est pas du JSON valide")
+        eff = fe.effective_gross(190.0, now=1001.0, path=pend)
+        assert not math.isfinite(eff)              # inf -> guards refusera l'ouverture
+        ok, reasons = fe.guards("t", 5, 3, live=True, autonomous=True, futures_live=True,
+                                kill=False, edge_override=1, gross_open_usdt=eff)
+        assert not ok and any("cumulée" in r for r in reasons)
+
+
+def test_gross_wall_holds_under_serialized_concurrency():
+    """RÉGRESSION Thème 2 : deux ouvreurs qui passeraient CHACUN la garde 250 en lisant
+    le MÊME livre périmé. Avec porte + réservation in-flight, le 2ᵉ voit l'exposition du
+    1er et est REFUSÉ -> le mur cumulé tient. Sans le fix, le 2ᵉ ouvrait (190+50+50=290)."""
+    import tempfile, os
+    import futures_executor as fe
+    old = {k: os.environ.get(k) for k in
+           ("FUTURES_REAL_MAX_PER_TRADE_USDT", "FUTURES_REAL_MAX_GROSS_USDT")}
+    try:
+        os.environ["FUTURES_REAL_MAX_PER_TRADE_USDT"] = "50"   # per-trade 50 (≤ mur dur 50)
+        os.environ["FUTURES_REAL_MAX_GROSS_USDT"] = "250"      # cap effectif = mur dur 250
+        with tempfile.TemporaryDirectory() as d:
+            lock = os.path.join(d, ".futures_open.lock")
+            pend = os.path.join(d, ".futures_pending.json")
+            book = 190.0                                       # livre exchange courant
+            # --- Ouvreur A : la porte est libre, rien en vol ---
+            with fe.open_gate(path=lock) as ga:
+                assert ga
+                eff_a = fe.effective_gross(book, now=1000.0, path=pend)      # 190
+                ok_a, _ = fe.guards("A", 50, 3, live=True, autonomous=True, futures_live=True,
+                                    kill=False, edge_override=1, gross_open_usdt=eff_a)
+                assert ok_a                                    # 190+50=240 <= 250 : A ouvre
+                fe.record_pending_open("oidA", 50.0, book, now=1000.0, path=pend)
+            # le livre n'a PAS encore reflété l'ouverture de A (cohérence éventuelle)
+            # --- Ouvreur B juste après (livre toujours 190) ---
+            with fe.open_gate(path=lock) as gb:
+                assert gb                                      # porte libérée par A
+                eff_b = fe.effective_gross(book, now=1000.5, path=pend)      # 190 + 50 in-flight
+                assert eff_b == 240.0
+                ok_b, reasons_b = fe.guards("B", 50, 3, live=True, autonomous=True,
+                                            futures_live=True, kill=False, edge_override=1,
+                                            gross_open_usdt=eff_b)
+                assert not ok_b and any("cumulée" in r for r in reasons_b)   # 240+50=290 > 250
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_gated_open_skips_when_gate_held():
+    """Point de câblage des ouvreurs : si un AUTRE ouvreur tient déjà la porte,
+    gated_open SAUTE (skipped) et n'appelle JAMAIS execute (fail-closed anti-concurrence)."""
+    import tempfile, os
+    import futures_executor as fe
+    called = []
+    orig = fe.execute
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, ".futures_open.lock")
+        pend = os.path.join(d, ".futures_pending.json")
+        try:
+            fe.execute = lambda *a, **k: called.append((a, k)) or {"executed": True}
+            with fe.open_gate(path=lock) as held:              # un autre ouvreur tient la porte
+                assert held
+                res = fe.gated_open("auto_dir", "long", 10, 2,
+                                    read_book_gross=lambda: 100.0, now=1000.0,
+                                    lock_path=lock, pending_path=pend, confirm=True)
+            assert res.get("skipped") and not res.get("executed")
+            assert called == []                                # execute JAMAIS appelé en concurrence
+        finally:
+            fe.execute = orig
+
+
+def test_gated_open_passes_effective_gross_and_records_pending():
+    """gated_open présente à execute le gross EFFECTIF (livre + in-flight) et, si l'ordre
+    part réellement, enregistre la réservation pour l'ouvreur suivant."""
+    import tempfile, os, json
+    import futures_executor as fe
+    seen = {}
+    orig = fe.execute
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, ".futures_open.lock")
+        pend = os.path.join(d, ".futures_pending.json")
+        try:
+            def fake_exec(agent, side, notional, lev, **k):
+                seen["gross"] = k.get("gross_open_usdt")
+                return {"executed": True, "ok": True, "clientOid": "oidZ"}
+            fe.execute = fake_exec
+            fe.record_pending_open("oidPrev", 50.0, 180.0, now=1000.0, path=pend)  # in-flight préexistant
+            res = fe.gated_open("auto_dir", "long", 10, 2,
+                                read_book_gross=lambda: 200.0, now=1000.0,
+                                lock_path=lock, pending_path=pend, confirm=True)
+            assert res.get("executed")
+            assert seen["gross"] == 230.0                      # 200 + max(0,(180+50)-200)=30
+            items = json.loads(open(pend).read())
+            assert any(r["notional"] == 10.0 for r in items)   # réservation de l'ouverture ajoutée
+        finally:
+            fe.execute = orig
+
+
+def test_gated_open_reserves_before_execute_and_rolls_back():
+    """I3 (revue Thème 2) : la réservation in-flight est posée AVANT l'ordre réel — si le
+    process meurt entre l'ordre exécuté et l'enregistrement, l'ouvreur suivant la voit
+    (fail-CLOSED) — et elle est RETIRÉE si l'ordre n'ouvre finalement pas (pas d'expo fantôme)."""
+    import tempfile, os, json
+    import futures_executor as fe
+    orig = fe.execute
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, "l.lock"); pend = os.path.join(d, "p.json")
+        try:
+            seen = {}
+            def exec_ok(agent, side, notional, lev, **k):
+                seen["at_exec"] = json.loads(open(pend).read()) if os.path.exists(pend) else []
+                return {"executed": True, "ok": True, "clientOid": "oidZ"}
+            fe.execute = exec_ok
+            fe.gated_open("auto_dir", "long", 30, 2, read_book_gross=lambda: 100.0,
+                          now=1000.0, lock_path=lock, pending_path=pend, confirm=True)
+            assert any(r["notional"] == 30.0 for r in seen["at_exec"])       # réservé AVANT execute
+            assert any(r["notional"] == 30.0 for r in json.loads(open(pend).read()))  # conservé (ouvert)
+            fe.execute = lambda agent, side, notional, lev, **k: {"executed": False, "ok": False,
+                                                                  "reasons": ["late guard"]}
+            fe.gated_open("carry", "short", 40, 1, read_book_gross=lambda: 100.0,
+                          now=1001.0, lock_path=lock, pending_path=pend, confirm=True)
+            items = json.loads(open(pend).read())
+            assert not any(r["notional"] == 40.0 for r in items)            # rollback : pas d'expo fantôme
+        finally:
+            fe.execute = orig
+
+
+def test_gated_open_failclosed_on_unreadable_book():
+    """Livre illisible (read_book_gross -> None) SOUS la porte : gated_open saute sans
+    ouvrir (fail-closed) — ferme aussi le fail-open latent où un None devenait 0."""
+    import tempfile, os
+    import futures_executor as fe
+    called = []
+    orig = fe.execute
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            fe.execute = lambda *a, **k: called.append(1) or {"executed": True}
+            res = fe.gated_open("carry", "short", 10, 1,
+                                read_book_gross=lambda: None, now=1000.0,
+                                lock_path=os.path.join(d, "l.lock"),
+                                pending_path=os.path.join(d, "p.json"), confirm=True)
+            assert res.get("skipped") and not res.get("executed") and called == []
+        finally:
+            fe.execute = orig
+
+
+def test_guards_rejects_nonfinite_inputs():
+    """Fail-closed sur non-fini (nan/inf) — régression I2 (revue Thème 2) : un gross/
+    notional/levier nan DÉFAISAIT le mur (toute comparaison avec nan vaut False -> la garde
+    passait). Même esprit que le Thème 4-5 (spot.guards rejette NaN/inf)."""
+    import math
+    import futures_executor as fe
+    nan, inf = float("nan"), float("inf")
+    base = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=1)
+    ok, r = fe.guards("t", 50, 3, gross_open_usdt=nan, **base)      # gross nan -> REJET
+    assert not ok and any("fini" in x for x in r)
+    ok, r = fe.guards("t", 50, 3, gross_open_usdt=inf, **base)      # gross inf -> REJET
+    assert not ok
+    ok, r = fe.guards("t", nan, 3, gross_open_usdt=0, **base)       # notional nan -> REJET
+    assert not ok and any("fini" in x for x in r)
+    ok, r = fe.guards("t", 50, nan, gross_open_usdt=0, **base)      # levier nan -> REJET
+    assert not ok and any("fini" in x for x in r)
+    # effective_gross(nan) -> +inf (jamais nan) : fail-closed en amont AUSSI
+    assert not math.isfinite(fe.effective_gross(nan, now=1000.0, path="/nonexistent"))
+
+
+def test_futures_cli_open_goes_through_gate():
+    """I1 (revue Thème 2) : le CLI `python futures_executor.py` en OUVERTURE (reduce=False)
+    passe par gated_open — il présentait sinon gross=0 à guards (aveugle au mur cumulé 250)
+    et n'était sérialisé avec aucun ouvreur. La FERMETURE (--reduce) reste en execute direct
+    (exemptée du cap)."""
+    import sys
+    import futures_executor as fe
+    orig = (fe.execute, fe.gated_open, sys.argv)
+    calls = {"execute": 0, "gated": 0}
+    try:
+        def fake_gated(agent, side, notional, lev, **k):
+            calls["gated"] += 1
+            assert "read_book_gross" in k                    # reçoit bien un lecteur de livre
+            return {"ok": True, "executed": False, "dry": True, "preview": "x"}
+        fe.gated_open = fake_gated
+        fe.execute = lambda *a, **k: (calls.__setitem__("execute", calls["execute"] + 1)
+                                      or {"ok": True, "executed": False, "dry": True, "preview": "x"})
+        sys.argv = ["futures_executor.py", "--side", "long", "--usdt", "10"]
+        fe.main()
+        assert calls["gated"] == 1 and calls["execute"] == 0     # OUVERTURE -> gate
+        calls["gated"] = calls["execute"] = 0
+        sys.argv = ["futures_executor.py", "--side", "long", "--usdt", "10", "--reduce"]
+        fe.main()
+        assert calls["execute"] == 1 and calls["gated"] == 0     # FERMETURE -> execute direct
+    finally:
+        fe.execute, fe.gated_open, sys.argv = orig
+
+
 # ---------- agent LLM (15ᵉ agent OPT-IN, §06/07) : opt-in, fail-safe, borné ----------
 
 def test_llm_agent_off_is_neutral():

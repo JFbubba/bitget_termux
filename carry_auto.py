@@ -239,18 +239,18 @@ def _run_cycle(now=None):
         res = fe.execute("carry", "short", notional, 1.0, reduce=True, confirm=True,
                          now=now, size_btc=(out.get("position") or {}).get("size_btc"))
     else:                                          # ouvrir/renforcer : short couvert, levier 1, sans SL/TP
-        # gross CROSS-LIVRE (§45) : la garde de cap cumulé doit voir TOUT le livre
-        # (directionnel inclus), pas seulement la jambe carry — sinon une ouverture
-        # carry est aveugle aux positions auto_dir et le mur 250 $ peut être franchi.
-        gross = fa.gross_book_usdt()
-        if gross is None:                          # livre illisible -> fail-closed, on n'ouvre pas à l'aveugle
+        # Ouverture SÉRIALISÉE (Thème 2) : gated_open pose le verrou inter-processus,
+        # relit le gross CROSS-LIVRE (§45 : TOUT le livre, directionnel inclus) SOUS le
+        # verrou et y ajoute l'exposition in-flight, puis délègue à execute. Livre
+        # illisible OU porte tenue par un autre ouvreur -> skip (fail-closed).
+        res = fe.gated_open("carry", "short", float(d["notional"]), 1.0,
+                            read_book_gross=fa.gross_book_usdt,
+                            confirm=True, now=now,
+                            equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
+        if res.get("skipped"):
             out["decision"] = {**d, "action": "rien",
-                               "raison": d["raison"] + " — livre futures illisible, ouverture carry suspendue (fail-closed)"}
+                               "raison": d["raison"] + " — " + (res.get("reasons") or ["ouverture suspendue"])[0]}
             return out
-        res = fe.execute("carry", "short", float(d["notional"]), 1.0,
-                         confirm=True, now=now,
-                         gross_open_usdt=gross,
-                         equity_curve=fe.equity_curve())   # halte MDD du mandat (garde 6)
     out["resultat"] = {"executed": bool(res.get("executed")), "ok": res.get("ok"),
                        "reasons": res.get("reasons"), "clientOid": res.get("clientOid")}
     try:

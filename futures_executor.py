@@ -19,7 +19,9 @@ Gardes DURS (8 de §34 + pré-vol perte journalière) : voir guards() et execute
 Mode --dry par DÉFAUT : imprime le preview, n'exécute RIEN sans --confirm.
 """
 
+import contextlib
 import json
+import math
 import time
 from pathlib import Path
 
@@ -34,6 +36,13 @@ MARGIN_COIN = "USDT"
 FUT_ABS_MAX_PER_TRADE_USDT = 50.0
 FUT_ABS_MAX_GROSS_USDT = 250.0
 FUT_ABS_MAX_LEVERAGE = 5.0   # mur dur levier : ni .env ni config ne peuvent le DÉPASSER
+
+# Sérialisation des OUVERTURES (Thème 2, §revue chemin argent). Le mur cumulé 250 ne
+# tient QUE si l'exposition présentée à guards() est (a) lue sous mutex inter-processus
+# et (b) consciente des ouvertures in-flight pas encore reflétées par le livre exchange.
+FUTURES_OPEN_LOCK = "futures_open.lock"     # verrou flock partagé par TOUS les ouvreurs
+FUTURES_PENDING_FILE = "futures_pending.json"   # réservations in-flight (gitignored)
+PENDING_TTL_S = 90.0                          # durée de vie d'une réservation (borne la sur-prudence)
 
 
 from config_utils import cfg as _cfg
@@ -127,6 +136,184 @@ def _journal(event):
     _write_ledger(led)                # atomique (journal d'argent réel, audit P3)
 
 
+# ---------- sérialisation des OUVERTURES (Thème 2 : mur 250 sous concurrence) ----------
+
+def _open_lock_path():
+    return Path(__file__).resolve().parent / str(_cfg("FUTURES_OPEN_LOCK", FUTURES_OPEN_LOCK))
+
+
+def _pending_path():
+    return Path(__file__).resolve().parent / str(_cfg("FUTURES_PENDING_FILE", FUTURES_PENDING_FILE))
+
+
+@contextlib.contextmanager
+def open_gate(path=None):
+    """Mutex INTER-PROCESSUS des ouvertures futures (flock exclusif NON bloquant).
+    Sérialise « lire gross -> execute -> enregistrer la réservation » entre TOUS les
+    ouvreurs de l'hôte (futures_auto, carry_auto, cycle manuel). yield True si la porte
+    est prise, False si un autre ouvreur la tient déjà : l'appelant DOIT alors SAUTER le
+    cycle (fail-closed — jamais ouvrir en concurrence d'un autre ouvreur). Fail-closed
+    aussi si la couche verrou est indisponible (yield False). Le verrou est libéré à la
+    sortie du bloc ET automatiquement par le noyau si le processus meurt (flock advisory
+    sur un fd) : pas de verrou fantôme."""
+    import os
+    p = Path(path) if path else _open_lock_path()
+    fd = None
+    acquired = False
+    try:
+        try:
+            import fcntl                                 # dans le try : indispo -> yield False (fail-closed)
+            fd = os.open(str(p), os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except Exception:
+            acquired = False      # porte tenue ailleurs OU couche verrou KO -> fail-closed
+        yield acquired
+    finally:
+        if fd is not None:
+            if acquired:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except Exception:
+                    pass
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+
+
+def record_pending_open(client_oid, notional_usdt, book_before_usdt, now=None, path=None):
+    """Enregistre une ouverture RÉELLE tout juste placée, pas forcément encore reflétée
+    par le livre exchange (cohérence éventuelle). Sert de réservation « in-flight » à
+    effective_gross pour que l'ouvreur SUIVANT ne soit pas aveugle à cette exposition.
+    book_before_usdt = exposition EFFECTIVE au moment de l'ouverture (claim cumulé =
+    book_before + notional). À appeler SOUS open_gate, juste après un execute()
+    executed=True. Écriture atomique (tmp + os.replace)."""
+    import os
+    now = time.time() if now is None else now
+    p = Path(path) if path else _pending_path()
+    try:
+        items = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+        if not isinstance(items, list):
+            items = []
+    except Exception:
+        # Illisible : on repart d'une liste vide pour NE PAS perdre CETTE réservation
+        # (la sécurité vit dans effective_gross, qui, lui, fail-closed en INF sur corruption).
+        items = []
+    items.append({"oid": str(client_oid), "notional": float(notional_usdt or 0),
+                  "book_before": float(book_before_usdt or 0), "ts": float(now)})
+    items = [r for r in items if isinstance(r, dict)          # purge des périmées (borne le fichier)
+             and float(now) - float(r.get("ts") or 0) <= PENDING_TTL_S]
+    try:
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
+def remove_pending(client_oid, path=None):
+    """Retire une réservation in-flight — rollback d'une pré-réservation (I3) dont l'ordre
+    n'a finalement PAS ouvert, pour ne pas laisser d'exposition fantôme. Best-effort
+    atomique ; fichier illisible -> ne touche à rien (effective_gross reste fail-closed
+    en +inf tant qu'il est corrompu, donc l'expo n'est jamais sous-estimée entre-temps)."""
+    import os
+    p = Path(path) if path else _pending_path()
+    try:
+        items = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(items, list):
+            return
+    except Exception:
+        return
+    kept = [r for r in items if not (isinstance(r, dict) and str(r.get("oid")) == str(client_oid))]
+    if len(kept) == len(items):
+        return
+    try:
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
+    except Exception:
+        pass
+
+
+def effective_gross(book_gross_usdt, now=None, path=None, ttl_s=None):
+    """Exposition EFFECTIVE = max(livre exchange, plus haut niveau réclamé par une
+    ouverture in-flight pas encore reflétée par le livre). Les réservations sont
+    CUMULATIVES (record_pending_open enregistre l'expo EFFECTIVE à l'ouverture + notional)
+    -> le MAX des claims = le niveau que le livre atteindra, sans double-compter l'expo
+    partagée entre ouvreurs (la SOMME sur-compterait). Ferme le trou où un ouvreur lit un
+    gross périmé juste après l'ouverture d'un autre. Fail-closed : livre non numérique ou
+    réservations corrompues -> +inf (guards rejette toute ouverture). PUR (chemins injectables)."""
+    now = time.time() if now is None else now
+    ttl = PENDING_TTL_S if ttl_s is None else float(ttl_s)
+    try:
+        base = float(book_gross_usdt or 0)
+    except (TypeError, ValueError):
+        return float("inf")                       # livre non numérique -> fail-closed
+    if not math.isfinite(base):
+        return float("inf")                       # livre nan/inf -> fail-closed (jamais propager nan)
+    p = Path(path) if path else _pending_path()
+    if not p.exists():
+        return base
+    try:
+        items = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return float("inf")                       # réservations corrompues -> fail-closed
+    if not isinstance(items, list):
+        return float("inf")
+    best = base
+    for r in items:
+        try:
+            if not isinstance(r, dict):
+                return float("inf")               # entrée inattendue -> fail-closed
+            ts = float(r.get("ts"))
+            if now - ts > ttl:
+                continue                          # périmée : le livre a eu le temps de rattraper
+            claim = float(r.get("book_before")) + float(r.get("notional"))  # expo effective cumulée réclamée
+            if claim > best:                      # le livre atteindra ce niveau -> on le prend
+                best = claim
+        except (TypeError, ValueError):
+            return float("inf")                   # champ non numérique -> fail-closed
+    return best
+
+
+def gated_open(agent, side, notional_usdt, leverage, *, read_book_gross, now=None,
+               lock_path=None, pending_path=None, **execute_kwargs):
+    """OUVERTURE SÉRIALISÉE — le point de câblage unique des ouvreurs (auto_dir, carry,
+    alt_carry). Sous le verrou inter-processus open_gate :
+      1. relit le gross du LIVRE via read_book_gross() (lecteur réseau de l'appelant) —
+         SOUS le verrou, pour ne pas rater une ouverture concurrente ;
+      2. y ajoute l'exposition in-flight (effective_gross) ;
+      3. appelle execute() avec ce gross effectif ;
+      4. si l'ordre part RÉELLEMENT, enregistre la réservation (record_pending_open) pour
+         que l'ouvreur suivant en tienne compte avant que le livre ne l'ait reflétée.
+    Fail-closed : porte tenue ailleurs -> skip ; livre illisible (None) -> skip. Dans les
+    deux cas execute() n'est PAS appelé et on renvoie {'skipped': True, executed False}.
+    Les FERMETURES/réductions n'utilisent PAS gated_open (exemptées du cap cumulé)."""
+    now = time.time() if now is None else now
+    with open_gate(path=lock_path) as locked:
+        if not locked:
+            return {"ok": False, "executed": False, "skipped": True,
+                    "reasons": ["ouverture concurrente en cours (verrou d'ouverture)"]}
+        book = read_book_gross()
+        if book is None:
+            return {"ok": False, "executed": False, "skipped": True,
+                    "reasons": ["livre futures illisible — ouverture suspendue (fail-closed)"]}
+        eff = effective_gross(book, now=now, path=pending_path)
+        # Réserve l'expo EFFECTIVE à l'ouverture (claim cumulé = eff + notional) AVANT
+        # l'ordre réel (I3) : si le process meurt entre l'ordre exécuté et l'enregistrement,
+        # la réservation existe DÉJÀ -> l'ouvreur suivant n'est pas aveugle (fail-CLOSED).
+        # On enregistre eff (pas le livre brut) pour que effective_gross prenne le MAX des
+        # claims cumulatifs, sans double-compter l'in-flight partagé entre ouvreurs.
+        token = f"prov{str(agent)[:3]}{int(now * 1000)}"
+        record_pending_open(token, notional_usdt, eff, now=now, path=pending_path)
+        res = execute(agent, side, notional_usdt, leverage, now=now,
+                      gross_open_usdt=eff, **execute_kwargs)
+        if not res.get("executed"):
+            remove_pending(token, path=pending_path)   # l'ordre n'a pas ouvert -> pas d'expo réservée
+        return res
+
+
 # ---------- gardes DURS (les 8 de §34 ; purs si on injecte l'état) ----------
 
 def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt=0.0,
@@ -190,6 +377,9 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
     except (TypeError, ValueError):
         lev = None
         reasons.append("levier invalide (non numérique)")
+    if lev is not None and not math.isfinite(lev):
+        reasons.append("levier non fini (nan/inf) — fail-closed")
+        lev = None                                    # neutralise les comparaisons nan (toujours False)
     if lev is not None:
         if lev <= 0:
             reasons.append("levier ≤ 0")
@@ -202,6 +392,9 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
     except (TypeError, ValueError):
         notion = None
         reasons.append("notional invalide (non numérique)")
+    if notion is not None and not math.isfinite(notion):
+        reasons.append("notional non fini (nan/inf) — fail-closed")
+        notion = None                                 # neutralise les comparaisons nan (toujours False)
     if notion is not None:
         if notion <= 0:
             reasons.append("notional ≤ 0")
@@ -215,7 +408,9 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
                 reasons.append(f"notional {notion} > plafond/trade {per_cap}")
             gross_cap = _capped("FUTURES_REAL_MAX_GROSS_USDT", 20.0, FUT_ABS_MAX_GROSS_USDT)
             gross = float(gross_open_usdt or 0)
-            if gross + notion > gross_cap:
+            if not math.isfinite(gross):              # nan/inf défaisait le mur (comparaison nan = False)
+                reasons.append("exposition cumulée non finie (nan/inf) — fail-closed")
+            elif gross + notion > gross_cap:
                 reasons.append(f"exposition cumulée dépassée ({gross}+{notion} > {gross_cap})")
 
     # 6. halte drawdown (equity réelle)
@@ -1387,8 +1582,18 @@ def main():
         return
 
     print("=== ORDRE FUTURES RÉEL BORNÉ (étape 2, §45) ===")
-    r = execute(args.agent, args.side, args.usdt, args.leverage, args.entry,
-                args.sl, args.tp, reduce=args.reduce, confirm=args.confirm)
+    if args.reduce:                                   # FERMETURE : exemptée du cap cumulé
+        r = execute(args.agent, args.side, args.usdt, args.leverage, args.entry,
+                    args.sl, args.tp, reduce=True, confirm=args.confirm)
+    else:
+        # OUVERTURE (I1, revue Thème 2) : passe par la sérialisation. Sinon ce CLI
+        # présenterait gross=0 à guards -> aveugle au mur cumulé 250, et ne serait
+        # sérialisé avec AUCUN ouvreur. gated_open pose le verrou + le gross effectif
+        # cross-livre (lecteur via futures_auto ; import tardif -> pas de cycle d'import).
+        import futures_auto as _fa
+        r = gated_open(args.agent, args.side, args.usdt, args.leverage,
+                       entry=args.entry, stop_loss=args.sl, take_profit=args.tp,
+                       confirm=args.confirm, read_book_gross=_fa.gross_book_usdt)
     print(f"Preview : {r.get('preview')}")
     if not r.get("ok"):
         print("REFUSÉ : " + " ; ".join(r.get("reasons", [])))

@@ -105,3 +105,6 @@ data_collector/sorter_state.json
 
 # Graphe généré par graphify (régénérable, ne pas committer)
 graphify-out/
+futures_open.lock
+futures_pending.json
+futures_pending.json.tmp
