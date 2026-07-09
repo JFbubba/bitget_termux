@@ -142,9 +142,10 @@ QML_AGENT_ENABLED=0         # 18ᵉ voix circuit quantique (opt-in, §100 — in
 QML_EDGE_GATE=prudent       # porte d'edge 18ᵉ voix : prudent (wf_edge − se) | brut (wf_edge seul)
 ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
 FUTURES_AUTO_NOTIONAL_USDT=10  # taille/trade boucle directionnelle (env-aware ; MONTÉE à 25 le 06/07, §76)
-FUTURES_EXEC_STYLE=limit_ioc   # ouvertures futures : limit_ioc (défaut, taker plafonné) ; "maker" =
-                               # post-only au bid/ask + repli taker gardé (§exec-frais, opt-in, NON armé —
-                               # vise ~2 bps maker vs ~6 taker ; FUTURES_MAKER_WAIT_S=12 avant repli)
+FUTURES_EXEC_STYLE=maker       # ouvertures futures : limit_ioc (défaut config, taker plafonné) ; "maker" =
+                               # post-only au bid/ask + repli taker gardé (§exec-frais). ARMÉ le 09/07 via
+                               # env sur tout l'univers (vise ~2 bps maker vs ~6 taker ; FUTURES_MAKER_WAIT_S=12
+                               # avant repli). Réversible : =limit_ioc. MESURE en cours (taux de fill, bps)
 LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
 MM_AUTO=0                   # market making spot borné §94 (défaut OFF -> DRY ; exécution via SPOT_TRADE_LIVE)
 MM_SYMBOLS=BTCUSDT          # paires cotées (CSV — budget/inventaire max PARTAGÉS entre paires)
