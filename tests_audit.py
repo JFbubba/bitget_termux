@@ -5976,6 +5976,19 @@ def test_futures_executor_maker_et_repli():
         res = fe._place_maker(order(side="short"), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
         assert res["bitget_order"]["price"] == "60006.0" and res["bitget_order"]["side"] == "sell"
 
+        # 6bis) SCHÉMA RÉEL ancré (ERR-007) — champs observés le 09/07/2026 en LECTURE SEULE
+        # via hub._read(["futures","futures_get_orders","--productType","USDT-FUTURES",
+        # "--status","history"]) : la clé réelle est 'status' (live/partially_filled/filled/
+        # canceled), PAS 'state', + 'baseVolume' (taille remplie). _order_fill_state doit lire
+        # ce schéma réel, et un 'partially_filled' réel doit déclencher le repli.
+        def real_runner(cmd):
+            return '{"data":{"orderId":"OID1","status":"filled","baseVolume":"0.0003","size":"53"}}'
+        assert fe._order_fill_state("BTCUSDT", "OID1", runner=real_runner) == ("filled", 0.0003)
+        r, c = make_runner(lambda n, cx: ('{"data":{"status":"partially_filled","baseVolume":"0"}}'
+                                          if cx == 0 else '{"data":{"status":"canceled","baseVolume":"0"}}'))
+        res = fe._place_maker(order(), r, _FUT_SPEC, 60000.0, "isolated", "hedge_mode", tob)
+        assert res["exec_style"] == "maker_puis_taker"   # champ RÉEL 'status' -> non rempli -> repli taker
+
         # 7) ROUTAGE _place_real : RÉDUCTION en mode maker -> market (jamais post_only)
         fe._cfg = lambda n, d=None: ("maker" if n == "FUTURES_EXEC_STYLE"
                                      else 0 if n == "FUTURES_MAKER_WAIT_S" else _orig(n, d))
