@@ -43,7 +43,7 @@ Statuts : **REJETÉ** (mesuré perdant, ne pas re‑tester) · **GARDÉ** (branc
 | **EXÉCUTION / frais** = le vrai levier | les signaux §72 sont mangés par les frais → travailler l'exécution, pas plus de signaux | `docs/BACKLOG_RECHERCHE.md` §104 |
 | futures edge directionnel | notional 25 $, edge robuste mais fragile | re‑mesurer ~14/07 · mém. `futures-edge-unproven` |
 | momentum cross‑sectionnel | à élever (les signaux mono‑actif sont de la réversion redondante) | BACKLOG §104 |
-| forecast Darts — panier diversifié (métaux/actions) | probe élargi 21 symboles × 8 TF EN COURS | verdict par classe (à venir) |
+| forecast Darts — panier diversifié → **REJETÉ 09/07** | 21 sym × 8 TF net de frais : 0/477 passe (seule UNI 1D = faux positif multiple-testing). IC RÉEL surtout actions US (0.20 t4.7)/alts (0.23 t3.5) mais mangé par frais (§104) | fait — ne pas re-tester |
 
 ## ÉVALUÉ — service/donnée jugé (sans mesure d'edge)
 | Source | Verdict | Réf |
