@@ -9218,6 +9218,75 @@ def test_qml_poids_desalignes_refuses():
         qml_agent._load_weights = old
 
 
+# ---------- §revue chemin argent — Thème 1 : kill-switch fail-closed ----------
+
+def test_kill_switch_file_is_absolute():
+    """Ancré au dépôt (chemin ABSOLU) : le kill-switch doit être vu quel que soit le cwd
+    de l'appelant. Un run/test lancé hors du dépôt ne doit jamais rater un halt armé."""
+    import risk_manager
+    assert risk_manager.KILL_FILE.is_absolute()
+
+def test_kill_switch_present_absent_via_tmp():
+    """Présent -> actif ; absent -> inactif. Via un chemin TEMPORAIRE : ne touche JAMAIS
+    le vrai fichier KILL_SWITCH du dépôt."""
+    import os, tempfile, risk_manager
+    from pathlib import Path
+    saved = risk_manager.KILL_FILE
+    had_halt = os.environ.pop("TRADING_HALT", None)
+    d = tempfile.mkdtemp()
+    try:
+        risk_manager.KILL_FILE = Path(d) / "KILL_SWITCH"
+        assert risk_manager.kill_switch_active() is False
+        risk_manager.KILL_FILE.write_text("halt")
+        assert risk_manager.kill_switch_active() is True
+    finally:
+        risk_manager.KILL_FILE = saved
+        if had_halt is not None:
+            os.environ["TRADING_HALT"] = had_halt
+
+def test_kill_switch_fail_closed_on_stat_error():
+    """Erreur de stat (permission/FS) : on ne peut PAS prouver l'absence -> ACTIF (fail-closed)."""
+    import os, risk_manager
+    class _Boom:
+        def stat(self):
+            raise PermissionError("stat interdit")
+        def exists(self):   # ce que lisait l'ancien code -> l'aurait cru absent
+            return False
+    saved = risk_manager.KILL_FILE
+    had_halt = os.environ.pop("TRADING_HALT", None)
+    try:
+        risk_manager.KILL_FILE = _Boom()
+        assert risk_manager.kill_switch_active() is True
+    finally:
+        risk_manager.KILL_FILE = saved
+        if had_halt is not None:
+            os.environ["TRADING_HALT"] = had_halt
+
+def test_guards_kill_blocks_opening_but_reduce_skips_kill():
+    """kill armé : une OUVERTURE est refusée ; une RÉDUCTION (sortie de risque) ignore le kill."""
+    import futures_executor as fx
+    _, reasons_open = fx.guards("test", 10.0, 3.0, kill=True, live=True, autonomous=True,
+                                futures_live=True, edge_override=1)
+    assert any("kill" in r.lower() for r in reasons_open)
+    _, reasons_reduce = fx.guards("test", 10.0, 3.0, kill=True, live=True, autonomous=True,
+                                  futures_live=True, edge_override=1, reduce=True)
+    assert not any("kill" in r.lower() for r in reasons_reduce)
+
+def test_arm_kill_switch_returns_false_on_write_error():
+    """Contrat : si l'écriture du KILL_SWITCH échoue, arm_kill_switch renvoie False
+    (le watchdog doit alors ALERTER, pas annoncer une halte inexistante)."""
+    import watchdog, risk_manager
+    class _Boom:
+        def write_text(self, *a, **k):
+            raise OSError("disque plein")
+    saved = risk_manager.KILL_FILE
+    try:
+        risk_manager.KILL_FILE = _Boom()
+        assert watchdog.arm_kill_switch("test") is False
+    finally:
+        risk_manager.KILL_FILE = saved
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

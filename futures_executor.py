@@ -146,7 +146,13 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
             import risk_manager
             kill = risk_manager.kill_switch_active()
         except Exception:
-            kill = False
+            # Fail-CLOSED : la couche kill-switch est indisponible (import/exécution qui
+            # lève). On lit le fichier DIRECTEMENT (chemin absolu ancré au dépôt) pour ne
+            # pas rater un halt armé ; en cas de doute (lecture qui échoue), on BLOQUE.
+            try:
+                kill = (Path(__file__).resolve().parent / "KILL_SWITCH").exists()
+            except Exception:
+                kill = True
     if kill and not reduce:
         reasons.append("kill_switch actif")
 

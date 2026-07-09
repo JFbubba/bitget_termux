@@ -304,16 +304,28 @@ def heal(verdict, *, seuil_escalade=None):
     actions["consecutifs"] = state["consecutifs"]
     if heal_escalade(state["consecutifs"], seuil):
         actions["escalade"] = True
-        if not _kill_actif():
-            arm_kill_switch(f"supervision : brain/scan STALE/DOWN x{state['consecutifs']} "
-                            f"(seuil {seuil}) — fail-safe")
+        # Vérifier que l'armement a RÉELLEMENT pris (write_text peut échouer : disque,
+        # permission). On ne doit pas annoncer une halte qui n'existe pas.
+        kill_ok = _kill_actif()
+        if not kill_ok:
+            kill_ok = bool(arm_kill_switch(
+                f"supervision : brain/scan STALE/DOWN x{state['consecutifs']} "
+                f"(seuil {seuil}) — fail-safe")) and _kill_actif()
+        actions["kill_arme"] = bool(kill_ok)
         try:
             import telegram_notifier as tn
-            tn.send_telegram(
-                f"🚑 SUPERVISION : brain/scan {verdict} depuis {state['consecutifs']} cycles "
-                f"malgré réarmement des timers. Kill-switch ARMÉ (fail-safe : plus aucune "
-                "OUVERTURE ; le stop −5 % reste enforced par stop_guardian). "
-                "Intervention requise : journalctl -u bitget-scan -u bitget-brain.")
+            if kill_ok:
+                tn.send_telegram(
+                    f"🚑 SUPERVISION : brain/scan {verdict} depuis {state['consecutifs']} cycles "
+                    f"malgré réarmement des timers. Kill-switch ARMÉ (fail-safe : plus aucune "
+                    "OUVERTURE ; le stop −5 % reste enforced par stop_guardian). "
+                    "Intervention requise : journalctl -u bitget-scan -u bitget-brain.")
+            else:
+                tn.send_telegram(
+                    f"🚨 SUPERVISION : brain/scan {verdict} depuis {state['consecutifs']} cycles "
+                    "ET **l'armement du kill-switch a ÉCHOUÉ** (écriture impossible ?). "
+                    "Le trading n'est PEUT-ÊTRE PAS halté. Intervention MANUELLE IMMÉDIATE : "
+                    "touch ~/bitget_termux_repo/KILL_SWITCH")
         except Exception:
             pass
     _save_heal_state(state)

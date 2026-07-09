@@ -19,7 +19,10 @@ Kill-switch (arrêt d'urgence immédiat de TOUT trading) :
 import os
 from pathlib import Path
 
-KILL_FILE = Path("KILL_SWITCH")
+# Chemin ABSOLU (ancré au dépôt) : le kill-switch DOIT être vu quel que soit le cwd de
+# l'appelant. Les boucles tournent cwd=dépôt, mais un run manuel/test lancé d'un autre
+# répertoire ne doit jamais rater un KILL_SWITCH armé. (§revue chemin argent — Thème 1)
+KILL_FILE = Path(__file__).resolve().parent / "KILL_SWITCH"
 
 
 def _f(name, default):
@@ -50,7 +53,18 @@ def load_limits():
 
 
 def kill_switch_active():
-    return KILL_FILE.exists() or os.getenv("TRADING_HALT", "").lower() in ("1", "true", "yes", "on")
+    # Fail-CLOSED : si l'on ne peut pas PROUVER l'absence du fichier (erreur de stat :
+    # permission, FS), on considère le kill-switch ACTIF. TRADING_HALT reste un
+    # court-circuit d'urgence par l'environnement.
+    if os.getenv("TRADING_HALT", "").lower() in ("1", "true", "yes", "on"):
+        return True
+    try:
+        KILL_FILE.stat()
+        return True                       # présent -> kill actif
+    except FileNotFoundError:
+        return False                      # absence AVÉRÉE -> OK
+    except OSError:
+        return True                       # indéterminable -> fail-closed (on bloque)
 
 
 def check_trade(proposed, *, open_positions, daily_loss_usd, limits=None):
