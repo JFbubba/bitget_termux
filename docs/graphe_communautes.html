@@ -1,0 +1,240 @@
+<title>Architecture du bot — communautés de code</title>
+<style>
+  :root{
+    --bg:#0A0E14; --panel:rgba(17,24,35,.82); --line:#212C3D; --line2:#2C3A4F;
+    --txt:#E6EAF0; --dim:#7C8AA0; --dim2:#5A6A82; --accent:#22D3EE;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:ui-monospace,"JetBrains Mono","SF Mono","DejaVu Sans Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  .wrap{position:fixed;inset:0;overflow:hidden;background:
+      radial-gradient(1100px 700px at 78% -8%, rgba(34,211,238,.06), transparent 55%),
+      radial-gradient(900px 600px at 8% 108%, rgba(167,139,250,.05), transparent 55%),
+      var(--bg);
+    color:var(--txt);font-family:var(--mono);-webkit-font-smoothing:antialiased;
+    font-variant-numeric:tabular-nums}
+  canvas{position:absolute;inset:0;display:block;cursor:grab}
+  canvas.drag{cursor:grabbing}
+
+  /* ---- en-tête ---- */
+  header{position:absolute;top:0;left:0;right:0;padding:18px 22px;pointer-events:none;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:16px;z-index:3}
+  .ttl{display:flex;flex-direction:column;gap:4px}
+  .eyebrow{font-family:var(--sans);font-size:10px;font-weight:600;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:8px}
+  .eyebrow::before{content:"";width:14px;height:2px;border-radius:2px;background:var(--accent);
+    box-shadow:0 0 8px var(--accent)}
+  h1{font-family:var(--sans);font-size:19px;font-weight:650;margin:0;letter-spacing:.01em;color:#fff}
+  .sub{font-size:11.5px;color:var(--dim)}
+  .stats{display:flex;gap:22px;font-family:var(--sans);text-align:right}
+  .stat .n{font-size:20px;font-weight:650;color:#fff}
+  .stat .l{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+
+  /* ---- légende / filtres ---- */
+  .legend{position:absolute;left:22px;bottom:20px;z-index:3;display:flex;flex-direction:column;gap:7px;
+    background:var(--panel);backdrop-filter:blur(9px);border:1px solid var(--line);
+    border-radius:11px;padding:13px 15px;max-width:230px}
+  .legend .lh{font-family:var(--sans);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:2px}
+  .lg{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--txt);cursor:pointer;
+    padding:3px 6px;margin:0 -6px;border-radius:6px;transition:background .15s,opacity .15s;user-select:none}
+  .lg:hover{background:rgba(255,255,255,.04)}
+  .lg.off{opacity:.32}
+  .lg .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 7px currentColor}
+  .lg .cnt{margin-left:auto;font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums}
+
+  .hint{position:absolute;right:22px;bottom:20px;z-index:3;font-family:var(--sans);font-size:10.5px;
+    color:var(--dim2);text-align:right;line-height:1.7;pointer-events:none}
+  .hint b{color:var(--dim);font-weight:600}
+
+  /* ---- tooltip ---- */
+  .tip{position:absolute;z-index:5;pointer-events:none;opacity:0;transition:opacity .12s;
+    background:var(--panel);backdrop-filter:blur(10px);border:1px solid var(--line2);
+    border-radius:9px;padding:9px 12px;max-width:240px;box-shadow:0 10px 34px -12px rgba(0,0,0,.7)}
+  .tip .nm{font-family:var(--sans);font-size:13px;font-weight:650;color:#fff;margin-bottom:3px}
+  .tip .rw{font-size:11px;color:var(--dim);display:flex;justify-content:space-between;gap:16px}
+  .tip .rw b{color:var(--txt);font-weight:500}
+  .tip .gp{display:inline-flex;align-items:center;gap:6px;margin-top:5px;font-size:10.5px;color:var(--dim)}
+  .tip .gp .dot{width:8px;height:8px;border-radius:50%;box-shadow:0 0 6px currentColor}
+  @media (max-width:640px){
+    .stats{display:none}.legend{max-width:190px;padding:10px 12px}
+    h1{font-size:16px}.hint{display:none}
+  }
+</style>
+
+<div class="wrap">
+  <canvas id="cv"></canvas>
+  <header>
+    <div class="ttl">
+      <div class="eyebrow">Graphify · communautés nommées</div>
+      <h1>Architecture du bot — le cerveau, cartographié</h1>
+      <div class="sub" id="sub">46 communautés de code · liens = dépendances entre modules</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n" id="sN">46</div><div class="l">communautés</div></div>
+      <div class="stat"><div class="n" id="sE">40</div><div class="l">liens</div></div>
+      <div class="stat"><div class="n" id="sF">4776</div><div class="l">nœuds source</div></div>
+    </div>
+  </header>
+
+  <div class="legend" id="legend"><div class="lh">Sous-systèmes — cliquer pour filtrer</div></div>
+  <div class="hint"><b>survol</b> : voisins &amp; détail · <b>glisser</b> : déplacer un nœud<br><b>double-clic</b> : relancer la disposition</div>
+  <div class="tip" id="tip"></div>
+</div>
+
+<script>
+const DATA = {"nodes": [{"id": 2, "name": "Futures Executor", "size": 78, "grp": "Ex\u00e9cution"}, {"id": 4, "name": "Auto Futures", "size": 63, "grp": "Ex\u00e9cution"}, {"id": 8, "name": "Accumulation Engine", "size": 52, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 9, "name": "Classiques Agent", "size": 52, "grp": "Cerveau & d\u00e9cision"}, {"id": 16, "name": "Microstructure", "size": 43, "grp": "Cerveau & d\u00e9cision"}, {"id": 18, "name": "Savant Agent", "size": 41, "grp": "Cerveau & d\u00e9cision"}, {"id": 19, "name": "Agent Hub", "size": 40, "grp": "Cerveau & d\u00e9cision"}, {"id": 20, "name": "Derivatives Positioning", "size": 40, "grp": "Cerveau & d\u00e9cision"}, {"id": 21, "name": "Spot Executor", "size": 38, "grp": "Ex\u00e9cution"}, {"id": 22, "name": "Alt Carry", "size": 37, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 23, "name": "Simon's Agent", "size": 37, "grp": "Cerveau & d\u00e9cision"}, {"id": 24, "name": "Mandate Management", "size": 36, "grp": "Cerveau & d\u00e9cision"}, {"id": 25, "name": "Future Tester", "size": 35, "grp": "Cerveau & d\u00e9cision"}, {"id": 26, "name": "SMC Analysis", "size": 35, "grp": "Cerveau & d\u00e9cision"}, {"id": 28, "name": "Watchdog", "size": 34, "grp": "Risque & gardes"}, {"id": 29, "name": "Backtest Brain", "size": 33, "grp": "Apprentissage"}, {"id": 30, "name": "Volatility", "size": 33, "grp": "Cerveau & d\u00e9cision"}, {"id": 31, "name": "Accum Backtest", "size": 32, "grp": "Apprentissage"}, {"id": 32, "name": "Bitget Explorer", "size": 31, "grp": "Cerveau & d\u00e9cision"}, {"id": 34, "name": "Quantum Training", "size": 31, "grp": "Apprentissage"}, {"id": 36, "name": "Futures Report", "size": 30, "grp": "Ex\u00e9cution"}, {"id": 37, "name": "Macro Sentinel", "size": 30, "grp": "Risque & gardes"}, {"id": 39, "name": "Real Positions", "size": 28, "grp": "Cerveau & d\u00e9cision"}, {"id": 40, "name": "Black Scholes", "size": 27, "grp": "Cerveau & d\u00e9cision"}, {"id": 42, "name": "Edge Ladder", "size": 27, "grp": "Cerveau & d\u00e9cision"}, {"id": 43, "name": "Onchain BTC", "size": 27, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 44, "name": "Carry Monitor", "size": 26, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 45, "name": "Stop Guardian", "size": 26, "grp": "Risque & gardes"}, {"id": 47, "name": "ESM Analysis", "size": 25, "grp": "Cerveau & d\u00e9cision"}, {"id": 48, "name": "LLM Agent", "size": 25, "grp": "Cerveau & d\u00e9cision"}, {"id": 49, "name": "Macro Data", "size": 25, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 50, "name": "Macro Regime", "size": 25, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 51, "name": "Tools", "size": 24, "grp": "Infra & I/O"}, {"id": 54, "name": "Stablecoin Flow", "size": 24, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 61, "name": "Bitget Market Data", "size": 23, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 56, "name": "Market Maker", "size": 23, "grp": "Ex\u00e9cution"}, {"id": 57, "name": "Outcome State", "size": 23, "grp": "Cerveau & d\u00e9cision"}, {"id": 58, "name": "Spot Trading", "size": 23, "grp": "Cerveau & d\u00e9cision"}, {"id": 59, "name": "Trade Forensics", "size": 23, "grp": "Ex\u00e9cution"}, {"id": 60, "name": "Accum Reconciliation", "size": 22, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 62, "name": "Compact Report", "size": 22, "grp": "Infra & I/O"}, {"id": 65, "name": "Weekly Review", "size": 22, "grp": "Infra & I/O"}, {"id": 66, "name": "Bitget Execution", "size": 21, "grp": "Ex\u00e9cution"}, {"id": 67, "name": "Market Sections", "size": 21, "grp": "Donn\u00e9es & march\u00e9"}, {"id": 70, "name": "Scraper Agent", "size": 21, "grp": "Cerveau & d\u00e9cision"}, {"id": 71, "name": "Liquidity Manager", "size": 21, "grp": "Donn\u00e9es & march\u00e9"}], "edges": [{"s": 9, "t": 31, "w": 2}, {"s": 30, "t": 31, "w": 7}, {"s": 31, "t": 43, "w": 2}, {"s": 9, "t": 60, "w": 4}, {"s": 30, "t": 60, "w": 6}, {"s": 8, "t": 9, "w": 11}, {"s": 9, "t": 22, "w": 6}, {"s": 9, "t": 66, "w": 3}, {"s": 32, "t": 67, "w": 3}, {"s": 49, "t": 67, "w": 3}, {"s": 37, "t": 67, "w": 2}, {"s": 9, "t": 44, "w": 4}, {"s": 30, "t": 62, "w": 10}, {"s": 9, "t": 30, "w": 5}, {"s": 9, "t": 20, "w": 5}, {"s": 9, "t": 42, "w": 5}, {"s": 4, "t": 9, "w": 12}, {"s": 2, "t": 9, "w": 14}, {"s": 9, "t": 36, "w": 4}, {"s": 9, "t": 71, "w": 4}, {"s": 9, "t": 48, "w": 9}, {"s": 9, "t": 50, "w": 2}, {"s": 9, "t": 24, "w": 13}, {"s": 9, "t": 56, "w": 3}, {"s": 9, "t": 43, "w": 5}, {"s": 9, "t": 62, "w": 2}, {"s": 9, "t": 65, "w": 3}, {"s": 9, "t": 21, "w": 6}, {"s": 9, "t": 54, "w": 4}, {"s": 9, "t": 45, "w": 6}, {"s": 9, "t": 28, "w": 2}, {"s": 20, "t": 30, "w": 12}, {"s": 4, "t": 30, "w": 9}, {"s": 2, "t": 30, "w": 13}, {"s": 30, "t": 36, "w": 8}, {"s": 30, "t": 71, "w": 4}, {"s": 30, "t": 43, "w": 6}, {"s": 30, "t": 57, "w": 2}, {"s": 30, "t": 65, "w": 7}, {"s": 30, "t": 54, "w": 7}]};
+const GROUPS = {
+  "Cerveau & décision": "#22D3EE",
+  "Exécution":          "#FBBF24",
+  "Données & marché":   "#34D399",
+  "Risque & gardes":    "#F87171",
+  "Apprentissage":      "#A78BFA",
+  "Infra & I/O":        "#94A3B8",
+};
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const tip = document.getElementById('tip');
+let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
+const nodes = DATA.nodes.map(n=>({...n, r: 7 + Math.sqrt(n.size)*2.3}));
+const byId = new Map(nodes.map(n=>[n.id,n]));
+const edges = DATA.edges.map(e=>({...e, a:byId.get(e.s), b:byId.get(e.t)})).filter(e=>e.a&&e.b);
+// degré (pour l'ordre de rendu / accent des hubs)
+nodes.forEach(n=>n.deg=0); edges.forEach(e=>{e.a.deg++;e.b.deg++;});
+const off = {}; // sous-systèmes masqués
+
+function resize(){
+  W=cv.clientWidth=window.innerWidth; H=cv.clientHeight=window.innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',resize);
+
+function seed(){
+  const cx=W/2, cy=H/2, keys=Object.keys(GROUPS);
+  nodes.forEach((n,i)=>{
+    const gi=keys.indexOf(n.grp), ang=(gi/keys.length)*Math.PI*2 + (i%7)*0.5;
+    const rad=Math.min(W,H)*0.26*(0.55+Math.random()*0.5);
+    n.x=cx+Math.cos(ang)*rad + (Math.random()-.5)*60;
+    n.y=cy+Math.sin(ang)*rad + (Math.random()-.5)*60;
+    n.vx=0; n.vy=0;
+  });
+}
+
+function hidden(n){ return off[n.grp]; }
+
+function step(){
+  const cx=W/2, cy=H/2;
+  // répulsion (Coulomb, O(n²) — 46 nœuds)
+  for(let i=0;i<nodes.length;i++){
+    const a=nodes[i]; if(hidden(a))continue;
+    for(let j=i+1;j<nodes.length;j++){
+      const b=nodes[j]; if(hidden(b))continue;
+      let dx=a.x-b.x, dy=a.y-b.y, d2=dx*dx+dy*dy||0.01, d=Math.sqrt(d2);
+      const rep=5200/d2, minD=a.r+b.r+14;
+      let f=rep;
+      if(d<minD) f+=(minD-d)*0.9/d; // collision
+      const fx=dx/d*f, fy=dy/d*f;
+      if(a!==drag){a.vx+=fx;a.vy+=fy;} if(b!==drag){b.vx-=fx;b.vy-=fy;}
+    }
+  }
+  // ressorts (liens)
+  edges.forEach(e=>{
+    if(hidden(e.a)||hidden(e.b))return;
+    let dx=e.b.x-e.a.x, dy=e.b.y-e.a.y, d=Math.hypot(dx,dy)||0.01;
+    const L=90+120/(1+e.w); // liens forts = plus courts
+    const f=(d-L)*0.012*Math.min(1+e.w*0.15,2.2);
+    const fx=dx/d*f, fy=dy/d*f;
+    if(e.a!==drag){e.a.vx+=fx;e.a.vy+=fy;} if(e.b!==drag){e.b.vx-=fx;e.b.vy-=fy;}
+  });
+  // gravité vers le centre + intégration amortie
+  nodes.forEach(n=>{
+    if(hidden(n)||n===drag)return;
+    n.vx+=(cx-n.x)*0.0015; n.vy+=(cy-n.y)*0.0015;
+    n.vx*=0.86; n.vy*=0.86;
+    n.x+=n.vx; n.y+=n.vy;
+    const m=24;
+    n.x=Math.max(m,Math.min(W-m,n.x)); n.y=Math.max(m,Math.min(H-m,n.y));
+  });
+}
+
+const nbrs = new Map(nodes.map(n=>[n,new Set()]));
+edges.forEach(e=>{nbrs.get(e.a).add(e.b);nbrs.get(e.b).add(e.a);});
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const active = hover||null;
+  const lit = active ? nbrs.get(active) : null;
+  // liens
+  edges.forEach(e=>{
+    if(hidden(e.a)||hidden(e.b))return;
+    const on = active && (e.a===active||e.b===active);
+    ctx.beginPath(); ctx.moveTo(e.a.x,e.a.y); ctx.lineTo(e.b.x,e.b.y);
+    ctx.lineWidth = on ? Math.min(1+e.w*0.35,4) : 0.6+e.w*0.12;
+    ctx.strokeStyle = on ? "rgba(34,211,238,.55)"
+                    : active ? "rgba(120,138,160,.06)" : "rgba(120,138,160,.16)";
+    ctx.stroke();
+  });
+  // nœuds (petits d'abord)
+  [...nodes].sort((a,b)=>a.r-b.r).forEach(n=>{
+    if(hidden(n))return;
+    const col=GROUPS[n.grp]||"#94A3B8";
+    const dim = active && n!==active && !lit.has(n);
+    ctx.globalAlpha = dim ? 0.22 : 1;
+    // halo
+    if(!dim){ ctx.beginPath(); ctx.arc(n.x,n.y,n.r+3,0,7); ctx.fillStyle=col+"22"; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7);
+    ctx.fillStyle=col; ctx.globalAlpha = dim?0.22:0.92; ctx.fill();
+    ctx.lineWidth = (n===active)?2:1; ctx.strokeStyle = (n===active)?"#fff":"#0A0E14"; ctx.stroke();
+    // label
+    ctx.globalAlpha = dim ? 0.25 : 1;
+    ctx.font = `${n===active?600:400} ${n.r>15?12:11}px ui-sans-serif,system-ui,sans-serif`;
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    ctx.fillStyle = dim ? "rgba(230,234,240,.4)" : "rgba(230,234,240,.92)";
+    ctx.fillText(n.name, n.x, n.y+n.r+3);
+    ctx.globalAlpha=1;
+  });
+}
+
+let hover=null, drag=null, dragged=false;
+function pick(mx,my){
+  let best=null,bd=1e9;
+  nodes.forEach(n=>{ if(hidden(n))return; const d=Math.hypot(n.x-mx,n.y-my); if(d<n.r+5&&d<bd){bd=d;best=n;} });
+  return best;
+}
+cv.addEventListener('mousemove',ev=>{
+  const mx=ev.clientX,my=ev.clientY;
+  if(drag){ drag.x=mx; drag.y=my; drag.vx=0; drag.vy=0; dragged=true; return; }
+  hover=pick(mx,my);
+  if(hover){
+    tip.style.opacity=1;
+    const col=GROUPS[hover.grp];
+    tip.innerHTML=`<div class="nm">${hover.name}</div>`+
+      `<div class="rw"><span>fichiers / symboles</span><b>${hover.size}</b></div>`+
+      `<div class="rw"><span>liens directs</span><b>${hover.deg}</b></div>`+
+      `<div class="gp"><span class="dot" style="color:${col};background:${col}"></span>${hover.grp}</div>`;
+    const tw=tip.offsetWidth||220, th=tip.offsetHeight||70;
+    tip.style.left=Math.min(mx+16,W-tw-10)+'px';
+    tip.style.top=Math.min(my+16,H-th-10)+'px';
+    cv.style.cursor='pointer';
+  } else { tip.style.opacity=0; cv.style.cursor='grab'; }
+});
+cv.addEventListener('mousedown',ev=>{ const n=pick(ev.clientX,ev.clientY); if(n){drag=n;dragged=false;cv.classList.add('drag');} });
+window.addEventListener('mouseup',()=>{ drag=null; cv.classList.remove('drag'); });
+cv.addEventListener('dblclick',()=>seed());
+
+// légende
+const lg=document.getElementById('legend');
+const counts={}; nodes.forEach(n=>counts[n.grp]=(counts[n.grp]||0)+1);
+Object.entries(GROUPS).forEach(([g,c])=>{
+  if(!counts[g])return;
+  const el=document.createElement('div'); el.className='lg';
+  el.innerHTML=`<span class="dot" style="color:${c};background:${c}"></span><span>${g}</span><span class="cnt">${counts[g]}</span>`;
+  el.onclick=()=>{ off[g]=!off[g]; el.classList.toggle('off',off[g]); };
+  lg.appendChild(el);
+});
+document.getElementById('sN').textContent=nodes.length;
+document.getElementById('sE').textContent=edges.length;
+
+resize(); seed();
+(function loop(){ step(); draw(); requestAnimationFrame(loop); })();
+</script>

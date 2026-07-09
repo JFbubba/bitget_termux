@@ -1178,6 +1178,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
         _journal({"action": "FUTURES_REAL" if res.get("executed") else "FUTURES_REAL_FAILED",
                   "ts": now, "order": order, "bitget_order": res.get("bitget_order"),
                   "real_order_sent": bool(res.get("executed")),
+                  "exec_style": res.get("exec_style"),      # maker | maker_puis_taker | taker_apres_rejet_maker
+                  "filled_maker": res.get("filled_maker"),  # base remplie en maker avant repli (si repli)
                   "reasons": res.get("reasons"), "response": res.get("response")})
     return {**res, "preview": preview, "clientOid": oid}
 
