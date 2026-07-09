@@ -977,6 +977,55 @@ def test_futures_cli_open_goes_through_gate():
         fe.execute, fe.gated_open, sys.argv = orig
 
 
+def test_open_duplicate_reason_detects_book_and_journal():
+    """Anti-doublon du CLI manuel main() : refuse si le côté est déjà ouvert (livre) OU si une
+    ouverture RÉELLE récente du même (agent, symbole, côté) est au journal (fenêtre cooldown)."""
+    import futures_executor as fe
+    par = {"BTCUSDT": {"long": {"notional_usdt": 20.0}}}
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "long", par_sym=par, events=[], now=1000.0)
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "short", par_sym=par, events=[], now=1000.0) is None
+    ev = [{"action": "FUTURES_REAL", "ts": 990.0,
+           "order": {"agent": "carry", "side": "short", "symbol": "BTCUSDT", "reduce": False}}]
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "short", par_sym={"BTCUSDT": {}}, events=ev,
+                                    now=1000.0, cooldown_s=120)
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "short", par_sym={"BTCUSDT": {}}, events=ev,
+                                    now=990.0 + 200, cooldown_s=120) is None          # hors cooldown
+    evr = [{"action": "FUTURES_REAL", "ts": 995.0,
+            "order": {"agent": "carry", "side": "short", "symbol": "BTCUSDT", "reduce": True}}]
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "short", par_sym={"BTCUSDT": {}}, events=evr,
+                                    now=1000.0, cooldown_s=120) is None               # une réduction ne compte pas
+
+
+def test_open_duplicate_reason_failclosed_on_unreadable_book():
+    """Livre des positions illisible -> refus (fail-closed) : impossible de vérifier l'absence
+    de doublon (le --force reste l'échappatoire délibérée)."""
+    import futures_executor as fe
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "long", par_sym={"erreur": "x"}, events=[], now=1000.0)
+    assert fe.open_duplicate_reason("carry", "BTCUSDT", "long", par_sym=None, events=[], now=1000.0)
+
+
+def test_futures_cli_refuses_duplicate_open_without_force():
+    """main() (ouverture réelle) REFUSE un doublon sans --force ; --force outrepasse."""
+    import sys
+    import futures_executor as fe
+    import futures_auto as fa
+    orig = (fe.gated_open, fa.positions_par_symbole, fa._executor_events, sys.argv)
+    calls = []
+    try:
+        fe.gated_open = lambda *a, **k: calls.append(1) or {"ok": True, "executed": True,
+                                                            "preview": "x", "clientOid": "z"}
+        fa.positions_par_symbole = lambda: {"BTCUSDT": {"long": {"notional_usdt": 20.0}}}   # long déjà ouvert
+        fa._executor_events = lambda: []
+        sys.argv = ["futures_executor.py", "--side", "long", "--usdt", "10", "--confirm"]
+        fe.main()
+        assert calls == []                          # REFUSÉ : gated_open jamais appelé
+        sys.argv = ["futures_executor.py", "--side", "long", "--usdt", "10", "--confirm", "--force"]
+        fe.main()
+        assert calls == [1]                         # --force -> ouvre
+    finally:
+        (fe.gated_open, fa.positions_par_symbole, fa._executor_events, sys.argv) = orig
+
+
 # ---------- double-position sur réponse perdue : réconciliation clientOid (maker) ----------
 # Le placement maker (post-only) qui ATTERRIT reste VIVANT (il ne prend jamais de liquidité)
 # -> il apparaît dans les ordres OUVERTS. Sur une réponse de placement PERDUE (pas d'orderId),

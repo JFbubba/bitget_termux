@@ -314,6 +314,42 @@ def gated_open(agent, side, notional_usdt, leverage, *, read_book_gross, now=Non
         return res
 
 
+def open_duplicate_reason(agent, symbol, side, *, par_sym=None, events=None, now=None, cooldown_s=None):
+    """Raison de REFUS si OUVRIR (agent, symbol, side) ferait DOUBLON, sinon None. Protège le CLI
+    manuel main() d'une double-invocation accidentelle (ou d'un re-run après réponse perdue dont
+    l'ordre a rempli — les boucles auto, elles, ont leur throttle 4 h/8 h) :
+      • côté déjà OUVERT dans le livre (par_sym) ; OU
+      • ouverture RÉELLE récente du même (agent, symbole, côté) au journal (fenêtre cooldown).
+    Fail-closed si le livre est illisible : on ne peut pas prouver l'absence de doublon. PUR
+    (par_sym/events injectés). Le --force du CLI outrepasse délibérément."""
+    now = time.time() if now is None else now
+    cooldown = (float(_cfg("FUTURES_MANUAL_DUP_COOLDOWN_S", 120.0))
+                if cooldown_s is None else float(cooldown_s))
+    sym = str(symbol or SYMBOL).upper()
+    side = str(side)
+    if not isinstance(par_sym, dict) or par_sym.get("erreur"):
+        return "livre des positions illisible — vérification anti-doublon impossible (fail-closed)"
+    cotes = par_sym.get(sym) or {}
+    if isinstance(cotes, dict) and cotes.get(side):
+        return f"position {side} {sym} déjà ouverte (livre) — ouverture refusée (anti-doublon)"
+    for e in reversed(events or []):
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        o = e.get("order") or {}
+        if o.get("reduce"):
+            continue
+        if (str(o.get("agent")) == str(agent) and str(o.get("side")) == side
+                and str(o.get("symbol") or SYMBOL).upper() == sym):
+            try:
+                if now - float(e.get("ts")) <= cooldown:
+                    return (f"ouverture {side} {sym} par '{agent}' il y a < {int(cooldown)}s "
+                            "(journal) — ouverture refusée (anti-doublon)")
+            except (TypeError, ValueError):
+                pass
+            break                                       # le plus récent ordre réel d'ouverture examiné
+    return None
+
+
 # ---------- gardes DURS (les 8 de §34 ; purs si on injecte l'état) ----------
 
 def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt=0.0,
@@ -1620,6 +1656,9 @@ def main():
     p.add_argument("--tp", type=float, help="take profit (optionnel)")
     p.add_argument("--confirm", action="store_true",
                    help="exécute le VRAI ordre (sinon DRY : preview seulement)")
+    p.add_argument("--force", action="store_true",
+                   help="outrepasse le garde anti-doublon (ouvre même si une position identique "
+                        "est déjà ouverte ou vient d'être ouverte)")
     p.add_argument("--rebase-equity", action="store_true",
                    help="OUTIL PROPRIÉTAIRE : réancre la courbe d'equity après un "
                         "mouvement de capital (halte MDD fantôme). DRY sans --confirm.")
@@ -1645,6 +1684,16 @@ def main():
         # sérialisé avec AUCUN ouvreur. gated_open pose le verrou + le gross effectif
         # cross-livre (lecteur via futures_auto ; import tardif -> pas de cycle d'import).
         import futures_auto as _fa
+        # Anti-doublon du CLI manuel (double-invocation accidentelle / re-run après réponse
+        # perdue) : le CLI n'a pas de throttle comme les boucles auto. --force outrepasse.
+        if args.confirm and not args.force:
+            dup = open_duplicate_reason(args.agent, SYMBOL, args.side,
+                                        par_sym=_fa.positions_par_symbole(),
+                                        events=_fa._executor_events())
+            if dup:
+                print(f"REFUSÉ (anti-doublon) : {dup}")
+                print("Ajoute --force pour ouvrir/empiler intentionnellement.")
+                return
         r = gated_open(args.agent, args.side, args.usdt, args.leverage,
                        entry=args.entry, stop_loss=args.sl, take_profit=args.tp,
                        confirm=args.confirm, read_book_gross=_fa.gross_book_usdt)
