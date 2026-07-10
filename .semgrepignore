@@ -1,0 +1,27 @@
+# .semgrepignore — le SAST cible le CODE DU BOT, pas les labos/artefacts/vendored.
+# (semgrep respecte déjà .gitignore ; ceci l'explicite et écarte le tracké non pertinent.)
+
+.git/
+__pycache__/
+node_modules/
+
+# venvs isolés (ERR-004) — jamais le Python du bot
+*/.venv/
+.venv/
+semgrep_venv/
+data_collector/.venv/
+qml_prototype/.venv/
+
+# outil externe avec son propre dépôt
+agent_hub/
+
+# sorties d'outils régénérables
+sast_out/
+graphify-out/
+strategies_out/
+data_history/
+logs/
+
+# laboratoires / PoC transitoires — bruit, hors chemin argent
+# (scanner un labo explicitement : `bash sast_scan.sh scratchpad/mon_labo/`)
+scratchpad/

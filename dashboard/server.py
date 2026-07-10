@@ -1035,7 +1035,7 @@ _VER_LOCK = threading.Lock()
 def _hash_val(v):
     """Empreinte stable d'une valeur d'état (pour détecter un changement). PUR."""
     import hashlib
-    return hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+    return hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 def build_delta(symbol, tf, since):

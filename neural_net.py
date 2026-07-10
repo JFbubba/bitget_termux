@@ -93,8 +93,9 @@ def feature_hash():
     """Empreinte de l'ordre des features (banc + contextuelles) : garde-fou contre
     un modèle désaligné avec le schéma d'entrée courant."""
     import hashlib
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     return hashlib.sha1((",".join(FEATURES) + "|" + ",".join(EXTRA_FEATURES))
-                        .encode()).hexdigest()[:12]
+                        .encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 # --------------------------------------------------------------------------- #

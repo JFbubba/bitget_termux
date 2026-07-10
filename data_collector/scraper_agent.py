@@ -49,7 +49,8 @@ def _clean(text):
 def _item_id(url, title):
     """Identifiant stable d'un élément (dédup) : sha1 de l'URL (ou du titre)."""
     base = (url or "") + "|" + (title or "")
-    return hashlib.sha1(base.encode("utf-8", "replace")).hexdigest()[:16]
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    return hashlib.sha1(base.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:16]
 
 
 def _strip_boilerplate(title):

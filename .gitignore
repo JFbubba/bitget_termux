@@ -105,6 +105,9 @@ data_collector/sorter_state.json
 
 # Graphe généré par graphify (régénérable, ne pas committer)
 graphify-out/
+
+# Rapports SAST semgrep (régénérables via sast_scan.sh, ne pas committer)
+sast_out/
 futures_open.lock
 futures_pending.json
 futures_pending.json.tmp
