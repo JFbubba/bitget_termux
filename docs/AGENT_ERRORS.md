@@ -254,3 +254,31 @@ dans un contexte d'AFFICHAGE = suspect. Une string de mur codée en dur (ex.
 réels, mais fragile — à re-vérifier si un mur bouge (annoter `# mur-hardcode-ok : <raison>`).
 **Statut.** RÉSOLU (etat_effectif.py corrigé le 09/07, 3 portes vertes 465/465 · SAFE ·
 SAFE PUSH OK) · RÈGLE ACTIVE. Cas toléré signalé : `dashboard/server.py:231` (murs 50/250 en dur, valeur juste).
+
+---
+
+## ERR-011 · 2026-07-10 · Déterminer un succès d'exécution sur un champ de réponse non garanti par l'API
+
+**Contexte.** Le chemin taker futures (`_submit_taker`) concluait le succès via
+`_order_id_from(out) is not None`. Or Bitget REMPLIT parfois un `limit_ioc` en renvoyant
+`data:{clientOid, orderId:null}` (ordre identifié par le clientOid, ABSENT des fills). Le
+durcissement vers l'extraction stricte de l'orderId a introduit un FAUX NÉGATIF : 2 ordres
+RÉELLEMENT remplis (HYPE/XRP le 07-09) journalisés `FUTURES_REAL_FAILED`. Trouvé non par
+relecture de code mais en MESURANT l'état réel (drill-down dashboard : compter les `orderId:null`),
+puis en croisant avec les fills (les 2 « échecs » avaient des round-trips clos avec PnL réalisé).
+**Cause racine.** Supposer un INVARIANT d'API (« un ordre exécuté renvoie toujours un orderId »)
+sans le vérifier contre le comportement réel. Variante d'ERR-003/ERR-009 appliquée à une
+détermination succès/échec : le champ choisi comme preuve de succès n'est pas présent sur TOUS
+les chemins de succès, et aucun test ne couvrait le cas `orderId:null`-mais-rempli.
+**Solution.** Une détermination succès/échec ne repose jamais sur la seule présence d'un champ
+dont l'API ne garantit pas la présence sur tous les succès. Distinguer TROIS issues : succès net
+(preuve positive) · rejet EXPLICITE (code d'erreur) · AMBIGU (ni l'un ni l'autre) — et pour
+l'ambigu, RÉCONCILIER avec l'état réel (fills/position) avant de conclure, jamais défaut à
+« échec ». Un test couvre explicitement le cas ambigu.
+**Contrôle (détection ailleurs).** Pour chaque `executed`/`success = <présence d'un champ de
+réponse>` dans un module d'exécution (`grep -rnE "executed|success" *executor*.py`), vérifier que
+le champ est présent sur TOUS les succès réels (probe API) OU qu'une réconciliation couvre
+l'ambiguïté. Les 3 chemins d'exécution sont désormais réconciliés : spot (`7604105`), maker
+(`f313f59`), taker (`7e15ae1`).
+**Statut.** RÉSOLU (`7e15ae1`, chemin taker réconcilié par les fills — 3 portes vertes 516/516) ·
+RÈGLE ACTIVE. Voir mémoire `revue-chemin-argent-fixes`.

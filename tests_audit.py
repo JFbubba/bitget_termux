@@ -1072,6 +1072,10 @@ def test_execute_journals_submit_before_real_placement():
 # par clientOid, ABSENT des fills). L'ancien code strict classait ça FAILED à tort (faux négatif
 # constaté 2× le 07-09 : ordres HYPE/XRP journalisés FAILED mais réellement remplis). On réconcilie
 # par les fills (symbole + côté d'exécution + fenêtre) avant de conclure.
+# SCHÉMA DES FILLS OBSERVÉ le 2026-07-10 (ERR-007/ERR-009 : mock ancré sur le RÉEL) via
+#   hub._read(['futures','futures_get_fills','--productType','USDT-FUTURES','--symbol','HYPEUSDT'])
+# -> data.fillList[*] = {orderId, symbol, side(buy/sell), tradeSide(open/close), baseVolume,
+#    price, cTime(ms), profit, feeDetail, tradeId, ...}. PAS de clientOid -> match par côté+temps.
 
 def test_confirm_futures_open_fill_matches_by_side_and_time():
     """Matche le fill d'OUVERTURE par côté d'exécution (buy=long) + tradeSide open + cTime récent ;
