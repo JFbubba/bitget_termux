@@ -309,8 +309,10 @@ def gated_open(agent, side, notional_usdt, leverage, *, read_book_gross, now=Non
         record_pending_open(token, notional_usdt, eff, now=now, path=pending_path)
         res = execute(agent, side, notional_usdt, leverage, now=now,
                       gross_open_usdt=eff, **execute_kwargs)
-        if not res.get("executed"):
-            remove_pending(token, path=pending_path)   # l'ordre n'a pas ouvert -> pas d'expo réservée
+        if not res.get("executed") and not res.get("ambiguous"):
+            # rollback SEULEMENT sur un échec NET ; une réponse AMBIGUË (orderId:null, fill non
+            # confirmé) peut avoir ouvert -> on GARDE la réservation (fail-closed pour le mur 250).
+            remove_pending(token, path=pending_path)
         return res
 
 
@@ -1294,19 +1296,87 @@ def _pending_order_by_client_oid(symbol, client_oid, runner=None):
     return ""                                         # carnet VIDE -> ordre vraiment non placé -> repli taker SÛR
 
 
-def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit_ioc"):
+def _confirm_futures_open_fill(order, runner=None, since_ts=None, tries=None, delay=None, sleeper=None):
+    """Confirme qu'un ordre d'OUVERTURE a RÉELLEMENT rempli, en re-pollant les fills futures.
+    Bitget peut remplir un limit_ioc en renvoyant orderId:null (ordre identifié par clientOid,
+    ABSENT des fills) : on ne peut donc PAS matcher par id -> on matche par SYMBOLE + côté
+    d'exécution (buy pour un long, sell pour un short) + tradeSide 'open' + cTime >= since_ts.
+    Sous le verrou d'ouverture, un fill d'ouverture frais est le nôtre. Retourne {size_btc,
+    price_avg, amount_usdt} agrégé, ou None. FAIL-SAFE : ne lève jamais (l'ordre est DÉJÀ passé)."""
+    from numeric_utils import safe_float
+    sym = str(order.get("symbol") or SYMBOL).upper()
+    exec_side = "buy" if str(order.get("side")) == "long" else "sell"
+    since = 0.0 if since_ts is None else float(since_ts) - 5.0     # marge d'horloge (serveur vs local)
+    tries = int(_cfg("FUTURES_FILL_CONFIRM_TRIES", 3)) if tries is None else int(tries)
+    delay = float(_cfg("FUTURES_FILL_CONFIRM_DELAY_S", 1.0)) if delay is None else float(delay)
+    sleeper = sleeper or time.sleep
+    for i in range(max(1, tries)):
+        d = _read_hub(["futures", "futures_get_fills", "--productType", PRODUCT_TYPE,
+                       "--symbol", sym], runner=runner)
+        data = d.get("data") if isinstance(d, dict) else None
+        rows = data.get("fillList") if isinstance(data, dict) else (data if isinstance(data, list) else None)
+        size = notion = 0.0
+        for r in (rows or []):
+            if not isinstance(r, dict) or str(r.get("side")).lower() != exec_side:
+                continue
+            if "close" in str(r.get("tradeSide") or "").lower():   # on veut l'OUVERTURE, pas une fermeture
+                continue
+            ct = safe_float(r.get("cTime"))
+            if ct is None or ct / 1000.0 < since:                  # fill antérieur au placement -> pas le nôtre
+                continue
+            b, p = safe_float(r.get("baseVolume")), safe_float(r.get("price"))
+            if b and b > 0 and p and p > 0:
+                size += b
+                notion += b * p
+        if size > 0:
+            return {"size_btc": round(size, 8), "price_avg": round(notion / size, 2),
+                    "amount_usdt": round(notion, 6)}
+        if i < tries - 1:
+            sleeper(delay)
+    return None
+
+
+def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit_ioc", now=None):
     """Placement TAKER (limit_ioc plafonné à l'ouverture / market pour une réduction) —
     chemin éprouvé §45. Construit le bo, envoie via l'Agent Hub, lit le succès. Retourne
-    un dict. Le style est FORCÉ (jamais post_only ici) : ce chemin n'exécute que du taker."""
+    un dict. Le style est FORCÉ (jamais post_only ici) : ce chemin n'exécute que du taker.
+
+    RÉPONSE AMBIGUË : Bitget peut REMPLIR un limit_ioc en renvoyant data:{orderId:null}
+    (ordre identifié par clientOid). L'ancien test strict `_order_id_from is not None` classait
+    ça FAILED à tort (faux négatif réel le 07-09). On distingue donc : orderId extrait -> succès ;
+    code d'erreur EXPLICITE -> rejet net ; sinon (orderId:null sans erreur) -> RÉCONCILIER via les
+    fills avant de conclure (executed si fill confirmé, ambiguous sinon)."""
     bo = to_bitget_order(order, spec, price, marge_mode=marge_mode, pos_mode=pos_mode, style=style)
     if bo is None:
         return {"ok": False, "executed": False,
                 "reasons": [f"taille infaisable (notional {order.get('notional_usdt')} "
                             "sous les minima du contrat)"]}
+    t0 = time.time() if now is None else now
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
-    success = _order_id_from(out) is not None          # succès = un orderId RÉELLEMENT extrait
-    return {"ok": True, "executed": success, "bitget_order": bo, "exec_style": style,
-            "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+    order_id = _order_id_from(out)
+    fill, ambiguous = None, False
+    if order_id is not None:
+        success = True
+    else:
+        parsed = _parse_hub_json(out)
+        raw_code = parsed.get("code") if isinstance(parsed, dict) else None
+        code = str(raw_code) if raw_code is not None else ""
+        rejet_definitif = bool(code) and code not in ("00000", "0")     # erreur explicite -> rien placé
+        if not rejet_definitif and not order.get("reduce"):
+            fill = _confirm_futures_open_fill(order, runner=runner, since_ts=t0)
+        if fill and (fill.get("size_btc") or 0) > 0:
+            success = True                                              # fill RÉEL constaté -> ordre exécuté
+        else:
+            success = False
+            ambiguous = not rejet_definitif                            # accepté mais fill non confirmé
+    res = {"ok": True, "executed": success, "bitget_order": bo, "exec_style": style,
+           "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
+    if fill:
+        res["fill"] = fill
+    if ambiguous:
+        res["ambiguous"] = True
+        res["reasons"] = ["réponse ambiguë (orderId:null), fill non confirmé — position à vérifier"]
+    return res
 
 
 def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):

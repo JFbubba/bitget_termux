@@ -1067,6 +1067,113 @@ def test_execute_journals_submit_before_real_placement():
         (fe._journal, fe._place_real) = orig
 
 
+# ---------- taker orderId:null : réponse ambiguë réconciliée par les fills (bug 07-09) ----------
+# Bitget peut REMPLIR un limit_ioc en renvoyant data:{clientOid, orderId:null} (ordre identifié
+# par clientOid, ABSENT des fills). L'ancien code strict classait ça FAILED à tort (faux négatif
+# constaté 2× le 07-09 : ordres HYPE/XRP journalisés FAILED mais réellement remplis). On réconcilie
+# par les fills (symbole + côté d'exécution + fenêtre) avant de conclure.
+
+def test_confirm_futures_open_fill_matches_by_side_and_time():
+    """Matche le fill d'OUVERTURE par côté d'exécution (buy=long) + tradeSide open + cTime récent ;
+    ignore les fermetures et les fills antérieurs à since_ts."""
+    import json as _json
+    import futures_executor as fe
+    order = {"symbol": "HYPEUSDT", "side": "long"}
+    def r_open(cmd):
+        return _json.dumps({"data": {"fillList": [
+            {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "open", "baseVolume": "0.36", "price": "67.7", "cTime": "1000500"},
+            {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "close", "baseVolume": "0.36", "price": "67.9", "cTime": "1000600"}]}})
+    f = fe._confirm_futures_open_fill(order, runner=r_open, since_ts=1000.0, tries=1, sleeper=lambda s: None)
+    assert f and abs(f["size_btc"] - 0.36) < 1e-9 and abs(f["price_avg"] - 67.7) < 1e-6
+    r_closeonly = lambda cmd: _json.dumps({"data": {"fillList": [
+        {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "close", "baseVolume": "0.3", "price": "67", "cTime": "1000500"}]}})
+    assert fe._confirm_futures_open_fill(order, runner=r_closeonly, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+    r_old = lambda cmd: _json.dumps({"data": {"fillList": [
+        {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "open", "baseVolume": "0.3", "price": "67", "cTime": "900000"}]}})
+    assert fe._confirm_futures_open_fill(order, runner=r_old, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+
+
+def test_submit_taker_reconciles_orderid_null_via_fills():
+    """RÉGRESSION bug 07-09 : place renvoie orderId:null mais l'ordre a REMPLI -> réconcilié via
+    les fills -> executed=True (plus de faux négatif)."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": None}})      # orderId NULL
+        if "futures_get_fills" in s:
+            return _json.dumps({"data": {"fillList": [
+                {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "open", "baseVolume": "0.36", "price": "67.7", "cTime": "1000500"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "long", 24.0, 2.0, client_oid="c1", symbol="HYPEUSDT")
+    res = fe._submit_taker(order, runner, spec, 67.7, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is True and res.get("fill") and abs(res["fill"]["size_btc"] - 0.36) < 1e-9
+
+
+def test_submit_taker_ambiguous_no_fill_not_executed():
+    """orderId:null + AUCUN fill confirmé -> executed=False + ambiguous=True (ni faux négatif dur,
+    ni faux positif) ; l'appelant garde la réservation (fail-closed)."""
+    import os, json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": None}})
+        if "futures_get_fills" in s:
+            return _json.dumps({"data": {"fillList": []}})                          # aucun fill
+        return ""
+    order = fe.build_futures_order("auto_dir", "long", 24.0, 2.0, client_oid="c1", symbol="HYPEUSDT")
+    old = {k: os.environ.get(k) for k in ("FUTURES_FILL_CONFIRM_TRIES", "FUTURES_FILL_CONFIRM_DELAY_S")}
+    try:
+        os.environ["FUTURES_FILL_CONFIRM_TRIES"] = "1"; os.environ["FUTURES_FILL_CONFIRM_DELAY_S"] = "0"
+        res = fe._submit_taker(order, runner, spec, 67.7, "crossed", "hedge_mode", now=1000.0)
+        assert res["executed"] is False and res.get("ambiguous") is True
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_submit_taker_definitive_error_skips_fill_poll():
+    """Code d'erreur EXPLICITE (rejet, ex. solde insuffisant) -> executed=False, PAS ambiguous,
+    et AUCUN poll de fills inutile (rien n'a été placé)."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    calls = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd); calls.append(s)
+        if "futures_place_order" in s:
+            return _json.dumps({"code": "40762", "msg": "balance not enough"})
+        return _json.dumps({"data": {"fillList": []}})
+    order = fe.build_futures_order("auto_dir", "long", 24.0, 2.0, client_oid="c1", symbol="HYPEUSDT")
+    res = fe._submit_taker(order, runner, spec, 67.7, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is False and not res.get("ambiguous")
+    assert not any("futures_get_fills" in c for c in calls)
+
+
+def test_gated_open_keeps_reservation_on_ambiguous():
+    """Réponse ambiguë (executed=False, ambiguous=True) : gated_open NE rollback PAS la réservation
+    (l'ordre a peut-être ouvert -> fail-closed pour le mur cumulé)."""
+    import tempfile, os, json as _json
+    import futures_executor as fe
+    orig = fe.execute
+    with tempfile.TemporaryDirectory() as d:
+        lock = os.path.join(d, "l.lock"); pend = os.path.join(d, "p.json")
+        try:
+            fe.execute = lambda *a, **k: {"ok": True, "executed": False, "ambiguous": True, "clientOid": "z"}
+            fe.gated_open("auto_dir", "long", 20, 2, read_book_gross=lambda: 100.0, now=1000.0,
+                          lock_path=lock, pending_path=pend, confirm=True)
+            items = _json.loads(open(pend).read())
+            assert any(r["notional"] == 20.0 for r in items)    # réservation CONSERVÉE (pas de rollback)
+        finally:
+            fe.execute = orig
+
+
 # ---------- double-position sur réponse perdue : réconciliation clientOid (maker) ----------
 # Le placement maker (post-only) qui ATTERRIT reste VIVANT (il ne prend jamais de liquidité)
 # -> il apparaît dans les ordres OUVERTS. Sur une réponse de placement PERDUE (pas d'orderId),
