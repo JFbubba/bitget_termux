@@ -1721,6 +1721,65 @@ def opens_sans_stop(events=None, agents_directionnels=("auto_dir", "directional"
     return nus
 
 
+def positions_sans_sl_exchange(positions, plan_sls, events=None,
+                               agents_directionnels=("auto_dir", "directional", "dir")):
+    """PUR — DURCISSEMENT de la réconciliation SL EXCHANGE (§durcis-sl). Complète
+    `opens_sans_stop` (qui prouve l'INTENTION au ledger) en réconciliant contre le SL
+    RÉELLEMENT préréglé côté exchange (ordre plan/TPSL). Retourne les positions futures
+    DIRECTIONNELLES OUVERTES sans SL plan exchange — celles qu'une auto-pose devrait couvrir.
+
+      • positions : [{symbol, side(LONG/SHORT), notional_usdt?}] (real_positions.futures) ;
+      • plan_sls  : itérable de (symbol, side) portant un SL plan RÉEL (cf. plan_sl_orders) ;
+      • events    : ledger de l'exécuteur — sert à CLASSER l'agent ouvreur par (symbol, side).
+
+    Le carry est exclu (short couvert par le spot, protégé par le stop du LIVRE, pas de SL
+    propre — même exclusion qu'`opens_sans_stop`). Un agent NON classable (aucune ouverture
+    au ledger) n'est PAS signalé : conservateur, pour ne JAMAIS déclencher un heal sur une
+    position mal attribuée. FAIL-CLOSED : positions OU plan_sls illisibles (None) -> None
+    (l'appelant s'abstient : ni faux vert, ni faux heal — on ne pose pas un SL en aveugle)."""
+    if positions is None or plan_sls is None:
+        return None
+    have = set()
+    for k in plan_sls:                                # accepte set/dict de (symbol, side)
+        try:
+            s, d = k
+            have.add((str(s).upper(), str(d).upper()))
+        except (TypeError, ValueError):
+            continue
+    opener = {}                                       # (symbol, side) -> (ts, agent) de la dernière OUVERTURE réelle
+    for e in events or []:
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        o = e.get("order") or {}
+        if o.get("reduce"):
+            continue
+        sym = str(o.get("symbol") or "").upper()
+        side = str(o.get("side") or "").upper()
+        if not sym or not side:
+            continue
+        try:
+            ts = float(e.get("ts"))
+        except (TypeError, ValueError):
+            ts = -1.0
+        if ts >= opener.get((sym, side), (-1.0, ""))[0]:
+            opener[(sym, side)] = (ts, str(o.get("agent") or ""))
+    nus = []
+    for p in positions or []:
+        if not isinstance(p, dict):
+            continue
+        sym = str(p.get("symbol") or "").upper()
+        side = str(p.get("side") or "").upper()
+        if not sym or side not in ("LONG", "SHORT"):
+            continue
+        agent = opener.get((sym, side), (None, ""))[1]
+        if not agent or not any(agent.startswith(a) for a in agents_directionnels):
+            continue                                  # carry / inconnu -> hors invariant (pas de heal)
+        if (sym, side) not in have:
+            nus.append({"symbol": sym, "side": side, "agent": agent,
+                        "notional": p.get("notional_usdt")})
+    return nus
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Ordre futures RÉEL borné (étape 2, §45).")

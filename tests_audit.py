@@ -8752,6 +8752,35 @@ def test_opens_sans_stop():
     assert fe.opens_sans_stop([]) == []
 
 
+def test_positions_sans_sl_exchange():
+    """PUR (durcissement réconciliation SL exchange). Positions directionnelles OUVERTES
+    sans SL plan RÉEL côté exchange = signalées ; carry exclu (hedgé) ; agent inconnu
+    (pas d'ouverture au ledger) NON signalé (conservateur -> jamais de faux heal) ;
+    lecture illisible (positions/plan None) -> None (fail-closed : ni faux vert ni faux heal)."""
+    import futures_executor as fe
+    ev = [
+        {"action": "FUTURES_REAL", "ts": 10, "order": {"agent": "auto_dir", "reduce": False,
+                                                        "symbol": "BTCUSDT", "side": "long"}},
+        {"action": "FUTURES_REAL", "ts": 11, "order": {"agent": "carry", "reduce": False,
+                                                       "symbol": "ETHUSDT", "side": "short"}},
+    ]
+    pos = [
+        {"symbol": "BTCUSDT", "side": "LONG", "notional_usdt": 25.0},   # directionnel, aucun SL plan -> NU
+        {"symbol": "ETHUSDT", "side": "SHORT", "notional_usdt": 25.0},  # carry -> exclu (hedgé)
+    ]
+    nus = fe.positions_sans_sl_exchange(pos, set(), ev)                 # aucun SL plan exchange
+    assert len(nus) == 1 and nus[0]["symbol"] == "BTCUSDT" and nus[0]["agent"].startswith("auto_dir")
+    # SL plan présent pour (BTCUSDT, LONG) -> plus rien de nu
+    assert fe.positions_sans_sl_exchange(pos, {("BTCUSDT", "LONG")}, ev) == []
+    # un SL plan du MAUVAIS côté ne compte pas (hedge mode : SL par (symbol, side))
+    assert len(fe.positions_sans_sl_exchange(pos, {("BTCUSDT", "SHORT")}, ev)) == 1
+    # fail-closed : lecture illisible -> None (jamais de faux vert, donc jamais de faux heal)
+    assert fe.positions_sans_sl_exchange(None, set(), ev) is None
+    assert fe.positions_sans_sl_exchange(pos, None, ev) is None
+    # directionnel non classable (aucune ouverture au ledger) -> NON signalé (conservateur)
+    assert fe.positions_sans_sl_exchange([{"symbol": "SOLUSDT", "side": "LONG"}], set(), []) == []
+
+
 def test_futures_flatten_all():
     """Couche 2 : flatten_all solde chaque position en RÉDUCTION forcée (overrides ->
     jamais bloqué par la porte d'edge/le double verrou) ; idempotent à plat ;
