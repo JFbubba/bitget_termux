@@ -38,7 +38,7 @@ Statuts : **REJETÉ** (mesuré perdant, ne pas re‑tester) · **GARDÉ** (branc
 | Voix | État | Réf |
 |---|---|---|
 | NN fusion (16ᵉ) | armée, voix MUETTE (porte edge), ombre `nn_shadow` | mém. `llm-agent-and-no-nn-lifted` |
-| QML quantique (18ᵉ) | armée, voix MUETTE (porte edge), ombre `qml_shadow` | mém. `qml-voice-18` |
+| QML quantique (18ᵉ) | armée, MUETTE (porte edge) ; ombre `qml_shadow` IC live +0.042 (t+9) MAIS **régime-conditionnel RÉFUTÉ 17/07** — un filtre causal (momentum `ret_60m`, seuils appris sur train) ne récupère AUCUN edge OOS walk-forward : chop −0.067 ≤ tout −0.049 ; la tendance est le sous-ensemble le MOINS mauvais (−0.019), l'inverse de l'hypothèse. Le +live = pearson pondéré-magnitude sur un split par |move FORWARD| (non causal) + fenêtre récente bénigne. **Gate VINDIQUÉ, ne pas re-tester** (`scratchpad/qml_diag/`) | mém. `qml-voice-18` |
 
 ## VIVANT — piste ouverte, à re‑mesurer
 | Piste | Statut | Prochaine mesure |
