@@ -1903,6 +1903,48 @@ def test_strategy_lab_run_stamp_liveness():
     assert "strategies_out" not in noms
 
 
+def test_maker_measure_aggregation():
+    """§exec-frais : agrège la part maker des OUVERTURES via tradeScope des fills.
+    PURE. Exclut : les fills avant l'armement (cutoff), les autres symboles, les
+    fermetures (le maker ne cible que les ouvertures). bps = fee/quote*1e4."""
+    import maker_measure as mm
+    fills = [
+        {"symbol": "BTCUSDT", "trade_side": "open", "scope": "taker", "ts": 1000, "quote": 100.0, "fee": 0.06},   # pré-cutoff -> exclu
+        {"symbol": "BTCUSDT", "trade_side": "open", "scope": "maker", "ts": 5000, "quote": 100.0, "fee": 0.02},
+        {"symbol": "BTCUSDT", "trade_side": "open", "scope": "taker", "ts": 5100, "quote": 100.0, "fee": 0.06},
+        {"symbol": "BTCUSDT", "trade_side": "open", "scope": "maker", "ts": 5200, "quote": 100.0, "fee": 0.02},
+        {"symbol": "BTCUSDT", "trade_side": "close", "scope": "taker", "ts": 5300, "quote": 100.0, "fee": 0.06},   # fermeture -> hors ouvertures
+        {"symbol": "ETHUSDT", "trade_side": "open", "scope": "maker", "ts": 5400, "quote": 100.0, "fee": 0.02},    # autre symbole -> exclu
+    ]
+    r = mm.agreger(fills, sym="BTCUSDT", cutoff_ts=2000)
+    assert r["open_maker_n"] == 2 and r["open_taker_n"] == 1        # pré-cutoff/ETH/close exclus
+    assert abs(r["maker_fill_rate"] - 2.0 / 3.0) < 1e-9
+    assert abs(r["bps_maker"] - 2.0) < 0.01                          # 0.02/100*1e4
+    assert abs(r["bps_taker"] - 6.0) < 0.01
+    assert r["closes"] == 1
+    assert mm.agreger(fills, sym="DOGEUSDT", cutoff_ts=2000)["n_fills"] == 0
+
+
+def test_maker_measure_verdict_thresholds():
+    """Le verdict ne devient ACTIONNABLE (Telegram) qu'avec assez d'ouvertures
+    post-armement — anti-bruit (leçon ERR-012). building < MIN_OPENS ; extend si fill
+    ≥50% et moins cher ; tune si fill <25% ; sinon mixte."""
+    import maker_measure as mm
+
+    def r(maker_n, taker_n, bps_m=2.0, bps_t=6.0):
+        tot = maker_n + taker_n
+        return {"symbol": "BTCUSDT", "n_fills": tot, "opens": tot, "closes": 0,
+                "open_maker_n": maker_n, "open_taker_n": taker_n,
+                "maker_fill_rate": (maker_n / tot) if tot else None,
+                "bps_maker": bps_m, "bps_taker": bps_t, "bps_close": 0.0, "autres": {}}
+
+    assert mm.verdict(r(1, 3))[0] == "building"      # 4 ouvertures < MIN_OPENS
+    assert mm.verdict(r(8, 4))[0] == "extend"        # rate .67, −4 bps, n=12
+    assert mm.verdict(r(1, 13))[0] == "tune"         # rate .07 < .25, n=14
+    assert mm.verdict(r(5, 7))[0] == "mixte"         # rate .42, n=12
+    assert mm.verdict({"n_fills": 0})[0] == "novol"
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile
