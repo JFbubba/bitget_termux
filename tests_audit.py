@@ -1945,6 +1945,38 @@ def test_maker_measure_verdict_thresholds():
     assert mm.verdict({"n_fills": 0})[0] == "novol"
 
 
+def test_voice_shadow_verdict():
+    """§77/§89 : le suivi d'une voix MUETTE juge son IC live sur le pearsonIC (PnL, §78),
+    pas le rankIC seul (signes parfois opposés §96). watch = live PnL+ fort MAIS gate
+    (wf_edge) fermé -> divergence à revoir ; jamais une promotion auto."""
+    import voice_shadow_measure as vs
+
+    def m(pic, pic_t, n=50000, ic=0.05):
+        return {"ic": ic, "ic_t": 10.0, "pic": pic, "pic_t": pic_t, "n": n}
+
+    assert vs.verdict("qml_shadow", m(0.042, 9.2), wf_edge=-0.13)[0] == "watch"        # live+ fort, gate fermé
+    assert vs.verdict("qml_shadow", m(0.042, 9.2), wf_edge=0.01)[0] == "aligned-pos"   # live+ ET gate+
+    assert vs.verdict("nn_shadow", m(0.005, 1.0), wf_edge=-0.01)[0] == "aligned"       # pic faible
+    assert vs.verdict("nn_shadow", m(0.03, 2.0), wf_edge=-0.01)[0] == "aligned"        # t<3 -> pas « fort »
+    assert vs.verdict("qml_shadow", m(0.042, 9.2, n=100), wf_edge=-0.13)[0] == "building"  # n < MIN_N
+    assert vs.verdict("qml_shadow", None, wf_edge=None)[0] == "building"
+
+
+def test_voice_shadow_wf_edge_of():
+    """wf_edge lu depuis la méta : qml niché sous 'meta', nn plat ; absent -> None."""
+    import json as _json
+    import tempfile
+    from pathlib import Path as _P
+    import voice_shadow_measure as vs
+    with tempfile.TemporaryDirectory() as td:
+        td = _P(td)
+        (td / "qml_voice_weights.json").write_text(_json.dumps({"weights": {}, "meta": {"wf_edge": -0.1275}}))
+        (td / "neural_net_meta.json").write_text(_json.dumps({"wf_edge": -0.0077}))
+        assert abs(vs.wf_edge_of("qml_shadow", root=td) - (-0.1275)) < 1e-9   # niché sous meta
+        assert abs(vs.wf_edge_of("nn_shadow", root=td) - (-0.0077)) < 1e-9    # plat
+    assert vs.wf_edge_of("qml_shadow", root=_P("/inexistant_xyz")) is None
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile
