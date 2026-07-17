@@ -282,3 +282,34 @@ l'ambiguïté. Les 3 chemins d'exécution sont désormais réconciliés : spot (
 (`f313f59`), taker (`7e15ae1`).
 **Statut.** RÉSOLU (`7e15ae1`, chemin taker réconcilié par les fills — 3 portes vertes 516/516) ·
 RÈGLE ACTIVE. Voir mémoire `revue-chemin-argent-fixes`.
+
+
+## ERR-012 · 2026-07-17 · Juger la VIE d'une boucle sur un journal ÉVÉNEMENTIEL (dédupliqué) au lieu d'un battement per-cycle
+
+**Contexte.** Le 14/07 à 12:08, le watchdog a posé le kill-switch (DOWN×3 → escalade) et
+halté le trading réel ~3 j — pour RIEN. `evaluate()` jugeait la vie du scan sur la fraîcheur
+de `signals_journal.csv` : or ce fichier est ÉVÉNEMENTIEL (dédupliqué — une ligne seulement
+pour un signal NOUVEAU). Dès 11:25, les signaux émis (WLD/ZEC/LIT/EDGE…) sont restés
+identiques cycle après cycle → 0 ligne ajoutée → mtime figé >30 min (seuil `2×interval`)
+ALORS QUE le scan tournait (la carte de fraîcheur des 17 artefacts affichait « 17/17 frais »
+à l'instant de l'escalade). Faux DOWN → faux positif. Aucune perte (portefeuille intact, le
+stop −5 % a veillé tout du long) ; le fail-safe a SUR-réagi, il n'a pas déraillé.
+**Cause racine.** Confondre « le module a produit un ÉVÉNEMENT récemment » avec « le module
+TOURNE ». Un journal événementiel/dédupliqué se fige légitimement quand rien de neuf ne se
+produit — il ne prouve PAS l'arrêt. La preuve de vie doit être un artefact écrit
+INCONDITIONNELLEMENT à chaque cycle. Aggravant : l'instrument correct existait déjà (la carte
+de fraîcheur §61, `artefacts_figes`) mais ne nourrissait qu'une ALERTE, jamais le VERDICT.
+**Solution.** Le verdict de vie s'appuie sur un BATTEMENT per-cycle (`SCAN_HEARTBEAT` =
+`brain_log.json` + history, écrits à chaque cycle du cerveau ; `heartbeat_fresh`, ANY-fresh).
+Artefacts choisis PROPRES : on EXCLUT ceux qui tournent PENDANT une halte (`.runtime_cache.json`
+multi-writer, `.stop_guardian_heartbeat.json`) — ils masqueraient une vraie mort. Le journal
+événementiel reste une corroboration POSITIVE (OR) ; DOWN seulement si AUCUNE source récente.
+Vrai positif (cœur ET journal figés → DOWN) préservé et testé.
+**Contrôle (détection ailleurs).** Pour tout signal de LIVENESS/fraîcheur (`grep -rnE
+"st_mtime|fresh|figé|stale|périmé" *.py`), vérifier que la source est un artefact écrit à
+CHAQUE cycle SANS condition (pas un journal événementiel/dédupliqué, pas un fichier partagé
+avec un autre process, pas un heartbeat qui survit à la halte du module surveillé). Un
+watchdog/fail-safe ne conclut à la mort que sur le silence d'un battement INCONDITIONNEL.
+**Statut.** RÉSOLU (`eef1f63`, 3 portes vertes 518/518 · vérifié en live : cycle watchdog
+13:32 → RUNNING? avec battement frais ; reprise du trading réel confirmée) · RÈGLE ACTIVE.
+Voir mémoire `watchdog-liveness-heartbeat`.
