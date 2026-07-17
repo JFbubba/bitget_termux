@@ -281,6 +281,39 @@ def edge_bound(meta, prudent=True):
         return None
 
 
+def deflation_bar(se, n_trials):
+    """Barre de DÉFLATION multi-essais (Deflated Sharpe Ratio, Bailey & López de Prado
+    2014). L'espérance du MAXIMUM de N tirages nuls i.i.d. d'écart-type `se` vaut
+    ≈ se·√(2·ln N) : screener N agents/configs produit un « gagnant » de cette ampleur
+    MÊME sans skill. Un edge candidat doit dépasser CETTE barre (pas 0) pour ne pas être
+    un artefact de sur-testing. PUR. se≤0 ou N<2 -> 0."""
+    import math
+    try:
+        se = float(se)
+        n = int(n_trials)
+    except (TypeError, ValueError):
+        return 0.0
+    if se <= 0.0 or n < 2:
+        return 0.0
+    return se * math.sqrt(2.0 * math.log(n))
+
+
+def edge_deflated(meta, n_trials=None):
+    """wf_edge − barre de déflation multi-essais (Deflated Sharpe). La borne la plus
+    HONNÊTE de la porte d'edge : elle exige que l'edge batte le meilleur artefact attendu
+    du sur-testing du banc (recherche 17/07). None si indisponible ; repli borne prudente
+    si wf_edge présent mais se absent. PUR si n_trials injecté."""
+    from config_utils import cfg as _cfg
+    try:
+        n = int(_cfg("EDGE_DEFLATION_TRIALS", 30)) if n_trials is None else int(n_trials)
+        if meta.get("wf_edge") is None:
+            return edge_bound(meta, prudent=True)
+        se = float(meta.get("wf_edge_se") or 0.0)
+        return round(float(meta["wf_edge"]) - deflation_bar(se, n), 4)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
 def _notify_gate_transition(old_meta, new_meta):
     """Alerte Telegram (best-effort, jamais d'exception) quand la PORTE D'EDGE de la
     16e voix change d'état après un réentraînement : le propriétaire apprend LE JOUR
@@ -379,9 +412,10 @@ def predict(symbol="BTCUSDT", votes=None):
         # val_edge_brut = moyenne walk-forward seule (gate NN_EDGE_GATE=brut).
         val_edge = edge_bound(meta, prudent=True)
         val_edge_brut = edge_bound(meta, prudent=False)
+        val_edge_deflated = edge_deflated(meta)
         return {"p_up": round(p, 4), "vote": round(vote, 4),
                 "confidence": round(conf, 4), "val_edge": val_edge,
-                "val_edge_brut": val_edge_brut,
+                "val_edge_brut": val_edge_brut, "val_edge_deflated": val_edge_deflated,
                 "note": f"nn v{meta.get('version', '?')}"}
     except Exception:
         return None

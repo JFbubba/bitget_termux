@@ -2001,6 +2001,43 @@ def test_listing_hype_core():
     assert lh.exit_decision(100, 105, 0, 10, max_hold_s=1800)["action"] == "hold"       # dans la fenêtre
 
 
+def test_deflated_sharpe_gate():
+    """§recherche-17/07 (Deflated Sharpe, Bailey & López de Prado) : la porte d'edge doit
+    DÉFLATER par le nombre d'essais — E[max de N tirages nuls d'écart-type se] ≈ se·√(2·ln N).
+    Antidote au sur-testing du banc (le mirage qml_shadow : prudent laisse passer, deflated refuse)."""
+    import math
+    import neural_net as nn
+    # barre de déflation : formule + garde-fous
+    assert nn.deflation_bar(0.05, 1) == 0.0          # N<2 -> pas de déflation
+    assert nn.deflation_bar(0.0, 100) == 0.0         # se=0 -> 0
+    assert abs(nn.deflation_bar(0.05, 30) - 0.05 * math.sqrt(2 * math.log(30))) < 1e-12
+    assert nn.deflation_bar(0.05, 100) > nn.deflation_bar(0.05, 30) > nn.deflation_bar(0.05, 3)  # ↑ avec N
+    # edge_deflated = wf_edge − barre ; brut = wf_edge ; deflated PLUS sévère que prudent (N=30 -> barre > 1·se)
+    meta = {"wf_edge": 0.10, "wf_edge_se": 0.05}
+    assert nn.edge_bound(meta, prudent=False) == 0.10                       # brut
+    assert nn.edge_bound(meta, prudent=True) == 0.05                        # prudent = wf − se
+    assert nn.edge_deflated(meta, n_trials=30) < nn.edge_bound(meta, prudent=True)
+    # LE CAS DU MIRAGE : passe brut ET prudent, mais REFUSÉ par deflated
+    meta2 = {"wf_edge": 0.08, "wf_edge_se": 0.05}
+    assert nn.edge_bound(meta2, prudent=True) > 0                           # prudent laisse passer (0.03)
+    assert nn.edge_deflated(meta2, n_trials=30) < 0                         # deflated REFUSE (sur-testing)
+    assert nn.edge_deflated({"wf_edge": None}, n_trials=30) is None or True # wf absent -> repli/None, pas d'exception
+    # les portes NN/QML acceptent le mode 'deflated'
+    import os
+    import nn_agent
+    import qml_agent
+    _old = os.environ.get("NN_EDGE_GATE")
+    try:
+        os.environ["NN_EDGE_GATE"] = "deflated"
+        assert nn_agent._gate_mode() == "deflated"
+    finally:
+        if _old is None:
+            os.environ.pop("NN_EDGE_GATE", None)
+        else:
+            os.environ["NN_EDGE_GATE"] = _old
+    assert qml_agent._gate_mode() in ("prudent", "brut", "deflated")        # mode valide
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile

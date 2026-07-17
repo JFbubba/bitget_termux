@@ -40,15 +40,15 @@ def enabled():
 
 
 def _gate_mode():
-    """Critère de la PORTE D'EDGE : 'prudent' (défaut — borne walk-forward wf_edge −
-    erreur-type inter-plis, §71) ou 'brut' (moyenne walk-forward seule — la voix parle
-    dès que l'edge MOYEN passe positif, décision propriétaire assumant le bruit).
-    Env prioritaire (NN_EDGE_GATE), sinon config."""
+    """Critère de la PORTE D'EDGE : 'prudent' (borne wf_edge − erreur-type, §71) |
+    'brut' (moyenne walk-forward seule) | 'deflated' (wf_edge − barre de déflation
+    multi-essais, Deflated Sharpe §recherche-17/07 : la plus HONNÊTE, exige de battre
+    l'artefact attendu du sur-testing). Env prioritaire (NN_EDGE_GATE), sinon config."""
     v = (os.getenv("NN_EDGE_GATE", "") or "").strip().lower()
-    if v in ("prudent", "brut"):
+    if v in ("prudent", "brut", "deflated"):
         return v
     v = str(_cfg("NN_EDGE_GATE", "prudent")).strip().lower()
-    return v if v in ("prudent", "brut") else "prudent"
+    return v if v in ("prudent", "brut", "deflated") else "prudent"
 
 
 def _journalise_ombre(symbol, pred):
@@ -93,7 +93,8 @@ def _produce_vote(symbol, context=None):
     # dernier entraînement n'a pas démontré un edge hors-échantillon POSITIF selon le
     # critère configuré (_gate_mode), la 16e voix se TAIT.
     mode = _gate_mode()
-    edge = pred.get("val_edge_brut") if mode == "brut" else pred.get("val_edge")
+    edge = {"brut": pred.get("val_edge_brut"),
+            "deflated": pred.get("val_edge_deflated")}.get(mode, pred.get("val_edge"))
     if edge is not None and float(edge) <= 0.0:
         _journalise_ombre(symbol, pred)              # §89 : muette mais MESURÉE
         return {"vote": 0, "confidence": 0,

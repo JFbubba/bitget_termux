@@ -50,13 +50,14 @@ def enabled():
 
 
 def _gate_mode():
-    """Critère de la PORTE D'EDGE : 'prudent' (défaut — wf_edge − erreur-type, §71)
-    ou 'brut' (moyenne walk-forward seule). Env prioritaire (QML_EDGE_GATE)."""
+    """Critère de la PORTE D'EDGE : 'prudent' (wf_edge − erreur-type, §71) | 'brut'
+    (moyenne walk-forward seule) | 'deflated' (wf_edge − déflation multi-essais,
+    Deflated Sharpe §recherche-17/07). Env prioritaire (QML_EDGE_GATE)."""
     v = (os.getenv("QML_EDGE_GATE", "") or "").strip().lower()
-    if v in ("prudent", "brut"):
+    if v in ("prudent", "brut", "deflated"):
         return v
     v = str(_cfg("QML_EDGE_GATE", "prudent")).strip().lower()
-    return v if v in ("prudent", "brut") else "prudent"
+    return v if v in ("prudent", "brut", "deflated") else "prudent"
 
 
 def _load_weights():
@@ -99,6 +100,7 @@ def predict(symbol="BTCUSDT", votes=None):
                 "confidence": round(abs(z), 4),
                 "val_edge": neural_net.edge_bound(meta, prudent=True),
                 "val_edge_brut": neural_net.edge_bound(meta, prudent=False),
+                "val_edge_deflated": neural_net.edge_deflated(meta),
                 "note": f"qml v{meta.get('version', '?')}"}
     except Exception:
         return None
@@ -141,7 +143,8 @@ def _produce_vote(symbol, context=None):
     # PORTE D'EDGE : tant que l'entraînement n'a pas démontré un edge hors-
     # échantillon POSITIF selon le critère configuré, la 18ᵉ voix se TAIT.
     mode = _gate_mode()
-    edge = pred.get("val_edge_brut") if mode == "brut" else pred.get("val_edge")
+    edge = {"brut": pred.get("val_edge_brut"),
+            "deflated": pred.get("val_edge_deflated")}.get(mode, pred.get("val_edge"))
     if edge is not None and float(edge) <= 0.0:
         _journalise_ombre(symbol, pred)              # §89 : muette mais MESURÉE
         return {"vote": 0, "confidence": 0,
