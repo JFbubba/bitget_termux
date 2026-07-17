@@ -2038,6 +2038,28 @@ def test_deflated_sharpe_gate():
     assert qml_agent._gate_mode() in ("prudent", "brut", "deflated")        # mode valide
 
 
+def test_listing_hype_cycle_dry():
+    """§listing-hype : cycle DRY — détecte, journalise la décision d'entrée bornée, marque
+    'vu' ; AUCUN ordre. Re-cycle sur le même listing = rien (dédup) ; kill -> skip."""
+    import tempfile
+    from pathlib import Path as _P
+    import listing_hype as lh
+    with tempfile.TemporaryDirectory() as td:
+        td = _P(td)
+        seen_p, jp = td / "seen.json", td / "j.jsonl"
+        anns = [{"title": "Bitget Will List NEWCO (NEWCOUSDT)", "type": "listing", "ts": 1}]
+        r = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, now=1000, cap_per_op=3.0, kill=False)
+        assert len(r["nouveaux"]) == 1 and r["nouveaux"][0]["symbol"] == "NEWCOUSDT"
+        assert r["nouveaux"][0]["action"] == "buy"                 # décision DRY
+        assert "NEWCOUSDT" in lh._load_seen(seen_p)                # marqué vu
+        assert jp.exists() and "NEWCOUSDT" in jp.read_text()       # journalisé
+        r2 = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, now=1001, cap_per_op=3.0, kill=False)
+        assert r2["nouveaux"] == []                                # déjà vu -> rien
+        anns2 = [{"title": "Bitget lists OTHER (OTHERUSDT)", "type": "listing", "ts": 2}]
+        rk = lh.cycle(anns=anns2, seen_path=seen_p, journal_path=jp, now=1002, cap_per_op=3.0, kill=True)
+        assert rk["nouveaux"][0]["action"] == "skip"               # kill-switch -> skip
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile
