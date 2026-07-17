@@ -1977,6 +1977,30 @@ def test_voice_shadow_wf_edge_of():
     assert vs.wf_edge_of("qml_shadow", root=_P("/inexistant_xyz")) is None
 
 
+def test_listing_hype_core():
+    """§listing-hype : détection PURE des nouveaux listings + décisions entrée/sortie
+    BORNÉES (aucun ordre ici — exécution déléguée à spot_trader §67). Piège retail
+    assumé (pump-puis-dump + latence) -> taille plafonnée, exit strict."""
+    import listing_hype as lh
+    anns = [{"title": "Bitget Will List FOO (FOOUSDT) in the Innovation Zone", "type": "listing", "ts": 1},
+            {"title": "Notice on Delisting of BARUSDT", "type": "delisting", "ts": 2},
+            {"title": "Bitget lists BAZ (BAZUSDT)", "type": "listing", "ts": 3}]
+    syms = [s for s, _, _ in lh.new_listing_symbols(anns, seen=["BAZUSDT"])]
+    assert "FOOUSDT" in syms              # nouveau listing détecté
+    assert "BAZUSDT" not in syms          # déjà vu (seen)
+    assert "BARUSDT" not in syms          # delisting, pas un listing
+    assert "FOOUSDTUSDT" not in syms      # normalisation anti double-USDT
+    # entrée bornée
+    assert lh.entry_decision("FOOUSDT", 10.0, cap_per_op=5.0)["notional"] == 5.0        # plafonné au cap
+    assert lh.entry_decision("FOOUSDT", 10.0, cap_per_op=5.0, kill=True)["action"] == "skip"
+    assert lh.entry_decision("FOOUSDT", 0.5, cap_per_op=5.0)["action"] == "skip"        # < 1$
+    # sortie stricte : TP | stop | délai
+    assert lh.exit_decision(100, 116, 0, 10, tp_pct=0.15)["action"] == "sell"           # +16% -> TP
+    assert lh.exit_decision(100, 91, 0, 10, sl_pct=0.08)["action"] == "sell"            # −9% -> stop
+    assert lh.exit_decision(100, 105, 0, 9999, max_hold_s=1800)["action"] == "sell"     # délai max
+    assert lh.exit_decision(100, 105, 0, 10, max_hold_s=1800)["action"] == "hold"       # dans la fenêtre
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile

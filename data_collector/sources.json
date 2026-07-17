@@ -8,6 +8,8 @@
     {"name": "theblock", "type": "rss", "url": "https://www.theblock.co/rss.xml"},
     {"name": "mql5-articles", "type": "rss", "url": "https://www.mql5.com/en/articles/rss", "suivre_liens": true},
     {"name": "mql5-code", "type": "rss", "url": "https://www.mql5.com/en/code/rss", "suivre_liens": true},
-    {"name": "mql5-blogs", "type": "rss", "url": "https://www.mql5.com/en/blogs/rss", "suivre_liens": true}
+    {"name": "mql5-blogs", "type": "rss", "url": "https://www.mql5.com/en/blogs/rss", "suivre_liens": true},
+    {"name": "bitget-insights", "type": "html", "url": "https://www.bitget.com/fr/insights"},
+    {"name": "bitget-news", "type": "html", "url": "https://www.bitget.com/news/"}
   ]
 }
