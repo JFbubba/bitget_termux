@@ -525,7 +525,10 @@ CARTE_FRAICHEUR = [
     (".mm_journal.jsonl", 20),              # market making §94 (cron */5 posée le 07/07, marge 4 cycles)
     (".daily_digest_stamp", 26 * 60),       # digest quotidien 07:00
     ("neural_net_meta.json", 26 * 60),      # fine-tune NN 04:20
-    ("strategies_out", 80 * 60),            # lab mar/jeu/sam (gap max sam->mar + marge)
+    # §reprise-watchdog/ERR-012 : STAMP per-run (écrit à chaque run RÉUSSI), PAS le mtime
+    # du dossier — événementiel (ne bouge que sur promotion, rare) -> figé alors que le
+    # lab tourne. Un crash/data-indispo ne stampe pas -> figé -> vrai positif conservé.
+    ("strategies_out/.last_run", 80 * 60),  # lab mar/jeu/sam (gap max sam->mar + marge)
 ]
 
 

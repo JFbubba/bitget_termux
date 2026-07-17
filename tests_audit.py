@@ -1878,6 +1878,31 @@ def test_watchdog_heartbeat_battement_per_cycle():
     assert ".runtime_cache.json" not in noms and ".stop_guardian_heartbeat.json" not in noms
 
 
+def test_strategy_lab_run_stamp_liveness():
+    """§reprise-watchdog / ERR-012 (carte de fraîcheur) : la VIE du lab se juge sur un
+    STAMP écrit à CHAQUE run réussi, PAS sur le mtime du dossier strategies_out —
+    ÉVÉNEMENTIEL (ne bouge que sur PROMOTION) : figé alors que le lab tourne et ne
+    promeut rien (cas honnête courant), d'où l'alerte chronique du 17/07. Un crash du
+    lab (Thu 16/07) n'écrit PAS le stamp -> figé -> vrai positif préservé."""
+    import tempfile, os, time as _t
+    from pathlib import Path as _P
+    import strategy_lab as sl
+    import watchdog as wd
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _P(tmp) / "strategies_out"                      # n'existe pas encore
+        p = sl.write_run_stamp(out_dir=d)
+        assert p.exists() and p.name == ".last_run"
+        assert (_t.time() - p.stat().st_mtime) < 5          # écrit à l'instant (per-run)
+        vieux = _t.time() - 3600                            # ré-écrit -> mtime rafraîchi
+        os.utime(p, (vieux, vieux))
+        sl.write_run_stamp(out_dir=d)
+        assert (_t.time() - p.stat().st_mtime) < 5
+    # le watchdog surveille le STAMP per-run, pas le dossier (événementiel)
+    noms = [n for n, _ in wd.CARTE_FRAICHEUR]
+    assert "strategies_out/.last_run" in noms
+    assert "strategies_out" not in noms
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile

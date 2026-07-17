@@ -701,6 +701,19 @@ edge>0, tranches gagnantes≥{PROMOTE['frac_folds_pos']*100:.0f}%, trades≥{PRO
 
 # ---------- orchestrateur autonome ----------
 
+def write_run_stamp(out_dir=None):
+    """Battement PER-RUN du lab : écrit un stamp horodaté à CHAQUE run RÉUSSI (promotion
+    ou non). C'est la preuve de VIE du lab pour le watchdog — le mtime du dossier
+    strategies_out est ÉVÉNEMENTIEL (il ne bouge que sur PROMOTION, rare par conception),
+    donc figé alors que le lab tourne (§reprise-watchdog/ERR-012). Un run qui échoue tôt
+    (data indispo) ne stampe PAS -> figé -> vrai positif conservé."""
+    d = Path(out_dir) if out_dir else OUT_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = d / ".last_run"
+    stamp.write_text(str(int(time.time())), encoding="utf-8")
+    return stamp
+
+
 def run(symbol="BTCUSDT", timeframe="1H", limit=500):
     """Boucle de l'agent : registre -> amélioration -> composition -> classement
     -> PBO -> promotion des robustes (rapport + code). Retourne un résumé."""
@@ -739,6 +752,8 @@ def run(symbol="BTCUSDT", timeframe="1H", limit=500):
         if _passes(r, p.get("pbo")):
             promoted.append(promote(name, r, symbol, timeframe))
 
+    write_run_stamp()          # battement per-run : preuve de VIE du lab même sans
+                               # promotion (§reprise-watchdog/ERR-012)
     return {
         "symbol": symbol, "timeframe": timeframe, "n_strategies": len(registry),
         "pbo": p.get("pbo"),

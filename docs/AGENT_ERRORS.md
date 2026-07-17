@@ -312,4 +312,10 @@ avec un autre process, pas un heartbeat qui survit à la halte du module surveil
 watchdog/fail-safe ne conclut à la mort que sur le silence d'un battement INCONDITIONNEL.
 **Statut.** RÉSOLU (`eef1f63`, 3 portes vertes 518/518 · vérifié en live : cycle watchdog
 13:32 → RUNNING? avec battement frais ; reprise du trading réel confirmée) · RÈGLE ACTIVE.
-Voir mémoire `watchdog-liveness-heartbeat`.
+Le contrôle a resservi le 17/07 : **même pattern dans la carte de fraîcheur** — l'entrée
+`strategies_out` jugeait la vie du lab sur le mtime du DOSSIER (événementiel : ne bouge que sur
+PROMOTION, rare par conception) → figé alors que le lab tournait (alerte chronique 5 min).
+Corrigé : `strategy_lab.write_run_stamp()` écrit `strategies_out/.last_run` à CHAQUE run réussi
+et le watchdog surveille ce STAMP ; un crash/data-indispo ne stampe pas → figé → vrai positif
+conservé (le crash silencieux du run cron de jeudi 16/07 a d'ailleurs été rendu diagnosticable
+en ajoutant `>> ~/strategy_lab.log 2>&1` à sa ligne cron). Voir mémoire `watchdog-liveness-heartbeat`.
