@@ -1828,6 +1828,56 @@ def test_watchdog_artefacts_figes():
     assert "brain_log.json" in defaut and "futures_auto_journal.jsonl" in defaut
 
 
+def test_watchdog_heartbeat_battement_per_cycle():
+    """§reprise-watchdog (incident 14/07) : le verdict de vie doit s'appuyer sur le
+    BATTEMENT per-cycle (brain_log.json, écrit à CHAQUE cycle), PAS sur
+    signals_journal.csv (ÉVÉNEMENTIEL/dédupliqué : figé quand les signaux sont stables
+    >30 min alors que le scan tourne -> faux DOWN -> kill-switch). Un brain_log frais +
+    un journal figé = VIVANT (RUNNING?). Cerveau ET journal figés = DOWN (vrai positif
+    préservé)."""
+    import tempfile, os, time as _time
+    from pathlib import Path as _P
+    import watchdog as wd
+
+    vieux = _time.time() - 45 * 60       # 45 min : au-delà du seuil scan (30) ET battement (20)
+
+    # 1) battement frais, journal figé -> VIVANT (le bug d'origine renvoyait DOWN)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        (tmp / "brain_log.json").write_text("[]")               # cerveau a loggé à l'instant
+        j = tmp / "signals_journal.csv"; j.write_text("x"); os.utime(j, (vieux, vieux))
+        assert wd.heartbeat_fresh(racine=tmp) is True
+        assert wd.heartbeat_present(racine=tmp) is True
+        fresh = wd.heartbeat_fresh(racine=tmp)                   # process indéterminé (timers)
+        assert wd.decide_verdict(False, False, True, fresh, False) == ("RUNNING?", False)
+
+    # 2) battement figé ET journal figé -> DOWN (machinerie réellement silencieuse)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        bl = tmp / "brain_log.json"; bl.write_text("[]"); os.utime(bl, (vieux, vieux))
+        assert wd.heartbeat_fresh(racine=tmp) is False
+        assert wd.decide_verdict(False, False, True, False, False) == ("DOWN", True)
+
+    # 3) ANY-fresh : un seul artefact de battement frais suffit (l'autre figé)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        h = tmp / "brain_log_history.jsonl"; h.write_text(""); os.utime(h, (vieux, vieux))
+        (tmp / "brain_log.json").write_text("[]")               # frais
+        assert wd.heartbeat_fresh(racine=tmp) is True
+
+    # 4) aucun artefact de battement -> absent (pas de fausse preuve de vie)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = _P(tmp)
+        assert wd.heartbeat_present(racine=tmp) is False
+        assert wd.heartbeat_fresh(racine=tmp) is False
+
+    # le battement par défaut = artefacts PROPRES du cœur décisionnel ; PAS runtime_cache
+    # ni stop_guardian_heartbeat (ils tournent PENDANT la halte -> masqueraient une mort).
+    noms = [n for n, _ in wd.SCAN_HEARTBEAT]
+    assert "brain_log.json" in noms
+    assert ".runtime_cache.json" not in noms and ".stop_guardian_heartbeat.json" not in noms
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile

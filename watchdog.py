@@ -368,6 +368,52 @@ def audit_ouvertures_nues():
     return nus
 
 
+# BATTEMENT PER-CYCLE du cœur décisionnel (§reprise-watchdog, incident 14/07).
+# brain_cycle.py écrit brain_log.json (+ son history) à CHAQUE cycle,
+# INCONDITIONNELLEMENT : frais = cerveau vivant, figé = cerveau à l'arrêt/mort. C'est
+# la BONNE preuve de vie du scan — contrairement à signals_journal.csv, qui est
+# ÉVÉNEMENTIEL (dédupliqué) : une plage de signaux stables >30 min le fige alors que le
+# scan tourne, d'où le faux DOWN -> kill-switch du 14/07. Artefacts choisis PROPRES :
+# écrits SEULEMENT par le cycle décisionnel. On EXCLUT sciemment .runtime_cache.json et
+# .stop_guardian_heartbeat.json — ils continuent de tourner PENDANT la halte volontaire,
+# donc ils MASQUERAIENT une vraie mort de la boucle.
+SCAN_HEARTBEAT = [
+    ("brain_log.json", 20),
+    ("brain_log_history.jsonl", 20),
+]
+
+
+def heartbeat_present(carte=None, racine=None):
+    """PUR (fs). True si AU MOINS UN artefact de battement existe (quel que soit son
+    âge) -> on a une SOURCE de liveness. Aucun -> état indéterminable (UNKNOWN)."""
+    racine = Path(racine) if racine else Path(".")
+    return any((racine / nom).exists() for nom, _ in (carte or SCAN_HEARTBEAT))
+
+
+def heartbeat_fresh(carte=None, now=None, racine=None):
+    """PUR (fs). True si AU MOINS UN artefact de battement per-cycle est présent ET
+    dans son seuil. Preuve de vie robuste : le cycle écrit plusieurs artefacts -> un
+    seul frais suffit ; TOUS figés/absents = machinerie silencieuse (vrai DOWN)."""
+    now = time.time() if now is None else now
+    racine = Path(racine) if racine else Path(".")
+    for nom, seuil_min in (carte or SCAN_HEARTBEAT):
+        p = racine / nom
+        if p.exists() and (now - p.stat().st_mtime) / 60.0 <= seuil_min:
+            return True
+    return False
+
+
+def heartbeat_age(carte=None, now=None, racine=None):
+    """PUR (fs). Âge (min) de l'artefact de battement le PLUS FRAIS présent, ou None si
+    aucun. Pour l'affichage honnête du rapport (le verdict, lui, passe par
+    heartbeat_fresh, qui respecte le seuil PROPRE à chaque artefact)."""
+    now = time.time() if now is None else now
+    racine = Path(racine) if racine else Path(".")
+    ages = [(now - (racine / nom).stat().st_mtime) / 60.0
+            for nom, _ in (carte or SCAN_HEARTBEAT) if (racine / nom).exists()]
+    return round(min(ages), 1) if ages else None
+
+
 def evaluate():
     """Rassemble les signaux I/O et applique decide_verdict."""
     status = {"paused": PAUSE_FILE.exists()}
@@ -387,15 +433,26 @@ def evaluate():
     interval_min = config.LOOP_INTERVAL_SECONDS / 60.0
     status["interval_min"] = interval_min
 
+    now = time.time()
     if signals.exists():
-        age_min = (time.time() - signals.stat().st_mtime) / 60.0
-        status["data_known"] = True
+        age_min = (now - signals.stat().st_mtime) / 60.0
         status["age_min"] = age_min
-        status["fresh"] = age_min <= 2 * interval_min
+        signals_fresh = age_min <= 2 * interval_min
     else:
-        status["data_known"] = False
         status["age_min"] = None
-        status["fresh"] = False
+        signals_fresh = False
+
+    # §reprise-watchdog (incident 14/07) : la VIE du scan se juge sur le BATTEMENT
+    # per-cycle (brain_log.json), PAS sur signals_journal.csv (événementiel/dédupliqué,
+    # figé quand les signaux sont stables alors que le scan tourne). signals_journal
+    # frais reste une corroboration POSITIVE (un signal neuf récent prouve aussi la vie)
+    # -> fresh = OR ; DOWN seulement si AUCUNE source récente.
+    hb_fresh = heartbeat_fresh(now=now)
+    status["signals_fresh"] = signals_fresh
+    status["heartbeat_fresh"] = hb_fresh
+    status["heartbeat_age_min"] = heartbeat_age(now=now)
+    status["data_known"] = signals.exists() or heartbeat_present()
+    status["fresh"] = signals_fresh or hb_fresh
 
     verdict, alert = decide_verdict(
         status["process_known"],
@@ -427,14 +484,17 @@ def build_report(status):
     lines.append(f"Process actif: {alive}{suffix}")
 
     if status.get("data_known"):
-        age = status.get("age_min") or 0.0
+        age = status.get("age_min")
+        hb = status.get("heartbeat_age_min")
         fresh = "frais" if status.get("fresh") else "PÉRIMÉ"
+        journal = f"journal {age:.1f} min" if age is not None else "journal absent"
+        battement = f"battement cerveau {hb:.1f} min" if hb is not None else "battement absent"
         lines.append(
-            f"Dernier scan : il y a {age:.1f} min "
-            f"(intervalle {status.get('interval_min', 0):.0f} min) -> {fresh}"
+            f"Dernier scan : {journal} · {battement} "
+            f"(seuil scan {2 * status.get('interval_min', 0):.0f} min) -> {fresh}"
         )
     else:
-        lines.append(f"Dernier scan : {config.SIGNALS_JOURNAL_FILE} absent")
+        lines.append("Dernier scan : aucune source de vie (journal + battement absents)")
 
     lines.append(f"Pause        : {'OUI' if status.get('paused') else 'non'}")
     lines.append("")
