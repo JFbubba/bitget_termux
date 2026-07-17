@@ -2088,6 +2088,40 @@ def test_listing_hype_sim_pnl():
         assert rep["round_trips"] == 1 and rep["win_rate"] == 1.0 and rep["pnl_net_usd"] > 0
 
 
+def test_news_agent_core():
+    """§news-ombre : signal complémentaire depuis les news -> vote d'OMBRE mesuré (news_shadow),
+    AUCUN ordre, ne touche pas le consensus. recent_items filtre la fraîcheur ; analyze réutilise
+    le parse LLM (borne la confiance) ; cycle journalise l'ombre par symbole."""
+    import time as _t
+    import tempfile
+    from pathlib import Path as _P
+    import news_agent as na
+    now = _t.time()
+    items = [{"title": "A", "ts": now - 3600}, {"title": "B", "ts": now - 100 * 3600},
+             {"title": "C", "ts": now - 7200}]
+    titres = [it["title"] for it in na.recent_items(items, now=now, hours=12)]
+    assert "A" in titres and "C" in titres and "B" not in titres     # fraîcheur
+    assert na.recent_items([], now=now) == []
+    pr = na.build_prompt(na.recent_items(items, now=now))
+    assert "vote" in pr and "[-1,1]" in pr and "A" in pr             # prompt borné + titres
+
+    def fake_llm(_prompt):
+        return 'blabla {"vote": 0.7, "confidence": 0.9, "why": "hype"} fin'
+    sig = na.analyze(items=items, call_fn=fake_llm, now=now)
+    assert sig["vote"] == 0.7 and sig["confidence"] <= 0.5           # conf PLAFONNÉE
+    assert na.analyze(items=items, call_fn=lambda p: "pas de json", now=now) is None  # fail-safe
+    assert na.analyze(items=[], call_fn=fake_llm, now=now) is None   # corpus vide
+    r = na.shadow_record(0.5, "btcusdt", 100.0, now=1000)
+    assert r["symbol"] == "BTCUSDT" and r["votes"]["news_shadow"] == 0.5 and r["price"] == 100.0
+    with tempfile.TemporaryDirectory() as td:
+        op = _P(td) / "overlay.jsonl"
+        out = na.cycle(items=items, call_fn=fake_llm, overlay_path=op,
+                       price_fn=lambda s: 10.0, symbols=["BTCUSDT", "ETHUSDT"], now=now)
+        assert out["journalises"] == 2 and out["signal"]["vote"] == 0.7
+        txt = op.read_text()
+        assert "news_shadow" in txt and "BTCUSDT" in txt and "ETHUSDT" in txt
+
+
 def test_watchdog_brain_age():
     import json as _json
     import tempfile
