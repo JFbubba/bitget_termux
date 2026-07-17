@@ -2039,25 +2039,53 @@ def test_deflated_sharpe_gate():
 
 
 def test_listing_hype_cycle_dry():
-    """§listing-hype : cycle DRY — détecte, journalise la décision d'entrée bornée, marque
-    'vu' ; AUCUN ordre. Re-cycle sur le même listing = rien (dédup) ; kill -> skip."""
+    """§listing-hype : cycle DRY — détecte, ouvre une position SIM au prix live (injecté),
+    journalise ; AUCUN ordre. Re-cycle sur le même listing = rien (dédup) ; kill -> skip."""
     import tempfile
     from pathlib import Path as _P
     import listing_hype as lh
     with tempfile.TemporaryDirectory() as td:
         td = _P(td)
-        seen_p, jp = td / "seen.json", td / "j.jsonl"
+        seen_p, jp, pp = td / "seen.json", td / "j.jsonl", td / "pos.json"
         anns = [{"title": "Bitget Will List NEWCO (NEWCOUSDT)", "type": "listing", "ts": 1}]
-        r = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, now=1000, cap_per_op=3.0, kill=False)
-        assert len(r["nouveaux"]) == 1 and r["nouveaux"][0]["symbol"] == "NEWCOUSDT"
-        assert r["nouveaux"][0]["action"] == "buy"                 # décision DRY
+        r = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, pos_path=pp, now=1000,
+                     cap_per_op=3.0, kill=False, price_fn=lambda s: 1.0)
+        assert len(r["entrees"]) == 1 and r["entrees"][0]["symbol"] == "NEWCOUSDT"
+        assert r["entrees"][0]["action"] == "buy_dry" and r["entrees"][0]["entry_price"] == 1.0
         assert "NEWCOUSDT" in lh._load_seen(seen_p)                # marqué vu
+        assert "NEWCOUSDT" in lh._load_positions(pp)               # position sim ouverte
         assert jp.exists() and "NEWCOUSDT" in jp.read_text()       # journalisé
-        r2 = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, now=1001, cap_per_op=3.0, kill=False)
-        assert r2["nouveaux"] == []                                # déjà vu -> rien
+        r2 = lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, pos_path=pp, now=1001,
+                      cap_per_op=3.0, kill=False, price_fn=lambda s: 1.0)
+        assert r2["entrees"] == []                                 # déjà vu -> pas de nouvelle entrée
         anns2 = [{"title": "Bitget lists OTHER (OTHERUSDT)", "type": "listing", "ts": 2}]
-        rk = lh.cycle(anns=anns2, seen_path=seen_p, journal_path=jp, now=1002, cap_per_op=3.0, kill=True)
-        assert rk["nouveaux"][0]["action"] == "skip"               # kill-switch -> skip
+        rk = lh.cycle(anns=anns2, seen_path=seen_p, journal_path=jp, pos_path=pp, now=1002,
+                      cap_per_op=3.0, kill=True, price_fn=lambda s: 1.0)
+        assert rk["entrees"] == [] and "OTHERUSDT" not in lh._load_positions(pp)   # kill -> pas d'entrée
+
+
+def test_listing_hype_sim_pnl():
+    """§listing-hype 2b : simulation DRY entrée->sortie avec PnL NET de frais. TP -> vente,
+    PnL = (brut − 2·fee) × notional ; dry_report agrège. AUCUN ordre."""
+    import tempfile
+    from pathlib import Path as _P
+    import listing_hype as lh
+    assert abs(lh._net_pnl(1.0, 1.2, 3.0, 6.0) - round((0.20 - 0.0012) * 3.0, 4)) < 1e-9  # +20% net 6bps/côté
+    assert lh._net_pnl(0, 1, 3, 6) == 0.0                          # entrée invalide -> 0
+    with tempfile.TemporaryDirectory() as td:
+        td = _P(td)
+        seen_p, jp, pp = td / "seen.json", td / "j.jsonl", td / "pos.json"
+        anns = [{"title": "Bitget lists PUMP (PUMPUSDT)", "type": "listing", "ts": 1}]
+        lh.cycle(anns=anns, seen_path=seen_p, journal_path=jp, pos_path=pp, now=1000,
+                 cap_per_op=3.0, kill=False, price_fn=lambda s: 1.0, tp_pct=0.15)
+        assert lh._load_positions(pp)["PUMPUSDT"]["entry_price"] == 1.0
+        r2 = lh.cycle(anns=[], seen_path=seen_p, journal_path=jp, pos_path=pp, now=1100,
+                      cap_per_op=3.0, kill=False, price_fn=lambda s: 1.20, tp_pct=0.15)   # +20% -> TP
+        assert len(r2["sorties"]) == 1 and r2["sorties"][0]["symbol"] == "PUMPUSDT"
+        assert r2["sorties"][0]["pnl_net_usd"] > 0
+        assert "PUMPUSDT" not in lh._load_positions(pp)            # fermée
+        rep = lh.dry_report(journal_path=jp)
+        assert rep["round_trips"] == 1 and rep["win_rate"] == 1.0 and rep["pnl_net_usd"] > 0
 
 
 def test_watchdog_brain_age():

@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SEEN_PATH = ROOT / ".listing_hype_seen.json"
 JOURNAL = ROOT / ".listing_hype_journal.jsonl"
+POS_PATH = ROOT / ".listing_hype_positions.json"
 
 
 def _norm_sym(s):
@@ -93,50 +94,161 @@ def _save_seen(seen, path=None):
         pass
 
 
-def cycle(anns=None, seen_path=None, journal_path=None, now=None, cap_per_op=None, kill=None):
-    """DRY : détecte les NOUVEAUX listings Bitget (bitget_announcements), JOURNALISE la
-    décision d'entrée BORNÉE, marque 'vu'. AUCUN ORDRE ici — l'exécution réelle (déléguée à
-    spot_trader §67, gatée LISTING_HYPE_LIVE, défaut OFF) est l'étape SUIVANTE. Retourne
-    {kill, nouveaux:[recs]}. Paramètres injectables pour test."""
+def _load_positions(path=None):
+    """Positions SIM ouvertes {symbol: {entry_price, entry_ts, notional}}. PUR si path injecté."""
+    p = Path(path) if path else POS_PATH
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_positions(positions, path=None):
+    try:
+        (Path(path) if path else POS_PATH).write_text(json.dumps(positions), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _spot_price(symbol):
+    """Dernier prix spot (best-effort via candle_reader). None si indisponible (nouveau
+    token sans flux propre) -> on retente au cycle suivant."""
+    try:
+        from candle_reader import get_bitget_candles
+        c = get_bitget_candles(symbol, limit=1)
+        return float(c[-1]["close"]) if c else None
+    except Exception:
+        return None
+
+
+def _net_pnl(entry, exit_price, notional, fee_bps):
+    """PnL DRY NET de frais (round-trip taker) d'une position hype. PUR."""
+    try:
+        entry = float(entry)
+        exit_price = float(exit_price)
+    except (TypeError, ValueError):
+        return 0.0
+    if entry <= 0:
+        return 0.0
+    gross = (exit_price - entry) / entry
+    net = gross - 2.0 * float(fee_bps) / 1e4
+    return round(net * float(notional), 4)
+
+
+def cycle(anns=None, seen_path=None, journal_path=None, pos_path=None, now=None,
+          cap_per_op=None, kill=None, price_fn=None, tp_pct=None, sl_pct=None, max_hold_s=None):
+    """SIMULATION DRY (aucun ordre) pour MESURER la stratégie avant tout armement réel :
+      1) SORTIES d'abord — pour chaque position sim ouverte, `exit_decision` sur le prix
+         live -> si vente, PnL NET de frais journalisé et position fermée ;
+      2) ENTRÉES — nouveaux listings (bitget_announcements) -> position sim ouverte au prix
+         live, journalisée.
+    L'exécution RÉELLE (spot_trader §67, gatée LISTING_HYPE_LIVE) reste l'étape suivante.
+    Tout est injectable (anns, chemins, price_fn, params) pour test déterministe."""
     from config_utils import cfg as _cfg
     now = _time.time() if now is None else now
-    if anns is None:
-        try:
-            import bitget_announcements as ba
-            anns = ba.fetch_announcements()
-        except Exception:
-            anns = []
+    price_fn = _spot_price if price_fn is None else price_fn
+    fee_bps = float(_cfg("LISTING_HYPE_FEE_BPS", 6.0))
+    tp = float(_cfg("LISTING_HYPE_TP_PCT", 0.15)) if tp_pct is None else float(tp_pct)
+    sl = float(_cfg("LISTING_HYPE_SL_PCT", 0.08)) if sl_pct is None else float(sl_pct)
+    hold = float(_cfg("LISTING_HYPE_MAX_HOLD_S", 1800)) if max_hold_s is None else float(max_hold_s)
+    cap = float(_cfg("LISTING_HYPE_CAP_USDT", 3.0)) if cap_per_op is None else float(cap_per_op)
+    notional = float(_cfg("LISTING_HYPE_NOTIONAL_USDT", 3.0))
     if kill is None:
         try:
             import risk_manager
             kill = bool(risk_manager.kill_switch_active())
         except Exception:
             kill = False
-    cap = float(_cfg("LISTING_HYPE_CAP_USDT", 3.0)) if cap_per_op is None else float(cap_per_op)
-    notional = float(_cfg("LISTING_HYPE_NOTIONAL_USDT", 3.0))
-    seen = _load_seen(seen_path)
+    if anns is None:
+        try:
+            import bitget_announcements as ba
+            anns = ba.fetch_announcements()
+        except Exception:
+            anns = []
     jpath = Path(journal_path) if journal_path else JOURNAL
-    out = {"kill": bool(kill), "nouveaux": []}
-    for sym, title, ts in new_listing_symbols(anns, seen):
-        d = entry_decision(sym, notional, cap, kill=kill, live=False)     # DRY : jamais d'ordre
-        rec = {"ts": int(now), "symbol": sym, "title": str(title)[:120], "listing_ts": ts, **d}
+    positions = _load_positions(pos_path)
+    seen = _load_seen(seen_path)
+    out = {"kill": bool(kill), "entrees": [], "sorties": []}
+
+    def _journal(rec):
         try:
             import journal_append as ja
             ja.append_jsonl(jpath, rec)
         except Exception:
             pass
+
+    # 1. SORTIES d'abord (une position ne s'attarde pas)
+    for sym in list(positions.keys()):
+        p = positions[sym]
+        px = price_fn(sym)
+        if px is None:
+            continue
+        ed = exit_decision(p.get("entry_price"), px, p.get("entry_ts", now), now,
+                           tp_pct=tp, sl_pct=sl, max_hold_s=hold)
+        if ed["action"] == "sell":
+            pnl = _net_pnl(p.get("entry_price"), px, p.get("notional", notional), fee_bps)
+            rec = {"ts": int(now), "symbol": sym, "action": "sell_dry",
+                   "entry_price": p.get("entry_price"), "exit_price": round(float(px), 8),
+                   "notional": p.get("notional", notional), "pnl_net_usd": pnl, "reason": ed["reason"]}
+            _journal(rec)
+            out["sorties"].append(rec)
+            del positions[sym]
+
+    # 2. ENTRÉES (nouveaux listings)
+    for sym, title, ts in new_listing_symbols(anns, seen):
         seen.add(sym)
-        out["nouveaux"].append(rec)
+        d = entry_decision(sym, notional, cap, kill=kill, live=False)
+        if d["action"] != "buy":
+            _journal({"ts": int(now), "symbol": sym, "action": "skip", "reason": d["reason"]})
+            continue
+        px = price_fn(sym)
+        if px is None or float(px) <= 0:
+            _journal({"ts": int(now), "symbol": sym, "action": "skip", "reason": "prix indisponible au listing"})
+            continue
+        positions[sym] = {"entry_price": round(float(px), 8), "entry_ts": int(now), "notional": d["notional"]}
+        rec = {"ts": int(now), "symbol": sym, "action": "buy_dry", "entry_price": positions[sym]["entry_price"],
+               "notional": d["notional"], "title": str(title)[:120], "reason": d["reason"]}
+        _journal(rec)
+        out["entrees"].append(rec)
+
+    _save_positions(positions, pos_path)
     _save_seen(seen, seen_path)
     return out
 
 
+def dry_report(journal_path=None):
+    """Bilan DRY de la stratégie depuis le journal : round-trips fermés (sell_dry), taux de
+    gain, PnL NET cumulé. PUR (fs). Pour JUGER la stratégie avant tout armement."""
+    p = Path(journal_path) if journal_path else JOURNAL
+    trips, wins, net = 0, 0, 0.0
+    try:
+        for line in p.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            if r.get("action") == "sell_dry":
+                trips += 1
+                pnl = float(r.get("pnl_net_usd") or 0.0)
+                net += pnl
+                wins += 1 if pnl > 0 else 0
+    except Exception:
+        pass
+    return {"round_trips": trips, "win_rate": round(wins / trips, 3) if trips else None,
+            "pnl_net_usd": round(net, 4)}
+
+
 def main():
     r = cycle()
-    print("=== LISTING-HYPE (DRY — détection + journal, AUCUN ordre) ===")
-    print(f"kill-switch: {r['kill']} · nouveaux listings: {len(r['nouveaux'])}")
-    for rec in r["nouveaux"]:
-        print(f"  {rec['symbol']}: {rec['action']} {rec.get('notional')} $ — {rec['reason']}")
+    rep = dry_report()
+    print("=== LISTING-HYPE (SIMULATION DRY — aucun ordre réel) ===")
+    print(f"kill-switch: {r['kill']} · entrées: {len(r['entrees'])} · sorties: {len(r['sorties'])}")
+    for e in r["entrees"]:
+        print(f"  ENTRÉE {e['symbol']} @ {e['entry_price']} ({e['notional']} $) — {e['reason']}")
+    for s in r["sorties"]:
+        print(f"  SORTIE {s['symbol']} @ {s['exit_price']} · PnL net {s['pnl_net_usd']:+.4f} $ — {s['reason']}")
+    print(f"Bilan DRY : {rep['round_trips']} round-trips · win {rep['win_rate']} · PnL net {rep['pnl_net_usd']:+.4f} $")
     return 0
 
 
