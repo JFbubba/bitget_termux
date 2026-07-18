@@ -10612,6 +10612,34 @@ def test_volume_profile_hvn_lvn():
     assert p["lvn"] and all(10 < x < 20 for x in p["lvn"])    # LVN strictement entre
 
 
+def test_taker_volume_delta_series():
+    """Volume Delta/CVD depuis taker-buy-sell : delta = buy-sell, cvd cumulé, trié ts ASC."""
+    import taker_flow as tf
+    bars = [{"ts": "3000", "buyVolume": "10", "sellVolume": "4"},
+            {"ts": "1000", "buyVolume": "5", "sellVolume": "8"},
+            {"ts": "2000", "buyVolume": "7", "sellVolume": "7"}]
+    s = tf.volume_delta_series(bars)
+    assert [r["ts"] for r in s] == [1000, 2000, 3000]
+    assert [r["delta"] for r in s] == [-3.0, 0.0, 6.0]
+    assert [r["cvd"] for r in s] == [-3.0, -3.0, 3.0]
+    assert tf.volume_delta_series([]) == []
+
+
+def test_taker_delta_summary():
+    """Lecture compacte : n, cvd, dernier delta, ratio acheteur, biais."""
+    import taker_flow as tf
+    bars = [{"ts": "1000", "buyVolume": "5", "sellVolume": "8"},
+            {"ts": "2000", "buyVolume": "7", "sellVolume": "7"},
+            {"ts": "3000", "buyVolume": "10", "sellVolume": "4"}]
+    r = tf.delta_summary(bars)
+    assert r["n"] == 3
+    assert r["cvd"] == 3.0
+    assert r["last_delta"] == 6.0
+    assert abs(r["last_buy_ratio"] - 10 / 14) < 1e-9
+    assert r["bias"] == "buy"
+    assert tf.delta_summary([]) is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
