@@ -10788,6 +10788,28 @@ def test_enforce_position_sl_dry_no_order():
     assert fe.enforce_position_sl(live=False, nus=None, events=[])["ok"] is False   # fail-closed
 
 
+def test_enforce_position_sl_live_places_via_hub():
+    """LIVE (gate ON) : pose le SL manquant via le tool hub futures_place_tpsl_order (planType pos_loss,
+    holdSide, triggerPrice=intention, size=position). Runner factice -> AUCUN ordre réel."""
+    import futures_executor as fe
+    nus = [{"symbol": "BTCUSDT", "side": "LONG", "agent": "auto_dir"}]
+    events = [{"action": "FUTURES_REAL", "ts": 3, "order": {"symbol": "BTCUSDT", "side": "long", "stop_loss": 59000}}]
+    positions = [{"symbol": "BTCUSDT", "side": "LONG", "size": 0.001}]
+    seen = {}
+    def fake_runner(cmd):
+        seen["cmd"] = cmd
+        return '{"ok": true, "data": {"orderId": "42"}}'
+    res = fe.enforce_position_sl(live=True, nus=nus, events=events, positions=positions, runner=fake_runner)
+    assert res["ok"] and not res["dry"] and len(res["placed"]) == 1
+    cmd = " ".join(str(c) for c in seen["cmd"])
+    assert seen["cmd"][:2] == ["futures", "futures_place_tpsl_order"]
+    assert "pos_loss" in cmd and "59000" in cmd and "0.001" in cmd and "mark_price" in cmd
+    assert res["placed"][0]["result"]["ok"] is True
+    # size manquante -> pas de pose (jamais de SL en aveugle sur une taille inconnue)
+    res2 = fe.enforce_position_sl(live=True, nus=nus, events=events, positions=[], runner=fake_runner)
+    assert res2["placed"][0]["result"]["ok"] is False
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

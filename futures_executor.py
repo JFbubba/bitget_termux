@@ -1868,17 +1868,41 @@ def intended_sl_from_events(symbol, side, events):
     return best_sl
 
 
-def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, runner=None):
-    """Auto-pose PROTECTIVE du SL exchange manquant (§durcis-sl Étape 2). Derrière le verrou
-    `FUTURES_SL_AUTOHEAL` (défaut OFF) et DRY par défaut. Idempotent, journalisé.
+def _place_position_sl(symbol, side, size, trigger_price, runner=None):
+    """Pose un SL de POSITION (planType `pos_loss`) via le tool hub `futures_place_tpsl_order`
+    (ajouté 18/07). PROTECTIF (réduit le risque) -> autorisé même sous kill-switch, comme un
+    flatten. Trigger sur `mark_price`, exécution marché. Retourne {ok, response, clientOid}."""
+    from numeric_utils import safe_float
+    sym = str(symbol or SYMBOL).upper()
+    px = safe_float(trigger_price)
+    sz = safe_float(size)
+    if not px or px <= 0 or not sz or sz <= 0:
+        return {"ok": False, "reason": "prix/taille SL illisibles (pas de pose en aveugle)"}
+    coid = f"slheal{int(time.time() * 1000)}"
+    cmd = ["futures", "futures_place_tpsl_order",
+           "--symbol", sym, "--productType", PRODUCT_TYPE, "--marginCoin", MARGIN_COIN,
+           "--planType", "pos_loss", "--triggerPrice", f"{px}", "--triggerType", "mark_price",
+           "--holdSide", str(side).lower(), "--size", f"{sz}", "--clientOid", coid]
+    out = _run(cmd, runner=runner)
+    compact = (out or "").replace(" ", "").lower()
+    ok = bool(out) and '"ok":false' not in compact and "error" not in compact
+    _journal({"ts": int(time.time()), "action": "FUTURES_SL_PLACED",
+              "order": {"symbol": sym, "side": side, "size": sz, "trigger": px, "clientOid": coid},
+              "ok": ok, "response": str(out)[:300]})
+    return {"ok": ok, "response": out, "clientOid": coid}
 
-    ⚠️ ÉTAT (18/07) : la POSE RÉELLE est DIFFÉRÉE — ERR-008 (le hub n'expose AUCUN tool TPSL
-    futures) + aucun smoke possible sur position live (0 position ouverte). En DRY : calcule et
-    JOURNALISE le SL qu'elle poserait (intention re-dérivée du ledger), SANS passer d'ordre. En
-    live-gate ON mais pose indisponible -> refus PROPRE (jamais de faux heal). Une fois le tool hub
-    `futures_place_tpsl_order` créé + smoke réel validé (ERR-009/011), brancher la pose ici
-    (protective : autorisée même sous kill-switch, comme un flatten). `nus`/`events` injectables
-    (tests / réutilisation)."""
+
+def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, positions=_UNSET, runner=None):
+    """Auto-pose PROTECTIVE du SL exchange manquant (§durcis-sl Étape 2). Derrière le verrou
+    `FUTURES_SL_AUTOHEAL` (défaut OFF) et DRY par défaut. Idempotent (ne pose que pour les positions
+    ACTUELLEMENT nues, cf. `positions_sans_sl_exchange_live`), journalisé.
+
+    DRY : calcule et JOURNALISE le SL qu'elle poserait (intention re-dérivée du ledger), SANS ordre.
+    LIVE (gate ON) : re-pose le SL via `_place_position_sl` (tool hub `futures_place_tpsl_order`,
+    planType pos_loss, holdSide=côté position, triggerPrice=intention, size=taille position).
+    Protectif -> autorisé même sous kill-switch (comme un flatten). Jamais de pose en aveugle : si
+    l'intention (ledger) OU la taille (position) manque, on s'abstient. `nus`/`events`/`positions`
+    injectables (tests / réutilisation). FAIL-CLOSED : sources illisibles (None) -> pas de heal."""
     if live is None:
         live = str(_cfg("FUTURES_SL_AUTOHEAL", "0")).strip().lower() in ("1", "true", "on", "yes")
     if dry is None:
@@ -1893,8 +1917,19 @@ def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, runner=N
             events = json.loads(_ledger_path().read_text(encoding="utf-8")).get("events", [])
         except Exception:
             events = []
+    size_by = {}
+    if not dry:                                            # taille position requise seulement pour poser
+        if positions is _UNSET:
+            try:
+                import real_positions as rp
+                positions = rp.futures()
+            except Exception:
+                positions = []
+        size_by = {(str(p.get("symbol")).upper(), str(p.get("side")).upper()): p.get("size")
+                   for p in (positions or []) if isinstance(p, dict)}
     planned = [{"symbol": p["symbol"], "side": p["side"], "agent": p.get("agent"),
-                "intended_sl": intended_sl_from_events(p["symbol"], p["side"], events)}
+                "intended_sl": intended_sl_from_events(p["symbol"], p["side"], events),
+                "size": size_by.get((p["symbol"], p["side"]))}
                for p in nus]
     if planned:
         _journal({"ts": int(time.time()),
@@ -1902,9 +1937,15 @@ def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, runner=N
                   "dry": bool(dry), "planned": planned})
     if dry or not planned:
         return {"ok": True, "dry": True, "planned": planned, "placed": []}
-    # LIVE demandé mais pose réelle non disponible (ERR-008) : refus propre, jamais de faux heal.
-    return {"ok": False, "dry": False, "planned": planned, "placed": [],
-            "reason": "pose TPSL futures non disponible (ERR-008 : tool hub à créer + smoke live requis)"}
+    placed = []
+    for pl in planned:
+        if pl["intended_sl"] and pl["size"]:
+            r = _place_position_sl(pl["symbol"], pl["side"], pl["size"], pl["intended_sl"], runner=runner)
+        else:
+            r = {"ok": False, "reason": "intention (ledger) ou taille (position) manquante"}
+        placed.append({**pl, "result": r})
+    return {"ok": all(x["result"].get("ok") for x in placed), "dry": False,
+            "planned": planned, "placed": placed}
 
 
 def main():
