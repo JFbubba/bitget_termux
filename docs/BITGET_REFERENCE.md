@@ -67,6 +67,13 @@ Cohérence à faire : `listing_hype` (spot) devrait modéliser 0,08 %, pas 6 bps
 | **Next funding time** (`mix/market/funding-time`) | NON utilisé — ✅ live | prochain funding + période (8 h) — timing d'entrée/sortie carry autour du settlement. |
 | **Spot net-flow série** (`v3/market/spot-net-flow`) | NON utilisé — ✅ live | flux net spot par période (complète `bitget_flows.py`). |
 
+> **MàJ 18/07 — capacités désormais CÂBLÉES en MESURE** (lecture seule, `bitget_market_extras.py`,
+> vérifiées live, **NON branchées au banc gelé** sans preuve d'IC nette) : liquidations v3, long/short ×3
+> (actif taker / positions / comptes), volume-delta actif (`futures-active-buy-sell`), next-funding, config
+> contrat (min-sizes → **filtre de faisabilité** futures). Le module `bitget_flows.py` câble déjà spot
+> fund-flow/whale-net-flow. Restent candidats **non câblés** : `v3/market/spot-net-flow`, carnet complet
+> (>50 niv.), reversal/flash-close (exécution — via modules bornés uniquement).
+
 ## 3. WebSocket
 
 - Endpoint public : `wss://ws.bitget.com/v2/ws/public` (le bot l'utilise via `book_collector.py` :

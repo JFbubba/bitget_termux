@@ -21,14 +21,14 @@
 
 ## Vue d'ensemble
 
-- **413 endpoints** = **236 v2** + **177 v3** · **23 câblés** par le bot.
+- **413 endpoints** = **236 v2** + **177 v3** · **29 câblés** par le bot.
 - **v2** = API du bot (compte classique). **v3** = API unifiée (compte UTA/`set-leverage`/`move-positions`/
   liquidations publiques/collateral) — le bot **reste v2/compte classique** (décision : cloisonnement du risque).
 - Familles v2 : spot 54 · mix/futures 73 · earn 36 · broker 22 · copy 19 · convert 7 · margin 6 · tax 4 · p2p 4 · user 4 · account 3 · common 2 · public 2.
 
 ---
 
-# API V2 — 236 endpoints · 23 câblés
+# API V2 — 236 endpoints · 27 câblés
 
 ## v2 · account — Compte — assets agrégés, funding, bot  ·  3 endpoints (1 câblés)
 
@@ -160,7 +160,7 @@
 |  | GET | 🔑 |  | `/api/v2/margin/${marginType}/tier-data` | `getMarginTierConfiguration` | marginType, coin |
 |  | GET | — |  | `/api/v2/margin/currencies` | `getMarginCurrencies` |  |
 
-## v2 · mix — Futures USDT-M/COIN-M (« mix ») — marché · compte · position · order  ·  73 endpoints (13 câblés)
+## v2 · mix — Futures USDT-M/COIN-M (« mix ») — marché · compte · position · order  ·  73 endpoints (17 câblés)
 
 | Bot | Verbe | Auth | ⚑ | Endpoint | Méthode SDK | Type params |
 |---|---|---|---|---|---|---|
@@ -185,25 +185,25 @@
 |  | POST | 🔑 |  | `/api/v2/mix/account/union-convert` | `unionConvert` | UnionConvertRequestV2 |
 | ✅ | GET | — |  | `/api/v2/mix/market/account-long-short` | `getFuturesActiveLongShortAccountData` | symbol, period |
 | ✅ | GET | — |  | `/api/v2/mix/market/candles` | `getFuturesCandles` | FuturesCandlesRequestV2 |
-|  | GET | — |  | `/api/v2/mix/market/contracts` | `getFuturesContractConfig` | symbol, productType |
+| ✅ | GET | — |  | `/api/v2/mix/market/contracts` | `getFuturesContractConfig` | symbol, productType |
 | ✅ | GET | — |  | `/api/v2/mix/market/current-fund-rate` | `getFuturesCurrentFundingRate` | symbol, productType |
 |  | GET | — |  | `/api/v2/mix/market/discount-rate` | `getFuturesDiscountRate` |  |
 |  | GET | — |  | `/api/v2/mix/market/exchange-rate` | `getFuturesInterestExchangeRate` |  |
 | ✅ | GET | — |  | `/api/v2/mix/market/fills` | `getFuturesRecentTrades` | FuturesRecentTradesRequestV2 |
 |  | GET | — |  | `/api/v2/mix/market/fills-history` | `getFuturesHistoricTrades` | FuturesHistoricTradesRequestV2 |
-|  | GET | — |  | `/api/v2/mix/market/funding-time` | `getFuturesNextFundingTime` | symbol, productType |
+| ✅ | GET | — |  | `/api/v2/mix/market/funding-time` | `getFuturesNextFundingTime` | symbol, productType |
 | ✅ | GET | — |  | `/api/v2/mix/market/history-candles` | `getFuturesHistoricCandles` | FuturesCandlesRequestV2 |
 | ✅ | GET | — |  | `/api/v2/mix/market/history-fund-rate` | `getFuturesHistoricFundingRates` | symbol, productType, pageSize, pageNo |
 |  | GET | — |  | `/api/v2/mix/market/history-index-candles` | `getFuturesHistoricIndexPriceCandles` | FuturesCandlesRequestV2 |
 |  | GET | — |  | `/api/v2/mix/market/history-mark-candles` | `getFuturesHistoricMarkPriceCandles` | FuturesCandlesRequestV2 |
 |  | GET | — |  | `/api/v2/mix/market/isolated-borrow-rate` | `getIsolatedMarginBorrowingRatio` | symbol, period |
 |  | GET | — |  | `/api/v2/mix/market/loan-growth` | `getMarginLoanGrowthRate` | symbol, period, coin |
-|  | GET | — |  | `/api/v2/mix/market/long-short` | `getFuturesActiveBuySellVolumeData` | symbol, period |
+| ✅ | GET | — |  | `/api/v2/mix/market/long-short` | `getFuturesActiveBuySellVolumeData` | symbol, period |
 |  | GET | — |  | `/api/v2/mix/market/long-short-ratio` | `getFuturesLongShortRatio` | symbol, period, coin |
 | ✅ | GET | — |  | `/api/v2/mix/market/merge-depth` | `getFuturesMergeDepth` | FuturesMergeDepthRequestV2 |
 |  | GET | — |  | `/api/v2/mix/market/oi-limit` | `getFuturesOiLimit` | FuturesOiLimitRequestV2 |
 | ✅ | GET | — |  | `/api/v2/mix/market/open-interest` | `getFuturesOpenInterest` | symbol, productType |
-|  | GET | — |  | `/api/v2/mix/market/position-long-short` | `getFuturesActiveLongShortPositionData` | symbol, period |
+| ✅ | GET | — |  | `/api/v2/mix/market/position-long-short` | `getFuturesActiveLongShortPositionData` | symbol, period |
 |  | GET | — |  | `/api/v2/mix/market/query-position-lever` | `getFuturesPositionTier` | productType, symbol |
 |  | GET | — |  | `/api/v2/mix/market/symbol-price` | `getFuturesSymbolPrice` | symbol, productType |
 | ✅ | GET | — |  | `/api/v2/mix/market/taker-buy-sell` | `getFuturesActiveTakerBuySellVolumeData` | symbol, period |
@@ -333,7 +333,7 @@
 
 ---
 
-# API V3 — 177 endpoints · 0 câblés
+# API V3 — 177 endpoints · 2 câblés
 
 ## v3 · account — Compte — assets agrégés, funding, bot  ·  47 endpoints (0 câblés)
 
@@ -456,7 +456,7 @@
 |  | GET | 🔑 |  | `/api/v3/loan/repay-history` | `getLoanRepayHistory` | GetLoanRepayHistoryRequestV3 |
 |  | POST | 🔑 |  | `/api/v3/loan/revise-pledge` | `loanRevisePledge` | LoanRevisePledgeRequestV3 |
 
-## v3 · market — Market data (v3 unifié)  ·  34 endpoints (0 câblés)
+## v3 · market — Market data (v3 unifié)  ·  34 endpoints (2 câblés)
 
 | Bot | Verbe | Auth | ⚑ | Endpoint | Méthode SDK | Type params |
 |---|---|---|---|---|---|---|
@@ -467,14 +467,14 @@
 |  | GET | — |  | `/api/v3/market/fee-group` | `getMarketFeeGroup` | GetMarketFeeGroupRequestV3 |
 |  | GET | — |  | `/api/v3/market/fills` | `getFills` | GetPublicFillsRequestV3 |
 |  | GET | — |  | `/api/v3/market/futures-account-long-short` | `getFuturesAccountLongShort` | GetFuturesTradingDataRequestV3 |
-|  | GET | — |  | `/api/v3/market/futures-active-buy-sell` | `getFuturesActiveBuySell` | GetFuturesTradingDataRequestV3 |
+| ✅ | GET | — |  | `/api/v3/market/futures-active-buy-sell` | `getFuturesActiveBuySell` | GetFuturesTradingDataRequestV3 |
 |  | GET | — |  | `/api/v3/market/futures-long-short` | `getFuturesLongShort` | GetFuturesTradingDataRequestV3 |
 |  | GET | — |  | `/api/v3/market/futures-position-long-short` | `getFuturesPositionLongShort` | GetFuturesTradingDataRequestV3 |
 |  | GET | — |  | `/api/v3/market/history-candles` | `getHistoryCandles` | GetHistoryCandlesRequestV3 |
 |  | GET | — |  | `/api/v3/market/history-fund-rate` | `getHistoryFundingRate` | GetHistoryFundingRateRequestV3 |
 |  | GET | — |  | `/api/v3/market/index-components` | `getIndexComponents` | GetIndexComponentsRequestV3 |
 |  | GET | — |  | `/api/v3/market/instruments` | `getInstruments` | GetInstrumentsRequestV3 |
-|  | GET | — |  | `/api/v3/market/liquidations` | `getLiquidations` | GetLiquidationsRequestV3 |
+| ✅ | GET | — |  | `/api/v3/market/liquidations` | `getLiquidations` | GetLiquidationsRequestV3 |
 |  | GET | — |  | `/api/v3/market/margin-isolated-borrow` | `getMarginIsolatedBorrow` | GetMarginIsolatedBorrowRequestV3 |
 |  | GET | — |  | `/api/v3/market/margin-loan-growth` | `getMarginLoanGrowth` | GetMarginLoanGrowthRequestV3 |
 |  | GET | — |  | `/api/v3/market/margin-loans` | `getMarginLoans` | GetMarginLoansRequestV3 |

@@ -10668,6 +10668,70 @@ def test_whale_net_flow_series():
     assert bf.whale_net_summary([]) is None
 
 
+# ---------- bitget_market_extras : wrappers market-data PUBLIQUE (lecture seule, §bitget-api) ----------
+
+def test_extras_long_short_variants():
+    """long/short : 3 variantes (active taker / positions / comptes) -> dernier point, biais."""
+    import bitget_market_extras as me
+    act = [{"longRatio": "0.4", "shortRatio": "0.6", "longShortRatio": "0.667", "ts": "1000"},
+           {"longRatio": "0.55", "shortRatio": "0.45", "longShortRatio": "1.222", "ts": "2000"}]
+    r = me.parse_long_short(act, "active")
+    assert r["n"] == 2 and abs(r["long"] - 0.55) < 1e-9 and r["bias"] == "long"   # dernier ts
+    pos = [{"longPositionRatio": "0.49", "shortPositionRatio": "0.51", "longShortPositionRatio": "0.96", "ts": "1"}]
+    assert me.parse_long_short(pos, "position")["bias"] == "short"
+    acc = [{"longAccountRatio": "0.6469", "shortAccountRatio": "0.3531", "longShortAccountRatio": "1.832", "ts": "1"}]
+    assert me.parse_long_short(acc, "account")["bias"] == "long"
+    assert me.parse_long_short([], "active") is None
+    assert me.parse_long_short(None, "position") is None
+
+
+def test_extras_liquidations():
+    """liquidations v3 : totaux buy/sell en notional, net, biais. side brut (sémantique non supposée)."""
+    import bitget_market_extras as me
+    d = {"list": [{"side": "buy", "price": "100", "amount": "2", "ts": "1"},
+                  {"side": "sell", "price": "200", "amount": "1", "ts": "2"}]}
+    r = me.parse_liquidations(d)
+    assert r["n"] == 2 and r["buy_notional"] == 200.0 and r["sell_notional"] == 200.0
+    assert r["net_notional"] == 0.0 and r["bias"] == "neutral"
+    # accepte aussi une liste nue
+    assert me.parse_liquidations([{"side": "buy", "price": "10", "amount": "1", "ts": "1"}])["buy_notional"] == 10.0
+    assert me.parse_liquidations({"list": []}) is None
+    assert me.parse_liquidations(None) is None
+
+
+def test_extras_active_buy_sell_delta():
+    """volume delta actif : somme buy/sell -> delta signé + biais."""
+    import bitget_market_extras as me
+    data = [{"buyVolume": "10", "sellVolume": "4", "ts": "1"},
+            {"buyVolume": "3", "sellVolume": "5", "ts": "2"}]
+    r = me.parse_active_buy_sell(data)
+    assert r["n"] == 2 and r["buy"] == 13.0 and r["sell"] == 9.0 and r["delta"] == 4.0 and r["bias"] == "buy"
+    assert me.parse_active_buy_sell([]) is None
+
+
+def test_extras_next_funding():
+    """funding-time : prochain settlement + période (heures)."""
+    import bitget_market_extras as me
+    r = me.parse_next_funding([{"symbol": "BTCUSDT", "nextFundingTime": "1784361600000", "ratePeriod": "8"}])
+    assert r["next_ts"] == 1784361600000 and r["period_h"] == 8
+    assert me.parse_next_funding([]) is None
+    assert me.parse_next_funding(None) is None
+
+
+def test_extras_contract_feasibility():
+    """contract config : min_qty / min_notional (filtre faisabilité) + frais + intervalle funding + leviers."""
+    import bitget_market_extras as me
+    d = [{"symbol": "BTCUSDT", "minTradeNum": "0.0001", "sizeMultiplier": "0.0001", "minTradeUSDT": "5",
+          "makerFeeRate": "0.0002", "takerFeeRate": "0.0006", "fundInterval": "8",
+          "minLever": "1", "maxLever": "125", "symbolStatus": "normal"}]
+    r = me.parse_contract(d)
+    assert r["min_qty"] == 0.0001 and r["min_notional_usdt"] == 5.0
+    assert r["maker"] == 0.0002 and r["taker"] == 0.0006
+    assert r["fund_interval_h"] == 8 and r["max_lever"] == 125 and r["status"] == "normal"
+    assert me.parse_contract([]) is None
+    assert me.parse_contract(None) is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
