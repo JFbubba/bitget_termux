@@ -666,6 +666,13 @@ def main(argv=None):
     try:
         audit_ouvertures_nues()
         audit_positions_sans_sl_exchange()
+        # Auto-POSE du SL exchange manquant (§durcis-sl Étape 2) — SEULEMENT si armé
+        # (FUTURES_SL_AUTOHEAL) ; sinon l'alerte ci-dessus suffit. Protectif, idempotent (ne
+        # pose que pour une position ACTUELLEMENT nue, via le tool hub futures_place_tpsl_order).
+        from config_utils import env_flag as _envf
+        if _envf("FUTURES_SL_AUTOHEAL", False):
+            import futures_executor as _fe
+            _fe.enforce_position_sl()
     except Exception:
         pass
 

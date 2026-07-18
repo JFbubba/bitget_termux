@@ -1904,7 +1904,8 @@ def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, position
     l'intention (ledger) OU la taille (position) manque, on s'abstient. `nus`/`events`/`positions`
     injectables (tests / réutilisation). FAIL-CLOSED : sources illisibles (None) -> pas de heal."""
     if live is None:
-        live = str(_cfg("FUTURES_SL_AUTOHEAL", "0")).strip().lower() in ("1", "true", "on", "yes")
+        from config_utils import env_flag           # env-first (armable via .env, cf. verrous §67)
+        live = env_flag("FUTURES_SL_AUTOHEAL", False)
     if dry is None:
         dry = not live
     if nus is _UNSET:
