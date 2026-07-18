@@ -304,26 +304,113 @@ def rmt_denoise(C, q):
     return C
 
 
+def _apply_denoise(C, q, method):
+    """Débruitage de la matrice de corrélation. method: True/'rmt' = clip Marchenko-Pastur ;
+    'rie' = shrinkage NON-LINÉAIRE de Ledoit-Péché (plus fin, garde les vecteurs propres) ;
+    False = brut. Pur."""
+    if not method:
+        return C
+    if method == "rie":
+        return rie_denoise(C, q)
+    return rmt_denoise(C, q)
+
+
+def _market_mode(C):
+    """MARKET MODE = λ₁/N (part de variance du mode dominant = risque SYSTÉMIQUE /
+    co-mouvement ; littérature RMT : λ₁ élevé => tout bouge ensemble) + PARTICIPATION du
+    mode dominant ∈ (0,1] (1 = mode réparti sur tout le panier ; petit = capturé par
+    quelques actifs). Pur. Réf. arXiv:1911.08944 (facteur de marché crypto)."""
+    w, V = np.linalg.eigh((C + C.T) / 2)
+    N = len(w)
+    i1 = int(np.argmax(w))
+    v1 = V[:, i1]
+    s2 = float(np.sum(v1 ** 2)) or 1.0
+    pr = float((s2 ** 2) / (np.sum(v1 ** 4) + 1e-18) / N)      # participation normalisée
+    return float(max(w)) / N, pr
+
+
+def _laplacian_max_gap(A):
+    """MAX SPECTRAL GAP du Laplacien COMBINATOIRE L=D−A (indicateur de CRASH/fragmentation,
+    PLOS One 2024, PMC12273962 : maxΔλ = max_k(λ_{k+1}−λ_k) est GRAND quand le graphe se
+    scinde en composantes — crash — et ≈0 en régime normal connecté). Pur."""
+    deg = A.sum(1)
+    L = np.diag(deg) - A
+    ev = np.sort(np.linalg.eigvalsh((L + L.T) / 2))
+    return float(np.max(np.diff(ev))) if len(ev) > 1 else 0.0
+
+
 def correlation_graph_metrics(returns_matrix, thresh=0.5, denoise=True):
     """STABILITÉ d'intrication d'un panier d'actifs (analogue rank-width). PUR.
     Construit le graphe |corr|>seuil, renvoie la connectivité algébrique λ₂ et les
     bornes de Cheeger (Cheeger : λ₂/2 ≤ h ≤ √(2λ₂)). λ₂ ↑ = réseau intriqué/stable ;
-    λ₂ → 0 = le réseau se fragmente (co-intégration en rupture)."""
+    λ₂ → 0 = le réseau se fragmente (co-intégration en rupture).
+    ENRICHI 18/07 (recherche « graphes isopérimétriques », grounded) — ajoute au spectre :
+      • market_mode = λ₁/N (risque SYSTÉMIQUE / co-mouvement) + participation du mode ;
+      • n_factors = nb de valeurs propres au-dessus du bulk Marchenko-Pastur (structure
+        RÉELLE vs bruit d'échantillon) ;
+      • max_gap = max spectral gap du Laplacien combinatoire (crash-indicator PLOS 2024).
+    denoise: True/'rmt' (défaut, rétro-compatible) · 'rie' (Ledoit-Péché, plus fin) · False."""
+    dflt = {"lambda2": 0.0, "cheeger_low": 0.0, "cheeger_high": 0.0, "n": 0,
+            "market_mode": 0.0, "participation": 0.0, "n_factors": 0, "max_gap": 0.0}
     X = np.asarray(returns_matrix, dtype=float)
     if X.ndim != 2 or X.shape[1] < 3 or X.shape[0] < 5:
-        return {"lambda2": 0.0, "cheeger_low": 0.0, "cheeger_high": 0.0, "n": 0}
+        return dflt
+    q = X.shape[1] / X.shape[0]
     C = np.nan_to_num(np.corrcoef(X, rowvar=False))
-    if denoise and X.shape[0] > X.shape[1]:        # débruitage RMT (T > N requis)
-        C = rmt_denoise(C, X.shape[1] / X.shape[0])
+    if denoise and X.shape[0] > X.shape[1]:        # débruitage (T > N requis)
+        C = _apply_denoise(C, q, denoise)
+    mm, pr = _market_mode(C)
+    lam_plus = (1.0 + math.sqrt(max(q, 1e-9))) ** 2
+    n_factors = int((np.linalg.eigvalsh((C + C.T) / 2) > lam_plus).sum())
     A = np.abs(C) * (np.abs(C) > thresh)
     np.fill_diagonal(A, 0.0)
+    out = {**dflt, "n": X.shape[1], "market_mode": round(mm, 4),
+           "participation": round(pr, 4), "n_factors": n_factors}
     if A.sum() <= 0:
-        return {"lambda2": 0.0, "cheeger_low": 0.0, "cheeger_high": 0.0, "n": X.shape[1]}
+        return out
     L = _normalized_laplacian(A)
     ev = np.sort(np.linalg.eigvalsh((L + L.T) / 2))
     lam2 = float(max(0.0, ev[1])) if len(ev) > 1 else 0.0
-    return {"lambda2": round(lam2, 4), "cheeger_low": round(lam2 / 2, 4),
-            "cheeger_high": round(math.sqrt(2 * lam2), 4), "n": X.shape[1]}
+    out.update({"lambda2": round(lam2, 4), "cheeger_low": round(lam2 / 2, 4),
+                "cheeger_high": round(math.sqrt(2 * lam2), 4),
+                "max_gap": round(_laplacian_max_gap(A), 4)})
+    return out
+
+
+def connectivity_regime(metrics, hist=None):
+    """RÉGIME DE CONNECTIVITÉ du marché depuis le spectre isopérimétrique (grounded, 2024).
+    λ₁/N (market mode) haut = co-mouvement SYSTÉMIQUE (risk-off / crash-comovement) ;
+    max_gap haut + λ₂ bas = FRAGMENTATION (graphe scindé, co-intégration rompue) ;
+    sinon marché NORMAL/diversifié. `hist` optionnel = {clé: (moyenne, écart)} pour juger
+    en Z-SCORE (DYNAMIQUE — recommandé, la littérature signale le CHANGEMENT, pas le niveau)
+    plutôt qu'en seuil absolu. Retourne {regime, market_mode, fragmentation, systemic_z}. PUR."""
+    mm = float(metrics.get("market_mode", 0.0))
+    lam2 = float(metrics.get("lambda2", 0.0))
+    gap = float(metrics.get("max_gap", 0.0))
+
+    def _z(key, val):
+        if hist and key in hist:
+            mu, sd = hist[key]
+            return (val - mu) / sd if sd and sd > 1e-9 else 0.0
+        return None
+
+    zmm, zgap = _z("market_mode", mm), _z("max_gap", gap)
+    if zmm is not None:                                   # dynamique (préféré)
+        if zmm >= 1.0:
+            regime = "systemique"
+        elif zgap is not None and zgap >= 1.0 and lam2 <= 0.05:
+            regime = "fragmente"
+        else:
+            regime = "normal"
+    else:                                                 # heuristique absolue (à calibrer)
+        if mm >= 0.55:
+            regime = "systemique"
+        elif lam2 <= 0.05 and gap > 0:
+            regime = "fragmente"
+        else:
+            regime = "normal"
+    return {"regime": regime, "market_mode": round(mm, 4), "fragmentation": round(gap, 4),
+            "lambda2": round(lam2, 4), "systemic_z": round(zmm, 2) if zmm is not None else None}
 
 
 def cheeger_partition(returns_matrix, thresh=0.5, denoise=True):
@@ -651,11 +738,12 @@ def portfolio_structure(symbols=None, ttl=300):
             return {"symbols": used, "metrics": {}, "partition": {}}
         L = min(len(r) for r in series)
         M = np.array([r[-L:] for r in series]).T          # (T, D)
-        met = correlation_graph_metrics(M)
+        met = correlation_graph_metrics(M, denoise="rie")  # RIE = shrinkage non-linéaire (plus fin que MP)
+        regime = connectivity_regime(met)                  # spectre isopérimétrique -> régime (sort de la dormance)
         part = cheeger_partition(M)
         sponge = sponge_partition(M)                       # partition SIGNÉE (legs bêta-neutres)
         hrp = hrp_weights(M)                               # poids HRP (allocation intra-panier)
-        return {"symbols": used, "metrics": met,
+        return {"symbols": used, "metrics": met, "connectivity_regime": regime,
                 "partition": {"clusters": dict(zip(used, part["clusters"])),
                               "conductance": part["conductance"]},
                 "signed_legs": dict(zip(used, sponge["clusters"])) if sponge["clusters"] else {},
@@ -678,8 +766,13 @@ def main():
     print(build_report(analyze(sym)))
     ps = portfolio_structure()
     if ps.get("metrics"):
-        print(f"\nStructure panier : λ₂={ps['metrics'].get('lambda2')} "
-              f"(Cheeger {ps['metrics'].get('cheeger_low')}..{ps['metrics'].get('cheeger_high')})")
+        m = ps["metrics"]; rg = ps.get("connectivity_regime", {})
+        print(f"\nStructure panier (spectre isopérimétrique) :")
+        print(f"  λ₂={m.get('lambda2')} (Cheeger {m.get('cheeger_low')}..{m.get('cheeger_high')}) "
+              f"· fragmentation max_gap={m.get('max_gap')}")
+        print(f"  market mode λ₁/N={m.get('market_mode')} (participation {m.get('participation')}, "
+              f"{m.get('n_factors')} facteur(s) signif.) -> RÉGIME DE CONNECTIVITÉ : "
+              f"{rg.get('regime','n/a').upper()}")
 
 
 if __name__ == "__main__":

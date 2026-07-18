@@ -421,3 +421,19 @@ défaut ERR-014 était réel et reproduit plusieurs fois (séquences ADM/SMC/str
 individuelle des signaux de réversion), mais ne cachait AUCUN alpha — corriger la méthode affine le
 diagnostic, le mur des frais + l'exécution maker restent les seuls vrais leviers.** RÉ-AUDIT CLOS
 (angles SÉQUENTIEL et INDIVIDUEL tous deux couverts et mesurés).
+**Extension MODÈLE JOINT (18/07, demande proprio « teste les rejets + les 102 agents en interaction »).**
+Au-delà des re-tests unitaires, on a réuni les indicateurs des labos rejetés ET des pistes du backlog
+§104 (la campagne ~102 agents) dans des MODÈLES JOINTS non linéaires (RandomForest + Ridge, WF purgé,
+net frais, contrôle SHUFFLE) pour laisser leurs INTERACTIONS créer le signal : (i) geometric_v2 vecteur
+complet (`scratchpad/geometric_v2_lab/interaction_geom.py`, 44 configs, net méd −1,19 bps) ; (ii) GLOBAL =
+réversion 7 + gates de régime + momentum cross-sectionnel #8 (`scratchpad/audit_indep/global_interaction.py`,
+12 configs POOLED cross-sectionnel, net méd −3,24 bps). Dans les DEUX : IC OOS ≈ shuffle, net < frais.
+**Piège méthodo repéré et neutralisé** : le seuil automatique a d'abord flaggé 2-3 « pistes » à 1D/4H
+long-horizon — mais n minuscule (534/432 vs médiane 2792) + signes INCOHÉRENTS cross-symbole (1D h4 :
+ETH +140 / SOL +117 / XRP −42 bps) = le piège « daily-pas-intraday » des 102 agents, reproduit LIVE →
+correctement rejeté en exigeant n suffisant + cohérence cross-symbole (leçon : un « hit » du modèle joint
+n'est réel que s'il est cohérent cross-symbole ET hors petit échantillon daily). **CONCLUSION : la méthode
+interaction, poussée jusqu'au modèle joint de TOUTES les familles, ne révèle AUCUN alpha caché — cohérent
+avec le bilan §104 (edge réversion réel ~−0,04 IC mais < frais) et avec les modèles DÉJÀ-joints Darts/TimesFM
+(qui combinent tout en interne et échouent pareil). Le mur des frais + l'exécution maker restent les seuls
+leviers. Le nouveau method a rendu les DIAGNOSTICS justes, pas des edges gagnants.**

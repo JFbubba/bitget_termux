@@ -4261,6 +4261,35 @@ def test_geometric_graph_connectivity_and_partition():
     assert len(set(c[:4])) == 1 and len(set(c[4:])) == 1 and c[0] != c[4]
 
 
+def test_geometric_market_mode_and_connectivity_regime():
+    # spectre isopérimétrique ENRICHI (18/07, recherche graphes isopérimétriques) :
+    # market mode λ₁/N élevé quand tout co-bouge (systémique), bas si le panier est fragmenté.
+    import numpy as np
+    import geometric_agent as g
+    rng = np.random.default_rng(3)
+    Tn = 240
+    common = rng.normal(0, 1, Tn)
+    systemic = np.array([common + rng.normal(0, 0.15, Tn) for _ in range(8)]).T   # 1 facteur fort
+    frag = rng.normal(0, 1, (Tn, 8))                                              # bruit indépendant
+    ms = g.correlation_graph_metrics(systemic, denoise="rie")
+    mf = g.correlation_graph_metrics(frag, denoise="rie")
+    for k in ("market_mode", "participation", "n_factors", "max_gap"):            # clés additives présentes
+        assert k in ms and k in mf
+    assert 0.0 < ms["market_mode"] <= 1.0
+    assert ms["market_mode"] > mf["market_mode"]          # co-mouvement -> market mode plus haut
+    assert ms["n_factors"] >= 1                            # au moins le facteur de marché émerge du bulk
+    assert ms["max_gap"] > mf["max_gap"]                  # crash-indicator : gap plus grand si structure forte
+    # régime de connectivité : 1 facteur dominant -> systémique ; sortie bornée
+    assert g.connectivity_regime(ms)["regime"] == "systemique"
+    assert g.connectivity_regime(mf)["regime"] in ("normal", "fragmente")
+    # mode DYNAMIQUE (z-score vs historique) : market mode bien au-dessus de l'historique -> systémique
+    rz = g.connectivity_regime({"market_mode": 0.9, "lambda2": 0.2, "max_gap": 0.1},
+                               hist={"market_mode": (0.3, 0.1)})
+    assert rz["regime"] == "systemique" and rz["systemic_z"] >= 1.0
+    # rétro-compatibilité : les clés historiques restent intactes
+    assert set(("lambda2", "cheeger_low", "cheeger_high", "n")).issubset(ms)
+
+
 def test_geometric_hill_tail_index():
     import numpy as np
     import geometric_agent as g
