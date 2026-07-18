@@ -2094,6 +2094,26 @@ def test_listing_hype_sim_pnl():
         assert rep["round_trips"] == 1 and rep["win_rate"] == 1.0 and rep["pnl_net_usd"] > 0
 
 
+def test_listing_hype_enabled_gate():
+    """§listing-hype : verrou d'exécution réelle LISTING_HYPE_LIVE — env-first STRICT
+    (défaut OFF -> DRY). '1'/'on' -> True, '0'/'off' -> False (jamais bool('0')==True),
+    absent -> défaut config False. Consommé par le dashboard (état armé/DRY, lecture seule)."""
+    import os
+    import listing_hype as lh
+    _old = os.environ.get("LISTING_HYPE_LIVE")
+    try:
+        for val, exp in (("1", True), ("on", True), ("0", False), ("off", False)):
+            os.environ["LISTING_HYPE_LIVE"] = val
+            assert lh.enabled() is exp, f"LISTING_HYPE_LIVE={val} -> {exp}"
+        os.environ.pop("LISTING_HYPE_LIVE", None)
+        assert lh.enabled() is False                       # absent -> défaut OFF (DRY)
+    finally:
+        if _old is None:
+            os.environ.pop("LISTING_HYPE_LIVE", None)
+        else:
+            os.environ["LISTING_HYPE_LIVE"] = _old
+
+
 def test_news_agent_core():
     """§news-ombre : signal complémentaire depuis les news -> vote d'OMBRE mesuré (news_shadow),
     AUCUN ordre, ne touche pas le consensus. recent_items filtre la fraîcheur ; analyze réutilise

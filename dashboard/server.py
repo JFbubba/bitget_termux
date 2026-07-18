@@ -823,6 +823,16 @@ def build_state(symbol=None, tf="5m"):
             out["positioning"] = me.fetch_long_short(symbol, "position", "5m")
         except Exception:
             pass
+        try:                       # §taker-flow : Volume Delta REST (taker-buy-sell, léger — bias buy/sell)
+            import taker_flow as tf
+            out["taker_delta"] = tf.taker_delta(symbol, "5m")
+        except Exception:
+            pass
+        try:                       # §bitget-flows : whale net flow (smart-money, cumul + bias)
+            import bitget_flows as bf
+            out["whale_net"] = bf.whale_net_summary(bf.fetch_whale_net_flow(symbol, "1h"))
+        except Exception:
+            pass
         return out
 
     # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
@@ -967,6 +977,14 @@ def build_state(symbol=None, tf="5m"):
                                     "halted": bool(st_mm.get("halted"))}
         except Exception:
             out["market_making"] = {}
+        try:                                          # listing-hype §listing : simulation DRY (aucun ordre)
+            import listing_hype as lh
+            dern = _tail_jsonl(REPO_ROOT / ".listing_hype_journal.jsonl", 1)
+            out["listing_hype"] = {"armed": lh.enabled(), "dry": lh.dry_report(),
+                                   "positions": len(lh._load_positions()),
+                                   "dernier": dern[0] if dern else None}
+        except Exception:
+            out["listing_hype"] = {}
         try:                                          # labo : promotions récentes (strategies_out)
             outdir = REPO_ROOT / "strategies_out"
             mds = sorted(outdir.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)

@@ -254,6 +254,18 @@ def dry_report(journal_path=None):
             "pnl_net_usd": round(net, 4)}
 
 
+def enabled():
+    """Interrupteur d'exécution RÉELLE (défaut OFF -> DRY). env-first CANONIQUE
+    (LISTING_HYPE_LIVE) via config_utils : `.env` prioritaire (cron nu), sinon config.
+    Le cœur reste DRY tant que ce verrou n'arme pas la délégation à spot_trader §67."""
+    try:
+        from config_utils import load_env, env_flag
+        load_env()
+        return env_flag("LISTING_HYPE_LIVE", False)
+    except Exception:
+        return False
+
+
 def main():
     r = cycle()
     rep = dry_report()
