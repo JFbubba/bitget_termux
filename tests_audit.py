@@ -10890,6 +10890,22 @@ def test_trade_delta_raw_cvd():
     assert "trade_delta" in f and f["trade_delta"] == 7.0
 
 
+def test_orderflow_watch_measure():
+    """§B : veilleur d'edge orderflow — accumulation si n petit, IC + net-frais sinon (non-chevauchant)."""
+    import orderflow_watch as ow
+    # peu de lignes -> accumulation (pas de verdict prématuré)
+    few = [{"symbol": "BTCUSDT", "ts": i, "mid": 100.0 + i, "trade_sign": 0.1} for i in range(20)]
+    assert ow.measure(few, "trade_sign", 1)["verdict"] == "accumulation"
+    # signal prédictif : le mid bouge DANS le sens du trade_sign au pas suivant -> IC positif
+    rows, mid = [], 1000.0
+    for i in range(600):
+        sign = 1.0 if i % 2 == 0 else -1.0
+        rows.append({"symbol": "BTCUSDT", "ts": i, "mid": mid, "trade_sign": sign})
+        mid += sign * 0.5                                  # ret_{i} = signe(sign_i) -> corrélé
+    r = ow.measure(rows, "trade_sign", 1)
+    assert r["n"] >= ow.MIN_N and r["ic"] > 0 and "net_maker_bps" in r and "t_defl" in r
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
