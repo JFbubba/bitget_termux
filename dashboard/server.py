@@ -800,6 +800,31 @@ def build_state(symbol=None, tf="5m"):
             out["micro_age_s"] = None
         return out
 
+    def _orderflow_signals():
+        """Signaux orderflow LIVE (lecture seule, §orderflow) : CVD spot/futures + divergence,
+        footprint (bin dominant), gros trades, liquidations, positioning. FEATURES de MESURE
+        (non branchées au banc). Best-effort ({} si indispo)."""
+        out = {}
+        try:
+            import orderflow_tape as ot
+            fut = ot.fetch_fills(symbol, "futures", 100)
+            spot = ot.fetch_fills(symbol, "spot", 100)
+            out["cvd_futures"] = ot.cvd(fut)
+            out["cvd_spot"] = ot.cvd(spot)
+            out["cvd_divergence"] = ot.cvd_divergence(spot, fut)
+            fp = ot.footprint(fut, bins=10)
+            out["footprint_poc"] = max(fp, key=lambda b: abs(b["delta"])) if fp else None
+            out["large_trades"] = ot.large_trades(fut, min_usd=50000)
+        except Exception:
+            pass
+        try:
+            import bitget_market_extras as me
+            out["liquidations"] = me.fetch_liquidations(symbol)
+            out["positioning"] = me.fetch_long_short(symbol, "position", "5m")
+        except Exception:
+            pass
+        return out
+
     # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
     # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
     # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
@@ -807,6 +832,7 @@ def build_state(symbol=None, tf="5m"):
     _prewarm([
         ("stats", 30, lambda: _safe(_stats, {})),
         (f"of:{symbol}", 20, lambda: _safe(_orderflow, None)),
+        (f"ofsig:{symbol}", 20, lambda: _safe(_orderflow_signals, {})),
         ("macro", 300, lambda: _safe(_macro, None)),
         ("market", 600, lambda: _safe(_market, {})),
         (f"cd:{symbol}:{tf}", 20, lambda: _safe(_candles, [])),
@@ -868,6 +894,8 @@ def build_state(symbol=None, tf="5m"):
     state["market_timing"] = _cached("mtiming", 300, lambda: _safe(_market_timing, {}))
     state["caps"] = _cached("caps", 60, lambda: _safe(_caps, {}))
     state["micro_live"] = _cached(f"micL:{symbol}", 5, lambda: _safe(_microstructure_live, {}))
+    # Signaux orderflow §orderflow (lecture seule, mesure) : CVD spot/fut+divergence, footprint, gros trades
+    state["orderflow_signals"] = _cached(f"ofsig:{symbol}", 20, lambda: _safe(_orderflow_signals, {}))
     state["system"] = _cached("system", 20, lambda: _safe(_system, {}))
     # sources orthogonales §40 (lentes par nature -> caches longs, best-effort)
     state["onchain"] = _cached("onchain", 3600, lambda: _safe(_onchain, {}))

@@ -318,6 +318,10 @@
         <div class="chip"><div class="v" id="of-oi">—</div><div class="l">OPEN INT</div></div>
         <div class="chip"><div class="v" id="of-fund">—</div><div class="l">FUNDING</div></div>
         <div class="chip"><div class="v" id="of-mid">—</div><div class="l">MID</div></div>
+        <div class="chip"><div class="v" id="of-cvds">—</div><div class="l">CVD SPOT</div></div>
+        <div class="chip"><div class="v" id="of-div">—</div><div class="l">DIVERG S/F</div></div>
+        <div class="chip"><div class="v" id="of-big">—</div><div class="l">GROS TRADES</div></div>
+        <div class="chip"><div class="v" id="of-liq">—</div><div class="l">LIQ NET</div></div>
       </div>
     </div>
 
@@ -1295,6 +1299,12 @@ function renderState(){
     $("of-oi").textContent=human(o.open_interest);
     $("of-fund").textContent=(o.funding_rate==null)?"—":(o.funding_rate*100).toFixed(4)+"%";
     $("of-mid").textContent=fmt(o.mid_price);
+    const ofs=st.orderflow_signals||{};
+    const cvds=(ofs.cvd_spot||{}).delta,dv=ofs.cvd_divergence||{},big=ofs.large_trades||{},oflq=ofs.liquidations||{};
+    $("of-cvds").textContent=(cvds==null)?"—":fmt(cvds,3);$("of-cvds").className="v "+((cvds||0)>=0?"green":"red");
+    $("of-div").textContent=dv.diverge?"⚠ DIV":"align";$("of-div").className="v "+(dv.diverge?"red":"dim");
+    $("of-big").textContent=(big.n||0);
+    $("of-liq").textContent=(oflq.net_notional==null)?"—":human(oflq.net_notional);$("of-liq").className="v "+((oflq.net_notional||0)>=0?"green":"red");
     $("c-sym").textContent=(st.symbol||"").replace(/USDT$/,"")||"—";
     drawChart(st.candles);markBrainOnChart(st.brain||{});drawProjection(st.projection,st.liquidations||{});drawPositionLines(st);drawBook(st.orderbook,o.mid_price);renderBrain(st.brain||{});renderLiq(st.liquidations||{});renderFuture(st.future||{});renderTrades(st.real_positions||{});
     const pj=st.projection||{};
