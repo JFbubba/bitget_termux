@@ -78,7 +78,7 @@ def _call_llm(prompt):
     backend = str(la._knob("NEWS_AGENT_BACKEND", "cloud")).lower()
     timeout = float(la._knob("NEWS_AGENT_TIMEOUT_S", 40.0))
     if backend == "local":
-        return la._call_local(prompt, str(la._knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:7b")), timeout)
+        return la._call_local(prompt, str(la._knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:1.5b")), timeout)
     if backend == "gemini":
         return la._call_gemini(prompt, str(la._knob("LLM_AGENT_MODEL_GEMINI", "gemini-2.5-flash")), timeout)
     return la._call_cloud(prompt, str(la._knob("NEWS_AGENT_MODEL_CLOUD", "openai/gpt-4o-mini")), timeout)

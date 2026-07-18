@@ -220,7 +220,7 @@ def _produce_vote(symbol):
         model = str(_knob("LLM_AGENT_MODEL_GEMINI", "gemini-2.5-flash"))
         text = _call_gemini(_prompt(snap), model, timeout)
     else:                                        # Ollama LOCAL (rien ne sort du VPS)
-        model = str(_knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:7b"))
+        model = str(_knob("LLM_AGENT_MODEL_LOCAL", "qwen2.5:1.5b"))
         text = _call_local(_prompt(snap), model, timeout)
     parsed = _parse(text)
     if not parsed:

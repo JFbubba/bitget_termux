@@ -1984,12 +1984,15 @@ def test_listing_hype_core():
     import listing_hype as lh
     anns = [{"title": "Bitget Will List FOO (FOOUSDT) in the Innovation Zone", "type": "listing", "ts": 1},
             {"title": "Notice on Delisting of BARUSDT", "type": "delisting", "ts": 2},
-            {"title": "Bitget lists BAZ (BAZUSDT)", "type": "listing", "ts": 3}]
+            {"title": "Bitget lists BAZ (BAZUSDT)", "type": "listing", "ts": 3},
+            {"title": "Bitget Lists STOKUSDT and RAAPLUSDT Stock Perps", "type": "listing", "ts": 4}]
     syms = [s for s, _, _ in lh.new_listing_symbols(anns, seen=["BAZUSDT"])]
-    assert "FOOUSDT" in syms              # nouveau listing détecté
+    assert "FOOUSDT" in syms              # nouveau listing crypto détecté
     assert "BAZUSDT" not in syms          # déjà vu (seen)
     assert "BARUSDT" not in syms          # delisting, pas un listing
     assert "FOOUSDTUSDT" not in syms      # normalisation anti double-USDT
+    assert "STOKUSDT" not in syms and "RAAPLUSDT" not in syms   # actions tokenisées (Stock Perps) EXCLUES
+    assert lh._is_stock_listing("Listing of X Stock Perps") and not lh._is_stock_listing("List EVAA in the DeFi zone")
     # entrée bornée
     assert lh.entry_decision("FOOUSDT", 10.0, cap_per_op=5.0)["notional"] == 5.0        # plafonné au cap
     assert lh.entry_decision("FOOUSDT", 10.0, cap_per_op=5.0, kill=True)["action"] == "skip"

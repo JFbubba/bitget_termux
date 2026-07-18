@@ -28,9 +28,21 @@ def _norm_sym(s):
     return s
 
 
+# Actions tokenisées / ETF (Bitget « Stock Perps ») : EXCLUES du listing-hype — classe
+# d'actif différente (horaires de bourse, risque, gap week-end), comme l'univers d'analyse
+# les exclut (§universe). Détection par le TITRE de l'annonce (« ... Stock Perps », « xStock »…).
+_STOCK_KW = ("stock", "xstock", "tokenized", "equity", " etf", "pre-market", "premarket")
+
+
+def _is_stock_listing(title):
+    """PUR. Vrai si le titre d'annonce indique une action tokenisée / ETF -> à EXCLURE."""
+    t = str(title or "").lower()
+    return any(k in t for k in _STOCK_KW)
+
+
 def new_listing_symbols(anns, seen):
-    """PUR. Symboles de NOUVEAUX listings (type=='listing') absents de `seen`. Dédupliqué,
-    symboles normalisés. `anns` = [{title,type,ts}] (bitget_announcements.fetch_announcements).
+    """PUR. Symboles de NOUVEAUX listings CRYPTO (type=='listing', hors actions tokenisées)
+    absents de `seen`. Dédupliqué, symboles normalisés. `anns` = [{title,type,ts}].
     Retourne [(symbol, title, ts)]."""
     import bitget_announcements as ba
     seen = {_norm_sym(s) for s in (seen or [])}
@@ -38,7 +50,10 @@ def new_listing_symbols(anns, seen):
     for a in anns or []:
         if str(a.get("type", "")).lower() != "listing":
             continue
-        for raw in ba.symbols_in(str(a.get("title", ""))):
+        title = str(a.get("title", ""))
+        if _is_stock_listing(title):                 # actions tokenisées / ETF -> exclues
+            continue
+        for raw in ba.symbols_in(title):
             sym = _norm_sym(raw)
             if sym and sym.endswith("USDT") and sym not in seen and sym not in vus:
                 vus.add(sym)

@@ -239,7 +239,7 @@ FINAL_OUTCOMES_FILE = "final_outcomes_journal.csv"
 # indispo/lent/incohérent -> vote ignoré). N'a AUCUN pouvoir sur les murs de guards().
 LLM_AGENT_ENABLED = False                  # interrupteur maître (armer via .env aussi)
 LLM_AGENT_BACKEND = "local"                # "local" = Ollama VPS (rien ne sort) ; "cloud" = OpenRouter
-LLM_AGENT_MODEL_LOCAL = "qwen2.5:7b"       # modèle Ollama local (localhost:11434)
+LLM_AGENT_MODEL_LOCAL = "qwen2.5:1.5b"     # Ollama local : 1.5b (~11s) — le 7b SWAPPE sur ce VPS 8Go (>150s, non viable)
 LLM_AGENT_MODEL_CLOUD = "openai/gpt-5-mini"  # modèle OpenRouter (OPENROUTER_API_KEY dans .env)
 LLM_AGENT_MODEL_GEMINI = "gemini-2.5-flash"  # modèle Google AI Studio direct (backend "gemini", GEMINI_API_KEY)
 LLM_AGENT_GEMINI_THINKING = 0              # budget raisonnement Gemini (0 = coupé -> vote rapide, tient dans max_tokens)
