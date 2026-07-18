@@ -10810,6 +10810,57 @@ def test_enforce_position_sl_live_places_via_hub():
     assert res2["placed"][0]["result"]["ok"] is False
 
 
+# ---------- orderflow_tape : footprint / gros trades / CVD spot-vs-futures (mesure, lecture seule) ----------
+
+def test_tape_parse_and_cvd():
+    """tape (fills) -> parse trié + CVD agressif (buy/sell/delta/bias)."""
+    import orderflow_tape as ot
+    raw = [{"ts": "3000", "price": "100", "size": "2", "side": "buy"},
+           {"ts": "1000", "price": "101", "size": "1", "side": "sell"},
+           {"ts": "2000", "price": "100", "size": "3", "side": "BUY"}]
+    f = ot.parse_fills(raw)
+    assert [x["ts"] for x in f] == [1000, 2000, 3000]          # trié ts ASC
+    c = ot.cvd(f)
+    assert c["buy"] == 5.0 and c["sell"] == 1.0 and c["delta"] == 4.0 and c["bias"] == "buy" and c["n"] == 3
+    assert ot.cvd([]) is None
+    assert ot.parse_fills(None) == []
+
+
+def test_tape_footprint():
+    """footprint : delta (buy-sell) par bin de PRIX."""
+    import orderflow_tape as ot
+    fills = [{"ts": 1, "price": 100, "size": 2, "side": "buy"},
+             {"ts": 2, "price": 100, "size": 1, "side": "sell"},
+             {"ts": 3, "price": 110, "size": 4, "side": "buy"}]
+    fp = ot.footprint(fills, bins=2)
+    assert any(abs(b["delta"] - 1.0) < 1e-9 for b in fp)       # bin ~100 : +2 -1 = +1
+    assert any(abs(b["delta"] - 4.0) < 1e-9 for b in fp)       # bin ~110 : +4
+    assert ot.footprint([], bins=2) == []
+
+
+def test_tape_large_trades():
+    """gros trades : prints au-dessus d'un seuil USD, split buy/sell."""
+    import orderflow_tape as ot
+    fills = [{"ts": 1, "price": 100, "size": 1000, "side": "buy"},   # 100 000 $
+             {"ts": 2, "price": 100, "size": 10, "side": "sell"}]    # 1 000 $
+    r = ot.large_trades(fills, min_usd=50000)
+    assert r["n"] == 1 and r["prints"][0]["usd"] == 100000.0
+    assert r["buy_usd"] == 100000.0 and r["sell_usd"] == 0.0
+    assert ot.large_trades([], min_usd=1)["n"] == 0
+
+
+def test_tape_cvd_divergence():
+    """divergence : CVD spot vs CVD futures (signes opposés = divergence)."""
+    import orderflow_tape as ot
+    spot = [{"ts": 1, "price": 100, "size": 5, "side": "sell"}]      # delta -5
+    fut = [{"ts": 1, "price": 100, "size": 5, "side": "buy"}]        # delta +5
+    d = ot.cvd_divergence(spot, fut)
+    assert d["spot_delta"] == -5.0 and d["fut_delta"] == 5.0 and d["diverge"] is True
+    same = ot.cvd_divergence([{"ts": 1, "price": 100, "size": 5, "side": "buy"}], fut)
+    assert same["diverge"] is False
+    assert ot.cvd_divergence([], []) is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
