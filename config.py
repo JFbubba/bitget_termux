@@ -2,6 +2,21 @@
 # BITGET LOCAL AGENT CONFIG
 # =========================
 
+# --- Backbone env↔config (fix systémique du piège récurrent) ---------------------------
+# `.env` (gitignored) est chargé dans os.environ UNE fois ici, à l'import de config. Comme
+# quasiment tout module importe `config` (directement ou via config_utils), tout process —
+# y compris un python nu (cron, outil de diagnostic, dashboard) — voit désormais les valeurs
+# `.env`. Cela ferme le « Mode B » du piège (lecteur env-first correct mais os.environ vide).
+# override=False : une variable déjà exportée par un wrapper GAGNE. Best-effort (sans effet
+# si .env absent). BITGET_SKIP_DOTENV=1 -> saut (tests HERMÉTIQUES, cf. tests_audit.py).
+import os as _os
+if _os.environ.get("BITGET_SKIP_DOTENV") != "1":
+    try:
+        from config_utils import load_env as _load_env
+        _load_env()
+    except Exception:
+        pass
+
 # Marché
 PRODUCT_TYPE = "USDT-FUTURES"
 TIMEFRAME = "15m"

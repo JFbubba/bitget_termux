@@ -13,6 +13,9 @@ Les tests n'appellent JAMAIS l'API Bitget : les bougies sont synthétiques.
 Aucun ordre, aucune clé, aucun secret.
 """
 
+import os as _os
+_os.environ.setdefault("BITGET_SKIP_DOTENV", "1")  # tests HERMÉTIQUES : config.py ne doit PAS charger .env
+
 from datetime import datetime, timedelta
 
 import indicators
@@ -10489,6 +10492,83 @@ def test_bitget_execute_guard_blocked_on_corrupt_ledger():
         assert any(("illisible" in r) or ("corrompu" in r) for r in reasons)
     finally:
         be.LEDGER = saved
+
+
+def test_env_flag_strict_bool():
+    """env_flag : parsing booléen STRICT ('0' -> False, contrairement à bool(os.getenv))."""
+    import config_utils as cu
+    for v in ("1", "true", "TRUE", "yes", "on", " On "):
+        _os.environ["CU_TEST_FLAG"] = v
+        assert cu.env_flag("CU_TEST_FLAG", False) is True, v
+    for v in ("0", "false", "no", "off", "OFF", " 0 "):
+        _os.environ["CU_TEST_FLAG"] = v
+        assert cu.env_flag("CU_TEST_FLAG", True) is False, v
+    _os.environ.pop("CU_TEST_FLAG", None)
+
+
+def test_env_flag_fallback_and_config():
+    """env_flag : absent partout -> fallback ; présent en config seul -> valeur config ;
+    valeur env non reconnue -> ignore env, lit config (pas de faux positif)."""
+    import config, config_utils as cu
+    _os.environ.pop("CU_TEST_ABS", None)
+    assert cu.env_flag("CU_TEST_ABS", False) is False
+    assert cu.env_flag("CU_TEST_ABS", True) is True
+    setattr(config, "CU_TEST_MIX", True)
+    try:
+        assert cu.env_flag("CU_TEST_MIX", False) is True          # config seule
+        _os.environ["CU_TEST_MIX"] = "banana"                     # env illisible -> ignore
+        assert cu.env_flag("CU_TEST_MIX", False) is True
+    finally:
+        _os.environ.pop("CU_TEST_MIX", None)
+        delattr(config, "CU_TEST_MIX")
+
+
+def test_env_str_env_first_then_config():
+    """env_str : env non vide gagne ; env vide -> repli config ; absent -> fallback."""
+    import config, config_utils as cu
+    setattr(config, "CU_TEST_STR", "fromcfg")
+    try:
+        _os.environ["CU_TEST_STR"] = "fromenv"
+        assert cu.env_str("CU_TEST_STR", "fb") == "fromenv"
+        _os.environ["CU_TEST_STR"] = "   "                        # vide -> config
+        assert cu.env_str("CU_TEST_STR", "fb") == "fromcfg"
+    finally:
+        _os.environ.pop("CU_TEST_STR", None)
+        delattr(config, "CU_TEST_STR")
+    _os.environ.pop("CU_TEST_STR_ABS", None)
+    assert cu.env_str("CU_TEST_STR_ABS", "fb") == "fb"
+
+
+def test_env_num_env_first_and_bad_value():
+    """env_num : env numérique gagne ; env illisible -> config/fallback."""
+    import config, config_utils as cu
+    try:
+        _os.environ["CU_TEST_NUM"] = "12.5"
+        assert cu.env_num("CU_TEST_NUM", 1.0) == 12.5
+        _os.environ["CU_TEST_NUM"] = "notanum"
+        setattr(config, "CU_TEST_NUM", 7)
+        assert cu.env_num("CU_TEST_NUM", 1.0) == 7.0
+    finally:
+        _os.environ.pop("CU_TEST_NUM", None)
+        if hasattr(config, "CU_TEST_NUM"):
+            delattr(config, "CU_TEST_NUM")
+
+
+def test_load_env_populates_without_override():
+    """load_env : charge les nouvelles clés, N'ÉCRASE PAS l'existant (idempotent, best-effort)."""
+    import tempfile, config_utils as cu
+    from pathlib import Path
+    p = Path(tempfile.mkdtemp()) / ".env"
+    p.write_text("CU_LE_NEW=hello\nCU_LE_EXISTING=fromfile\n# commentaire\nMALFORME\n", encoding="utf-8")
+    _os.environ.pop("CU_LE_NEW", None)
+    _os.environ["CU_LE_EXISTING"] = "preset"
+    try:
+        cu.load_env(path=str(p))
+        assert _os.environ.get("CU_LE_NEW") == "hello"
+        assert _os.environ.get("CU_LE_EXISTING") == "preset"     # non écrasé
+    finally:
+        _os.environ.pop("CU_LE_NEW", None)
+        _os.environ.pop("CU_LE_EXISTING", None)
 
 
 def _run_all():
