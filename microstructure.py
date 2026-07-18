@@ -149,6 +149,15 @@ def trade_sign_imbalance(trades):
     return round((buy - sell) / tot, 4) if tot > 0 else 0.0
 
 
+def trade_delta_raw(trades):
+    """Volume signé BRUT (buy − sell) en unités de base — le CVD non normalisé (§A, 18/07).
+    Contrairement à `trade_sign_imbalance` (∈[−1,1], MAGNITUDE JETÉE), garde l'ampleur du flux
+    agressif -> signal plus riche pour la mesure d'edge (le lissage/normalisation diluait). PUR."""
+    buy = sum(t.get("size", 0.0) for t in trades if str(t.get("side", "")).startswith("b"))
+    sell = sum(t.get("size", 0.0) for t in trades if str(t.get("side", "")).startswith("s"))
+    return round(buy - sell, 8)
+
+
 def markout(entry_price, side, future_mid):
     """Markout / sélection adverse : P&L (en bps) d'un fill `side` après coup, vu au
     `future_mid`. PUR. Négatif = flux TOXIQUE (le prix part contre le preneur de
@@ -169,6 +178,7 @@ def features(book_prev, book_now, trades, levels=5):
         "queue_imbalance": queue_imbalance(book_now, levels),
         "ofi": book_ofi(book_prev, book_now),
         "trade_sign": trade_sign_imbalance(trades or []),
+        "trade_delta": trade_delta_raw(trades or []),   # §A : CVD BRUT (magnitude préservée)
     }
 
 

@@ -4724,7 +4724,7 @@ def test_microstructure_features_and_buffer():
     b0 = {"bids": [[100.0, 5.0]], "asks": [[100.1, 5.0]]}
     b1 = {"bids": [[100.05, 6.0]], "asks": [[100.15, 5.0]]}
     f = ms.features(b0, b1, [{"side": "buy", "size": 2}])
-    assert set(f) == {"mid", "spread_bps", "queue_imbalance", "ofi", "trade_sign"}
+    assert set(f) == {"mid", "spread_bps", "queue_imbalance", "ofi", "trade_sign", "trade_delta"}
     # buffer roulant : append puis lecture (sur un symbole de test isolé)
     import json
     from pathlib import Path
@@ -10872,6 +10872,22 @@ def test_liquidity_delta_add_remove():
     assert ms.liquidity_delta(None, now) is None                                         # illisible -> None
     z = ms.liquidity_delta({"bids": [], "asks": []}, {"bids": [], "asks": []})
     assert z["bid_net"] == 0.0 and z["ask_net"] == 0.0                                   # vides -> zéros
+
+
+def test_trade_delta_raw_cvd():
+    """§A : CVD BRUT (buy−sell, magnitude préservée) vs trade_sign normalisé."""
+    import microstructure as ms
+    trades = [{"side": "buy", "size": 10.0}, {"side": "sell", "size": 4.0}, {"side": "b", "size": 1.0}]
+    assert ms.trade_delta_raw(trades) == 7.0                       # 11 buy − 4 sell
+    assert ms.trade_delta_raw([]) == 0.0
+    # trade_sign normalisé jetterait la magnitude : mêmes signes, ampleurs différentes -> même ratio
+    a = ms.trade_delta_raw([{"side": "buy", "size": 100.0}, {"side": "sell", "size": 50.0}])
+    b = ms.trade_delta_raw([{"side": "buy", "size": 2.0}, {"side": "sell", "size": 1.0}])
+    assert a == 50.0 and b == 1.0                                  # magnitude distinguée (50 vs 1)
+    # présent dans features()
+    book = {"bids": [[100, 5]], "asks": [[101, 5]]}
+    f = ms.features(book, book, trades)
+    assert "trade_delta" in f and f["trade_delta"] == 7.0
 
 
 def _run_all():
