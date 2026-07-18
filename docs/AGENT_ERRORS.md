@@ -319,3 +319,30 @@ Corrigé : `strategy_lab.write_run_stamp()` écrit `strategies_out/.last_run` à
 et le watchdog surveille ce STAMP ; un crash/data-indispo ne stampe pas → figé → vrai positif
 conservé (le crash silencieux du run cron de jeudi 16/07 a d'ailleurs été rendu diagnosticable
 en ajoutant `>> ~/strategy_lab.log 2>&1` à sa ligne cron). Voir mémoire `watchdog-liveness-heartbeat`.
+
+## ERR-013 · 2026-07-18 · Feature construite + testée mais jamais CONSOMMÉE en production (module dormant)
+
+**Contexte.** Vérification du câblage (18/07) : `taker_flow.py` (Volume Delta REST /
+taker-buy-sell) et `bitget_flows.py` (whale/fund net flow) — features orderflow écrites la
+veille, chacune avec ses tests dans `tests_audit.py` — n'étaient importées par AUCUN module de
+PRODUCTION (dashboard, brain, cron). En live elles renvoyaient pourtant des données réelles
+(`taker_delta(BTCUSDT)` → cvd/bias ; `whale_net` → cumul/bias). Construites, testées, vertes aux
+portes… et mortes : invisibles au cockpit, ne nourrissant aucune mesure. Idem `listing_hype`
+(sim DRY vivant, cron 10 min) dont le bilan round-trips/PnL n'était affiché nulle part.
+**Cause racine.** Le cycle « écrire le module → écrire son test → portes vertes → cocher fait »
+s'arrête à la couverture de test. Un test qui importe le module MASQUE le fait que rien d'autre
+ne l'importe : la porte passe, le module est « couvert », mais il n'est branché à aucun
+consommateur vivant. **Couverture de test ≠ intégration au système.** Un artefact n'existe pour
+le bot que si un chemin de production (dashboard/brain/cron/boucle) le lit.
+**Solution.** Après avoir construit une feature destinée à être consommée (signal, indicateur,
+mesure), VÉRIFIER qu'un module de production l'importe. Ici : `taker_delta`/`whale_net` branchés
+au bloc `_orderflow_signals` du dashboard (MESURE, aucun vote — banc intact) ; `listing_hype.dry_report()`
+au bloc `_methodes` ; `listing_hype.enabled()` (env-first `LISTING_HYPE_LIVE`) pour l'état armé.
+**Contrôle (détection ailleurs).** Pour un module applicatif à fonctions publiques, lister ses
+importateurs hors tests : `grep -rl "import <mod>" --include=*.py | grep -vE "tests_audit|scratchpad|^\./<mod>\.py"`.
+Résultat VIDE ⇒ module DORMANT → décision consciente : le brancher (dashboard/brain/cron) OU
+documenter pourquoi il est en réserve (labo, voix gated OFF en attente d'armement — légitime).
+Le contrôle SIGNALE, il ne condamne pas : un feature-flag OFF ou un labo de mesure sont des
+dormants voulus ; l'erreur est le dormant OUBLIÉ, cru actif.
+**Statut.** RÉSOLU (`d9ec12d`, 3 portes vertes 559/559 · vérifié en live : `/api/state` expose
+`methodes.listing_hype`, `orderflow_signals.taker_delta`, `orderflow_signals.whale_net`) · RÈGLE ACTIVE.
