@@ -147,7 +147,13 @@ FUTURES_EXEC_STYLE=limit_ioc   # ouvertures futures : limit_ioc (défaut, taker 
                                # DIRECTIONNELLES only — le carry reste taker). Armé puis DÉSARMÉ le 09/07
                                # (bugs de double-position trouvés par /code-review puis CORRIGÉS : garde
                                # état terminal canceled/filled, clientOid neuf au repli, taille au mark).
-                               # Ré-armer via env =maker après re-validation EN RÉEL (FUTURES_MAKER_WAIT_S=12)
+                               # RÉARMÉ le 09/07 (BTC seul) puis ÉTENDU à TOUT L'UNIVERS le 18/07 (décision
+                               # proprio) : FUTURES_EXEC_STYLE=maker actif, FUTURES_MAKER_WAIT_S=12.
+FUTURES_MAKER_SYMBOLS=         # périmètre maker : CSV — VIDE = TOUS les tokens (défaut config, actif) ;
+                               # "BTCUSDT" restreint à BTC. Mesure exit_calibration : maker DIVISE la perte
+                               # directionnelle (~−0.088→−0.041R/trade) mais ne la bascule PAS positive ; sur
+                               # alts illiquides le post-only remplit rarement → repli taker (neutre). Le
+                               # directionnel réel est EN PAUSE (FUTURES_EDGE_GATE_OVERRIDE=0) → maker DORMANT.
 LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
 MM_AUTO=0                   # market making spot borné §94 (défaut OFF -> DRY ; exécution via SPOT_TRADE_LIVE)
 MM_SYMBOLS=BTCUSDT          # paires cotées (CSV — budget/inventaire max PARTAGÉS entre paires)
