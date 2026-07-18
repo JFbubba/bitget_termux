@@ -346,3 +346,78 @@ Le contrôle SIGNALE, il ne condamne pas : un feature-flag OFF ou un labo de mes
 dormants voulus ; l'erreur est le dormant OUBLIÉ, cru actif.
 **Statut.** RÉSOLU (`d9ec12d`, 3 portes vertes 559/559 · vérifié en live : `/api/state` expose
 `methodes.listing_hype`, `orderflow_signals.taker_delta`, `orderflow_signals.whale_net`) · RÈGLE ACTIVE.
+
+## ERR-014 · 2026-07-18 · Tester une stratégie SÉQUENTIELLE (machine à états) comme un ET de conditions INSTANTANÉES
+
+**Contexte.** Test de la stratégie ADM/DMI‑ADX de Wilder (collée par le propriétaire). Je l'ai
+modélisée comme un booléen unique évalué à la barre du croisement : `croisement +DI/−DI FRAIS ET
+ADX>25 ET ADX montant ET EMA200`. Résultat : ~0 trade sur 1D, et j'ai conclu que la règle était
+« auto‑contradictoire » et la stratégie REJETÉE. **Faux.** Le propriétaire a corrigé : « c'est
+leur INTERACTION dans le temps qui fait la stratégie ; cherche la vraie mécanique ». Le vrai
+système de Wilder est une **machine à états** : le croisement ARME un signal (règle du croisement),
+on note le **point extrême** de la barre de croisement, et on n'ENTRE qu'à une barre ULTÉRIEURE
+qui franchit ce point (**Extreme Point Rule**) ; l'ADX (retardé) est une **porte de régime vérifiée
+à l'ENTRÉE**, pas au croisement. Recodé ainsi (`adm_wilder.py`), le système trade normalement
+(23 trades/1D vs 0). Verdict final inchangé (pas d'alpha — c'est du beta long, cf. `VERDICTS.md`)
+mais pour une raison RÉELLE, révélée seulement par la bonne méthode.
+**Cause racine.** J'ai aplati une dimension TEMPORELLE en une condition simultanée. Deux conditions
+peuvent être vraies à des MOMENTS différents (le croisement à t, l'ADX qui remonte à t+k) et JAMAIS
+à la même barre — les exiger ensemble crée une contradiction ARTIFICIELLE qui ne prouve rien sur la
+stratégie, seulement sur ma modélisation. Signe d'alerte que j'ai ignoré : « la condition A ne se
+déclenche jamais avec la condition B » (0 sur 1D) aurait dû me faire suspecter un décalage temporel,
+pas conclure à un défaut de la stratégie. Prolonge ERR‑002 (tester le TOUT d'abord) : le « tout »
+inclut la SÉQUENCE, pas seulement l'ensemble des conditions.
+**Solution.** Avant de tester une stratégie, identifier si elle est SÉQUENTIELLE (signal qui arme →
+confirmation → entrée décalée → sortie/reverse = machine à états) ou vraiment instantanée. Si
+séquentielle : l'implémenter en machine à états avec état persistant, PAS en `ET` de booléens à une
+barre. Vérifier la mécanique RÉELLE à la source (livre/doc de l'auteur) avant de coder — ne pas
+inférer la règle d'un pseudocode approximatif. **2e apprentissage (couplé) :** pour un système
+DIRECTIONNEL à forte exposition, benchmarker contre **buy‑and‑hold** (Sharpe + drawdown + split
+long/short) — un gros rendement brut en marché haussier est souvent du BETA capturé, pas un alpha ;
+un PnL ~100 % côté long = capacité prédictive nulle.
+**Contrôle (détection ailleurs).** Auditer chaque test de stratégie/signal passé et répondre : (1)
+la logique testée a‑t‑elle une séquence temporelle (arme→confirme→entre) écrasée en condition
+simultanée ou en IC contemporain ? (2) un backtest à ~0 trade / une condition « jamais vraie avec
+une autre » a‑t‑il été lu comme un verdict plutôt que comme un signe de mismodélisation ? (3) un
+système directionnel exposé a‑t‑il été jugé sur le rendement brut sans benchmark buy‑and‑hold
+(alpha vs beta) ? Toute réponse « oui » ⇒ re‑tester avec machine à états + benchmark.
+**Statut.** RÉSOLU pour ADM (`adm_wilder.py`, verdict corrigé `VERDICTS.md`) · RÈGLE ACTIVE.
+**Audit des méthodes passées (18/07, 3 agents lecture seule)** : 1 seul faux‑rejet potentiel =
+**SMC/AIO** (la stratégie la plus séquentielle, rejetée sur confluence contemporaine / composants
+isolés sans backtest état‑machine ni B&H → `VERDICTS.md` reclassé « à revérifier », re‑test à faire).
+Réserves mineures : (a) `strategy_tester/metrics.py` n'avait PAS de benchmark buy‑and‑hold →
+DURCI (fonction `buy_and_hold()` + verdicts `beats_bh_*`/split long‑short branchés dans `compute()`,
+`report.py`, `run.py`) ; (b) `struct_break_suite` testé en moyenne simultanée (légitime car AFML =
+features parallèles ; re‑tester en séquence seulement si l'ordre CSW→SADF→Chow porte l'info —
+décision proprio) ; (c) prospectif : `mql5_codebase_tester/harness.py` ne teste que de l'instantané
+→ tout futur EA SÉQUENTIEL doit passer par le moteur événementiel, pas par le harness IC. Tout le
+reste (12 signaux/prédicteurs en IC forward, 7 classiques avec edge‑vs‑B&H déjà exigé, labos de
+sortie path‑based déflatés) = LÉGITIME, méthode adaptée à la nature du test.
+**Re‑tests des 2 suspects séquentiels (18/07, décision proprio « les tester ensemble/en séquence »)** :
+(1) **SMC/ICT** re‑codé en machine à états CAUSALE (`smc_ict.py`, causalité vérifiée par troncature) →
+rejet CONFIRMÉ (PF méd 0,64‑0,72, Sharpe méd ~−0,5, PnL long ET short négatifs, ne bat pas le B&H) ;
+(2) **struct_break** re‑testé en SÉQUENCE ordonnée CSW→SADF→Chow (`struct_break_sequence`) → l'ordre
+FLIP l'IC de −0,02 (contrarien) à +0,02 (momentum) — l'interaction change bien la nature du signal,
+confirmant l'intuition proprio — mais 0/80 net de frais, edge mangé par les frais. **Bilan ERR‑014 :
+le défaut méthodo était RÉEL (2 stratégies séquentielles mal testées) mais une fois corrigé, AUCUNE
+ne révèle d'edge caché — corriger la méthode a rendu les DIAGNOSTICS justes (beta vs alpha, momentum
+vs contrarien), pas les edges gagnants. Le mur des frais reste le facteur dominant.**
+**Ré-audit ÉLARGI (18/07, demande proprio « fais tout »)** : (a) les 14 agents du banc cartographiés
+→ 13 votent en INSTANTANÉ (légitime, IC forward adapté) ; SEUL `agent_structure` (`swarm_brain.py:297`)
+porte la séquence SMC/ICT compressée en confluence contemporaine → mais c'est SMC, déjà re-testé
+(`smc_ict.py`) = pas de gain net → banc gelé §62 justifié. (b) deep-research 102-agents (17/07)
+auditée : n'a RIEN backtesté (raisonnement web) → hors périmètre ERR-014 ; liste des pistes non
+persistée. (c) SMC re-testé en modèle COMPLET (target structurel + entrée OTE discount) : edge brut
+RÉEL mais LOCALISÉ (majors 4H), ne généralise pas net de frais. (d) indicateurs Wilder validés vs
+TA-Lib (corr 1,0, venv `/root/talib_venv`). (e) **DERNIER angle du nouveau method — l'INTERACTION,
+pas seulement la séquence** : le nouveau method corrige aussi l'analyse des indicateurs pris
+INDIVIDUELLEMENT. Le rejet « réversion 7 signaux » (`VERDICTS.md`) reposait sur l'IC de CHAQUE signal
+SÉPARÉ (chacun < frais). Re-testé en INTERACTION (`scratchpad/audit_indep/interaction_test.py` :
+confluence K‑parmi‑7 + slow‑momentum/fast‑reversion arXiv:2105.13727, backtest événementiel net de
+frais, échelle TF complète, cross‑secteur, benchmark B&H, K balayé) → **0/500 config forte, médiane
+net_sharpe <0 sur TOUS les TF, gross≈0** aux extrêmes de confluence → l'interaction ne franchit pas
+les frais, aucun edge caché (les 7 signaux sont des proxys colinéaires de « a monté »). **BILAN : le
+défaut ERR-014 était réel et reproduit plusieurs fois (séquences ADM/SMC/struct_break ET analyse
+individuelle des signaux de réversion), mais ne cachait AUCUN alpha — corriger la méthode affine le
+diagnostic, le mur des frais + l'exécution maker restent les seuls vrais leviers.** RÉ-AUDIT CLOS
+(angles SÉQUENTIEL et INDIVIDUEL tous deux couverts et mesurés).

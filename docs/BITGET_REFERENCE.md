@@ -35,6 +35,29 @@ le taux réel. → Le levier **maker** (futures 0,06 → 0,02, −67 %) est bien
 le **directionnel** ; BGB n'allège que le **spot** (accumulation, listing-hype, market making).
 Cohérence à faire : `listing_hype` (spot) devrait modéliser 0,08 %, pas 6 bps pleins.
 
+### 1b. Source AUTORITATIVE des frais = l'API (PAS le scraping) — règle proprio 18/07
+
+`bitget.com/fee` **403 au WebFetch** et le proprio **interdit le scraping**. → Les frais se lisent par
+**`GET /api/v2/common/trade-rate`** (signé, `businessType` ∈ {`spot`, `mix`}) qui renvoie **MES taux
+RÉELS** (VIP + BGB déjà appliqués). **Vérifié live 18/07** (compte du bot, tier de base) :
+
+| businessType | makerFeeRate | takerFeeRate |
+|---|---|---|
+| `spot` | `0.001` = **0,10 %** | `0.001` = **0,10 %** |
+| `mix` (USDT-M) | `0.0002` = **0,02 %** | `0.0006` = **0,06 %** |
+
+→ **Confirme exactement le modèle du bot** (donc les edges « mangés par les frais » le sont *à juste
+titre*, pas par excès de sévérité). Le bot applique déjà correctement : `market_maker` **fetch le
+maker LIVE** (`makerFeeRate×1e4`, plancher spread = 2×fee+buffer) ; `taker_flow.FEE=0.0006` (taker
+futures) ; `carry` 0,20 % A/R (2 jambes spot). **Reco** : centraliser un helper qui *fetch* le taux
+plutôt que hardcoder (auto-ajuste VIP/BGB si le compte monte de tier).
+
+**Matrice d'application (par possibilité)** :
+- **Spot** (accumulation, listing-hype, MM spot) : 0,10 %/côté ; **−20 % BGB → 0,08 %** si option BGB ON.
+- **Futures directionnel** : entrée+sortie. Maker/maker = 0,04 % A/R ; maker+taker = 0,08 % ; taker/taker = 0,12 %. **BGB ne s'applique PAS.**
+- **Carry** (spot+perp) : ~0,20 % A/R (jambes spot dominent).
+- **VIP** : baisse les deux côtés par paliers (50k$ vol/30j, ou solde, ou BGB) ; **pas de rebate maker à notre tier** (maker reste +0,02 %). Refetch `trade-rate` pour le taux courant si le volume monte.
+
 ## 2. Capacités API v2 (via SDK officiel)
 
 > 📖 **Catalogue EXHAUSTIF des 413 endpoints** (236 v2 + 177 v3 — verbe, auth, type de params, marqueur
