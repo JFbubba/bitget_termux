@@ -80,6 +80,41 @@ def vwap(candles):
     return (num / den) if den else None
 
 
+def anchored_vwap(candles, anchor=0):
+    """VWAP ANCRÉ : VWAP cumulé depuis l'indice `anchor` (inclus) jusqu'à la dernière bougie.
+    anchor=0 -> AVWAP depuis le début de la fenêtre (== vwap). Un indice d'événement (pic de
+    volume, plus-haut/plus-bas, ouverture de session) donne le prix moyen de référence DEPUIS
+    cet événement — le repère de la confluence intraday. anchor négatif = depuis la fin.
+    PUR. None si vide / anchor hors bornes / volume nul."""
+    if not candles:
+        return None
+    n = len(candles)
+    if anchor < 0:
+        anchor = n + anchor
+    if anchor < 0 or anchor >= n:
+        return None
+    num = den = 0.0
+    for c in candles[anchor:]:
+        typical = (c["high"] + c["low"] + c["close"]) / 3.0
+        num += typical * c["volume"]
+        den += c["volume"]
+    return (num / den) if den else None
+
+
+def anchor_index(candles, kind="volume"):
+    """Indice d'ancrage usuel pour anchored_vwap : 'volume' = bougie au plus gros volume (pic
+    d'intérêt) ; 'high'/'low' = extrême de prix (swing) ; 'first' = début. PUR. None si vide."""
+    if not candles:
+        return None
+    if kind == "high":
+        return max(range(len(candles)), key=lambda i: candles[i]["high"])
+    if kind == "low":
+        return min(range(len(candles)), key=lambda i: candles[i]["low"])
+    if kind == "volume":
+        return max(range(len(candles)), key=lambda i: candles[i]["volume"])
+    return 0
+
+
 def volume_sma(candles, period=20):
     vols = [c["volume"] for c in candles]
     if period <= 0 or len(vols) < period:
@@ -88,6 +123,33 @@ def volume_sma(candles, period=20):
     last = vols[-1]
     return {"period": period, "avg_volume": avg, "last_volume": last,
             "ratio": (last / avg) if avg else None}
+
+
+def _volume_nodes(buckets, lo, width, top=3):
+    """HVN / LVN du profil de volume. HVN = maxima locaux du volume par prix (aimants,
+    zones d'acceptation -> support/résistance). LVN = minima locaux ENTRE les pics extrêmes
+    (zones de rejet, traversées vite). PUR. Retourne (hvn_prices, lvn_prices), HVN trié par
+    volume décroissant, au plus `top` de chaque."""
+    n = len(buckets)
+    peaks = []
+    for i in range(n):
+        left = buckets[i - 1] if i > 0 else float("-inf")
+        right = buckets[i + 1] if i < n - 1 else float("-inf")
+        if buckets[i] > 0 and buckets[i] >= left and buckets[i] >= right:
+            peaks.append((buckets[i], i))
+    peaks.sort(reverse=True)
+    hvn = [lo + (i + 0.5) * width for _, i in peaks[:top]]
+    lvn = []
+    idxs = [i for _, i in peaks]
+    if len(idxs) >= 2:
+        a, b = min(idxs), max(idxs)
+        troughs = []
+        for i in range(a + 1, b):
+            if buckets[i] <= buckets[i - 1] and buckets[i] <= buckets[i + 1]:
+                troughs.append((buckets[i], i))
+        troughs.sort()
+        lvn = [lo + (i + 0.5) * width for _, i in troughs[:top]]
+    return hvn, lvn
 
 
 def _profile(candles, bins, weight_volume):
@@ -120,6 +182,7 @@ def _profile(candles, bins, weight_volume):
         ordered = sorted(area)
         result["vah"] = lo + (ordered[-1] + 1) * width
         result["val"] = lo + ordered[0] * width
+        result["hvn"], result["lvn"] = _volume_nodes(buckets, lo, width)
     return result
 
 

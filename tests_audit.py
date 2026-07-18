@@ -10571,6 +10571,47 @@ def test_load_env_populates_without_override():
         _os.environ.pop("CU_LE_EXISTING", None)
 
 
+def test_anchored_vwap_anchor_positions():
+    """AVWAP : ancre=0 == vwap global ; ancre déplace la référence ; bornes/vol nul -> None."""
+    import technicals as t
+    C = [{"high": 10, "low": 10, "close": 10, "volume": 1},
+         {"high": 20, "low": 20, "close": 20, "volume": 1},
+         {"high": 30, "low": 30, "close": 30, "volume": 1}]
+    assert t.anchored_vwap(C, 0) == 20.0
+    assert t.anchored_vwap(C, 0) == t.vwap(C)
+    assert t.anchored_vwap(C, 1) == 25.0
+    assert t.anchored_vwap(C, 2) == 30.0
+    assert t.anchored_vwap(C, -1) == 30.0
+    assert t.anchored_vwap(C, 3) is None
+    assert t.anchored_vwap([], 0) is None
+    assert t.anchored_vwap([{"high": 10, "low": 10, "close": 10, "volume": 0}], 0) is None
+
+
+def test_anchor_index_kinds():
+    """anchor_index : bougie du plus gros volume / plus-haut / plus-bas / début."""
+    import technicals as t
+    C = [{"high": 10, "low": 8, "close": 9, "volume": 1},
+         {"high": 30, "low": 25, "close": 28, "volume": 5},
+         {"high": 20, "low": 3, "close": 15, "volume": 2}]
+    assert t.anchor_index(C, "volume") == 1
+    assert t.anchor_index(C, "high") == 1
+    assert t.anchor_index(C, "low") == 2
+    assert t.anchor_index(C, "first") == 0
+    assert t.anchor_index([], "volume") is None
+
+
+def test_volume_profile_hvn_lvn():
+    """Volume Profile : 2 amas (10 et 20) séparés d'un creux -> 2 HVN encadrants + LVN entre."""
+    import technicals as t
+    C = ([{"high": 10.0, "low": 10.0, "close": 10.0, "volume": 10}] +
+         [{"high": 15.0, "low": 15.0, "close": 15.0, "volume": 1}] +
+         [{"high": 20.0, "low": 20.0, "close": 20.0, "volume": 9}])
+    p = t.volume_profile(C, bins=24)
+    assert p is not None and "hvn" in p and "lvn" in p
+    assert min(p["hvn"]) < 11 and max(p["hvn"]) > 19          # HVN encadrent les 2 amas
+    assert p["lvn"] and all(10 < x < 20 for x in p["lvn"])    # LVN strictement entre
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
