@@ -1780,6 +1780,133 @@ def positions_sans_sl_exchange(positions, plan_sls, events=None,
     return nus
 
 
+# ─── §durcis-sl Étape 2 : lecteur SL exchange + réconciliation live + auto-pose (DRY) ───
+
+_UNSET = object()
+
+
+def parse_plan_sl_orders(entrusted_list):
+    """PUR. `entrustedList` d'orders-plan-pending (peut être None) -> set {(SYMBOL, SIDE)} des
+    positions couvertes par un SL plan RÉEL côté exchange. SIDE = `posSide` (LONG/SHORT).
+    Un item compte comme SL si son `planType` porte une PERTE (…loss…) OU s'il porte un
+    `stopLossTriggerPrice` > 0. Schéma ancré sur le SDK officiel (`FuturesPendingPlanOrderV2`,
+    18/07) + enveloppe live vérifiée `{entrustedList, endId}`. `posSide` ambigu (net/vide) ->
+    ignoré (conservateur : ne JAMAIS conclure « couvert » à tort)."""
+    out = set()
+    for it in (entrusted_list or []):
+        if not isinstance(it, dict):
+            continue
+        sym = str(it.get("symbol") or "").upper()
+        side = str(it.get("posSide") or "").upper()
+        if not sym or side not in ("LONG", "SHORT"):
+            continue
+        pt = str(it.get("planType") or "").lower()
+        try:
+            sl_px = float(it.get("stopLossTriggerPrice") or 0)
+        except (TypeError, ValueError):
+            sl_px = 0.0
+        if "loss" in pt or sl_px > 0:
+            out.add((sym, side))
+    return out
+
+
+def plan_sl_orders(product_type=None, plan_type="profit_loss", timeout=10):
+    """I/O LECTURE SEULE best-effort. GET signé `orders-plan-pending` -> set {(SYMBOL, SIDE)}
+    couverts par un SL plan exchange. None si illisible -> FAIL-CLOSED (l'Étape 1 s'abstient :
+    ni faux vert, ni faux heal en aveugle). Le namespace d'ordre reste dans l'executor autorisé
+    (real_positions l'évite à dessein) ; on n'emprunte QUE son signeur read-only."""
+    pt = product_type or PRODUCT_TYPE
+    try:
+        import real_positions as rp
+        d = rp._signed_get("/api/v2/mix/order/orders-plan-pending",
+                           {"productType": pt, "planType": plan_type}, timeout=timeout)
+        el = d.get("entrustedList") if isinstance(d, dict) else d
+        return parse_plan_sl_orders(el)
+    except Exception:
+        return None
+
+
+def positions_sans_sl_exchange_live(runner=None):
+    """I/O best-effort. Câble les 3 sources RÉELLES (positions futures + SL plan exchange + ledger)
+    et retourne les positions directionnelles OUVERTES sans SL plan exchange (cf.
+    `positions_sans_sl_exchange`). None si une source est illisible (fail-closed)."""
+    try:
+        import real_positions as rp
+        positions = rp.futures()
+    except Exception:
+        return None
+    plan_sls = plan_sl_orders()
+    if plan_sls is None:
+        return None
+    try:
+        events = json.loads(_ledger_path().read_text(encoding="utf-8")).get("events", [])
+    except Exception:
+        events = []
+    return positions_sans_sl_exchange(positions, plan_sls, events)
+
+
+def intended_sl_from_events(symbol, side, events):
+    """PUR. Prix de SL INTENTIONNEL (ledger) de la DERNIÈRE ouverture directionnelle réelle pour
+    (symbol, side). None si aucune / SL absent. Base de l'auto-pose : re-poser l'intention perdue
+    plutôt qu'inventer un SL."""
+    sym, sd = str(symbol).upper(), str(side).upper()
+    best_ts, best_sl = -1.0, None
+    for e in events or []:
+        if not isinstance(e, dict) or e.get("action") != "FUTURES_REAL":
+            continue
+        o = e.get("order") or {}
+        if o.get("reduce"):
+            continue
+        if str(o.get("symbol") or "").upper() != sym or str(o.get("side") or "").upper() != sd:
+            continue
+        try:
+            ts = float(e.get("ts"))
+        except (TypeError, ValueError):
+            ts = -1.0
+        if ts >= best_ts and o.get("stop_loss") is not None:
+            best_ts, best_sl = ts, o.get("stop_loss")
+    return best_sl
+
+
+def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, runner=None):
+    """Auto-pose PROTECTIVE du SL exchange manquant (§durcis-sl Étape 2). Derrière le verrou
+    `FUTURES_SL_AUTOHEAL` (défaut OFF) et DRY par défaut. Idempotent, journalisé.
+
+    ⚠️ ÉTAT (18/07) : la POSE RÉELLE est DIFFÉRÉE — ERR-008 (le hub n'expose AUCUN tool TPSL
+    futures) + aucun smoke possible sur position live (0 position ouverte). En DRY : calcule et
+    JOURNALISE le SL qu'elle poserait (intention re-dérivée du ledger), SANS passer d'ordre. En
+    live-gate ON mais pose indisponible -> refus PROPRE (jamais de faux heal). Une fois le tool hub
+    `futures_place_tpsl_order` créé + smoke réel validé (ERR-009/011), brancher la pose ici
+    (protective : autorisée même sous kill-switch, comme un flatten). `nus`/`events` injectables
+    (tests / réutilisation)."""
+    if live is None:
+        live = str(_cfg("FUTURES_SL_AUTOHEAL", "0")).strip().lower() in ("1", "true", "on", "yes")
+    if dry is None:
+        dry = not live
+    if nus is _UNSET:
+        nus = positions_sans_sl_exchange_live(runner=runner)
+    if nus is None:
+        return {"ok": False, "dry": bool(dry), "reason": "sources SL illisibles (fail-closed)",
+                "planned": [], "placed": []}
+    if events is _UNSET:
+        try:
+            events = json.loads(_ledger_path().read_text(encoding="utf-8")).get("events", [])
+        except Exception:
+            events = []
+    planned = [{"symbol": p["symbol"], "side": p["side"], "agent": p.get("agent"),
+                "intended_sl": intended_sl_from_events(p["symbol"], p["side"], events)}
+               for p in nus]
+    if planned:
+        _journal({"ts": int(time.time()),
+                  "action": "FUTURES_SL_AUTOHEAL_DRY" if dry else "FUTURES_SL_AUTOHEAL",
+                  "dry": bool(dry), "planned": planned})
+    if dry or not planned:
+        return {"ok": True, "dry": True, "planned": planned, "placed": []}
+    # LIVE demandé mais pose réelle non disponible (ERR-008) : refus propre, jamais de faux heal.
+    return {"ok": False, "dry": False, "planned": planned, "placed": [],
+            "reason": "pose TPSL futures non disponible (ERR-008 : tool hub à créer + smoke live requis)"}
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Ordre futures RÉEL borné (étape 2, §45).")

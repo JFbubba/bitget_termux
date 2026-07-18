@@ -10732,6 +10732,62 @@ def test_extras_contract_feasibility():
     assert me.parse_contract(None) is None
 
 
+# ---------- §durcis-sl Étape 2 : lecteur SL exchange + réconciliation live + auto-pose DRY ----------
+
+def test_parse_plan_sl_orders():
+    """orders-plan-pending -> set (SYMBOL, SIDE) couverts par un SL plan RÉEL. Schéma SDK ancré 18/07."""
+    import futures_executor as fe
+    el = [
+        {"symbol": "BTCUSDT", "posSide": "long", "planType": "pos_loss", "triggerPrice": "60000"},
+        {"symbol": "ETHUSDT", "posSide": "short", "planType": "normal_plan", "stopLossTriggerPrice": "3500"},
+        {"symbol": "SOLUSDT", "posSide": "long", "planType": "pos_profit", "stopLossTriggerPrice": "0"},  # TP seul
+        {"symbol": "XRPUSDT", "posSide": "", "planType": "pos_loss"},                                     # posSide ambigu
+    ]
+    s = fe.parse_plan_sl_orders(el)
+    assert ("BTCUSDT", "LONG") in s and ("ETHUSDT", "SHORT") in s
+    assert ("SOLUSDT", "LONG") not in s                        # TP sans SL -> pas compté
+    assert not any(k[0] == "XRPUSDT" for k in s)               # posSide ambigu -> conservateur
+    assert fe.parse_plan_sl_orders(None) == set()
+
+
+def test_plan_sl_reconciliation_end_to_end():
+    """lecteur -> Étape 1 : position LONG sans SL plan signalée, position SHORT couverte non signalée."""
+    import futures_executor as fe
+    positions = [{"symbol": "BTCUSDT", "side": "LONG", "notional_usdt": 30},
+                 {"symbol": "ETHUSDT", "side": "SHORT", "notional_usdt": 20}]
+    plan_sls = fe.parse_plan_sl_orders([{"symbol": "ETHUSDT", "posSide": "short",
+                                         "planType": "pos_loss", "triggerPrice": "3500"}])
+    events = [{"action": "FUTURES_REAL", "ts": 1, "order": {"symbol": "BTCUSDT", "side": "long", "agent": "auto_dir"}},
+              {"action": "FUTURES_REAL", "ts": 2, "order": {"symbol": "ETHUSDT", "side": "short", "agent": "auto_dir"}}]
+    nus = fe.positions_sans_sl_exchange(positions, plan_sls, events)
+    assert [n["symbol"] for n in nus] == ["BTCUSDT"]           # ETH couvert, BTC nu
+
+
+def test_intended_sl_from_events():
+    """SL intentionnel = dernier stop_loss réel pour (symbol, side) ; None si absent."""
+    import futures_executor as fe
+    events = [
+        {"action": "FUTURES_REAL", "ts": 1, "order": {"symbol": "BTCUSDT", "side": "long", "stop_loss": 58000}},
+        {"action": "FUTURES_REAL", "ts": 5, "order": {"symbol": "BTCUSDT", "side": "long", "stop_loss": 59000}},
+        {"action": "FUTURES_REAL", "ts": 9, "order": {"symbol": "BTCUSDT", "side": "long"}},  # SL absent -> ignoré
+    ]
+    assert fe.intended_sl_from_events("BTCUSDT", "LONG", events) == 59000
+    assert fe.intended_sl_from_events("ETHUSDT", "LONG", events) is None
+
+
+def test_enforce_position_sl_dry_no_order():
+    """DRY (gate OFF) : calcule le SL à re-poser + journalise, mais NE PASSE AUCUN ORDRE. Fail-closed si illisible."""
+    import futures_executor as fe
+    nus = [{"symbol": "BTCUSDT", "side": "LONG", "agent": "auto_dir", "notional": 30}]
+    events = [{"action": "FUTURES_REAL", "ts": 3, "order": {"symbol": "BTCUSDT", "side": "long", "stop_loss": 59000}}]
+    calls = []
+    res = fe.enforce_position_sl(live=False, nus=nus, events=events, runner=lambda *a, **k: calls.append(a))
+    assert res["ok"] and res["dry"] and res["placed"] == []
+    assert calls == []                                         # AUCUNE pose réelle
+    assert res["planned"][0]["intended_sl"] == 59000
+    assert fe.enforce_position_sl(live=False, nus=None, events=[])["ok"] is False   # fail-closed
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

@@ -368,6 +368,35 @@ def audit_ouvertures_nues():
     return nus
 
 
+def audit_positions_sans_sl_exchange():
+    """Invariant Couche 1 (observabilité, EXCHANGE) : alerte si une position directionnelle
+    RÉELLE OUVERTE n'a PAS de SL plan côté exchange (§durcis-sl Étape 2). Complète
+    `audit_ouvertures_nues` (qui prouve l'INTENTION au ledger) en réconciliant le SL RÉELLEMENT
+    préréglé (ordre plan/TPSL live). Best-effort, LECTURE SEULE, dédup 1/jour. Fail-closed :
+    None (sources illisibles) -> pas d'alerte (ni faux vert, ni cri en aveugle)."""
+    try:
+        import futures_executor as fe
+        nus = fe.positions_sans_sl_exchange_live()
+    except Exception:
+        return []
+    if not nus:                                       # [] = couvert · None = illisible -> pas d'alerte
+        return nus or []
+    try:
+        jour = int(time.time() // 86400)
+        st = _load_heal_state()
+        if int(st.get("nus_exch_alert_day", -1)) != jour:
+            detail = " · ".join(f"{n.get('agent')} {n.get('symbol')} {n.get('side')}" for n in nus[-5:])
+            import telegram_notifier as tn
+            tn.send_telegram(f"🛑 INVARIANT SL EXCHANGE : {len(nus)} position(s) directionnelle(s) "
+                             f"OUVERTE(S) sans SL plan côté exchange — {detail}. Le SL préréglé a pu "
+                             "être lâché au fill ou annulé après coup : re-poser immédiatement.")
+            st["nus_exch_alert_day"] = jour
+            _save_heal_state(st)
+    except Exception:
+        pass
+    return nus
+
+
 # BATTEMENT PER-CYCLE du cœur décisionnel (§reprise-watchdog, incident 14/07).
 # brain_cycle.py écrit brain_log.json (+ son history) à CHAQUE cycle,
 # INCONDITIONNELLEMENT : frais = cerveau vivant, figé = cerveau à l'arrêt/mort. C'est
@@ -632,9 +661,11 @@ def main(argv=None):
         except Exception as exc:
             print(f"\n[supervision --heal indisponible: {type(exc).__name__}]")
 
-    # Invariant SL (Couche 1) : alerte si une ouverture directionnelle est partie nue.
+    # Invariant SL (Couche 1) : alerte si une ouverture directionnelle est partie nue
+    # (INTENTION au ledger) ET si une position ouverte n'a pas de SL plan EXCHANGE (§durcis-sl Étape 2).
     try:
         audit_ouvertures_nues()
+        audit_positions_sans_sl_exchange()
     except Exception:
         pass
 
