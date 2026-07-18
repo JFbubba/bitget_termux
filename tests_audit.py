@@ -10640,6 +10640,34 @@ def test_taker_delta_summary():
     assert tf.delta_summary([]) is None
 
 
+def test_fund_flow_parse():
+    """fund-flow : segmentation baleine/dauphin/poisson -> net baleine, ratio, biais."""
+    import bitget_flows as bf
+    d = {"whaleBuyVolume": "10", "whaleSellVolume": "4", "dolphinBuyVolume": "2",
+         "dolphinSellVolume": "3", "fishBuyVolume": "1", "fishSellVolume": "1"}
+    r = bf.parse_fund_flow(d)
+    assert r["whale_net"] == 6.0
+    assert abs(r["whale_buy_ratio"] - 10 / 14) < 1e-9
+    assert r["whale_bias"] == "buy"
+    assert r["dolphin_net"] == -1.0
+    assert r["net_all"] == 5.0                     # buy 13 - sell 8
+    assert bf.parse_fund_flow(None) is None
+
+
+def test_whale_net_flow_series():
+    """whale-net-flow : flux net baleine par période, trié ts ASC, cumulé + biais."""
+    import bitget_flows as bf
+    data = [{"date": "3000", "volume": "5"}, {"date": "1000", "volume": "-8"},
+            {"date": "2000", "volume": "1"}]
+    s = bf.whale_net_series(data)
+    assert [r["ts"] for r in s] == [1000, 2000, 3000]
+    assert [r["net"] for r in s] == [-8.0, 1.0, 5.0]
+    assert [r["cum"] for r in s] == [-8.0, -7.0, -2.0]
+    r = bf.whale_net_summary(data)
+    assert r["n"] == 3 and r["last_net"] == 5.0 and r["cum"] == -2.0 and r["bias"] == "sell"
+    assert bf.whale_net_summary([]) is None
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

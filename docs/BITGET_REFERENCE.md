@@ -37,6 +37,12 @@ Cohérence à faire : `listing_hype` (spot) devrait modéliser 0,08 %, pas 6 bps
 
 ## 2. Capacités API v2 (via SDK officiel)
 
+> 📖 **Catalogue EXHAUSTIF des 413 endpoints** (236 v2 + 177 v3 — verbe, auth, type de params, marqueur
+> câblé, drapeaux ⚙️ exécution / ⛔ retrait) : [`BITGET_API_CATALOG.md`](BITGET_API_CATALOG.md), généré
+> depuis le SDK officiel. Le bot en câble **~23** (≈5 %). **Caveat vérifié 18/07** : le SDK peut lister un
+> chemin **absent de l'API réelle** (ex. `mix/market/long-short-ratio` → **404**) — tout endpoint est
+> vérifié **contre l'API live** (clé Trade-only, lecture) avant tout usage.
+
 - **Produits** : spot · USDT-M · COIN-M · marge isolée/croisée (emprunt/remboursement) · Earn
   (savings, elite yields, sharkfin, loans) · copy trading. Le compte **UTA** (unifié) existe côté
   API mais le bot **reste en compte classique** (décision — cloisonnement du risque).
@@ -56,7 +62,10 @@ Cohérence à faire : `listing_hype` (spot) devrait modéliser 0,08 %, pas 6 bps
 | **Fund flow / whale net flow / net inflow** | non confirmé utilisé | flux exogène — mesurer IC net de frais (prudence : probable bruit intraday). |
 | Long/short **account ratio** | PARTIEL (`derivs.account-long-short` déjà) | déjà couvert. |
 | **Reversal / flash-close** | NON utilisé | **exécution** (flip/clôture en 1 ordre) — piste frais, pas signal. |
-| **Flux d'ordres de liquidation public** | **inexistant/non confirmé** | pas d'upgrade gratuit : le **modèle** prix×levier×OI reste le substitut (feed réel = source payante type Coinglass). |
+| **Flux de liquidations public** (`v3/market/liquidations`) | **DISPONIBLE (v3)** — ✅ vérifié live 18/07 | 🔎 **correction** de l'ancien « inexistant » : le feed EXISTE (public, sans clé) — événements réels `{symbol, side, price, amount, ts}`. Substitut GRATUIT au flux payant type Coinglass. À MESURER (signal contrarien connu mais bruité). |
+| **Position long/short ratio** (`mix/market/position-long-short`) | NON utilisé — ✅ live | crowd-positioning par POSITIONS (≠ comptes). Public. Mesurer IC net de frais. |
+| **Next funding time** (`mix/market/funding-time`) | NON utilisé — ✅ live | prochain funding + période (8 h) — timing d'entrée/sortie carry autour du settlement. |
+| **Spot net-flow série** (`v3/market/spot-net-flow`) | NON utilisé — ✅ live | flux net spot par période (complète `bitget_flows.py`). |
 
 ## 3. WebSocket
 
