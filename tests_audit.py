@@ -10005,6 +10005,29 @@ def test_exit_calibration_simulate_and_mfe():
     assert mfe == 3.0 and mae == 0.5
 
 
+def test_exit_calibration_net_fees_and_deflation():
+    """§exit-calibration : la grille est NETTE DE FRAIS (coût_R = fee·entry/(sl·atr)) et le
+    meilleur setup est DÉFLATÉ (Deflated Sharpe) — sans quoi le module conclurait à un
+    'optimal' brut trompeur (le levier réel = les frais). Fonctions PURES (aucun réseau)."""
+    import exit_calibration as ec
+    # 25 trades LONG identiques (entry 100, atr 10) qui touchent tous le TP a rr=2, sl=1
+    trades = [{"entry": 100.0, "side": "LONG", "atr": 10.0, "risk": 15.0} for _ in range(25)]
+    paths = {id(tr): [(0, 121, 99)] for tr in trades}      # touche TP (120), pas SL (90)
+    g0 = ec.grid_search(trades, paths, fee_bps=0.0)
+    g10 = ec.grid_search(trades, paths, fee_bps=10.0)
+    c0 = next(c for c in g0 if c["sl_atr"] == 1.0 and c["rr"] == 2.0)
+    c10 = next(c for c in g10 if c["sl_atr"] == 1.0 and c["rr"] == 2.0)
+    assert c0["W"] == 1.0 and c0["n"] == 25
+    assert c0["expectancy_R"] == 2.0                        # brut : +2R (tous TP)
+    # frais 10 bps A/R : coût_R = 0.001·100/(1·10) = 0.01 -> espérance NETTE 1.99 < brute
+    assert abs(c10["expectancy_R"] - 1.99) < 1e-6 and c10["expectancy_R"] < c0["expectancy_R"]
+    # déflation : un edge < se·sqrt(2·lnN) est un artefact de sur-testing (robuste=False)
+    faible = ec._deflate({"expectancy_R": 0.05, "se": 0.02}, 25)
+    fort = ec._deflate({"expectancy_R": 0.30, "se": 0.02}, 25)
+    assert faible["deflation_bar"] > 0 and faible["robuste"] is False   # 0.05 < barre ~0.051
+    assert fort["robuste"] is True and fort["deflated_R"] > 0           # 0.30 >> barre
+
+
 def test_ic_alignment_realigns_on_ic():
     """§68 : l'alignement IC monte les poids des agents à IC positif et descend ceux à IC
     négatif (gated, bounded, normalisé)."""

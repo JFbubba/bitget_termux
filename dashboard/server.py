@@ -763,6 +763,22 @@ def build_state(symbol=None, tf="5m"):
         else:
             out["mql5"] = {"present": (scr / "mql5_codebase_tester").exists(), "testes": 0}
         out["strategy_tester"] = {"present": (scr / "strategy_tester" / "run.py").exists()}
+        # calibration des sorties (§exit-calibration) : espérance NETTE de frais + déflation
+        try:
+            ec_art = REPO_ROOT / ".exit_calibration.json"
+            if ec_art.exists():
+                d = json.loads(ec_art.read_text(encoding="utf-8"))
+                out["exit_calibration"] = {
+                    "present": True, "generated_at": d.get("generated_at"),
+                    "fee_bps": d.get("fee_bps"), "coverage_pct": d.get("coverage_pct"),
+                    "mfe_med_R": d.get("mfe_med_R"),
+                    "current_R": (d.get("current") or {}).get("expectancy_R"),
+                    "best_R": (d.get("best") or {}).get("expectancy_R"),
+                    "best_deflated_R": d.get("best_deflated_R"), "robuste": d.get("robuste")}
+            else:
+                out["exit_calibration"] = {"present": False}
+        except Exception:
+            out["exit_calibration"] = {"present": False}
         return out
 
     def _microstructure_live():
