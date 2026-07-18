@@ -10861,6 +10861,19 @@ def test_tape_cvd_divergence():
     assert ot.cvd_divergence([], []) is None
 
 
+def test_liquidity_delta_add_remove():
+    """liquidity add/remove : deux carnets successifs -> liquidité ajoutée vs retirée par côté."""
+    import microstructure as ms
+    prev = {"bids": [[100, 5], [99, 3]], "asks": [[101, 4], [102, 2]]}
+    now = {"bids": [[100, 8], [99, 1]], "asks": [[101, 4], [102, 5]]}
+    d = ms.liquidity_delta(prev, now, levels=5)
+    assert d["bid_added"] == 3.0 and d["bid_removed"] == 2.0 and d["bid_net"] == 1.0     # 100:+3, 99:-2
+    assert d["ask_added"] == 3.0 and d["ask_removed"] == 0.0 and d["ask_net"] == 3.0     # 102:+3 (mur)
+    assert ms.liquidity_delta(None, now) is None                                         # illisible -> None
+    z = ms.liquidity_delta({"bids": [], "asks": []}, {"bids": [], "asks": []})
+    assert z["bid_net"] == 0.0 and z["ask_net"] == 0.0                                   # vides -> zéros
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

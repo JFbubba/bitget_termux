@@ -101,6 +101,45 @@ def book_ofi(book_prev, book_now):
     return round(dwb - dwa, 6)
 
 
+def _levels_map(side, levels):
+    """[[price, size], ...] -> {price: size} sur les `levels` premiers niveaux. Pur, tolérant."""
+    m = {}
+    for row in (side or [])[:levels]:
+        try:
+            m[float(row[0])] = float(row[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+    return m
+
+
+def liquidity_delta(book_prev, book_now, levels=10):
+    """PUR. Deux carnets SUCCESSIFS -> liquidité AJOUTÉE vs RETIRÉE par côté (top `levels`).
+    Lecture des INTENTIONS (add/pull) que l'OFI agrège : retrait net de bids = support qui se
+    dérobe ; ajout net d'asks = mur vendeur qui se construit.
+
+      added   = Σ max(0, size_now − size_prev) par prix ;
+      removed = Σ max(0, size_prev − size_now).
+
+    Retour {bid_added, bid_removed, bid_net, ask_added, ask_removed, ask_net, note}. None si un
+    carnet est illisible (fail-closed). Carnets vides -> zéros (valide)."""
+    if not isinstance(book_prev, dict) or not isinstance(book_now, dict):
+        return None
+    out = {}
+    for side_key, tag in (("bids", "bid"), ("asks", "ask")):
+        prev = _levels_map(book_prev.get(side_key), levels)
+        now = _levels_map(book_now.get(side_key), levels)
+        prices = set(prev) | set(now)
+        added = sum(max(0.0, now.get(p, 0.0) - prev.get(p, 0.0)) for p in prices)
+        removed = sum(max(0.0, prev.get(p, 0.0) - now.get(p, 0.0)) for p in prices)
+        out[f"{tag}_added"] = round(added, 8)
+        out[f"{tag}_removed"] = round(removed, 8)
+        out[f"{tag}_net"] = round(added - removed, 8)
+    bn, an = out["bid_net"], out["ask_net"]
+    out["note"] = (("bids ajoutés" if bn > 0 else "bids retirés" if bn < 0 else "bids stables")
+                   + " · " + ("asks ajoutés" if an > 0 else "asks retirés" if an < 0 else "asks stables"))
+    return out
+
+
 def trade_sign_imbalance(trades):
     """Déséquilibre de la tape ∈ [−1,1] depuis le côté agresseur. Pur.
     >0 = volume acheteur agressif dominant (flux directionnel)."""
