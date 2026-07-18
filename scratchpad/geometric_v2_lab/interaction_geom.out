@@ -1,0 +1,58 @@
+Recalcul features + modèle joint (peut prendre plusieurs minutes)...
+  30m BTCUSDT  h=1   | joint IC rf=-0.0001 ridge=-0.0222 | best_indiv=0.0105 | net=-1.02bps gross=+0.34 | shuffle_ic=-0.0033
+  30m BTCUSDT  h=4   | joint IC rf=+0.0146 ridge=-0.0178 | best_indiv=0.0294 | net=+0.09bps gross=+1.41 | shuffle_ic=0.0008
+  30m BTCUSDT  h=24  | joint IC rf=+0.0046 ridge=-0.0185 | best_indiv=0.0399 | net=-1.50bps gross=+1.01 | shuffle_ic=-0.0539
+  30m ETHUSDT  h=1   | joint IC rf=-0.0002 ridge=-0.0240 | best_indiv=0.0142 | net=-2.33bps gross=-0.32 | shuffle_ic=0.0173
+  30m ETHUSDT  h=4   | joint IC rf=-0.0039 ridge=-0.0078 | best_indiv=0.0368 | net=-1.65bps gross=+0.30 | shuffle_ic=-0.0011
+  30m ETHUSDT  h=24  | joint IC rf=+0.0114 ridge=-0.0191 | best_indiv=0.0361 | net=+0.30bps gross=+2.32 | shuffle_ic=-0.0595
+  30m SOLUSDT  h=1   | joint IC rf=+0.0009 ridge=-0.0080 | best_indiv=0.0170 | net=-1.80bps gross=+0.07 | shuffle_ic=-0.0236
+  30m SOLUSDT  h=4   | joint IC rf=+0.0009 ridge=-0.0058 | best_indiv=0.0270 | net=-1.22bps gross=+0.78 | shuffle_ic=-0.0111
+  30m SOLUSDT  h=24  | joint IC rf=-0.0667 ridge=-0.0764 | best_indiv=0.0455 | net=+11.96bps gross=+14.44 | shuffle_ic=-0.0051
+  30m XRPUSDT  h=1   | joint IC rf=-0.0097 ridge=-0.0024 | best_indiv=0.0196 | net=-2.91bps gross=-1.04 | shuffle_ic=0.0105
+  30m XRPUSDT  h=4   | joint IC rf=-0.0226 ridge=-0.0166 | best_indiv=0.0207 | net=-1.92bps gross=+0.00 | shuffle_ic=0.0082
+  30m XRPUSDT  h=24  | joint IC rf=-0.0684 ridge=-0.0703 | best_indiv=0.0537 | net=-17.45bps gross=-15.07 | shuffle_ic=-0.0386
+  1H  BTCUSDT  h=1   | joint IC rf=-0.0020 ridge=-0.0079 | best_indiv=0.0210 | net=-1.16bps gross=+0.42 | shuffle_ic=0.0031
+  1H  BTCUSDT  h=4   | joint IC rf=+0.0044 ridge=+0.0033 | best_indiv=0.0225 | net=-0.51bps gross=+1.23 | shuffle_ic=0.0069
+  1H  BTCUSDT  h=24  | joint IC rf=-0.0034 ridge=-0.0249 | best_indiv=0.0281 | net=+1.75bps gross=+3.30 | shuffle_ic=0.0047
+  1H  ETHUSDT  h=1   | joint IC rf=-0.0188 ridge=-0.0192 | best_indiv=0.0240 | net=-1.94bps gross=-0.25 | shuffle_ic=-0.007
+  1H  ETHUSDT  h=4   | joint IC rf=-0.0250 ridge=-0.0313 | best_indiv=0.0244 | net=-3.52bps gross=-1.32 | shuffle_ic=-0.0064
+  1H  ETHUSDT  h=24  | joint IC rf=-0.0284 ridge=-0.0473 | best_indiv=0.0432 | net=-17.72bps gross=-16.31 | shuffle_ic=-0.0162
+  1H  SOLUSDT  h=1   | joint IC rf=-0.0160 ridge=-0.0175 | best_indiv=0.0252 | net=-2.09bps gross=-0.91 | shuffle_ic=-0.0029
+  1H  SOLUSDT  h=4   | joint IC rf=-0.0066 ridge=-0.0223 | best_indiv=0.0122 | net=-0.84bps gross=+0.44 | shuffle_ic=-0.0103
+  1H  SOLUSDT  h=24  | joint IC rf=-0.0033 ridge=-0.0400 | best_indiv=0.0229 | net=+4.54bps gross=+6.41 | shuffle_ic=-0.0128
+  1H  XRPUSDT  h=1   | joint IC rf=-0.0034 ridge=-0.0018 | best_indiv=0.0377 | net=-2.19bps gross=-0.82 | shuffle_ic=-0.0015
+  1H  XRPUSDT  h=4   | joint IC rf=-0.0002 ridge=+0.0034 | best_indiv=0.0179 | net=+1.68bps gross=+3.11 | shuffle_ic=-0.0024
+  1H  XRPUSDT  h=24  | joint IC rf=+0.0237 ridge=+0.0124 | best_indiv=0.0281 | net=+12.49bps gross=+14.34 | shuffle_ic=-0.0096
+  4H  BTCUSDT  h=1   | joint IC rf=-0.0076 ridge=-0.0105 | best_indiv=0.0260 | net=-0.54bps gross=+0.36 | shuffle_ic=-0.0215
+  4H  BTCUSDT  h=4   | joint IC rf=-0.0529 ridge=-0.0288 | best_indiv=0.0210 | net=-7.09bps gross=-6.13 | shuffle_ic=-0.004
+  4H  BTCUSDT  h=24  | joint IC rf=-0.1049 ridge=-0.1197 | best_indiv=0.0692 | net=-33.86bps gross=-31.74 | shuffle_ic=-0.0901
+  4H  ETHUSDT  h=1   | joint IC rf=+0.0092 ridge=-0.0074 | best_indiv=0.0225 | net=+1.26bps gross=+2.24 | shuffle_ic=0.0035
+  4H  ETHUSDT  h=4   | joint IC rf=-0.0021 ridge=-0.0027 | best_indiv=0.0341 | net=-5.23bps gross=-4.12 | shuffle_ic=-0.0108
+  4H  ETHUSDT  h=24  | joint IC rf=-0.0805 ridge=-0.0415 | best_indiv=0.0879 | net=-41.15bps gross=-38.40 | shuffle_ic=-0.0645
+  4H  SOLUSDT  h=1   | joint IC rf=-0.0013 ridge=-0.0045 | best_indiv=0.0207 | net=-1.71bps gross=-0.66 | shuffle_ic=-0.0102
+  4H  SOLUSDT  h=4   | joint IC rf=-0.0339 ridge=-0.0150 | best_indiv=0.0261 | net=-6.67bps gross=-5.52 | shuffle_ic=0.0013
+  4H  SOLUSDT  h=24  | joint IC rf=+0.0392 ridge=+0.0216 | best_indiv=0.0945 | net=+67.22bps gross=+70.59 | shuffle_ic=-0.009
+  4H  XRPUSDT  h=1   | joint IC rf=+0.0187 ridge=+0.0125 | best_indiv=0.0456 | net=+3.53bps gross=+4.46 | shuffle_ic=0.0091
+  4H  XRPUSDT  h=4   | joint IC rf=+0.0228 ridge=-0.0021 | best_indiv=0.0475 | net=+14.58bps gross=+15.69 | shuffle_ic=-0.0297
+  4H  XRPUSDT  h=24  | joint IC rf=+0.0531 ridge=-0.0222 | best_indiv=0.0829 | net=+79.33bps gross=+81.48 | shuffle_ic=-0.0265
+  1D  BTCUSDT  h=1   | joint IC rf=-0.0139 ridge=+0.0185 | best_indiv=0.0489 | net=-5.22bps gross=-4.34 | shuffle_ic=0.0105
+  1D  BTCUSDT  h=4   | joint IC rf=-0.0527 ridge=+0.0150 | best_indiv=0.0874 | net=-25.42bps gross=-23.84 | shuffle_ic=-0.0034
+  1D  ETHUSDT  h=1   | joint IC rf=+0.0560 ridge=+0.0583 | best_indiv=0.0636 | net=+20.66bps gross=+21.60 | shuffle_ic=-0.054
+  1D  ETHUSDT  h=4   | joint IC rf=+0.1983 ridge=+0.1298 | best_indiv=0.1336 | net=+140.71bps gross=+143.03 | shuffle_ic=-0.0098
+  1D  SOLUSDT  h=1   | joint IC rf=+0.0284 ridge=-0.0148 | best_indiv=0.0725 | net=+9.28bps gross=+10.34 | shuffle_ic=0.0276
+  1D  SOLUSDT  h=4   | joint IC rf=+0.0925 ridge=+0.0225 | best_indiv=0.1436 | net=+117.43bps gross=+119.42 | shuffle_ic=-0.1038
+  1D  XRPUSDT  h=1   | joint IC rf=-0.0147 ridge=-0.0268 | best_indiv=0.0387 | net=+3.65bps gross=+5.38 | shuffle_ic=-0.0049
+  1D  XRPUSDT  h=4   | joint IC rf=-0.0909 ridge=-0.0025 | best_indiv=0.0754 | net=-41.93bps gross=-40.30 | shuffle_ic=-0.1191
+
+==========================================================================================
+RE-TEST INTERACTION geometric_v2 — modèle JOINT (RF interactions + Ridge), WF purgé, net frais
+==========================================================================================
+configs 44 · net_bps médian -1.19 (frais 6.0 bps) · IC_rf médian -0.0027
+IC shuffle médian (contrôle) -0.0067
+% net>0 : 39% · % IC joint bat best individuel (+0.01) : 14%
+
+VERDICT : PISTE — 2 configs où l'interaction jointe dépasse individuel+shuffle+frais :
+    1D  ETHUSDT  h=4 net=+140.71bps IC=+0.1983 (indiv 0.134, shuffle -0.0098)
+    4H  SOLUSDT  h=24 net=+67.22bps IC=+0.0392 (indiv 0.095, shuffle -0.009)
+  -> DÉFLATER (nb d'essais) + valider OOS sur données neuves avant toute conclusion.
+-> interaction_geom_results.json

@@ -1,0 +1,1220 @@
+[
+ {
+  "id": "2d51d49c35ff9f82",
+  "title": "Building a Broker-Agnostic Symbol Resolution Layer in MQL5",
+  "desc": "Deploying the same Expert Advisor across multiple MetaTrader 5 brokers often fails not because of trading logic, but because instrument identifiers differ between terminals. The same market can appear as EURUSD, EURUSDm, EURUSD.fx, GOLD, XAUUSD.a, US30Cash, or US30 — and those differences break symbol selection (SymbolSelect), price reads (SYMBOL BID / SYMBOL ASK) and order submission. Failures can occur at initialization (symbols not selectable), in OnTick (quotes return zero), or at execution (OrderSend rejected), and they are frequently silent: the strategy appears correct but cannot operat",
+  "url": "https://www.mql5.com/en/articles/23199"
+ },
+ {
+  "id": "6cbaf21b2ac7bdd3",
+  "title": "Persistent Homology in MQL5: The Reduction Algorithm and the Persistence Diagram",
+  "desc": "In the we built two classes. The Vietoris-Rips filtration enumerated every vertex, edge, and triangle, sorted by the scale at which it enters the complex. The boundary matrix recorded, for each simplex, the lower-dimensional simplices that form its border. We ended with a sorted list of simplices and a sparse matrix over Z/2. That matrix holds the answer, but not in readable form. The loops and connected components are encoded in its column relationships, not stated outright. Extracting them is the job of one algorithm: the standard column reduction. It is the computational heart of persistent",
+  "url": "https://www.mql5.com/en/articles/23233"
+ },
+ {
+  "id": "5050c343747339c3",
+  "title": "Overcoming Accessibility Problems in MQL5 Trading Tools (Part VI): Neural Command Integration",
+  "desc": "What if you could trade simply by thinking? Throughout this accessibility series, we have built solutions based on voice commands, gesture control, and audio feedback systems. Each addressed a specific barrier. But all of them share a common assumption: the trader must perform some physical action to execute a trade. This article looks beyond physical controls entirely. It explores a future where your trading intention flows directly from your brain to the terminal—no hands, no voice, no movement required. Brain-Computer Interface (BCI) technology is advancing rapidly, with systems like implan",
+  "url": "https://www.mql5.com/en/articles/23193"
+ },
+ {
+  "id": "633b30e26c8e21ff",
+  "title": "Articles on algorithmic/automated trading in MetaTrader and MQL4/MQL5 programming",
+  "desc": "Study in numerous published articles mostly written by you - the community members. The articles are grouped into categories to help you quicker find answers to any questions related to programming: Integration, Tester, Trading Strategies, etc. Follow our new publications and discuss them on the ! You agree to and Allow the use of cookies to log in to the MQL5.com website. Please enable the necessary setting in your browser, otherwise you will not be able to log in.",
+  "url": "https://www.mql5.com/en/articles"
+ },
+ {
+  "id": "37c033cb0fc7c9c1",
+  "title": "Neural Networks in Trading: Generalizing Time Series Without Data-Specific Dependence (Mamba4Cast)",
+  "desc": "The market is both relentless and unpredictable. It offers no second chances to those who misread its signals. This is especially true today, when news spreads faster than a candlestick can form on a one-minute chart. Modern traders no longer work with the past — they work with what is only beginning to emerge from the data stream. Identifying an emerging pattern before everyone else means gaining a competitive edge. Consequently, the requirement for today's algorithms is to predict events before they become obvious, while ideally avoiding the technical burden of extensive model tuning and mai",
+  "url": "https://www.mql5.com/en/articles/18116"
+ },
+ {
+  "id": "fd3c4e828a0b654c",
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (Final Part)",
+  "desc": "In the , we introduced the framework, a time-series forecasting model specifically adapted to the characteristics of financial markets. We examined the fundamental principles of probabilistic attention, the algorithms used to implement it at the kernel level, and techniques for improving computational efficiency while preserving forecasting accuracy. However, one equally important aspect remained outside the scope of that discussion: how these mechanisms are integrated into the main program and how reliable communication is established between the computational module and the trading algorithm",
+  "url": "https://www.mql5.com/en/articles/18041"
+ },
+ {
+  "id": "1d9db62ff7afbdd9",
+  "title": "Neural Networks in Practice: Practice Makes Perfect",
+  "desc": "Hello and welcome to another article about neural networks. In the previous article, , we created our first neuron. However, programming is not that simple. Many people simply create, or rather copy, some code and start using it. This is definitely not a problem. By no means is there anything wrong with it; quite the opposite. It is a fairly sensible practice, provided, of course, that we study the code and try to improve it so that it meets our needs. What is wrong is using something without understanding how it works. Or, even worse, complaining about something or starting to talk about some",
+  "url": "https://www.mql5.com/en/articles/13748"
+ },
+ {
+  "id": "d2ad21f639999344",
+  "title": "From Basic to Intermediate: Object Events (III)",
+  "desc": "In the previous article we showed how to implement a very interesting, and even rather curious, type of application whose purpose is to let users edit the text of an OBJ_LABEL object directly on the chart, without opening the Object Properties dialog and editing the displayed text there. Although that was very interesting and useful from both a practical and educational point of view, we can do something even more interesting than what was shown in the previous article. I think you, dear reader, have probably tested it and may even have wondered whether that same application could be extended ",
+  "url": "https://www.mql5.com/en/articles/16075"
+ },
+ {
+  "id": "63a6d984fa59c13a",
+  "title": "Detecting and Visualizing Outlier Bars in MQL5 Using Modified Z-Score on OHLCV Features",
+  "desc": "Every price series contains bars that do not belong to the ordinary distribution of market behavior. A central bank rate decision can produce a candlestick whose body is ten times the median session range. A liquidity gap at a weekend open can generate a wick that dwarfs anything seen in the preceding hundred bars. A broker feed anomaly can inject a tick volume observation so large it renders the surrounding data invisible on a chart scale. These bars are outliers. They are not necessarily erroneous — many represent genuine, economically significant events. But their presence inside the fixed ",
+  "url": "https://www.mql5.com/en/articles/23217"
+ },
+ {
+  "id": "1401a638d6ba3afc",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 5): Real-Time Recovery Dashboard (Final Part)",
+  "desc": "Over the previous parts of this series, we built a recovery system capable of persisting trade state, restoring virtual protection after restart, recovering dynamic protection workflows, and validating recovery integrity. While these features work correctly, they are difficult to observe while the Expert Advisor is actively managing a trade on a chart. Most recovery activity happens internally through runtime memory, SQLite records, and log messages. As the recovery architecture grows, it becomes increasingly difficult to understand what the Expert Advisor is doing at any given moment. A dashb",
+  "url": "https://www.mql5.com/en/articles/22616"
+ },
+ {
+  "id": "8408ea47e28abb5f",
+  "title": "Building Automated Daily Trading Reports with the SendMail Function",
+  "desc": "Traders often struggle to keep track of their performance at the end of each trading day, as manual review of trades in MetaTrader 5 can be time-consuming and prone to oversight. However, MetaTrader 5 does not provide a built-in system for automatically generating structured daily trading reports and sending them via email in a formatted way. In this article, we will build a system that automates the generation of daily trading reports directly from MetaTrader 5. You will learn how to retrieve historical trade data within a specified time range, calculate key performance metrics, and dynamical",
+  "url": "https://www.mql5.com/en/articles/23093"
+ },
+ {
+  "id": "301282324fd8c612",
+  "title": "CSV Data Analysis (Part 6): Multi-Broker Result Normalization and Cross-Platform CSV Reconciliation",
+  "desc": "The preceding articles in this series built an export and analysis pipeline based on a single, stable data contract: one EA, one broker, one schema. In practice, advanced strategy development rarely confines itself to that boundary. A strategy under evaluation may run simultaneously on a live account at one broker and a demo account at another for execution quality comparison. An optimization campaign may sweep the same parameters across two broker environments to detect broker‑dependent results. A portfolio of strategies may be distributed across multiple brokers for counterparty diversificat",
+  "url": "https://www.mql5.com/en/articles/23067"
+ },
+ {
+  "id": "24dfdea1a7351e55",
+  "title": "Low-Frequency Quantitative Strategies in MetaTrader 5 (Part 4): A Volatility-Adjusted Momentum-Based Intraday System",
+  "desc": "In March 2024, the published a research paper aimed at assessing the \"validity of day trading as a long-term consistent and uncorrelated source of income for traders and investors\". To answer this question, they analysed the profitability of Opening Range Breakout (ORB) strategies across \"more than 7,000 US stocks traded from 2016 to 2023\". A selected portfolio of 20 stocks from that universe \"achieved a total net performance of over 1,600%, with a Sharpe ratio of 2.81, and an annualized alpha of 36%. Passive exposure in the S&P 500 would have achieved a total return of 198% during the same pe",
+  "url": "https://www.mql5.com/en/articles/23226"
+ },
+ {
+  "id": "90a64e841a6efe7b",
+  "title": "Automating Classic Market Methods in MQL5 (Part 3): Stan Weinstein Stage Analysis",
+  "desc": "In and of this series, we automated Richard Wyckoff's method: detecting accumulation and distribution structures, entering at the optimal moment, and projecting targets from the cause measured within the range. Both articles were concerned with a specific structural event—the Spring, the Sign of Strength—and the precise sequence those events must follow before a trade is valid. Stan Weinstein's Stage Analysis takes a broader view. Rather than waiting for a specific event within a structure, it asks a prior question: what phase of its lifecycle is this market currently in? Weinstein identified ",
+  "url": "https://www.mql5.com/en/articles/22746"
+ },
+ {
+  "id": "4cba5c266500ba37",
+  "title": "Feature Engineering for ML (Part 10): Structural Break Tests in MQL5",
+  "desc": "of this series implemented the structural break test suite from AFML Chapter 17 in Python, covering the Chu-Stinchcombe-White CUSUM test, the Chow-Type Dickey-Fuller test, SADF across six regression models, and two robustifying variants (QADF and CADF). This article ports the three core tests — CSW, Chow, and SADF — to MQL5 as a single include file, , placed in . The sub- and super-martingale tests (SM-Exp and SM-Power) are included as well, rounding the suite to five statistics per bar. The MQL5 implementation departs from the Python version in one structural decision that is worth stating im",
+  "url": "https://www.mql5.com/en/articles/23159"
+ },
+ {
+  "id": "b9c588c5037f899a",
+  "title": "Training a nonlinear U-Transformer on the residuals of a linear autoregressive model",
+  "desc": "In modern algorithmic trading, developers face a fundamental dilemma: linear models are simple and interpretable, but they are unable to capture complex nonlinear relationships in financial time series. Deep neural networks, on the other hand, can theoretically model any nonlinearity, but suffer from overfitting and instability in the presence of high market noise and limited data volumes. The article presents an innovative hybrid approach that addresses this dilemma through a two-stage modeling approach: first, a 25-feature linear autoregressive model extracts key statistical patterns from pr",
+  "url": "https://www.mql5.com/en/articles/18916"
+ },
+ {
+  "id": "6b169951c36f29fd",
+  "title": "Building a Viewport SnR Volume Profile Indicator in MQL5",
+  "desc": "Support and Resistance (SnR) detection is often one of the first practical challenges traders face when moving from discretionary chart analysis to algorithmic development in MQL5—and it was no different for me. After experimenting with several approaches, I was able to successfully detect and plot SnR levels using both close-price and wick-based approaches. At the time, this felt like a major milestone: the market structure was finally being translated into code. However, that success quickly revealed a deeper and often overlooked problem—abundance. The chart became crowded with SnR levels, a",
+  "url": "https://www.mql5.com/en/articles/23198"
+ },
+ {
+  "id": "2d588745c36d8cdc",
+  "title": "Feature Engineering for ML (Part 9): Structural Break Tests in Python",
+  "desc": "Chapter 17 of López de Prado's opens with a pointed observation. Structural breaks, the transition from one market regime to another, represent some of the best risk-adjusted trading opportunities precisely because most participants are caught off guard. A mean-reverting dynamic that gives way to momentum traps traders who continue to fade breakouts; a trending market that reverts catches traders who held directional positions too long. The actors on the losing side do not immediately recognise their mistake. They hold, they average down, and eventually they are stopped out. It is this forced ",
+  "url": "https://www.mql5.com/en/articles/23158"
+ },
+ {
+  "id": "b8065e2484f9c328",
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (ACEFormer)",
+  "desc": "The financial market is a complex and dynamic system in which every price movement results from the intricate interaction of numerous factors. It reflects virtually everything, from macroeconomic information flows and company-specific news to investor's emotional swings and the cold calculations of algorithmic trading strategies. Within this vast mixture of signals, noise, and distortions, extracting meaningful information and identifying genuine market trends is not merely an interesting challenge but a strategic necessity. The ability to accurately forecast market direction can provide a sus",
+  "url": "https://www.mql5.com/en/articles/18004"
+ },
+ {
+  "id": "e6dba36ab7fbb143",
+  "title": "Beyond Maximum Drawdown: Building a Drawdown DNA Analyzer in MQL5",
+  "desc": "A while ago I ran two of my own strategies side by side, and both reported almost the same headline figure: a maximum drawdown of roughly 18%. On paper they looked like twins. In practice, they were nothing alike. One of them fell hard, then clawed its way back to a new equity high in about two weeks. The other drifted lower in small steps and stayed below its previous peak for the better part of four months. The number on the report was the same. The experience of holding each one was not. That gap is the problem this article is about. Maximum drawdown is the single statistic most traders quo",
+  "url": "https://www.mql5.com/en/articles/23175"
+ },
+ {
+  "id": "87da742783c55ee6",
+  "title": "Building Volatility Models in MQL5 (Part IV): Implementing Long Memory Volatility Processes, FIGARCH, and HARCH",
+  "desc": "This article answers that question by: The theoretical justification for using FIGARCH or HARCH hinges on proving that volatility exhibits long-term persistence. To quantify this we can estimate the Hurst exponent (H) via rescaled range analysis. If the Hurst exponent is between 0.5 and 1.0, long-memory persistence exists. The accuracy of the Hurst Exponent depends on how the time series is partitioned. An optimal approach considers the minimum and maximum length of a partition instead of picking an arbitrary number. The minimum partition size should never fall below 10 to 20 data points. Smal",
+  "url": "https://www.mql5.com/en/articles/23171"
+ },
+ {
+  "id": "ab30f9fd963d2651",
+  "title": "Building an Internal and External Market Structure Indicator",
+  "desc": "Understanding the structure and behavior of the internal and external market structure indicator is essential before beginning the implementation phase. Determining the function of each component and streamlining the development process are made easier by fully understanding the project's objective. We will develop an internal and external market structure indicator for MetaTrader 5 in this article. This indicator will automatically identify important structural points in price movement and show them on the chart. To identify swing highs and swing lows, which serve as the basis for identifying",
+  "url": "https://www.mql5.com/en/articles/22968"
+ },
+ {
+  "id": "7e513338363c2ada",
+  "title": "Dream Optimization Algorithm (DOA)",
+  "desc": "As part of my extensive research into optimal optimization methods, I was drawn to a completely new and unusual approach inspired by a highly controversial and little-studied phenomenon: the mechanism of dreams. In March 2025, Y. Lang and Y. Gao presented to the scientific community an innovative metaheuristic optimization algorithm — Dream Optimization Algorithm (DOA) in the journal (Volume 436). This algorithm, inspired by the unique characteristics of human dreams, opens up new perspectives for solving complex optimization problems, including tuning trading system parameters. DOA simulates ",
+  "url": "https://www.mql5.com/en/articles/19177"
+ },
+ {
+  "id": "f2674af33512f003",
+  "title": "Creating an EMA Crossover Forward Simulation (Culmination): Interactive Synthetic Candles",
+  "desc": "In the first , we built the core components of a Forward Simulation Engine for MetaTrader 5. We started with a basic EMA crossover detector. Then we added an anchor mechanism, an EMA-slope projection loop, a pip-based invalidation rule, and a chart-object rendering system. The result was a self-contained indicator capable of projecting a fixed number of synthetic OHLC candles beyond a confirmed crossover. These candles were drawn with visible bodies and wicks, labeled clearly on the chart, and automatically removed when invalidated or replaced by a new signal. This initial version established ",
+  "url": "https://www.mql5.com/en/articles/22927"
+ },
+ {
+  "id": "b3548f4744101e07",
+  "title": "MQL5 Wizard Techniques you should know (Part 100): Sliding Window Median and Bidirectional LSTM for a Custom Trailing Stop",
+  "desc": "We resume our deep dive into MQL5 where we pitch new ideas and models that can be prototyped easily and proven thanks to the MQL5 Wizard. In this series we rotate between implementations of trailing stops, entry signals, and money management. The last article we published was money management so we look at a trailing stop model for this article. Within the articles where we have only looked at trailing stops, we have utilized algorithms such as Skip Lists, Reservoir Sampling, and the Convex Hull. These tools were very broad and not identical however they did tend to map persistent, long-term m",
+  "url": "https://www.mql5.com/en/articles/23202"
+ },
+ {
+  "id": "b3f8cd40a3341440",
+  "title": "Automatic Session Volume Profile Builder in MQL5: Rendering POC and Value Area Without Third-Party Tools",
+  "desc": "MetaTrader 5 does not ship with a native volume profile indicator. This creates a practical gap for traders and quantitative developers who require session-based price-at-volume analysis — the identification of price levels where the market has spent the most transactional effort, expressed through accumulated tick volume per price tier. The gap is bridgeable entirely from within the MQL5 Standard Library. CopyTicksRange() provides tick-level trade data bounded by explicit time windows. Standard object-drawing functions provide the rendering canvas. No DLLs, no third-party libraries, and no ex",
+  "url": "https://www.mql5.com/en/articles/23169"
+ },
+ {
+  "id": "b637ea8140825dcf",
+  "title": "Duelist Algorithm",
+  "desc": "In algorithmic trading, every millisecond means profit or loss, so finding the optimal parameters for a trading strategy becomes a critical task. Modern traders are turning to artificial intelligence and evolutionary algorithms to fine-tune their trading systems. Today we will look at a new optimization approach — the Duelist Algorithm — that draws inspiration from the ancient practice of dueling. The algorithm in 2015 by a group of Indonesian scientists led by Biyanto as an alternative to traditional evolutionary algorithms with the aim of minimizing the \"blind\" nature of mutation and crossov",
+  "url": "https://www.mql5.com/en/articles/19093"
+ },
+ {
+  "id": "a42e409398037c21",
+  "title": "Code, Tears, and Algo Forge",
+  "desc": "Free, uninhibited emotion or strict pragmatism? Amid piles of crumpled drafts and discarded words finally rejected, I couldn’t start writing for a long time. No, not even writing, but trying to describe things that were practically unfamiliar to me. Every time everything was wrong, not right, and not sincere. And now I decided to just tell it like it is. Just my impressions. Personal and not so personal. Let this be an emotional story about the path from something familiar to something necessary... About the path from simple archives to an obscure repository. The immediate question that might ",
+  "url": "https://www.mql5.com/en/articles/21732"
+ },
+ {
+  "id": "7cfb312609ab0c8c",
+  "title": "Implementation of the Quantum Reservoir Computing (QRC) circuit",
+  "desc": "Modern traders face a fundamental dilemma: the more complex a trading system becomes, the more prone it is to overfitting. Classical machine learning algorithms demonstrate brilliant results on historical data, but fail catastrophically in real trading. Neural networks trained on thousands of examples suddenly become useless at the slightest change in market conditions. Support Vector Machines show 85% accuracy in backtests, but incur losses within the first week of live trading. The root of the problem goes beyond technical nuances. Financial markets are adaptive systems where each participan",
+  "url": "https://www.mql5.com/en/articles/19043"
+ },
+ {
+  "id": "0baf165848af8293",
+  "title": "Beyond GARCH (Part VII): Monte Carlo Volatility Forecasting in MQL5",
+  "desc": "In , we built the simulation engine that generates a single MMAR price path. One path is interesting for visualization but useless for forecasting. A single random draw tells you nothing about the distribution of possible futures. To produce a volatility forecast — a point estimate with uncertainty bounds — we need to run the simulation engine many times and aggregate the results. This is the Monte Carlo method: run N independent simulations, measure the volatility of each, and extract statistics from the resulting distribution. This article builds the CMonteCarlo class, the final computationa",
+  "url": "https://www.mql5.com/en/articles/22537"
+ },
+ {
+  "id": "3259879f3288fb1e",
+  "title": "Digital Signal Processing for Traders: Building Ehlers' Filter Library in MQL5",
+  "desc": "Before he ever wrote a line of trading code, spent years as an engineer designing filters for radar and communications systems. When he turned to the markets, he brought that toolbox with him, and he made a claim most technical analysts never stop to examine: a price chart is a , in exactly the sense an electrical engineer means it. It carries information mixed with noise, it contains components at different frequencies, and it can be processed with the same mathematics that cleans up a radio transmission. Most indicators traders use every day—especially the simple moving average—are crude fil",
+  "url": "https://www.mql5.com/en/articles/23149"
+ },
+ {
+  "id": "f4731b65424fc0d7",
+  "title": "Heatmap Visualization of Intraday Return Patterns in MQL5 Using CCanvas",
+  "desc": "Experienced traders often observe that certain instruments behave differently depending on the time of day and the day of the week. EURUSD tends to exhibit higher volatility during the London-New York overlap. XAUUSD frequently shows directional movement during Asian-session hours. These tendencies are recognizable to practitioners but rarely quantified systematically, because MetaTrader 5 provides no native tool for aggregating and visualizing return distributions across time dimensions simultaneously. A heatmap solves this problem directly. The heatmap computes the average bar return for eac",
+  "url": "https://www.mql5.com/en/articles/23168"
+ },
+ {
+  "id": "3945c9a2f65ee0d1",
+  "title": "Market Microstructure in MQL5 (Part 7): Regime Classification",
+  "desc": "built the defensive foundation. and measured whether price has memory. measured what volatility is doing and whether it persists. decomposed price variation into noise and signal. measured the direction of informed flow. Parts 2-6 together produce eleven distinct measurements of the market environment on the one-minute timeframe. Each measurement is individually informative. Together they are correlated, partially redundant, and impossible to act on simultaneously in real time. A position-sizing system cannot respond to eleven separate signals. What is needed is a reduction: a single composite",
+  "url": "https://www.mql5.com/en/articles/22940"
+ },
+ {
+  "id": "69f320a6fbdbcf74",
+  "title": "Automating Trading Strategies in MQL5 (Part 49): The Quasimodo (QM) Reversal Pattern",
+  "desc": "Reversal trading often causes traders their worst losses. Entering early means fighting the prevailing move; waiting for confirmation often means missing the best price. The offers a structured way to read a reversal, but spotting it by eye is subjective. Where exactly is the left shoulder? Is the new extreme a real head or just noise? Has the structure actually broken, or is the price merely pausing? And once the shape is there, where do you enter, where is the trade invalidated, and how far can it reasonably run? Without a rule-based framework, these answers shift from chart to chart, and th",
+  "url": "https://www.mql5.com/en/articles/23141"
+ },
+ {
+  "id": "648e690668d4a142",
+  "title": "Developing a Neural Network Trading Robot Based on Mamba with Selective State Space Models",
+  "desc": "Modern algorithmic trading faces a fundamental problem. Classical neural network architectures based on the attention mechanism exhibit quadratic computational complexity O(N²). This means that doubling the length of the time series results in a fourfold increase in processing time. For a trader analyzing thousands of candles of historical data, this inefficiency becomes a critical limitation. Imagine this situation: your trading system needs to analyze the last 2048 price bars to decide whether to enter a position. The Transformer architecture would require about 4 million attention operation",
+  "url": "https://www.mql5.com/en/articles/19047"
+ },
+ {
+  "id": "245961ef7b3bbd07",
+  "title": "Engineering Trading Discipline into Code (Part 8): Building a Setup Confirmation and Trade Authorization Layer in MQL5",
+  "desc": "Most trading systems focus on generating signals, yet very few control when those signals are actually permitted to execute. A setup may appear on the chart long before it becomes valid, and it may remain visible after its trading window has expired. In practice, this causes premature entries and stale trades. It can also allow interference from other Expert Advisors or manual actions that bypass strategy rules. What is missing is a dedicated authorization layer between signal generation and execution. Such a layer must track setup status, apply session and expiry rules, and react when violati",
+  "url": "https://www.mql5.com/en/articles/23100"
+ },
+ {
+  "id": "834242b44f2f3d87",
+  "title": "Measuring What Matters (Part 1) : Portfolio Risk Decomposition in MQL5",
+  "desc": "There is a moment almost every multi-symbol trader experiences at least once. Three positions are open, each carefully sized. Stop losses are placed. Risk per trade is a modest one percent on each instrument. By the standard calculation, total exposure is three percent: manageable, controlled, sensible. Then Non-Farm Payroll drops. EURUSD falls eighty pips in thirty seconds. GBPUSD follows immediately seventy pips down. Gold spikes briefly, then reverses with everything else as the dollar surges. All three positions are hit at the same moment, in the same direction, by the same underlying even",
+  "url": "https://www.mql5.com/en/articles/23096"
+ },
+ {
+  "id": "1a12483bb8e5702f",
+  "title": "Feature Engineering for ML (Part 8): Entropy Features in MQL5",
+  "desc": "This article ports four entropy estimators—Shannon, Plug-In, Lempel-Ziv and Kontoyiannis—that were implemented in Python ( ) to MQL5 and explains the design decisions required to make them practical inside MetaTrader 5. The Python reference relied on NumPy sliding windows, Python dictionaries and Numba acceleration; none of those primitives are available in MQL5. More importantly, MQL5 access to intrabar ticks is limited to the broker‑cached window returned by , so historical tick sequences beyond that cache are simply unavailable. The port therefore addresses three central constraints at once",
+  "url": "https://www.mql5.com/en/articles/23077"
+ },
+ {
+  "id": "d577e729aa0c8b1b",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 4): Trade-State Reconciliation and Safe Mode Recovery",
+  "desc": "A self-healing Expert Advisor can restore its trade state after a terminal restart, but successful recovery depends on one important requirement: the broker-side position, the runtime trade state, and the SQLite recovery record must all describe the same trade. In practice, this consistency cannot always be guaranteed. A broker-side position may still exist after its recovery record has been deleted, or a recovery record may remain active after the position has been closed manually. In either case, the Expert Advisor can no longer verify that its virtual stop-loss, virtual take-profit, breakev",
+  "url": "https://www.mql5.com/en/articles/22615"
+ },
+ {
+  "id": "a27e517f7deb3d0f",
+  "title": "Persistent Key-Value Store in MQL5: Using Flat Files as a Lightweight Database for EA State",
+  "desc": "MetaTrader 5 Expert Advisors (EAs) execute within a runtime environment managed entirely by the trading terminal. When the terminal closes, all volatile runtime state is cleared, including counters, flags, and session timestamps. Upon initialization, the EA reverts to its compiled default state. This behavior is a standard characteristic of managed execution environments rather than a deficiency within the MQL5 runtime. Architectural vulnerabilities arise if an EA stores operational state only in global variables and has no independent persistence mechanism to restore it after termination. In ",
+  "url": "https://www.mql5.com/en/articles/23156"
+ },
+ {
+  "id": "01b696eafcfcb848",
+  "title": "Risk Manager for Trading Robots (Part I): Risk Control Include File for Expert Advisors",
+  "desc": "Every trader sooner or later faces the bitter truth: success in trading is determined not so much by the ability to find entry points, but by the ability to preserve capital. Statistics are merciless: more than 90% of traders lose their capital due to a lack of effective risk management. Today, we will explore the creation of a professional risk management system for MetaTrader 5, which can transform even the most aggressive strategies into relatively safe earning tools. Let's look at typical reasons for losses in trading, based on general observations and experience working with traders. In m",
+  "url": "https://www.mql5.com/en/articles/18918"
+ },
+ {
+  "id": "2798d60474d1afea",
+  "title": "MQL5 Wizard Techniques you should know (Part 99): Using a KD-Tree and an Echo State Network in a Custom Money Management Class",
+  "desc": "As the approach to Money Management continues to evolve, the pursuit of risk-adjusted returns usually leads us to rethink how we filter market noise. In the last take on this subject, we addressed high-frequency environment challenges by engaging a variety of algorithms that have included Fenwick Trees, Wavelet Denoising, and even Suffix Automata. These algorithms run within models that were purpose-built to capture hidden micro-patterns and remove noise from short-term signal sequences. These approaches were inherently deterministic in that they leaned towards precise pattern matching within ",
+  "url": "https://www.mql5.com/en/articles/23144"
+ },
+ {
+  "id": "5a83ea5edaa4e419",
+  "title": "Automating Classic Market Methods in MQL5 (Part 2): Wyckoff Cause and Effect—Point and Figure Price Targets",
+  "desc": "In , we built an Expert Advisor that detects Wyckoff accumulation and distribution with a finite state machine. It confirms the spring→SOS sequence for longs and the upthrust→SOW sequence for shorts, then enters at the last point of support or supply. That EA answered the question of where to enter. This article answers the companion question that Wyckoff considered equally important: where to exit. The answer comes from his second law—cause and effect—and the point and figure count that measures it. The EA built here is self-contained: every function needed to run it is included below, and no",
+  "url": "https://www.mql5.com/en/articles/22472"
+ },
+ {
+  "id": "65636f379a719499",
+  "title": "Creating an HTML Dashboard for Strategy Tester and Prop Firm Challenge Analysis in MQL5",
+  "desc": "A profitable Strategy Tester run alone does not answer whether an Expert Advisor would pass a prop‑firm style challenge. Prop challenges are rule sets — profit target, daily loss limit, overall drawdown limit, minimum trading days, and sometimes a strict time window — and a single backtest start date can be misleading. This article presents a practical, reusable evaluation layer: a small MQL5 module that monitors balance and equity during a test, normalizes them to a configurable “virtual” challenge account, and simulates either a single attempt or a rolling series of attempts (daily/weekly/mo",
+  "url": "https://www.mql5.com/en/articles/22969"
+ },
+ {
+  "id": "d2037c53206a756e",
+  "title": "Lazy-Loading Indicator Handles in MQL5: A Resource Manager Pattern for Multi-Timeframe EAs",
+  "desc": "A multi-timeframe Expert Advisor (EA) trading 10 symbols across four timeframes with five indicators per combination requires 200 indicator handles for full coverage. Conventionally, developers initialize all handles inside OnInit(). Before OnInit() returns, the terminal connects to each price feed, verifies data availability, allocates indicator buffers, and registers the handles. This process introduces initialization latency. This latency increases during terminal cold starts or when synchronizing stale historical data. Furthermore, many of these handles are rarely used simultaneously. A st",
+  "url": "https://www.mql5.com/en/articles/22955"
+ },
+ {
+  "id": "4256c3c86a36be2e",
+  "title": "MetaTrader 5 Machine Learning Blueprint (Part 18): Sequential Bootstrap, Corrected — Clone, Class Erasure, and the Comparison Toolkit",
+  "desc": "After the calibration step in , a diagnostic check revealed that the out-of-fold Brier score of the sequential bootstrap arm was 0.2442 — the same, to four decimal places, as the standard bootstrap arm at 0.2441. The two numbers should not be that close. demonstrated, both analytically and through Monte Carlo simulation, that sequential bootstrap draws samples of higher average uniqueness than standard bootstrapping, and that this uniqueness advantage propagates into better out-of-bag discrimination. Identical out-of-fold Brier scores from two samplers that differ in their construction princip",
+  "url": "https://www.mql5.com/en/articles/22912"
+ },
+ {
+  "id": "0af93947c3ae324c",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 3): Restart-Aware Breakeven and Trailing Systems",
+  "desc": "Breakeven and trailing-stop systems are common techniques for reducing risk and protecting profits during the lifetime of a trade. Unlike fixed stop-loss and take-profit levels, these protection mechanisms evolve as market conditions change. The challenge appears when a terminal restart interrupts trade management. Although the trade remains open, important runtime information may be lost. For example: Without this information, the Expert Advisor may resume management using an outdated view of the trade. In this part of the series, we will extend the recovery architecture to persist and restor",
+  "url": "https://www.mql5.com/en/articles/22614"
+ },
+ {
+  "id": "3b13f98707a21175",
+  "title": "Building an Object-Oriented Session VWAP Engine in MQL5",
+  "desc": "When I build intraday trading systems in MQL5, my first reflex is usually to drop a standard moving average on the chart to filter the short-term trend. This approach looks tolerable during dead market hours or tight ranges. However, live tests on liquid currency pairs reveal a major structural flaw. A major macro news candle can instantly shift the market baseline due to institutional volume. A simple moving average treats that heavy candle the same as a low-volume candle from the quiet night session because it only accounts for closing prices. This creates a dangerous trap for an automated r",
+  "url": "https://www.mql5.com/en/articles/22990"
+ },
+ {
+  "id": "a7e6756c59458559",
+  "title": "Feature Engineering for ML (Part 7): Entropy Features in Python",
+  "desc": "The preceding articles in this series derived features from price geometry ( ), from the trading calendar ( ), and from the bid-ask spread and price impact ( ). This article derives features from a different dimension: the information content of the trade-direction sequence within each bar. Chapter 18 of López de Prado's introduces four entropy estimators applied to encoded tick-rule sequences: Shannon entropy, plug-in (block) entropy, Lempel-Ziv complexity, and the Kontoyiannis universal entropy. All four operate on a symbolic message — a string of characters encoding the direction of each tr",
+  "url": "https://www.mql5.com/en/articles/22756"
+ },
+ {
+  "id": "f377d67a5d4ff73b",
+  "title": "Forecasting in Trading Using Grey Models",
+  "desc": "Introduction Modern financial markets are highly volatile and dynamic, so accurate and timely forecasting plays a crucial role in making trading decisions. Every trader strives to develop and apply forecasting methods that allow them to anticipate future price movements and maximize profits. Technical analysis offers a wide variety of forecasting methods. But many forecasting methods have their limitations. For example, a statistical approach to forecasting requires a large amount of historical data. Other approaches work well only on stationary time series, etc. In this context, interest in f",
+  "url": "https://www.mql5.com/en/articles/19012"
+ },
+ {
+  "id": "08f86c6a82a29cdc",
+  "title": "Gaussian Processes in Machine Learning (Part 2): Implementing and Testing a Classification Model in MQL5",
+  "desc": "In the previous , we learned about the theoretical foundations of the Bayesian machine learning model — Gaussian Processes — and began creating a GP library in MQL5, describing two key classes: GaussianProcess and GPOptimizationObjective. Here we will complete the library by taking a detailed look at the implementation of the key interfaces: IKernel, ILikelihood, and IInference. After this, we will test the library on synthetic data and write indicators for classification and regression, demonstrating its operation in online mode — with retraining the model on each new bar. The IKernel interfa",
+  "url": "https://www.mql5.com/en/articles/19013"
+ },
+ {
+  "id": "7330dd169b1d19cf",
+  "title": "Linear Regression Prediction Channels in MQL5: Constructing Statistically Grounded Confidence and Prediction Bands",
+  "desc": "Bollinger Bands and Donchian Channels are the most widely used channel overlays in algorithmic and discretionary trading. Both are computationally straightforward, visually intuitive, and available in virtually every charting platform. Both are also descriptive tools rather than inferential ones: they summarize realized price behavior without committing to an explicit statistical model from which formal coverage statements could be derived. Understanding this distinction is not an academic exercise; it has direct consequences for how channel violations should be interpreted, how channel width ",
+  "url": "https://www.mql5.com/en/articles/23130"
+ },
+ {
+  "id": "9efe63a9a7f0f55f",
+  "title": "The MQL5 Standard Library Explorer (Part 13): Implementing the Math Solvers Library in Trading",
+  "desc": "Financial markets exhibit nonstationarity: volatility clusters, trend reversals, and liquidity shifts create distinct regimes. A trading system configured with fixed parameters may perform excellently during one regime but collapse during the next. To illustrate the need for adaptation, consider a typical moving average crossover strategy with static periods and thresholds. Such fixed settings fail to adjust to changing volatility, leading to false signals or missed opportunities. A trader using a fixed‑parameter moving average crossover finds that static thresholds generate excessive false si",
+  "url": "https://www.mql5.com/en/articles/23127"
+ },
+ {
+  "id": "de20eb1b9be63481",
+  "title": "Meta-Labeling the Classics (Part 2): Filtering and Sizing ADX Trades",
+  "desc": "The DI crossover fires a directional signal whenever crosses above or the reverse. It does not ask whether the market at that moment has sufficient directional persistence for a trend-following bet to recover transaction costs before price reverts. In a trending environment, the crossover is often decisive: the dominant DI climbs steadily, the separation widens, and the position runs in the intended direction. In a ranging environment, the two DI lines oscillate around each other, generating repeated crossovers within the same compressed price band. Each crossing looks structurally identical t",
+  "url": "https://www.mql5.com/en/articles/22754"
+ },
+ {
+  "id": "63a7a52b3d317e3e",
+  "title": "Designing a Strategy State Machine in MQL5: Replacing Nested If-Else Logic with Formal States",
+  "desc": "A typical Expert Advisor begins with a manageable OnTick() function. There is a condition to check whether a position is open, a condition to evaluate the entry signal, a condition to verify the spread is acceptable, and a condition to check whether the session is active. Four conditions, clearly readable, easily debugged. After six months of feature additions, the same function grows to forty-three nested conditionals across 230 lines. To add a trailing stop, a new developer must first identify the exact condition set that indicates an open, profitable position before the first take-profit le",
+  "url": "https://www.mql5.com/en/articles/22950"
+ },
+ {
+  "id": "e38c4ac910c55247",
+  "title": "MQL5 Trading Tools (Part 38): Adding a Tabbed Settings Window for Editing Object Properties",
+  "desc": "In the , we added a floating ribbon for quick property edits. While fast for common tweaks, it exposes only select properties. To handle the full breadth of settings, we need a more comprehensive, tabbed editor. This article covers that upgrade. We add a tabbed settings window in two new files. It opens from the ribbon's Settings button and binds to the selected object. The window exposes four tabs — Style, Text, Coordinates, and Visibility — driven by the same descriptor system as the ribbon. It also supports scrolling, expands level lists into per-level rows, allows exact price/time entry fo",
+  "url": "https://www.mql5.com/en/articles/22977"
+ },
+ {
+  "id": "0aa067a033ac7257",
+  "title": "From Cloud to Complex: The Vietoris-Rips Filtration in MQL5",
+  "desc": "The produced two concrete geometric objects: a Takens-embedded point cloud and its full pairwise distance matrix. Those are necessary but not sufficient for answering the topological questions we care about (Do clusters exist? Is there a persistent loop?). What we need next is a reproducible, computable topological object that records when simplices appear as we relax a scale parameter ε: the Vietoris–Rips filtration (and the boundary relations that let us compute homology). Concretely, the task addressed here is implementation-focused: given N embedded points and a cutoff maxEpsilon, enumerat",
+  "url": "https://www.mql5.com/en/articles/23106"
+ },
+ {
+  "id": "c62efd720bc5db6f",
+  "title": "Interactive Supply and Demand Zone Manager in MQL5 (Part II): Event-Driven Architecture and Persistent Lifecycle Logging",
+  "desc": "In of this series, we introduced a dynamic supply and demand zone management framework capable of transforming ordinary chart rectangles into actively managed market structures. Rather than treating support and resistance zones as passive visual annotations, we developed a system capable of creating, maintaining, merging, invalidating, and restoring structural regions as market conditions evolved. The primary objective of the initial implementation was to establish the concept of a stateful zone. Each zone was no longer treated as a simple graphical object, but as a structured entity containin",
+  "url": "https://www.mql5.com/en/articles/23079"
+ },
+ {
+  "id": "89ac8a4d66050b6b",
+  "title": "Artificial Atom Algorithm (A3)",
+  "desc": "In algorithmic trading, one of the key tasks is optimizing the parameters of trading strategies. Traders face the need to adjust numerous variables daily: indicator periods, stop loss and take profit levels, position sizes, time filters, and dozens of other parameters. Each combination of these parameters can dramatically change the strategy's performance, and we continue to search for effective algorithms that can find the best solution in a reasonable amount of time. In this article, we will look at another optimization algorithm, namely the Artificial Atom Algorithm (A3), which is a metaheu",
+  "url": "https://www.mql5.com/en/articles/18958"
+ },
+ {
+  "id": "259420db29695a41",
+  "title": "Quantum Neural Network in MQL5 (Part III): A Virtual Quantum Processor Based on Qubits",
+  "desc": "In the of our research, we developed a system that uses mathematical analogues of quantum effects: resonance (cosine), interference (sine), decoherence (exponential). However, this remained only an imitation. Formally, it looked elegant, but in essence it was not quantum. Over time, it became clear that the model is elegant, but it does not capture the essence of quantum processing — superposition, entanglement, and the irreversibility of measurements. We operated with functions, not principles. Classical approaches remain limited: In the second version, a full-fledged quantum processor is use",
+  "url": "https://www.mql5.com/en/articles/18890"
+ },
+ {
+  "id": "e27fad2319be518a",
+  "title": "MQL5 Wizard Techniques you should know (Part 98): Using an Unscented Kalman Filter and a Capsule Network in a Custom Signal Class",
+  "desc": "In this ongoing series where we dive into advanced custom classes for the MQL5 Wizard, we are progressively constructing a toolkit that can be put to work in various market environments and situations. We build different class types that cater for: money management, trailing stops, and entry signals. In this series we have just covered the former two which means we now rotate back to signals where we look at a new implementation. Within the articles where we handle custom signals, we have so far focused on: raw high-speed execution, where we paired bitwise vectorization with perceptron classif",
+  "url": "https://www.mql5.com/en/articles/23112"
+ },
+ {
+  "id": "82656cfb708af7a9",
+  "title": "Encoding Candlestick Patterns (Part 3): Frequency Analysis for Single Candlestick Type Structure",
+  "desc": "The primary objective of this article is to perform a statistical frequency analysis of encoded candlestick patterns using real market data. Specifically, we will investigate the occurrence of individual candlestick structures (single-symbol patterns) within historical price series. Using Gold (XAUUSD) and GBPUSD as case studies, we will: To accomplish these objectives, we will develop an MQL5 script capable of automatically encoding historical price data, extracting pattern sequences, counting occurrences, and generating statistical summaries. The results obtained from this analysis will prov",
+  "url": "https://www.mql5.com/en/articles/23009"
+ },
+ {
+  "id": "e70472921d948181",
+  "title": "CSV Data Analysis (Part 5): Real-Time CSV Streaming from Live MetaTrader 5 Sessions",
+  "desc": "The first four parts of this series addressed a specific problem: exporting structured metric data from the MetaTrader 5 Strategy Tester into a Python analytics pipeline for post‑hoc analysis. The data in those implementations was historical by definition; each row in a CSV represented a completed test pass. That pipeline was designed for execution latencies measured in minutes or hours, meaning no component had to process data in real time. Live terminal operation introduces a fundamentally different set of requirements. An Expert Advisor or indicator running on a live chart processes ticks c",
+  "url": "https://www.mql5.com/en/articles/23065"
+ },
+ {
+  "id": "4bf233bd0b609989",
+  "title": "Market Simulation: Getting Started with SQL in MQL5 (V)",
+  "desc": "Hello, and welcome to another article in the series on how to create a replication/simulation system. In the previous article we described a small precaution that should be observed when using SQLite in MetaTrader 5. Although this behavior may change in the future, as a precaution you should always test things first before using SQLite in the MetaTrader 5 environment. In any case, there we showed how to proceed in order to add a query mechanism, so that in MQL5 code we could make full use of SQL and retrieve results using SQL queries. But there is still one last function we need to discuss and",
+  "url": "https://www.mql5.com/en/articles/13117"
+ },
+ {
+  "id": "8606bef1e936eebf",
+  "title": "From Basic to Intermediate: Object Events (II)",
+  "desc": "In the previous article the first basic part was explained and demonstrated, focusing mainly on events that occur in objects. However, we still need to discuss three other events that can be triggered when an object interacts with the user. Of these three events, one must be explicitly enabled for MetaTrader 5 to actually start generating it. Otherwise, even if our code is prepared to handle this event, it will never receive a notification that it has occurred. It is very important to understand each of these event types before using them together, so we will proceed as follows: we will create",
+  "url": "https://www.mql5.com/en/articles/16050"
+ },
+ {
+  "id": "46aaffe77360ff2e",
+  "title": "Community of Scientists Optimization (CoSO): Practice",
+  "desc": "Let us continue the description of the algorithm implementation that we started in the of the article. Here we will present the results of experimental testing on specialized test functions. The AssignFunds function describes the mechanism for distributing available \"funds\" among researchers in the CoSO algorithm. These resources represent opportunities for learning, moving, or participating in further processes, and their distribution influences the dynamics of the evolution of solutions. The function accepts one parameter: availableFunds - the total amount of funds to be distributed. The pro",
+  "url": "https://www.mql5.com/en/articles/18935"
+ },
+ {
+  "id": "75273694143590e0",
+  "title": "Market Microstructure in MQL5 (Part 6): Order Flow",
+  "desc": "built the defensive foundation. and measured whether price has memory. measured what volatility is doing and whether it persists. decomposed price variation into noise and signal. Part 6 asks the final measurement question: which direction is the informed flow moving? Order flow is the proximate cause of price changes. Every price movement results from one side of the market being more aggressive than the other — buyers lifting offers or sellers hitting bids. The challenge at one-minute resolution is that the aggressor side is not directly observable from OHLCV data. The functions in this arti",
+  "url": "https://www.mql5.com/en/articles/22939"
+ },
+ {
+  "id": "93ae6a7ffbe24494",
+  "title": "How to Detect and Normalize Chart Objects in MQL5 (Part 3): Alerting and Automated Trading from Manually Drawn Objects",
+  "desc": "Consider a typical trading session: a trader has drawn a pitchfork on the H1 chart, a Fibonacci retracement on the M15, and an equidistant channel on the M5. While monitoring, price approaches the pitchfork’s median line, touches the 61.8% Fibonacci level, and then breaks out of the channel. The trader is momentarily distracted, and by the time they return, the opportunity—or the stop-loss—has already passed. This scenario is not an edge case; it is a regular occurrence for any technical analyst who relies on manually drawn instruments. These limitations are not merely theoretical; they manife",
+  "url": "https://www.mql5.com/en/articles/22662"
+ },
+ {
+  "id": "dfb06c5ef92b7371",
+  "title": "Beyond GARCH (Part VI): Fractional Brownian Motion And The Multiplicative Cascade in MQL5",
+  "desc": "In we built the partition analysis engine that extracts the scaling function tau(q) and the Hurst exponent from raw price data. In we added the spectrum fitter that transforms tau(q) into a fitted probability distribution. Those two modules answered the question: This article answers the question: We now build the Simulation Engine, the module that takes the fitted parameters (H, distribution type, distribution coefficients, sample volatility) and generates a complete synthetic MMAR price path. The engine has three stages, each corresponding to a component of the Multifractal Model of Asset Re",
+  "url": "https://www.mql5.com/en/articles/22521"
+ },
+ {
+  "id": "c5be7d2949ce7cb3",
+  "title": "Price Action Analysis Toolkit Development (Part 74): Building an MQL5 Expert Advisor from Indicator Buffers",
+  "desc": "In the , we developed a weekend gap trading indicator that generated buy and sell signals together with corresponding take-profit and stop-loss levels. However, an indicator alone cannot place trades. If its signals are not executed manually or by an automated system, they remain visual instructions on the chart, even if they are effective. In this article, we build an Expert Advisor that reads the indicator’s signals and executes trades automatically while also making use of the stop-loss and take-profit values already defined by the indicator. Read on to see how the EA is implemented across ",
+  "url": "https://www.mql5.com/en/articles/23015"
+ },
+ {
+  "id": "86eef1836bdd47a6",
+  "title": "Building a Traditional Point and Figure Indicator in MQL5",
+  "desc": "MetaTrader 5 does not provide a built-in Point and Figure chart, and traditional indicators are primarily designed around time-based price bars. This makes it difficult to study pure price movement without time distortion. To overcome this limitation, we will develop a custom Point and Figure indicator in MQL5 that uses a fixed box size and reversal logic to represent market structure more clearly, without relying on time-based candle formation. The indicator will convert raw price data into structured X and O columns, making it useful for identifying trends, breakouts, support, resistance, an",
+  "url": "https://www.mql5.com/en/articles/22875"
+ },
+ {
+  "id": "729488058d97251d",
+  "title": "Rolling Sharpe Ratio with Statistical Significance Bands in MQL5",
+  "desc": "Traders frequently treat a short-window Sharpe ratio (eg, 40–60 bars with SR ≈ 1.0–1.5) as evidence of alpha. Statistically, however, such point estimates are highly variable: sample Sharpe has a standard error that scales with 1/√n, so small n produces estimates dominated by noise. The problem is compounded in MetaTrader 5, where the indicator engine can force full recalculation with prev_calculated = 0 and deliver only a partial history; stateful rolling accumulators then produce \"plausible\" numbers computed from incomplete data. What's needed is an MetaTrader 5-native diagnostic that report",
+  "url": "https://www.mql5.com/en/articles/22978"
+ },
+ {
+  "id": "9d53f42fe30390af",
+  "title": "A Practical Kalman Filter Price Smoother in MQL5: Adaptive Noise Estimation Without External Libraries",
+  "desc": "Simple and exponential moving averages share a single architectural weakness: their blending weight is fixed. That static weight produces excessive jitter in low‑volatility consolidation and unacceptable phase lag during rapid breakouts. What is needed is a filter that, on every bar, formally decides whether to trust the newest close or the model’s prior estimate — and does so adaptively rather than by manual tuning of N. Equally important for practitioners: the solution must be a self-contained, native MQL5 indicator with transparent diagnostics (Kalman Gain exposed in the Data Window), contr",
+  "url": "https://www.mql5.com/en/articles/23016"
+ },
+ {
+  "id": "2f8a1493e1bd1c6a",
+  "title": "From Basic to Intermediate: Object Events (I)",
+  "desc": "In the previous article we showed how an object available in MetaTrader 5 can be modified to create another object. This was done for a purpose that may be quite interesting and is, in itself, rather intriguing. In that article, my dear reader, you were also given a small challenge whose solution I will not show. The reason is that I want to encourage you to practice and study the article material so that you learn to solve the problems that will certainly arise on your own as you learn and implement new ideas. Although this task is very simple to solve, and the issue itself does not prevent t",
+  "url": "https://www.mql5.com/en/articles/16035"
+ },
+ {
+  "id": "e195678c4b32397f",
+  "title": "From Basic to Intermediate: Objects (III)",
+  "desc": "In the previous article, we looked at how to handle mouse-related events, as well as mouse-and-keyboard combinations in a simple, clear, and reasonably objective way. This is necessary for creating combinations of pressed buttons and combinations of button presses to perform certain actions on the chart. Although at first glance the functionality discussed in the previous article may seem relatively simple, when we move on to practice we notice that it can be much more complicated than it appears. This happens because, depending on the type of functionality we are going to implement and on the",
+  "url": "https://www.mql5.com/en/articles/16021"
+ },
+ {
+  "id": "ac84735eb0011776",
+  "title": "Quantum Neural Network in MQL5 (Part II): Training a Neural Network with Backpropagation on ALGLIB Markov Matrices",
+  "desc": "Mikhail Dyakonov, physicist Algorithmic traders are increasingly faced with the fact that their usual models are no longer producing results. LSTM networks, previously considered a breakthrough, achieve around 58% accuracy. Transformers, despite their advances in NLP, struggle with the noise of financial data. ARIMA-type models have lost their practical value. A typical situation: a trading system performs well historically, but quickly loses its efficiency in real trading. The main reason is overfitting and the inability of traditional networks to adapt to changing market conditions. The tran",
+  "url": "https://www.mql5.com/en/articles/18785"
+ },
+ {
+  "id": "52bbb80c500cbd86",
+  "title": "AI Trading Platform: Why MetaTrader 5 Is the Best Choice for Algorithmic Trading with Python, ONNX, and AI Assistant",
+  "desc": "MetaTrader 5 is a great platform for AI trading when a trader needs a complete end-to-end workflow: market data, research, modeling, testing, automation, and control within a single working environment. Such a platform is important not because a neural network can elegantly explain a chart, but because a trading idea must become a verifiable system: obtaining data, engineering features, training a model, integrating its output into an Expert Advisor, and evaluating the strategy's behavior before committing real capital. ( ) genuinely accelerates a trader's operations. Until recently, traders m",
+  "url": "https://www.mql5.com/en/articles/22718"
+ },
+ {
+  "id": "8ae20aedb08a207b",
+  "title": "Trading Options Without Options (Part 2): Use in Real Trading",
+  "desc": "In the of the series, we briefly described the trading instrument, its capabilities, advantages and disadvantages. We developed a theory and practical implementation in MQL5 of a method for emulating an option using an underlying asset. It is time to try options in action in actual market trading. To this end, we need to create an EA that will map option emulation levels into real orders and positions on the underlying asset and continuously rebalance the resulting total position. First, let's look at what strategies can be used in trading. Here we only consider speculative strategies. Let's s",
+  "url": "https://www.mql5.com/en/articles/18363"
+ },
+ {
+  "id": "8c8e30b26fc83948",
+  "title": "MQL5 Wizard Techniques you should know (Part 97): Using Convex Hull and a miniature GRU Network in a Custom Trailing Stop Class",
+  "desc": "We resume this series on the MQL5 Wizard where we rotate our focus between entry signals, money management and trailing stops. These three domains are the main ways Expert Advisors assembled with the MQL5 Wizard, can be customized beyond the built-in classes. For the last published articles we have looked at entry signals and then money management which means that trailing stops are our focus for this article. In the on trailing stops we married the Reservoir Sampling algorithm with a linear regression network to build a model whose goal was hugging a 'fair median' price. This was meant to gua",
+  "url": "https://www.mql5.com/en/articles/23055"
+ },
+ {
+  "id": "077eb0401f40684a",
+  "title": "Beyond the Clock (Part 3): Building an Indicator Window for Alternative Bars in MQL5",
+  "desc": "The two previous articles in this series built all ten alternative bar types defined in Chapter 1 of López de Prado's : standard bars (time, tick, volume, dollar) in , and runs bars in . Both articles ended at the same point: bars written to a CSV file and no way to inspect them inside the terminal. The natural response is to open the CSV in Python and plot it. This works for small histories. At the scale that alternative bars accumulate during live operation — several thousand dollar bars on an active session, tens of thousands of tick bars over a week — both matplotlib and Plotly hit renderi",
+  "url": "https://www.mql5.com/en/articles/22681"
+ },
+ {
+  "id": "bb95e715adc9bb61",
+  "title": "Building a Divergence System: Creating the MPO4 Custom Indicator",
+  "desc": "Most traders are familiar with oscillators like the Relative Strength Index (RSI) or the Stochastic. They answer the question: Where is the price compared to its recent range? They are effective but can be reactive, often lagging at the exact moment you need them most. Furthermore, they treat all price bars as equal, whether it is a tiny doji or a massive volatile candle. This is where the MPO4 diverges, not just in its signals, but in its foundational philosophy. It is important to understand what makes the MPO4 fundamentally different from most traditional oscillators. Many popular oscillato",
+  "url": "https://www.mql5.com/en/articles/22341"
+ },
+ {
+  "id": "2e62c0492f7f2a7d",
+  "title": "Implementing the Decorator Pattern in MQL5: Adding Logging, Timing, and Filtering to Any Indicator Non-Invasively",
+  "desc": "To add execution timing to an existing RSI indicator class, a developer typically inserts GetMicrosecondCount() calls around the computation. When a second developer needs logging, they open the same file and add Print() calls. When a third developer needs threshold filtering, they add conditional return logic. After a few iterations, the RSI class accumulates code unrelated to RSI computation. It contains infrastructure concerns that belong to the calling context, not to the indicator. This pattern violates the Open-Closed Principle, which states that a class should be open for extension but ",
+  "url": "https://www.mql5.com/en/articles/22962"
+ },
+ {
+  "id": "1994546d39127ed3",
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (Final Part)",
+  "desc": "In the , we examined the theoretical foundations of the framework, specifically designed to address complex forecasting tasks involving dynamic multivariate time series. Modern financial markets are complex dynamic systems in which numerous factors interact continuously: macroeconomic indicators, news events, interest rate changes, the behavior of major market participants, and many other, often latent, variables. Time series representing price and trading volume dynamics serve as the primary source of information about these processes. However, analyzing such data requires a model capable of ",
+  "url": "https://www.mql5.com/en/articles/17939"
+ },
+ {
+  "id": "80cfd773beb902e7",
+  "title": "Market Simulation: Getting started with SQL in MQL5 (IV)",
+  "desc": "Welcome everyone to another article in the series on how to create a replay/simulation system. In the previous article we showed how an SQL script can be embedded in an executable file created in MQL5. However, we did not stop there. We also made some changes to the class code to make it much easier to use and, of course, adjusted the way the code is implemented a little. Although the class code presented in the previous article is very useful for creating a database using built-in SQLite in MetaTrader 5 (which we will discuss later), this code does not allow us to execute queries from MQL5. T",
+  "url": "https://www.mql5.com/en/articles/13110"
+ },
+ {
+  "id": "9ef04c5cc6e5091b",
+  "title": "From Basic to Intermediate: Handling Mouse Events",
+  "desc": "In the previous article, we discussed how to implement events in a script. But first of all, we explained how one special data type can be used: the pointer, which we already know. Because the previous article contains important foundational material—especially for anyone planning to study graphical programming in more depth—I strongly recommend reviewing it carefully. In this article, however, we will focus on a different and simpler topic. The main topic here is mouse interaction and mouse-related events. To keep everything logically separated, we will start with the first topic of this arti",
+  "url": "https://www.mql5.com/en/articles/16000"
+ },
+ {
+  "id": "fc8bdf60ba963589",
+  "title": "Community of Scientists Optimization (CoSO): Theory",
+  "desc": "Continuing our exploration of optimization methods, in this article we will consider another approach to solving optimization problems - the CoSO (Community of Scientists Optimization) algorithm, based on simulating the mechanisms of the scientific community. Unlike classical bio-inspired algorithms, CoSO replicates the unique characteristics of scientific activity: publishing results in journals, competition for grants, forming research groups, and balancing in-depth study of known areas with the search for fundamentally new solutions. The CoSO algorithm was developed and published in 2012 by",
+  "url": "https://www.mql5.com/en/articles/18886"
+ },
+ {
+  "id": "3657918c006184cf",
+  "title": "Shape of Price: An Introduction to TDA and Takens Embedding in MQL5",
+  "desc": "Moving averages see level. RSI sees range. Bollinger bands see volatility. None of them see shape. Consider two one-hour EURUSD windows. In the first, price drifts upward in small mean-reverting steps. In the second, price oscillates around a flat mean. The two windows can be tuned to share almost everything an ordinary chart shows. Mean close: the same to the pip. Average range: the same. Realized volatility: the same. Number of bars above the moving average: the same. A trader who only sees those numbers cannot tell the two windows apart. The geometry of how price moves through its own past,",
+  "url": "https://www.mql5.com/en/articles/23037"
+ },
+ {
+  "id": "ec05f9b3c41be977",
+  "title": "MQL5 Trading Tools (Part 37): Adding a Per-Object Property-Editing Ribbon to the Canvas Drawing Layer",
+  "desc": "In the , we added shape and annotation tools with an in-place label editor, so we can now draw filled shapes, drop annotation markers, and type text directly onto chart objects. But once an object is placed, its appearance is locked. The colors, opacities, line widths, dash styles, fonts, and per-level visibility are all baked in at creation time from the tool defaults or the per-tool memory — there is no way to select a rectangle and change its fill color, dim a Fibonacci level, restyle a channel's center line, or thicken a trendline after the fact. The drawing layer can create objects, but i",
+  "url": "https://www.mql5.com/en/articles/22923"
+ },
+ {
+  "id": "7515444281b96f20",
+  "title": "Price Action Analysis Toolkit Development (Part 73): Building a Weekend Gap Trading Signal System in MQL5",
+  "desc": "In of the Price Action Analysis Toolkit Development series, we introduced weekend gaps as a price-action pattern and built a tool to detect and display them on the chart. However, traders and developers need more than visual marking. They need a clear, automatable signal model that defines the entry condition, stop-loss and take-profit rules, the lifetime of each setup, and EA-readable output that can be tested consistently in history and in real time. This article formalizes the weekend-gap trading logic and implements it as an MQL5 indicator. The indicator uses Friday close and Monday open a",
+  "url": "https://www.mql5.com/en/articles/22993"
+ },
+ {
+  "id": "7d36ca552367fe87",
+  "title": "From Static MA to Adaptive Filtering (Part 2): Implementing the SAMA_NLMS Indicator in MQL5",
+  "desc": "You already saw the NLMS idea in . In practice, however, transplanting the update equation from a notebook into MQL5 often breaks in ways traders and developers care about: the model can train on the still-forming bar, blow up on flat data, be skewed by single-bar spikes, and produce different live values after a terminal reload because its internal weight state depends on the exact history processed. This part stops treating SAMA as a formula and treats it as production software. It embeds NLMS into a chart-ready MQL5 indicator with proper buffers, input validation, ATR-based error clamping, ",
+  "url": "https://www.mql5.com/en/articles/23033"
+ },
+ {
+  "id": "9cc69a974f7c7517",
+  "title": "Overcoming Accessibility Problems in MQL5 Trading Tools (Part V): Gesture-Based Trading With Computer Vision",
+  "desc": "During high‑volatility news events, a trader with a motor impairment may see the breakout but miss the entry because a hand tremor makes the cursor slip. Five seconds later the price retraces, and the opportunity is lost. The problem statement is clear: There is no standard, low‑latency, hands‑free input method for MQL5 trading tools that accommodates motor impairments under market stress. This article presents a gesture‑controlled trading system that combines a webcam, MediaPipe Hands, and OpenCV to translate simple hand gestures (pointing index, thumbs‑up, fist) directly into MQL5 trade‑exec",
+  "url": "https://www.mql5.com/en/articles/22668"
+ },
+ {
+  "id": "39f9382af965cb5a",
+  "title": "Feature Engineering for ML (Part 6): Microstructural Features in MQL5",
+  "desc": "of this series implemented the full bar-level microstructure feature suite from AFML Chapter 19 in Python. It used Numba-accelerated kernels and a two-layer design that separates OHLCV computations from tick-stream computations. This article ports the bar-level layer to MQL5 as a single include file, , which any Expert Advisor can link against at runtime without any Python dependency. It also ships an accompanying separate-window indicator, , that visualizes the seven features live against price. The port covers all five estimator families: Roll (1984) spread and impact, Corwin-Schultz (2012) ",
+  "url": "https://www.mql5.com/en/articles/22734"
+ },
+ {
+  "id": "465f42f94040a1fc",
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (DA-CG-LSTM)",
+  "desc": "Financial markets are more than just numbers on screens. They are a dynamic environment in which every tick, every candlestick, and every change in trading volume reflects human emotions, expectations, fears, and hopes. Understanding this rhythm and learning to predict where prices will go is a challenge that traders constantly strive to solve. The focus is on the multivariate time series — the classical representation of market data: asset prices over time, trading volumes, technical indicators, and news flows. All of these are forms of data that can be analyzed, modeled, and ultimately used ",
+  "url": "https://www.mql5.com/en/articles/17901"
+ },
+ {
+  "id": "97684e7662d595dd",
+  "title": "Price Action Analysis Toolkit Development (Part 72): Building a Gap Fill Indicator in MQL5",
+  "desc": "The part of this series introduced the weekend gap strategy by mapping the weekly gap zones for future trading reference. Since gap zones are an important part of price action analysis, this provided a useful foundation for understanding how the market behaves around the weekly transition. This part builds on that foundation by introducing the gap fill signal indicator, which alerts when bullish or bearish gap fills occur and plots arrows on the chart for easy visual reference. A gap fill occurs when price returns to the unfilled area between Friday’s close and Monday’s open. In simple terms, ",
+  "url": "https://www.mql5.com/en/articles/22884"
+ },
+ {
+  "id": "7c52181cac9e3f51",
+  "title": "Graph Theory: Network Flow of Commodities (Ford-Fulkerson Algorithm), Used as a Liquidity-Capacity Engine",
+  "desc": "Most traders using ICT concepts know how to spot a Fair Value Gap or an Order Block. They can identify liquidity pools sitting above equal highs or below equal lows. But knowing where these structures are is only half the battle. The real frustration comes at the moment of decision—price is sitting in a bullish FVG, there is a liquidity pool above, and the setup looks valid. Yet the trade fails. Not because the analysis was wrong, but because the market simply did not have enough structural momentum to reach the target. There was no way to measure whether the path was strong or weak. The trade",
+  "url": "https://www.mql5.com/en/articles/22883"
+ },
+ {
+  "id": "4a16f4ba6364a560",
+  "title": "MQL5 Wizard Techniques you should know (Part 96): Using Wavelet Thresholding and LSTM Network in a Custom Money Management Class",
+  "desc": "We continue this series on different ideas and trade setups that can be explored and tested thanks to the MQL5 Wizard. In the last article where we looked into money management, in our custom class, we married the Suffix Automation Algorithm with an Autoencoder network. The model we had then could be the suitable tool for traders that like exploiting consolidating markets and where the historical \"Price DNA\" provides some repetitive patterns. It appeared to thrive in these conditions, provided we had a rhythm. This could then beg the question, what happens when the regime changes. For some tra",
+  "url": "https://www.mql5.com/en/articles/23013"
+ },
+ {
+  "id": "b639bde2dfb567e3",
+  "title": "The Repository Pattern in MQL5: Abstracting Trade History Access for Testable EA Logic",
+  "desc": "An Expert Advisor (EA) analytics module that directly calls HistorySelect(), HistoryDealGetDouble(), and HistoryDealGetInteger() inside its calculation methods introduces hidden dependencies on the MetaTrader 5 terminal state. For example, a method like CalculateWinRate() appears to be a pure function. In practice, it requires an active broker connection and a loaded account history. It also requires a prior HistorySelect() call with the correct date range. If any of these conditions are missing, the method returns incorrect results without raising a detectable error. This tight coupling creat",
+  "url": "https://www.mql5.com/en/articles/22958"
+ },
+ {
+  "id": "889d01637a63ad80",
+  "title": "Competitive Learning Algorithm (CLA)",
+  "desc": "Over the past decades, many bioinspired algorithms have been proposed, from ant colonies and particle swarms to gray wolves and whales. However, human society, with its complex social interactions, can also serve as a rich source of ideas for effective optimization methods. This idea is the basis for the Competitive Learning Algorithm (CLA). CLA uses a metaphor of the educational process, where the population of solutions is represented by students organized into classes. The algorithm elegantly models three types of learning: from the best in the class (teacher), from personal experience, and",
+  "url": "https://www.mql5.com/en/articles/18857"
+ },
+ {
+  "id": "004ef74da627dfe1",
+  "title": "Gaussian Processes in Machine Learning (Part 1): Classification Model in MQL5",
+  "desc": "Introduction We continue our acquaintance with the machine learning model – Gaussian processes (GP). In the previous , we examined in detail the regression problem, where the main goal was to predict continuous values. Today we have to deal with a much more complex topic – classification. Its main difficulty is that the inference for classification in Gaussian processes does not have a closed-form solution, which requires the use of approximate methods such as Laplace approximation. To effectively solve this complex problem, we will develop a modular library of Gaussian processes in MQL5. This",
+  "url": "https://www.mql5.com/en/articles/18875"
+ },
+ {
+  "id": "a0695db247133896",
+  "title": "Neural Networks in Trading: Actor—Director—Critic (Final Part)",
+  "desc": "In the , we became acquainted with the theoretical aspects of the framework, an extended version of the architecture. The classical architecture has become a cornerstone of many successful reinforcement learning ( ) algorithms. In this setup, the agent is divided into two components: the proposes actions, while the evaluates them based on rewards received from the environment. This combination enables the gradual development of a strategy in which actions become increasingly purposeful and evaluations progressively more accurate. However, despite its elegance and effectiveness, this architectu",
+  "url": "https://www.mql5.com/en/articles/17819"
+ },
+ {
+  "id": "a41d315903ec808c",
+  "title": "CSV Data Analysis (Part 4): Building an Automated Python-Driven Comparative Analysis Module for MQL5 Strategy Validation",
+  "desc": "MetaTrader 5 provides a capable native optimization engine. The Strategy Tester generates summary statistics, equity curves, and tabular results across parameter sweeps. But when the analytical workload scales to multi-asset, multi-timeframe research with custom counters, the native output layer becomes the bottleneck. A researcher comparing four indicator variants across six currency pairs on three timeframes ends up with roughly seventy-two distinct result sets. Manual inspection for risk-adjusted ranking, walk-forward parameter mapping, and narrative synthesis is slow. It also increases sel",
+  "url": "https://www.mql5.com/en/articles/22921"
+ },
+ {
+  "id": "fe6b78d0cb3996b9",
+  "title": "Building a Broker-Agnostic Symbol Resolution Layer in MQL5",
+  "desc": "Deploying the same Expert Advisor across multiple MetaTrader 5 brokers often fails not because of trading logic, but because instrument identifiers differ between terminals. The same market can appear as EURUSD, EURUSDm, EURUSD.fx, GOLD, XAUUSD.a, US30Cash, or US30 — and those differences break symbol selection (SymbolSelect), price reads (SYMBOL BID / SYMBOL ASK) and order submission. Failures can occur at initialization (symbols not selectable), in OnTick (quotes return zero), or at execution (OrderSend rejected), and they are frequently silent: the strategy appears correct but cannot operat",
+  "url": "https://www.mql5.com/en/articles/23199"
+ },
+ {
+  "id": "e9066b358c30abf1",
+  "title": "Persistent Homology in MQL5: The Reduction Algorithm and the Persistence Diagram",
+  "desc": "In the we built two classes. The Vietoris-Rips filtration enumerated every vertex, edge, and triangle, sorted by the scale at which it enters the complex. The boundary matrix recorded, for each simplex, the lower-dimensional simplices that form its border. We ended with a sorted list of simplices and a sparse matrix over Z/2. That matrix holds the answer, but not in readable form. The loops and connected components are encoded in its column relationships, not stated outright. Extracting them is the job of one algorithm: the standard column reduction. It is the computational heart of persistent",
+  "url": "https://www.mql5.com/en/articles/23233"
+ },
+ {
+  "id": "6472100c0402b634",
+  "title": "Overcoming Accessibility Problems in MQL5 Trading Tools (Part VI): Neural Command Integration",
+  "desc": "What if you could trade simply by thinking? Throughout this accessibility series, we have built solutions based on voice commands, gesture control, and audio feedback systems. Each addressed a specific barrier. But all of them share a common assumption: the trader must perform some physical action to execute a trade. This article looks beyond physical controls entirely. It explores a future where your trading intention flows directly from your brain to the terminal—no hands, no voice, no movement required. Brain-Computer Interface (BCI) technology is advancing rapidly, with systems like implan",
+  "url": "https://www.mql5.com/en/articles/23193"
+ },
+ {
+  "id": "4678e56c2611dbe0",
+  "title": "Neural Networks in Trading: Generalizing Time Series Without Data-Specific Dependence (Mamba4Cast)",
+  "desc": "The market is both relentless and unpredictable. It offers no second chances to those who misread its signals. This is especially true today, when news spreads faster than a candlestick can form on a one-minute chart. Modern traders no longer work with the past — they work with what is only beginning to emerge from the data stream. Identifying an emerging pattern before everyone else means gaining a competitive edge. Consequently, the requirement for today's algorithms is to predict events before they become obvious, while ideally avoiding the technical burden of extensive model tuning and mai",
+  "url": "https://www.mql5.com/en/articles/18116"
+ },
+ {
+  "id": "73b7639291107fab",
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (Final Part)",
+  "desc": "In the , we introduced the framework, a time-series forecasting model specifically adapted to the characteristics of financial markets. We examined the fundamental principles of probabilistic attention, the algorithms used to implement it at the kernel level, and techniques for improving computational efficiency while preserving forecasting accuracy. However, one equally important aspect remained outside the scope of that discussion: how these mechanisms are integrated into the main program and how reliable communication is established between the computational module and the trading algorithm",
+  "url": "https://www.mql5.com/en/articles/18041"
+ },
+ {
+  "id": "570ea1ffb40ac93f",
+  "title": "Neural Networks in Practice: Practice Makes Perfect",
+  "desc": "Hello and welcome to another article about neural networks. In the previous article, , we created our first neuron. However, programming is not that simple. Many people simply create, or rather copy, some code and start using it. This is definitely not a problem. By no means is there anything wrong with it; quite the opposite. It is a fairly sensible practice, provided, of course, that we study the code and try to improve it so that it meets our needs. What is wrong is using something without understanding how it works. Or, even worse, complaining about something or starting to talk about some",
+  "url": "https://www.mql5.com/en/articles/13748"
+ },
+ {
+  "id": "aa2f0ff3f3474e00",
+  "title": "From Basic to Intermediate: Object Events (III)",
+  "desc": "In the previous article we showed how to implement a very interesting, and even rather curious, type of application whose purpose is to let users edit the text of an OBJ_LABEL object directly on the chart, without opening the Object Properties dialog and editing the displayed text there. Although that was very interesting and useful from both a practical and educational point of view, we can do something even more interesting than what was shown in the previous article. I think you, dear reader, have probably tested it and may even have wondered whether that same application could be extended ",
+  "url": "https://www.mql5.com/en/articles/16075"
+ },
+ {
+  "id": "d10cac4bf47ae411",
+  "title": "Detecting and Visualizing Outlier Bars in MQL5 Using Modified Z-Score on OHLCV Features",
+  "desc": "Every price series contains bars that do not belong to the ordinary distribution of market behavior. A central bank rate decision can produce a candlestick whose body is ten times the median session range. A liquidity gap at a weekend open can generate a wick that dwarfs anything seen in the preceding hundred bars. A broker feed anomaly can inject a tick volume observation so large it renders the surrounding data invisible on a chart scale. These bars are outliers. They are not necessarily erroneous — many represent genuine, economically significant events. But their presence inside the fixed ",
+  "url": "https://www.mql5.com/en/articles/23217"
+ },
+ {
+  "id": "6d0caa59ce8d36c7",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 5): Real-Time Recovery Dashboard (Final Part)",
+  "desc": "Over the previous parts of this series, we built a recovery system capable of persisting trade state, restoring virtual protection after restart, recovering dynamic protection workflows, and validating recovery integrity. While these features work correctly, they are difficult to observe while the Expert Advisor is actively managing a trade on a chart. Most recovery activity happens internally through runtime memory, SQLite records, and log messages. As the recovery architecture grows, it becomes increasingly difficult to understand what the Expert Advisor is doing at any given moment. A dashb",
+  "url": "https://www.mql5.com/en/articles/22616"
+ },
+ {
+  "id": "735229f2308680e1",
+  "title": "Building Automated Daily Trading Reports with the SendMail Function",
+  "desc": "Traders often struggle to keep track of their performance at the end of each trading day, as manual review of trades in MetaTrader 5 can be time-consuming and prone to oversight. However, MetaTrader 5 does not provide a built-in system for automatically generating structured daily trading reports and sending them via email in a formatted way. In this article, we will build a system that automates the generation of daily trading reports directly from MetaTrader 5. You will learn how to retrieve historical trade data within a specified time range, calculate key performance metrics, and dynamical",
+  "url": "https://www.mql5.com/en/articles/23093"
+ },
+ {
+  "id": "68c1b9bfed5f9617",
+  "title": "CSV Data Analysis (Part 6): Multi-Broker Result Normalization and Cross-Platform CSV Reconciliation",
+  "desc": "The preceding articles in this series built an export and analysis pipeline based on a single, stable data contract: one EA, one broker, one schema. In practice, advanced strategy development rarely confines itself to that boundary. A strategy under evaluation may run simultaneously on a live account at one broker and a demo account at another for execution quality comparison. An optimization campaign may sweep the same parameters across two broker environments to detect broker‑dependent results. A portfolio of strategies may be distributed across multiple brokers for counterparty diversificat",
+  "url": "https://www.mql5.com/en/articles/23067"
+ },
+ {
+  "id": "11b27188a3dcbdd6",
+  "title": "Low-Frequency Quantitative Strategies in MetaTrader 5 (Part 4): A Volatility-Adjusted Momentum-Based Intraday System",
+  "desc": "In March 2024, the published a research paper aimed at assessing the \"validity of day trading as a long-term consistent and uncorrelated source of income for traders and investors\". To answer this question, they analysed the profitability of Opening Range Breakout (ORB) strategies across \"more than 7,000 US stocks traded from 2016 to 2023\". A selected portfolio of 20 stocks from that universe \"achieved a total net performance of over 1,600%, with a Sharpe ratio of 2.81, and an annualized alpha of 36%. Passive exposure in the S&P 500 would have achieved a total return of 198% during the same pe",
+  "url": "https://www.mql5.com/en/articles/23226"
+ },
+ {
+  "id": "2ad1c48841a1e693",
+  "title": "Automating Classic Market Methods in MQL5 (Part 3): Stan Weinstein Stage Analysis",
+  "desc": "In and of this series, we automated Richard Wyckoff's method: detecting accumulation and distribution structures, entering at the optimal moment, and projecting targets from the cause measured within the range. Both articles were concerned with a specific structural event—the Spring, the Sign of Strength—and the precise sequence those events must follow before a trade is valid. Stan Weinstein's Stage Analysis takes a broader view. Rather than waiting for a specific event within a structure, it asks a prior question: what phase of its lifecycle is this market currently in? Weinstein identified ",
+  "url": "https://www.mql5.com/en/articles/22746"
+ },
+ {
+  "id": "3691d1906a2832d8",
+  "title": "Feature Engineering for ML (Part 10): Structural Break Tests in MQL5",
+  "desc": "of this series implemented the structural break test suite from AFML Chapter 17 in Python, covering the Chu-Stinchcombe-White CUSUM test, the Chow-Type Dickey-Fuller test, SADF across six regression models, and two robustifying variants (QADF and CADF). This article ports the three core tests — CSW, Chow, and SADF — to MQL5 as a single include file, , placed in . The sub- and super-martingale tests (SM-Exp and SM-Power) are included as well, rounding the suite to five statistics per bar. The MQL5 implementation departs from the Python version in one structural decision that is worth stating im",
+  "url": "https://www.mql5.com/en/articles/23159"
+ },
+ {
+  "id": "39b4ba69d505eb2d",
+  "title": "Training a nonlinear U-Transformer on the residuals of a linear autoregressive model",
+  "desc": "In modern algorithmic trading, developers face a fundamental dilemma: linear models are simple and interpretable, but they are unable to capture complex nonlinear relationships in financial time series. Deep neural networks, on the other hand, can theoretically model any nonlinearity, but suffer from overfitting and instability in the presence of high market noise and limited data volumes. The article presents an innovative hybrid approach that addresses this dilemma through a two-stage modeling approach: first, a 25-feature linear autoregressive model extracts key statistical patterns from pr",
+  "url": "https://www.mql5.com/en/articles/18916"
+ },
+ {
+  "id": "89c833d34c25f242",
+  "title": "Building a Viewport SnR Volume Profile Indicator in MQL5",
+  "desc": "Support and Resistance (SnR) detection is often one of the first practical challenges traders face when moving from discretionary chart analysis to algorithmic development in MQL5—and it was no different for me. After experimenting with several approaches, I was able to successfully detect and plot SnR levels using both close-price and wick-based approaches. At the time, this felt like a major milestone: the market structure was finally being translated into code. However, that success quickly revealed a deeper and often overlooked problem—abundance. The chart became crowded with SnR levels, a",
+  "url": "https://www.mql5.com/en/articles/23198"
+ },
+ {
+  "id": "db7dd155ad334b57",
+  "title": "Feature Engineering for ML (Part 9): Structural Break Tests in Python",
+  "desc": "Chapter 17 of López de Prado's opens with a pointed observation. Structural breaks, the transition from one market regime to another, represent some of the best risk-adjusted trading opportunities precisely because most participants are caught off guard. A mean-reverting dynamic that gives way to momentum traps traders who continue to fade breakouts; a trending market that reverts catches traders who held directional positions too long. The actors on the losing side do not immediately recognise their mistake. They hold, they average down, and eventually they are stopped out. It is this forced ",
+  "url": "https://www.mql5.com/en/articles/23158"
+ },
+ {
+  "id": "48afe278efd3f12b",
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (ACEFormer)",
+  "desc": "The financial market is a complex and dynamic system in which every price movement results from the intricate interaction of numerous factors. It reflects virtually everything, from macroeconomic information flows and company-specific news to investor's emotional swings and the cold calculations of algorithmic trading strategies. Within this vast mixture of signals, noise, and distortions, extracting meaningful information and identifying genuine market trends is not merely an interesting challenge but a strategic necessity. The ability to accurately forecast market direction can provide a sus",
+  "url": "https://www.mql5.com/en/articles/18004"
+ },
+ {
+  "id": "72356ef4f9bbc578",
+  "title": "Beyond Maximum Drawdown: Building a Drawdown DNA Analyzer in MQL5",
+  "desc": "A while ago I ran two of my own strategies side by side, and both reported almost the same headline figure: a maximum drawdown of roughly 18%. On paper they looked like twins. In practice, they were nothing alike. One of them fell hard, then clawed its way back to a new equity high in about two weeks. The other drifted lower in small steps and stayed below its previous peak for the better part of four months. The number on the report was the same. The experience of holding each one was not. That gap is the problem this article is about. Maximum drawdown is the single statistic most traders quo",
+  "url": "https://www.mql5.com/en/articles/23175"
+ },
+ {
+  "id": "55b9f1ea21e057b4",
+  "title": "Building Volatility Models in MQL5 (Part IV): Implementing Long Memory Volatility Processes, FIGARCH, and HARCH",
+  "desc": "This article answers that question by: The theoretical justification for using FIGARCH or HARCH hinges on proving that volatility exhibits long-term persistence. To quantify this we can estimate the Hurst exponent (H) via rescaled range analysis. If the Hurst exponent is between 0.5 and 1.0, long-memory persistence exists. The accuracy of the Hurst Exponent depends on how the time series is partitioned. An optimal approach considers the minimum and maximum length of a partition instead of picking an arbitrary number. The minimum partition size should never fall below 10 to 20 data points. Smal",
+  "url": "https://www.mql5.com/en/articles/23171"
+ },
+ {
+  "id": "dcb4b7405ce210d8",
+  "title": "Building an Internal and External Market Structure Indicator",
+  "desc": "Understanding the structure and behavior of the internal and external market structure indicator is essential before beginning the implementation phase. Determining the function of each component and streamlining the development process are made easier by fully understanding the project's objective. We will develop an internal and external market structure indicator for MetaTrader 5 in this article. This indicator will automatically identify important structural points in price movement and show them on the chart. To identify swing highs and swing lows, which serve as the basis for identifying",
+  "url": "https://www.mql5.com/en/articles/22968"
+ },
+ {
+  "id": "a6aee2968e23b5c8",
+  "title": "Dream Optimization Algorithm (DOA)",
+  "desc": "As part of my extensive research into optimal optimization methods, I was drawn to a completely new and unusual approach inspired by a highly controversial and little-studied phenomenon: the mechanism of dreams. In March 2025, Y. Lang and Y. Gao presented to the scientific community an innovative metaheuristic optimization algorithm — Dream Optimization Algorithm (DOA) in the journal (Volume 436). This algorithm, inspired by the unique characteristics of human dreams, opens up new perspectives for solving complex optimization problems, including tuning trading system parameters. DOA simulates ",
+  "url": "https://www.mql5.com/en/articles/19177"
+ },
+ {
+  "id": "ee5f722d29f50e9e",
+  "title": "Creating an EMA Crossover Forward Simulation (Culmination): Interactive Synthetic Candles",
+  "desc": "In the first , we built the core components of a Forward Simulation Engine for MetaTrader 5. We started with a basic EMA crossover detector. Then we added an anchor mechanism, an EMA-slope projection loop, a pip-based invalidation rule, and a chart-object rendering system. The result was a self-contained indicator capable of projecting a fixed number of synthetic OHLC candles beyond a confirmed crossover. These candles were drawn with visible bodies and wicks, labeled clearly on the chart, and automatically removed when invalidated or replaced by a new signal. This initial version established ",
+  "url": "https://www.mql5.com/en/articles/22927"
+ },
+ {
+  "id": "1127e194940e6944",
+  "title": "MQL5 Wizard Techniques you should know (Part 100): Sliding Window Median and Bidirectional LSTM for a Custom Trailing Stop",
+  "desc": "We resume our deep dive into MQL5 where we pitch new ideas and models that can be prototyped easily and proven thanks to the MQL5 Wizard. In this series we rotate between implementations of trailing stops, entry signals, and money management. The last article we published was money management so we look at a trailing stop model for this article. Within the articles where we have only looked at trailing stops, we have utilized algorithms such as Skip Lists, Reservoir Sampling, and the Convex Hull. These tools were very broad and not identical however they did tend to map persistent, long-term m",
+  "url": "https://www.mql5.com/en/articles/23202"
+ },
+ {
+  "id": "81a33d5925f48f0b",
+  "title": "Automatic Session Volume Profile Builder in MQL5: Rendering POC and Value Area Without Third-Party Tools",
+  "desc": "MetaTrader 5 does not ship with a native volume profile indicator. This creates a practical gap for traders and quantitative developers who require session-based price-at-volume analysis — the identification of price levels where the market has spent the most transactional effort, expressed through accumulated tick volume per price tier. The gap is bridgeable entirely from within the MQL5 Standard Library. CopyTicksRange() provides tick-level trade data bounded by explicit time windows. Standard object-drawing functions provide the rendering canvas. No DLLs, no third-party libraries, and no ex",
+  "url": "https://www.mql5.com/en/articles/23169"
+ },
+ {
+  "id": "a27cc4f85edb7e60",
+  "title": "Duelist Algorithm",
+  "desc": "In algorithmic trading, every millisecond means profit or loss, so finding the optimal parameters for a trading strategy becomes a critical task. Modern traders are turning to artificial intelligence and evolutionary algorithms to fine-tune their trading systems. Today we will look at a new optimization approach — the Duelist Algorithm — that draws inspiration from the ancient practice of dueling. The algorithm in 2015 by a group of Indonesian scientists led by Biyanto as an alternative to traditional evolutionary algorithms with the aim of minimizing the \"blind\" nature of mutation and crossov",
+  "url": "https://www.mql5.com/en/articles/19093"
+ },
+ {
+  "id": "a7e4472920341ae7",
+  "title": "Code, Tears, and Algo Forge",
+  "desc": "Free, uninhibited emotion or strict pragmatism? Amid piles of crumpled drafts and discarded words finally rejected, I couldn’t start writing for a long time. No, not even writing, but trying to describe things that were practically unfamiliar to me. Every time everything was wrong, not right, and not sincere. And now I decided to just tell it like it is. Just my impressions. Personal and not so personal. Let this be an emotional story about the path from something familiar to something necessary... About the path from simple archives to an obscure repository. The immediate question that might ",
+  "url": "https://www.mql5.com/en/articles/21732"
+ },
+ {
+  "id": "1fc2f3025171a279",
+  "title": "Implementation of the Quantum Reservoir Computing (QRC) circuit",
+  "desc": "Modern traders face a fundamental dilemma: the more complex a trading system becomes, the more prone it is to overfitting. Classical machine learning algorithms demonstrate brilliant results on historical data, but fail catastrophically in real trading. Neural networks trained on thousands of examples suddenly become useless at the slightest change in market conditions. Support Vector Machines show 85% accuracy in backtests, but incur losses within the first week of live trading. The root of the problem goes beyond technical nuances. Financial markets are adaptive systems where each participan",
+  "url": "https://www.mql5.com/en/articles/19043"
+ },
+ {
+  "id": "79d649d6ab6665fd",
+  "title": "Beyond GARCH (Part VII): Monte Carlo Volatility Forecasting in MQL5",
+  "desc": "In , we built the simulation engine that generates a single MMAR price path. One path is interesting for visualization but useless for forecasting. A single random draw tells you nothing about the distribution of possible futures. To produce a volatility forecast — a point estimate with uncertainty bounds — we need to run the simulation engine many times and aggregate the results. This is the Monte Carlo method: run N independent simulations, measure the volatility of each, and extract statistics from the resulting distribution. This article builds the CMonteCarlo class, the final computationa",
+  "url": "https://www.mql5.com/en/articles/22537"
+ },
+ {
+  "id": "423d179fe482443a",
+  "title": "Digital Signal Processing for Traders: Building Ehlers' Filter Library in MQL5",
+  "desc": "Before he ever wrote a line of trading code, spent years as an engineer designing filters for radar and communications systems. When he turned to the markets, he brought that toolbox with him, and he made a claim most technical analysts never stop to examine: a price chart is a , in exactly the sense an electrical engineer means it. It carries information mixed with noise, it contains components at different frequencies, and it can be processed with the same mathematics that cleans up a radio transmission. Most indicators traders use every day—especially the simple moving average—are crude fil",
+  "url": "https://www.mql5.com/en/articles/23149"
+ },
+ {
+  "id": "a9e08696a51a1b9d",
+  "title": "Heatmap Visualization of Intraday Return Patterns in MQL5 Using CCanvas",
+  "desc": "Experienced traders often observe that certain instruments behave differently depending on the time of day and the day of the week. EURUSD tends to exhibit higher volatility during the London-New York overlap. XAUUSD frequently shows directional movement during Asian-session hours. These tendencies are recognizable to practitioners but rarely quantified systematically, because MetaTrader 5 provides no native tool for aggregating and visualizing return distributions across time dimensions simultaneously. A heatmap solves this problem directly. The heatmap computes the average bar return for eac",
+  "url": "https://www.mql5.com/en/articles/23168"
+ },
+ {
+  "id": "245f756d6ee7c827",
+  "title": "Market Microstructure in MQL5 (Part 7): Regime Classification",
+  "desc": "built the defensive foundation. and measured whether price has memory. measured what volatility is doing and whether it persists. decomposed price variation into noise and signal. measured the direction of informed flow. Parts 2-6 together produce eleven distinct measurements of the market environment on the one-minute timeframe. Each measurement is individually informative. Together they are correlated, partially redundant, and impossible to act on simultaneously in real time. A position-sizing system cannot respond to eleven separate signals. What is needed is a reduction: a single composite",
+  "url": "https://www.mql5.com/en/articles/22940"
+ },
+ {
+  "id": "d2391ea750f3d616",
+  "title": "Automating Trading Strategies in MQL5 (Part 49): The Quasimodo (QM) Reversal Pattern",
+  "desc": "Reversal trading often causes traders their worst losses. Entering early means fighting the prevailing move; waiting for confirmation often means missing the best price. The offers a structured way to read a reversal, but spotting it by eye is subjective. Where exactly is the left shoulder? Is the new extreme a real head or just noise? Has the structure actually broken, or is the price merely pausing? And once the shape is there, where do you enter, where is the trade invalidated, and how far can it reasonably run? Without a rule-based framework, these answers shift from chart to chart, and th",
+  "url": "https://www.mql5.com/en/articles/23141"
+ },
+ {
+  "id": "b7733215175cd4e0",
+  "title": "Developing a Neural Network Trading Robot Based on Mamba with Selective State Space Models",
+  "desc": "Modern algorithmic trading faces a fundamental problem. Classical neural network architectures based on the attention mechanism exhibit quadratic computational complexity O(N²). This means that doubling the length of the time series results in a fourfold increase in processing time. For a trader analyzing thousands of candles of historical data, this inefficiency becomes a critical limitation. Imagine this situation: your trading system needs to analyze the last 2048 price bars to decide whether to enter a position. The Transformer architecture would require about 4 million attention operation",
+  "url": "https://www.mql5.com/en/articles/19047"
+ },
+ {
+  "id": "a88f8c395a917890",
+  "title": "Engineering Trading Discipline into Code (Part 8): Building a Setup Confirmation and Trade Authorization Layer in MQL5",
+  "desc": "Most trading systems focus on generating signals, yet very few control when those signals are actually permitted to execute. A setup may appear on the chart long before it becomes valid, and it may remain visible after its trading window has expired. In practice, this causes premature entries and stale trades. It can also allow interference from other Expert Advisors or manual actions that bypass strategy rules. What is missing is a dedicated authorization layer between signal generation and execution. Such a layer must track setup status, apply session and expiry rules, and react when violati",
+  "url": "https://www.mql5.com/en/articles/23100"
+ },
+ {
+  "id": "881e343664434101",
+  "title": "Measuring What Matters (Part 1) : Portfolio Risk Decomposition in MQL5",
+  "desc": "There is a moment almost every multi-symbol trader experiences at least once. Three positions are open, each carefully sized. Stop losses are placed. Risk per trade is a modest one percent on each instrument. By the standard calculation, total exposure is three percent: manageable, controlled, sensible. Then Non-Farm Payroll drops. EURUSD falls eighty pips in thirty seconds. GBPUSD follows immediately seventy pips down. Gold spikes briefly, then reverses with everything else as the dollar surges. All three positions are hit at the same moment, in the same direction, by the same underlying even",
+  "url": "https://www.mql5.com/en/articles/23096"
+ },
+ {
+  "id": "7979669f7c8b734f",
+  "title": "Feature Engineering for ML (Part 8): Entropy Features in MQL5",
+  "desc": "This article ports four entropy estimators—Shannon, Plug-In, Lempel-Ziv and Kontoyiannis—that were implemented in Python ( ) to MQL5 and explains the design decisions required to make them practical inside MetaTrader 5. The Python reference relied on NumPy sliding windows, Python dictionaries and Numba acceleration; none of those primitives are available in MQL5. More importantly, MQL5 access to intrabar ticks is limited to the broker‑cached window returned by , so historical tick sequences beyond that cache are simply unavailable. The port therefore addresses three central constraints at once",
+  "url": "https://www.mql5.com/en/articles/23077"
+ },
+ {
+  "id": "de4e404fe9a80b74",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 4): Trade-State Reconciliation and Safe Mode Recovery",
+  "desc": "A self-healing Expert Advisor can restore its trade state after a terminal restart, but successful recovery depends on one important requirement: the broker-side position, the runtime trade state, and the SQLite recovery record must all describe the same trade. In practice, this consistency cannot always be guaranteed. A broker-side position may still exist after its recovery record has been deleted, or a recovery record may remain active after the position has been closed manually. In either case, the Expert Advisor can no longer verify that its virtual stop-loss, virtual take-profit, breakev",
+  "url": "https://www.mql5.com/en/articles/22615"
+ },
+ {
+  "id": "e36bd66fd69ca0b7",
+  "title": "Persistent Key-Value Store in MQL5: Using Flat Files as a Lightweight Database for EA State",
+  "desc": "MetaTrader 5 Expert Advisors (EAs) execute within a runtime environment managed entirely by the trading terminal. When the terminal closes, all volatile runtime state is cleared, including counters, flags, and session timestamps. Upon initialization, the EA reverts to its compiled default state. This behavior is a standard characteristic of managed execution environments rather than a deficiency within the MQL5 runtime. Architectural vulnerabilities arise if an EA stores operational state only in global variables and has no independent persistence mechanism to restore it after termination. In ",
+  "url": "https://www.mql5.com/en/articles/23156"
+ },
+ {
+  "id": "f7a6a34416166ab3",
+  "title": "Risk Manager for Trading Robots (Part I): Risk Control Include File for Expert Advisors",
+  "desc": "Every trader sooner or later faces the bitter truth: success in trading is determined not so much by the ability to find entry points, but by the ability to preserve capital. Statistics are merciless: more than 90% of traders lose their capital due to a lack of effective risk management. Today, we will explore the creation of a professional risk management system for MetaTrader 5, which can transform even the most aggressive strategies into relatively safe earning tools. Let's look at typical reasons for losses in trading, based on general observations and experience working with traders. In m",
+  "url": "https://www.mql5.com/en/articles/18918"
+ },
+ {
+  "id": "2dc303375e7b1b3f",
+  "title": "MQL5 Wizard Techniques you should know (Part 99): Using a KD-Tree and an Echo State Network in a Custom Money Management Class",
+  "desc": "As the approach to Money Management continues to evolve, the pursuit of risk-adjusted returns usually leads us to rethink how we filter market noise. In the last take on this subject, we addressed high-frequency environment challenges by engaging a variety of algorithms that have included Fenwick Trees, Wavelet Denoising, and even Suffix Automata. These algorithms run within models that were purpose-built to capture hidden micro-patterns and remove noise from short-term signal sequences. These approaches were inherently deterministic in that they leaned towards precise pattern matching within ",
+  "url": "https://www.mql5.com/en/articles/23144"
+ },
+ {
+  "id": "9884bee6a5689040",
+  "title": "Automating Classic Market Methods in MQL5 (Part 2): Wyckoff Cause and Effect—Point and Figure Price Targets",
+  "desc": "In , we built an Expert Advisor that detects Wyckoff accumulation and distribution with a finite state machine. It confirms the spring→SOS sequence for longs and the upthrust→SOW sequence for shorts, then enters at the last point of support or supply. That EA answered the question of where to enter. This article answers the companion question that Wyckoff considered equally important: where to exit. The answer comes from his second law—cause and effect—and the point and figure count that measures it. The EA built here is self-contained: every function needed to run it is included below, and no",
+  "url": "https://www.mql5.com/en/articles/22472"
+ },
+ {
+  "id": "20111e0e1fe3f9d2",
+  "title": "Creating an HTML Dashboard for Strategy Tester and Prop Firm Challenge Analysis in MQL5",
+  "desc": "A profitable Strategy Tester run alone does not answer whether an Expert Advisor would pass a prop‑firm style challenge. Prop challenges are rule sets — profit target, daily loss limit, overall drawdown limit, minimum trading days, and sometimes a strict time window — and a single backtest start date can be misleading. This article presents a practical, reusable evaluation layer: a small MQL5 module that monitors balance and equity during a test, normalizes them to a configurable “virtual” challenge account, and simulates either a single attempt or a rolling series of attempts (daily/weekly/mo",
+  "url": "https://www.mql5.com/en/articles/22969"
+ },
+ {
+  "id": "386ec6476d2e9225",
+  "title": "Lazy-Loading Indicator Handles in MQL5: A Resource Manager Pattern for Multi-Timeframe EAs",
+  "desc": "A multi-timeframe Expert Advisor (EA) trading 10 symbols across four timeframes with five indicators per combination requires 200 indicator handles for full coverage. Conventionally, developers initialize all handles inside OnInit(). Before OnInit() returns, the terminal connects to each price feed, verifies data availability, allocates indicator buffers, and registers the handles. This process introduces initialization latency. This latency increases during terminal cold starts or when synchronizing stale historical data. Furthermore, many of these handles are rarely used simultaneously. A st",
+  "url": "https://www.mql5.com/en/articles/22955"
+ },
+ {
+  "id": "fcd3f2ba2fc40996",
+  "title": "MetaTrader 5 Machine Learning Blueprint (Part 18): Sequential Bootstrap, Corrected — Clone, Class Erasure, and the Comparison Toolkit",
+  "desc": "After the calibration step in , a diagnostic check revealed that the out-of-fold Brier score of the sequential bootstrap arm was 0.2442 — the same, to four decimal places, as the standard bootstrap arm at 0.2441. The two numbers should not be that close. demonstrated, both analytically and through Monte Carlo simulation, that sequential bootstrap draws samples of higher average uniqueness than standard bootstrapping, and that this uniqueness advantage propagates into better out-of-bag discrimination. Identical out-of-fold Brier scores from two samplers that differ in their construction princip",
+  "url": "https://www.mql5.com/en/articles/22912"
+ },
+ {
+  "id": "71663ae88a652402",
+  "title": "Engineering a Self-Healing Expert Advisor in MQL5 (Part 3): Restart-Aware Breakeven and Trailing Systems",
+  "desc": "Breakeven and trailing-stop systems are common techniques for reducing risk and protecting profits during the lifetime of a trade. Unlike fixed stop-loss and take-profit levels, these protection mechanisms evolve as market conditions change. The challenge appears when a terminal restart interrupts trade management. Although the trade remains open, important runtime information may be lost. For example: Without this information, the Expert Advisor may resume management using an outdated view of the trade. In this part of the series, we will extend the recovery architecture to persist and restor",
+  "url": "https://www.mql5.com/en/articles/22614"
+ },
+ {
+  "id": "9a316abc9cc53c12",
+  "title": "Building an Object-Oriented Session VWAP Engine in MQL5",
+  "desc": "When I build intraday trading systems in MQL5, my first reflex is usually to drop a standard moving average on the chart to filter the short-term trend. This approach looks tolerable during dead market hours or tight ranges. However, live tests on liquid currency pairs reveal a major structural flaw. A major macro news candle can instantly shift the market baseline due to institutional volume. A simple moving average treats that heavy candle the same as a low-volume candle from the quiet night session because it only accounts for closing prices. This creates a dangerous trap for an automated r",
+  "url": "https://www.mql5.com/en/articles/22990"
+ },
+ {
+  "id": "33c34c6d4aeeddef",
+  "title": "Feature Engineering for ML (Part 7): Entropy Features in Python",
+  "desc": "The preceding articles in this series derived features from price geometry ( ), from the trading calendar ( ), and from the bid-ask spread and price impact ( ). This article derives features from a different dimension: the information content of the trade-direction sequence within each bar. Chapter 18 of López de Prado's introduces four entropy estimators applied to encoded tick-rule sequences: Shannon entropy, plug-in (block) entropy, Lempel-Ziv complexity, and the Kontoyiannis universal entropy. All four operate on a symbolic message — a string of characters encoding the direction of each tr",
+  "url": "https://www.mql5.com/en/articles/22756"
+ },
+ {
+  "id": "5740cefab2dcbae9",
+  "title": "Forecasting in Trading Using Grey Models",
+  "desc": "Introduction Modern financial markets are highly volatile and dynamic, so accurate and timely forecasting plays a crucial role in making trading decisions. Every trader strives to develop and apply forecasting methods that allow them to anticipate future price movements and maximize profits. Technical analysis offers a wide variety of forecasting methods. But many forecasting methods have their limitations. For example, a statistical approach to forecasting requires a large amount of historical data. Other approaches work well only on stationary time series, etc. In this context, interest in f",
+  "url": "https://www.mql5.com/en/articles/19012"
+ },
+ {
+  "id": "744bdfedc6a588e5",
+  "title": "Gaussian Processes in Machine Learning (Part 2): Implementing and Testing a Classification Model in MQL5",
+  "desc": "In the previous , we learned about the theoretical foundations of the Bayesian machine learning model — Gaussian Processes — and began creating a GP library in MQL5, describing two key classes: GaussianProcess and GPOptimizationObjective. Here we will complete the library by taking a detailed look at the implementation of the key interfaces: IKernel, ILikelihood, and IInference. After this, we will test the library on synthetic data and write indicators for classification and regression, demonstrating its operation in online mode — with retraining the model on each new bar. The IKernel interfa",
+  "url": "https://www.mql5.com/en/articles/19013"
+ },
+ {
+  "id": "0b331e26478e63d1",
+  "title": "Linear Regression Prediction Channels in MQL5: Constructing Statistically Grounded Confidence and Prediction Bands",
+  "desc": "Bollinger Bands and Donchian Channels are the most widely used channel overlays in algorithmic and discretionary trading. Both are computationally straightforward, visually intuitive, and available in virtually every charting platform. Both are also descriptive tools rather than inferential ones: they summarize realized price behavior without committing to an explicit statistical model from which formal coverage statements could be derived. Understanding this distinction is not an academic exercise; it has direct consequences for how channel violations should be interpreted, how channel width ",
+  "url": "https://www.mql5.com/en/articles/23130"
+ },
+ {
+  "id": "82790c332313f38a",
+  "title": "The MQL5 Standard Library Explorer (Part 13): Implementing the Math Solvers Library in Trading",
+  "desc": "Financial markets exhibit nonstationarity: volatility clusters, trend reversals, and liquidity shifts create distinct regimes. A trading system configured with fixed parameters may perform excellently during one regime but collapse during the next. To illustrate the need for adaptation, consider a typical moving average crossover strategy with static periods and thresholds. Such fixed settings fail to adjust to changing volatility, leading to false signals or missed opportunities. A trader using a fixed‑parameter moving average crossover finds that static thresholds generate excessive false si",
+  "url": "https://www.mql5.com/en/articles/23127"
+ },
+ {
+  "id": "0fea676428516235",
+  "title": "Meta-Labeling the Classics (Part 2): Filtering and Sizing ADX Trades",
+  "desc": "The DI crossover fires a directional signal whenever crosses above or the reverse. It does not ask whether the market at that moment has sufficient directional persistence for a trend-following bet to recover transaction costs before price reverts. In a trending environment, the crossover is often decisive: the dominant DI climbs steadily, the separation widens, and the position runs in the intended direction. In a ranging environment, the two DI lines oscillate around each other, generating repeated crossovers within the same compressed price band. Each crossing looks structurally identical t",
+  "url": "https://www.mql5.com/en/articles/22754"
+ },
+ {
+  "id": "cab46835a146f88d",
+  "title": "Designing a Strategy State Machine in MQL5: Replacing Nested If-Else Logic with Formal States",
+  "desc": "A typical Expert Advisor begins with a manageable OnTick() function. There is a condition to check whether a position is open, a condition to evaluate the entry signal, a condition to verify the spread is acceptable, and a condition to check whether the session is active. Four conditions, clearly readable, easily debugged. After six months of feature additions, the same function grows to forty-three nested conditionals across 230 lines. To add a trailing stop, a new developer must first identify the exact condition set that indicates an open, profitable position before the first take-profit le",
+  "url": "https://www.mql5.com/en/articles/22950"
+ },
+ {
+  "id": "db62acece9049684",
+  "title": "MQL5 Trading Tools (Part 38): Adding a Tabbed Settings Window for Editing Object Properties",
+  "desc": "In the , we added a floating ribbon for quick property edits. While fast for common tweaks, it exposes only select properties. To handle the full breadth of settings, we need a more comprehensive, tabbed editor. This article covers that upgrade. We add a tabbed settings window in two new files. It opens from the ribbon's Settings button and binds to the selected object. The window exposes four tabs — Style, Text, Coordinates, and Visibility — driven by the same descriptor system as the ribbon. It also supports scrolling, expands level lists into per-level rows, allows exact price/time entry fo",
+  "url": "https://www.mql5.com/en/articles/22977"
+ },
+ {
+  "id": "043e101f1ecc398b",
+  "title": "From Cloud to Complex: The Vietoris-Rips Filtration in MQL5",
+  "desc": "The produced two concrete geometric objects: a Takens-embedded point cloud and its full pairwise distance matrix. Those are necessary but not sufficient for answering the topological questions we care about (Do clusters exist? Is there a persistent loop?). What we need next is a reproducible, computable topological object that records when simplices appear as we relax a scale parameter ε: the Vietoris–Rips filtration (and the boundary relations that let us compute homology). Concretely, the task addressed here is implementation-focused: given N embedded points and a cutoff maxEpsilon, enumerat",
+  "url": "https://www.mql5.com/en/articles/23106"
+ },
+ {
+  "id": "abe4641dfa7533b9",
+  "title": "Interactive Supply and Demand Zone Manager in MQL5 (Part II): Event-Driven Architecture and Persistent Lifecycle Logging",
+  "desc": "In of this series, we introduced a dynamic supply and demand zone management framework capable of transforming ordinary chart rectangles into actively managed market structures. Rather than treating support and resistance zones as passive visual annotations, we developed a system capable of creating, maintaining, merging, invalidating, and restoring structural regions as market conditions evolved. The primary objective of the initial implementation was to establish the concept of a stateful zone. Each zone was no longer treated as a simple graphical object, but as a structured entity containin",
+  "url": "https://www.mql5.com/en/articles/23079"
+ },
+ {
+  "id": "5c629810b79d1d7b",
+  "title": "Artificial Atom Algorithm (A3)",
+  "desc": "In algorithmic trading, one of the key tasks is optimizing the parameters of trading strategies. Traders face the need to adjust numerous variables daily: indicator periods, stop loss and take profit levels, position sizes, time filters, and dozens of other parameters. Each combination of these parameters can dramatically change the strategy's performance, and we continue to search for effective algorithms that can find the best solution in a reasonable amount of time. In this article, we will look at another optimization algorithm, namely the Artificial Atom Algorithm (A3), which is a metaheu",
+  "url": "https://www.mql5.com/en/articles/18958"
+ },
+ {
+  "id": "3886681951cfbc41",
+  "title": "Quantum Neural Network in MQL5 (Part III): A Virtual Quantum Processor Based on Qubits",
+  "desc": "In the of our research, we developed a system that uses mathematical analogues of quantum effects: resonance (cosine), interference (sine), decoherence (exponential). However, this remained only an imitation. Formally, it looked elegant, but in essence it was not quantum. Over time, it became clear that the model is elegant, but it does not capture the essence of quantum processing — superposition, entanglement, and the irreversibility of measurements. We operated with functions, not principles. Classical approaches remain limited: In the second version, a full-fledged quantum processor is use",
+  "url": "https://www.mql5.com/en/articles/18890"
+ },
+ {
+  "id": "9acad622129f00d8",
+  "title": "MQL5 Wizard Techniques you should know (Part 98): Using an Unscented Kalman Filter and a Capsule Network in a Custom Signal Class",
+  "desc": "In this ongoing series where we dive into advanced custom classes for the MQL5 Wizard, we are progressively constructing a toolkit that can be put to work in various market environments and situations. We build different class types that cater for: money management, trailing stops, and entry signals. In this series we have just covered the former two which means we now rotate back to signals where we look at a new implementation. Within the articles where we handle custom signals, we have so far focused on: raw high-speed execution, where we paired bitwise vectorization with perceptron classif",
+  "url": "https://www.mql5.com/en/articles/23112"
+ },
+ {
+  "id": "5e5ed555f332d8e7",
+  "title": "Encoding Candlestick Patterns (Part 3): Frequency Analysis for Single Candlestick Type Structure",
+  "desc": "The primary objective of this article is to perform a statistical frequency analysis of encoded candlestick patterns using real market data. Specifically, we will investigate the occurrence of individual candlestick structures (single-symbol patterns) within historical price series. Using Gold (XAUUSD) and GBPUSD as case studies, we will: To accomplish these objectives, we will develop an MQL5 script capable of automatically encoding historical price data, extracting pattern sequences, counting occurrences, and generating statistical summaries. The results obtained from this analysis will prov",
+  "url": "https://www.mql5.com/en/articles/23009"
+ },
+ {
+  "id": "c8835baa6cf7beb6",
+  "title": "CSV Data Analysis (Part 5): Real-Time CSV Streaming from Live MetaTrader 5 Sessions",
+  "desc": "The first four parts of this series addressed a specific problem: exporting structured metric data from the MetaTrader 5 Strategy Tester into a Python analytics pipeline for post‑hoc analysis. The data in those implementations was historical by definition; each row in a CSV represented a completed test pass. That pipeline was designed for execution latencies measured in minutes or hours, meaning no component had to process data in real time. Live terminal operation introduces a fundamentally different set of requirements. An Expert Advisor or indicator running on a live chart processes ticks c",
+  "url": "https://www.mql5.com/en/articles/23065"
+ },
+ {
+  "id": "642971c7aae78ffc",
+  "title": "Market Simulation: Getting Started with SQL in MQL5 (V)",
+  "desc": "Hello, and welcome to another article in the series on how to create a replication/simulation system. In the previous article we described a small precaution that should be observed when using SQLite in MetaTrader 5. Although this behavior may change in the future, as a precaution you should always test things first before using SQLite in the MetaTrader 5 environment. In any case, there we showed how to proceed in order to add a query mechanism, so that in MQL5 code we could make full use of SQL and retrieve results using SQL queries. But there is still one last function we need to discuss and",
+  "url": "https://www.mql5.com/en/articles/13117"
+ },
+ {
+  "id": "135effd76b46a3b7",
+  "title": "From Basic to Intermediate: Object Events (II)",
+  "desc": "In the previous article the first basic part was explained and demonstrated, focusing mainly on events that occur in objects. However, we still need to discuss three other events that can be triggered when an object interacts with the user. Of these three events, one must be explicitly enabled for MetaTrader 5 to actually start generating it. Otherwise, even if our code is prepared to handle this event, it will never receive a notification that it has occurred. It is very important to understand each of these event types before using them together, so we will proceed as follows: we will create",
+  "url": "https://www.mql5.com/en/articles/16050"
+ },
+ {
+  "id": "e2c73173d502d745",
+  "title": "Community of Scientists Optimization (CoSO): Practice",
+  "desc": "Let us continue the description of the algorithm implementation that we started in the of the article. Here we will present the results of experimental testing on specialized test functions. The AssignFunds function describes the mechanism for distributing available \"funds\" among researchers in the CoSO algorithm. These resources represent opportunities for learning, moving, or participating in further processes, and their distribution influences the dynamics of the evolution of solutions. The function accepts one parameter: availableFunds - the total amount of funds to be distributed. The pro",
+  "url": "https://www.mql5.com/en/articles/18935"
+ },
+ {
+  "id": "715b38ba73b1d080",
+  "title": "Market Microstructure in MQL5 (Part 6): Order Flow",
+  "desc": "built the defensive foundation. and measured whether price has memory. measured what volatility is doing and whether it persists. decomposed price variation into noise and signal. Part 6 asks the final measurement question: which direction is the informed flow moving? Order flow is the proximate cause of price changes. Every price movement results from one side of the market being more aggressive than the other — buyers lifting offers or sellers hitting bids. The challenge at one-minute resolution is that the aggressor side is not directly observable from OHLCV data. The functions in this arti",
+  "url": "https://www.mql5.com/en/articles/22939"
+ },
+ {
+  "id": "bb9c6e45638a1863",
+  "title": "How to Detect and Normalize Chart Objects in MQL5 (Part 3): Alerting and Automated Trading from Manually Drawn Objects",
+  "desc": "Consider a typical trading session: a trader has drawn a pitchfork on the H1 chart, a Fibonacci retracement on the M15, and an equidistant channel on the M5. While monitoring, price approaches the pitchfork’s median line, touches the 61.8% Fibonacci level, and then breaks out of the channel. The trader is momentarily distracted, and by the time they return, the opportunity—or the stop-loss—has already passed. This scenario is not an edge case; it is a regular occurrence for any technical analyst who relies on manually drawn instruments. These limitations are not merely theoretical; they manife",
+  "url": "https://www.mql5.com/en/articles/22662"
+ },
+ {
+  "id": "38120845382b8de3",
+  "title": "Beyond GARCH (Part VI): Fractional Brownian Motion And The Multiplicative Cascade in MQL5",
+  "desc": "In we built the partition analysis engine that extracts the scaling function tau(q) and the Hurst exponent from raw price data. In we added the spectrum fitter that transforms tau(q) into a fitted probability distribution. Those two modules answered the question: This article answers the question: We now build the Simulation Engine, the module that takes the fitted parameters (H, distribution type, distribution coefficients, sample volatility) and generates a complete synthetic MMAR price path. The engine has three stages, each corresponding to a component of the Multifractal Model of Asset Re",
+  "url": "https://www.mql5.com/en/articles/22521"
+ },
+ {
+  "id": "d0d2807cb8087eec",
+  "title": "Price Action Analysis Toolkit Development (Part 74): Building an MQL5 Expert Advisor from Indicator Buffers",
+  "desc": "In the , we developed a weekend gap trading indicator that generated buy and sell signals together with corresponding take-profit and stop-loss levels. However, an indicator alone cannot place trades. If its signals are not executed manually or by an automated system, they remain visual instructions on the chart, even if they are effective. In this article, we build an Expert Advisor that reads the indicator’s signals and executes trades automatically while also making use of the stop-loss and take-profit values already defined by the indicator. Read on to see how the EA is implemented across ",
+  "url": "https://www.mql5.com/en/articles/23015"
+ },
+ {
+  "id": "80ef239a592747f0",
+  "title": "Building a Traditional Point and Figure Indicator in MQL5",
+  "desc": "MetaTrader 5 does not provide a built-in Point and Figure chart, and traditional indicators are primarily designed around time-based price bars. This makes it difficult to study pure price movement without time distortion. To overcome this limitation, we will develop a custom Point and Figure indicator in MQL5 that uses a fixed box size and reversal logic to represent market structure more clearly, without relying on time-based candle formation. The indicator will convert raw price data into structured X and O columns, making it useful for identifying trends, breakouts, support, resistance, an",
+  "url": "https://www.mql5.com/en/articles/22875"
+ },
+ {
+  "id": "5fa8b30aae2a88ae",
+  "title": "Rolling Sharpe Ratio with Statistical Significance Bands in MQL5",
+  "desc": "Traders frequently treat a short-window Sharpe ratio (eg, 40–60 bars with SR ≈ 1.0–1.5) as evidence of alpha. Statistically, however, such point estimates are highly variable: sample Sharpe has a standard error that scales with 1/√n, so small n produces estimates dominated by noise. The problem is compounded in MetaTrader 5, where the indicator engine can force full recalculation with prev_calculated = 0 and deliver only a partial history; stateful rolling accumulators then produce \"plausible\" numbers computed from incomplete data. What's needed is an MetaTrader 5-native diagnostic that report",
+  "url": "https://www.mql5.com/en/articles/22978"
+ },
+ {
+  "id": "e5e3f209d36003e4",
+  "title": "A Practical Kalman Filter Price Smoother in MQL5: Adaptive Noise Estimation Without External Libraries",
+  "desc": "Simple and exponential moving averages share a single architectural weakness: their blending weight is fixed. That static weight produces excessive jitter in low‑volatility consolidation and unacceptable phase lag during rapid breakouts. What is needed is a filter that, on every bar, formally decides whether to trust the newest close or the model’s prior estimate — and does so adaptively rather than by manual tuning of N. Equally important for practitioners: the solution must be a self-contained, native MQL5 indicator with transparent diagnostics (Kalman Gain exposed in the Data Window), contr",
+  "url": "https://www.mql5.com/en/articles/23016"
+ },
+ {
+  "id": "fe0528743071e824",
+  "title": "From Basic to Intermediate: Object Events (I)",
+  "desc": "In the previous article we showed how an object available in MetaTrader 5 can be modified to create another object. This was done for a purpose that may be quite interesting and is, in itself, rather intriguing. In that article, my dear reader, you were also given a small challenge whose solution I will not show. The reason is that I want to encourage you to practice and study the article material so that you learn to solve the problems that will certainly arise on your own as you learn and implement new ideas. Although this task is very simple to solve, and the issue itself does not prevent t",
+  "url": "https://www.mql5.com/en/articles/16035"
+ },
+ {
+  "id": "8bbfe85d2ec6bb7e",
+  "title": "From Basic to Intermediate: Objects (III)",
+  "desc": "In the previous article, we looked at how to handle mouse-related events, as well as mouse-and-keyboard combinations in a simple, clear, and reasonably objective way. This is necessary for creating combinations of pressed buttons and combinations of button presses to perform certain actions on the chart. Although at first glance the functionality discussed in the previous article may seem relatively simple, when we move on to practice we notice that it can be much more complicated than it appears. This happens because, depending on the type of functionality we are going to implement and on the",
+  "url": "https://www.mql5.com/en/articles/16021"
+ },
+ {
+  "id": "06a7b1ba89c80487",
+  "title": "Quantum Neural Network in MQL5 (Part II): Training a Neural Network with Backpropagation on ALGLIB Markov Matrices",
+  "desc": "Mikhail Dyakonov, physicist Algorithmic traders are increasingly faced with the fact that their usual models are no longer producing results. LSTM networks, previously considered a breakthrough, achieve around 58% accuracy. Transformers, despite their advances in NLP, struggle with the noise of financial data. ARIMA-type models have lost their practical value. A typical situation: a trading system performs well historically, but quickly loses its efficiency in real trading. The main reason is overfitting and the inability of traditional networks to adapt to changing market conditions. The tran",
+  "url": "https://www.mql5.com/en/articles/18785"
+ },
+ {
+  "id": "602845a26a69c4b9",
+  "title": "AI Trading Platform: Why MetaTrader 5 Is the Best Choice for Algorithmic Trading with Python, ONNX, and AI Assistant",
+  "desc": "MetaTrader 5 is a great platform for AI trading when a trader needs a complete end-to-end workflow: market data, research, modeling, testing, automation, and control within a single working environment. Such a platform is important not because a neural network can elegantly explain a chart, but because a trading idea must become a verifiable system: obtaining data, engineering features, training a model, integrating its output into an Expert Advisor, and evaluating the strategy's behavior before committing real capital. ( ) genuinely accelerates a trader's operations. Until recently, traders m",
+  "url": "https://www.mql5.com/en/articles/22718"
+ },
+ {
+  "id": "f370c4aadc8fa865",
+  "title": "Trading Options Without Options (Part 2): Use in Real Trading",
+  "desc": "In the of the series, we briefly described the trading instrument, its capabilities, advantages and disadvantages. We developed a theory and practical implementation in MQL5 of a method for emulating an option using an underlying asset. It is time to try options in action in actual market trading. To this end, we need to create an EA that will map option emulation levels into real orders and positions on the underlying asset and continuously rebalance the resulting total position. First, let's look at what strategies can be used in trading. Here we only consider speculative strategies. Let's s",
+  "url": "https://www.mql5.com/en/articles/18363"
+ },
+ {
+  "id": "8631894212aabe20",
+  "title": "MQL5 Wizard Techniques you should know (Part 97): Using Convex Hull and a miniature GRU Network in a Custom Trailing Stop Class",
+  "desc": "We resume this series on the MQL5 Wizard where we rotate our focus between entry signals, money management and trailing stops. These three domains are the main ways Expert Advisors assembled with the MQL5 Wizard, can be customized beyond the built-in classes. For the last published articles we have looked at entry signals and then money management which means that trailing stops are our focus for this article. In the on trailing stops we married the Reservoir Sampling algorithm with a linear regression network to build a model whose goal was hugging a 'fair median' price. This was meant to gua",
+  "url": "https://www.mql5.com/en/articles/23055"
+ },
+ {
+  "id": "96319fbc4ba853f5",
+  "title": "Beyond the Clock (Part 3): Building an Indicator Window for Alternative Bars in MQL5",
+  "desc": "The two previous articles in this series built all ten alternative bar types defined in Chapter 1 of López de Prado's : standard bars (time, tick, volume, dollar) in , and runs bars in . Both articles ended at the same point: bars written to a CSV file and no way to inspect them inside the terminal. The natural response is to open the CSV in Python and plot it. This works for small histories. At the scale that alternative bars accumulate during live operation — several thousand dollar bars on an active session, tens of thousands of tick bars over a week — both matplotlib and Plotly hit renderi",
+  "url": "https://www.mql5.com/en/articles/22681"
+ },
+ {
+  "id": "0ec6d2b199f4680a",
+  "title": "Building a Divergence System: Creating the MPO4 Custom Indicator",
+  "desc": "Most traders are familiar with oscillators like the Relative Strength Index (RSI) or the Stochastic. They answer the question: Where is the price compared to its recent range? They are effective but can be reactive, often lagging at the exact moment you need them most. Furthermore, they treat all price bars as equal, whether it is a tiny doji or a massive volatile candle. This is where the MPO4 diverges, not just in its signals, but in its foundational philosophy. It is important to understand what makes the MPO4 fundamentally different from most traditional oscillators. Many popular oscillato",
+  "url": "https://www.mql5.com/en/articles/22341"
+ },
+ {
+  "id": "78da5a9271b517e4",
+  "title": "Implementing the Decorator Pattern in MQL5: Adding Logging, Timing, and Filtering to Any Indicator Non-Invasively",
+  "desc": "To add execution timing to an existing RSI indicator class, a developer typically inserts GetMicrosecondCount() calls around the computation. When a second developer needs logging, they open the same file and add Print() calls. When a third developer needs threshold filtering, they add conditional return logic. After a few iterations, the RSI class accumulates code unrelated to RSI computation. It contains infrastructure concerns that belong to the calling context, not to the indicator. This pattern violates the Open-Closed Principle, which states that a class should be open for extension but ",
+  "url": "https://www.mql5.com/en/articles/22962"
+ },
+ {
+  "id": "39857be4dd17c0dc",
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (Final Part)",
+  "desc": "In the , we examined the theoretical foundations of the framework, specifically designed to address complex forecasting tasks involving dynamic multivariate time series. Modern financial markets are complex dynamic systems in which numerous factors interact continuously: macroeconomic indicators, news events, interest rate changes, the behavior of major market participants, and many other, often latent, variables. Time series representing price and trading volume dynamics serve as the primary source of information about these processes. However, analyzing such data requires a model capable of ",
+  "url": "https://www.mql5.com/en/articles/17939"
+ },
+ {
+  "id": "975a50a90559c93d",
+  "title": "Market Simulation: Getting started with SQL in MQL5 (IV)",
+  "desc": "Welcome everyone to another article in the series on how to create a replay/simulation system. In the previous article we showed how an SQL script can be embedded in an executable file created in MQL5. However, we did not stop there. We also made some changes to the class code to make it much easier to use and, of course, adjusted the way the code is implemented a little. Although the class code presented in the previous article is very useful for creating a database using built-in SQLite in MetaTrader 5 (which we will discuss later), this code does not allow us to execute queries from MQL5. T",
+  "url": "https://www.mql5.com/en/articles/13110"
+ },
+ {
+  "id": "eb4d923416c99a1c",
+  "title": "From Basic to Intermediate: Handling Mouse Events",
+  "desc": "In the previous article, we discussed how to implement events in a script. But first of all, we explained how one special data type can be used: the pointer, which we already know. Because the previous article contains important foundational material—especially for anyone planning to study graphical programming in more depth—I strongly recommend reviewing it carefully. In this article, however, we will focus on a different and simpler topic. The main topic here is mouse interaction and mouse-related events. To keep everything logically separated, we will start with the first topic of this arti",
+  "url": "https://www.mql5.com/en/articles/16000"
+ },
+ {
+  "id": "6807c5c363559f12",
+  "title": "Community of Scientists Optimization (CoSO): Theory",
+  "desc": "Continuing our exploration of optimization methods, in this article we will consider another approach to solving optimization problems - the CoSO (Community of Scientists Optimization) algorithm, based on simulating the mechanisms of the scientific community. Unlike classical bio-inspired algorithms, CoSO replicates the unique characteristics of scientific activity: publishing results in journals, competition for grants, forming research groups, and balancing in-depth study of known areas with the search for fundamentally new solutions. The CoSO algorithm was developed and published in 2012 by",
+  "url": "https://www.mql5.com/en/articles/18886"
+ },
+ {
+  "id": "9c28d13dc66529ca",
+  "title": "Shape of Price: An Introduction to TDA and Takens Embedding in MQL5",
+  "desc": "Moving averages see level. RSI sees range. Bollinger bands see volatility. None of them see shape. Consider two one-hour EURUSD windows. In the first, price drifts upward in small mean-reverting steps. In the second, price oscillates around a flat mean. The two windows can be tuned to share almost everything an ordinary chart shows. Mean close: the same to the pip. Average range: the same. Realized volatility: the same. Number of bars above the moving average: the same. A trader who only sees those numbers cannot tell the two windows apart. The geometry of how price moves through its own past,",
+  "url": "https://www.mql5.com/en/articles/23037"
+ },
+ {
+  "id": "262230f5fa43518a",
+  "title": "MQL5 Trading Tools (Part 37): Adding a Per-Object Property-Editing Ribbon to the Canvas Drawing Layer",
+  "desc": "In the , we added shape and annotation tools with an in-place label editor, so we can now draw filled shapes, drop annotation markers, and type text directly onto chart objects. But once an object is placed, its appearance is locked. The colors, opacities, line widths, dash styles, fonts, and per-level visibility are all baked in at creation time from the tool defaults or the per-tool memory — there is no way to select a rectangle and change its fill color, dim a Fibonacci level, restyle a channel's center line, or thicken a trendline after the fact. The drawing layer can create objects, but i",
+  "url": "https://www.mql5.com/en/articles/22923"
+ },
+ {
+  "id": "d6d4e17472420514",
+  "title": "Price Action Analysis Toolkit Development (Part 73): Building a Weekend Gap Trading Signal System in MQL5",
+  "desc": "In of the Price Action Analysis Toolkit Development series, we introduced weekend gaps as a price-action pattern and built a tool to detect and display them on the chart. However, traders and developers need more than visual marking. They need a clear, automatable signal model that defines the entry condition, stop-loss and take-profit rules, the lifetime of each setup, and EA-readable output that can be tested consistently in history and in real time. This article formalizes the weekend-gap trading logic and implements it as an MQL5 indicator. The indicator uses Friday close and Monday open a",
+  "url": "https://www.mql5.com/en/articles/22993"
+ },
+ {
+  "id": "086fb93aa6d79397",
+  "title": "From Static MA to Adaptive Filtering (Part 2): Implementing the SAMA_NLMS Indicator in MQL5",
+  "desc": "You already saw the NLMS idea in . In practice, however, transplanting the update equation from a notebook into MQL5 often breaks in ways traders and developers care about: the model can train on the still-forming bar, blow up on flat data, be skewed by single-bar spikes, and produce different live values after a terminal reload because its internal weight state depends on the exact history processed. This part stops treating SAMA as a formula and treats it as production software. It embeds NLMS into a chart-ready MQL5 indicator with proper buffers, input validation, ATR-based error clamping, ",
+  "url": "https://www.mql5.com/en/articles/23033"
+ },
+ {
+  "id": "23772c76848ce94a",
+  "title": "Overcoming Accessibility Problems in MQL5 Trading Tools (Part V): Gesture-Based Trading With Computer Vision",
+  "desc": "During high‑volatility news events, a trader with a motor impairment may see the breakout but miss the entry because a hand tremor makes the cursor slip. Five seconds later the price retraces, and the opportunity is lost. The problem statement is clear: There is no standard, low‑latency, hands‑free input method for MQL5 trading tools that accommodates motor impairments under market stress. This article presents a gesture‑controlled trading system that combines a webcam, MediaPipe Hands, and OpenCV to translate simple hand gestures (pointing index, thumbs‑up, fist) directly into MQL5 trade‑exec",
+  "url": "https://www.mql5.com/en/articles/22668"
+ },
+ {
+  "id": "31b27f90a1a5010c",
+  "title": "Feature Engineering for ML (Part 6): Microstructural Features in MQL5",
+  "desc": "of this series implemented the full bar-level microstructure feature suite from AFML Chapter 19 in Python. It used Numba-accelerated kernels and a two-layer design that separates OHLCV computations from tick-stream computations. This article ports the bar-level layer to MQL5 as a single include file, , which any Expert Advisor can link against at runtime without any Python dependency. It also ships an accompanying separate-window indicator, , that visualizes the seven features live against price. The port covers all five estimator families: Roll (1984) spread and impact, Corwin-Schultz (2012) ",
+  "url": "https://www.mql5.com/en/articles/22734"
+ },
+ {
+  "id": "4aa07f8ece697010",
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (DA-CG-LSTM)",
+  "desc": "Financial markets are more than just numbers on screens. They are a dynamic environment in which every tick, every candlestick, and every change in trading volume reflects human emotions, expectations, fears, and hopes. Understanding this rhythm and learning to predict where prices will go is a challenge that traders constantly strive to solve. The focus is on the multivariate time series — the classical representation of market data: asset prices over time, trading volumes, technical indicators, and news flows. All of these are forms of data that can be analyzed, modeled, and ultimately used ",
+  "url": "https://www.mql5.com/en/articles/17901"
+ },
+ {
+  "id": "ab75ee4d618c7335",
+  "title": "Price Action Analysis Toolkit Development (Part 72): Building a Gap Fill Indicator in MQL5",
+  "desc": "The part of this series introduced the weekend gap strategy by mapping the weekly gap zones for future trading reference. Since gap zones are an important part of price action analysis, this provided a useful foundation for understanding how the market behaves around the weekly transition. This part builds on that foundation by introducing the gap fill signal indicator, which alerts when bullish or bearish gap fills occur and plots arrows on the chart for easy visual reference. A gap fill occurs when price returns to the unfilled area between Friday’s close and Monday’s open. In simple terms, ",
+  "url": "https://www.mql5.com/en/articles/22884"
+ },
+ {
+  "id": "abe2cf91d02dccff",
+  "title": "Graph Theory: Network Flow of Commodities (Ford-Fulkerson Algorithm), Used as a Liquidity-Capacity Engine",
+  "desc": "Most traders using ICT concepts know how to spot a Fair Value Gap or an Order Block. They can identify liquidity pools sitting above equal highs or below equal lows. But knowing where these structures are is only half the battle. The real frustration comes at the moment of decision—price is sitting in a bullish FVG, there is a liquidity pool above, and the setup looks valid. Yet the trade fails. Not because the analysis was wrong, but because the market simply did not have enough structural momentum to reach the target. There was no way to measure whether the path was strong or weak. The trade",
+  "url": "https://www.mql5.com/en/articles/22883"
+ },
+ {
+  "id": "96a3945cb6bd35c1",
+  "title": "MQL5 Wizard Techniques you should know (Part 96): Using Wavelet Thresholding and LSTM Network in a Custom Money Management Class",
+  "desc": "We continue this series on different ideas and trade setups that can be explored and tested thanks to the MQL5 Wizard. In the last article where we looked into money management, in our custom class, we married the Suffix Automation Algorithm with an Autoencoder network. The model we had then could be the suitable tool for traders that like exploiting consolidating markets and where the historical \"Price DNA\" provides some repetitive patterns. It appeared to thrive in these conditions, provided we had a rhythm. This could then beg the question, what happens when the regime changes. For some tra",
+  "url": "https://www.mql5.com/en/articles/23013"
+ },
+ {
+  "id": "22b7e953332848f9",
+  "title": "The Repository Pattern in MQL5: Abstracting Trade History Access for Testable EA Logic",
+  "desc": "An Expert Advisor (EA) analytics module that directly calls HistorySelect(), HistoryDealGetDouble(), and HistoryDealGetInteger() inside its calculation methods introduces hidden dependencies on the MetaTrader 5 terminal state. For example, a method like CalculateWinRate() appears to be a pure function. In practice, it requires an active broker connection and a loaded account history. It also requires a prior HistorySelect() call with the correct date range. If any of these conditions are missing, the method returns incorrect results without raising a detectable error. This tight coupling creat",
+  "url": "https://www.mql5.com/en/articles/22958"
+ },
+ {
+  "id": "77357701d36559ed",
+  "title": "Competitive Learning Algorithm (CLA)",
+  "desc": "Over the past decades, many bioinspired algorithms have been proposed, from ant colonies and particle swarms to gray wolves and whales. However, human society, with its complex social interactions, can also serve as a rich source of ideas for effective optimization methods. This idea is the basis for the Competitive Learning Algorithm (CLA). CLA uses a metaphor of the educational process, where the population of solutions is represented by students organized into classes. The algorithm elegantly models three types of learning: from the best in the class (teacher), from personal experience, and",
+  "url": "https://www.mql5.com/en/articles/18857"
+ },
+ {
+  "id": "3b1728a8d055ef4a",
+  "title": "Gaussian Processes in Machine Learning (Part 1): Classification Model in MQL5",
+  "desc": "Introduction We continue our acquaintance with the machine learning model – Gaussian processes (GP). In the previous , we examined in detail the regression problem, where the main goal was to predict continuous values. Today we have to deal with a much more complex topic – classification. Its main difficulty is that the inference for classification in Gaussian processes does not have a closed-form solution, which requires the use of approximate methods such as Laplace approximation. To effectively solve this complex problem, we will develop a modular library of Gaussian processes in MQL5. This",
+  "url": "https://www.mql5.com/en/articles/18875"
+ },
+ {
+  "id": "2c37fed7f8910920",
+  "title": "Neural Networks in Trading: Actor—Director—Critic (Final Part)",
+  "desc": "In the , we became acquainted with the theoretical aspects of the framework, an extended version of the architecture. The classical architecture has become a cornerstone of many successful reinforcement learning ( ) algorithms. In this setup, the agent is divided into two components: the proposes actions, while the evaluates them based on rewards received from the environment. This combination enables the gradual development of a strategy in which actions become increasingly purposeful and evaluations progressively more accurate. However, despite its elegance and effectiveness, this architectu",
+  "url": "https://www.mql5.com/en/articles/17819"
+ },
+ {
+  "id": "62b30722183e7b23",
+  "title": "CSV Data Analysis (Part 4): Building an Automated Python-Driven Comparative Analysis Module for MQL5 Strategy Validation",
+  "desc": "MetaTrader 5 provides a capable native optimization engine. The Strategy Tester generates summary statistics, equity curves, and tabular results across parameter sweeps. But when the analytical workload scales to multi-asset, multi-timeframe research with custom counters, the native output layer becomes the bottleneck. A researcher comparing four indicator variants across six currency pairs on three timeframes ends up with roughly seventy-two distinct result sets. Manual inspection for risk-adjusted ranking, walk-forward parameter mapping, and narrative synthesis is slow. It also increases sel",
+  "url": "https://www.mql5.com/en/articles/22921"
+ },
+ {
+  "id": "d24a186f1a50258a",
+  "title": "Price Action Analysis Toolkit Development (Part 71): Weekend Gap Structure Mapping in MQL5",
+  "desc": "Weekend gaps are often revisited after trading resumes, making them useful liquidity reference zones throughout the week. The challenge is that these structures are usually identified manually, and once new price action develops, older zones become difficult to track consistently. For traders, the main challenge is to maintain consistent structural interpretation as new price action develops and older imbalance zones gradually move out of view. For developers, the challenge is to build a chart-based system that detects session discontinuities, preserves structural boundaries over time, and rel",
+  "url": "https://www.mql5.com/en/articles/22796"
+ },
+ {
+  "id": "2f56b2af7883503c",
+  "title": "MQL5 Trading Tools (Part 12): Enhancing the Correlation Matrix Dashboard with Interactivity",
+  "desc": "In our , we developed a dashboard in (MQL5) that computed asset relationships using the , Spearman, and methods over a configurable timeframe and number of bars. In Part 12, we enhance the correlation matrix dashboard with interactivity. This enhancement introduces features such as panel dragging and minimizing via mouse events, button hover effects for visual feedback, symbol sorting by correlation strength in ascending/descending modes, toggling between correlation and views, light/dark theme switching with dynamic color updates, and cell for detailed information. We will cover the following",
+  "url": "https://www.mql5.com/en/articles/20962"
+ }
+]

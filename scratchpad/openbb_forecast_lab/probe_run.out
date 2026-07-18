@@ -1,0 +1,313 @@
+== probe forecast COMPLET — 2026-07-08 17:51 ==
+The `XGBoost` module could not be imported. To enable XGBoost support in Darts, follow the detailed instructions in the installation guide: https://github.com/unit8co/darts/blob/master/INSTALL.md
+The `XGBoost` module could not be imported. To enable XGBoost support in Darts, follow the detailed instructions in the installation guide: https://github.com/unit8co/darts/blob/master/INSTALL.md
+  BTCUSDT 1m h1 : 80004 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1m h1 : NHITS ok (250 orig, 23s)
+  BTCUSDT 1m h1 : AutoETS ok (250 orig, 183s)
+  BTCUSDT 1m h4 : 80004 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1m h4 : NHITS ok (250 orig, 36s)
+  BTCUSDT 1m h4 : AutoETS ok (250 orig, 179s)
+  BTCUSDT 5m h1 : 27377 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 5m h1 : NHITS ok (250 orig, 39s)
+  BTCUSDT 5m h1 : AutoETS ok (250 orig, 196s)
+  BTCUSDT 5m h4 : 27377 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 5m h4 : NHITS ok (250 orig, 22s)
+  BTCUSDT 5m h4 : AutoETS ok (250 orig, 185s)
+  BTCUSDT 15m h1 : 38400 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 15m h1 : NHITS ok (250 orig, 26s)
+  BTCUSDT 15m h1 : AutoETS ok (250 orig, 210s)
+  BTCUSDT 15m h4 : 38400 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 15m h4 : NHITS ok (250 orig, 30s)
+  BTCUSDT 15m h4 : AutoETS ok (250 orig, 215s)
+  BTCUSDT 30m h1 : 38400 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 30m h1 : NHITS ok (250 orig, 33s)
+  BTCUSDT 30m h1 : AutoETS ok (250 orig, 161s)
+  BTCUSDT 30m h4 : 38400 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 30m h4 : NHITS ok (250 orig, 38s)
+  BTCUSDT 30m h4 : AutoETS ok (250 orig, 161s)
+  BTCUSDT 1H h1 : 50320 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1H h1 : NHITS ok (250 orig, 39s)
+  BTCUSDT 1H h1 : AutoETS ok (250 orig, 204s)
+  BTCUSDT 1H h4 : 50320 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1H h4 : NHITS ok (250 orig, 28s)
+  BTCUSDT 1H h4 : AutoETS ok (250 orig, 200s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 4H h1 : NHITS ok (252 orig, 32s)
+  BTCUSDT 4H h1 : AutoETS ok (252 orig, 175s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 4H h4 : NHITS ok (252 orig, 26s)
+  BTCUSDT 4H h4 : AutoETS ok (252 orig, 181s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1D h1 : NHITS ok (289 orig, 10s)
+  BTCUSDT 1D h1 : AutoETS ok (289 orig, 34s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1D h4 : NHITS ok (216 orig, 7s)
+  BTCUSDT 1D h4 : AutoETS ok (216 orig, 27s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1W h1 : NHITS ok (120 orig, 1s)
+  BTCUSDT 1W h1 : AutoETS ok (120 orig, 2s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  BTCUSDT 1W h4 : NHITS ok (30 orig, 1s)
+  BTCUSDT 1W h4 : AutoETS ok (30 orig, 0s)
+  ETHUSDT 1m h1 : 80004 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1m h1 : NHITS ok (250 orig, 21s)
+  ETHUSDT 1m h1 : AutoETS ok (250 orig, 201s)
+  ETHUSDT 1m h4 : 80004 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1m h4 : NHITS ok (250 orig, 26s)
+  ETHUSDT 1m h4 : AutoETS ok (250 orig, 197s)
+  ETHUSDT 5m h1 : 27374 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 5m h1 : NHITS ok (250 orig, 38s)
+  ETHUSDT 5m h1 : AutoETS ok (250 orig, 194s)
+  ETHUSDT 5m h4 : 27374 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 5m h4 : NHITS ok (250 orig, 20s)
+  ETHUSDT 5m h4 : AutoETS ok (250 orig, 204s)
+  ETHUSDT 15m h1 : 40200 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 15m h1 : NHITS ok (250 orig, 38s)
+  ETHUSDT 15m h1 : AutoETS ok (250 orig, 208s)
+  ETHUSDT 15m h4 : 40200 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 15m h4 : NHITS ok (250 orig, 21s)
+  ETHUSDT 15m h4 : AutoETS ok (250 orig, 208s)
+  ETHUSDT 30m h1 : 40200 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 30m h1 : NHITS ok (250 orig, 36s)
+  ETHUSDT 30m h1 : AutoETS ok (250 orig, 230s)
+  ETHUSDT 30m h4 : 40200 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 30m h4 : NHITS ok (250 orig, 32s)
+  ETHUSDT 30m h4 : AutoETS ok (250 orig, 225s)
+  ETHUSDT 1H h1 : 50320 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1H h1 : NHITS ok (250 orig, 24s)
+  ETHUSDT 1H h1 : AutoETS ok (250 orig, 213s)
+  ETHUSDT 1H h4 : 50320 barres -> CAP 15000 (les plus récentes)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1H h4 : NHITS ok (250 orig, 27s)
+  ETHUSDT 1H h4 : AutoETS ok (250 orig, 213s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 4H h1 : NHITS ok (252 orig, 29s)
+  ETHUSDT 4H h1 : AutoETS ok (252 orig, 141s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 4H h4 : NHITS ok (252 orig, 17s)
+  ETHUSDT 4H h4 : AutoETS ok (252 orig, 140s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1D h1 : NHITS ok (289 orig, 5s)
+  ETHUSDT 1D h1 : AutoETS ok (289 orig, 37s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1D h4 : NHITS ok (216 orig, 3s)
+  ETHUSDT 1D h4 : AutoETS ok (216 orig, 26s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1W h1 : NHITS ok (120 orig, 1s)
+  ETHUSDT 1W h1 : AutoETS ok (120 orig, 2s)
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+`Trainer.fit` stopped: `max_epochs=30` reached.
+GPU available: False, used: False
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+  ETHUSDT 1W h4 : NHITS ok (30 orig, 1s)
+  ETHUSDT 1W h4 : AutoETS ok (30 orig, 0s)
+== terminé : 32/32 (SYM,TF,H) écrits -> preds/ ==
+PROBE_COMPLET_DONE code=0

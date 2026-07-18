@@ -1,0 +1,46 @@
+Modèle joint GLOBAL (réversion+régime+cross-sectionnel), WF purgé pooled, net frais...
+
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  5m   h=1   n=19078  | joint IC rf=-0.0198 ridge=+0.0196 shuffle=0.0068 | best_indiv=0.0315 | net=-1.99bps gross=+0.28
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  5m   h=4   n=4770   | joint IC rf=-0.0237 ridge=+0.0214 shuffle=0.0299 | best_indiv=0.0714 | net=-3.32bps gross=-0.70
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  15m  h=1   n=19142  | joint IC rf=-0.0117 ridge=-0.0072 shuffle=0.0016 | best_indiv=0.0435 | net=-4.56bps gross=-0.59
+  15m  h=4   n=4764   | joint IC rf=-0.0157 ridge=-0.0306 shuffle=-0.0323 | best_indiv=0.0399 | net=-5.57bps gross=-1.08
+  30m  h=1   n=19238  | joint IC rf=-0.0238 ridge=-0.0568 shuffle=-0.0022 | best_indiv=0.0339 | net=+0.01bps gross=+1.13
+  30m  h=4   n=4812   | joint IC rf=-0.0051 ridge=+0.0082 shuffle=-0.0274 | best_indiv=0.0329 | net=-3.44bps gross=-0.77
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  1H   h=1   n=19752  | joint IC rf=-0.0054 ridge=+0.0066 shuffle=0.0154 | best_indiv=0.0400 | net=-3.16bps gross=-0.00
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  1H   h=4   n=4916   | joint IC rf=-0.0171 ridge=+0.0052 shuffle=0.0501 | best_indiv=0.0457 | net=-6.03bps gross=-0.90
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  4H   h=1   n=17031  | joint IC rf=-0.0131 ridge=+0.0171 shuffle=0.0032 | best_indiv=0.0462 | net=-5.55bps gross=-1.22
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  4H   h=4   n=4245   | joint IC rf=+0.0066 ridge=-0.0286 shuffle=0.0193 | best_indiv=0.0578 | net=+3.27bps gross=+8.10
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  1D   h=1   n=13786  | joint IC rf=+0.0189 ridge=-0.0126 shuffle=0.004 | best_indiv=0.0165 | net=+10.05bps gross=+12.12
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+  1D   h=4   n=3419   | joint IC rf=-0.0182 ridge=-0.0321 shuffle=-0.0136 | best_indiv=0.0303 | net=+6.77bps gross=+10.17
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+
+============================================================================================
+VERDICT — INTERACTION JOINTE GLOBALE (union des indicateurs rejetés/candidats + BACKLOG)
+============================================================================================
+configs 12 · net_bps médian -3.24 (frais 6) · % net>0 33% · IC_rf médian -0.0144
+
+REJET CONFIRMÉ sous la méthode INTERACTION GLOBALE — même en réunissant TOUTES les
+  familles (réversion + gates de régime + momentum cross-sectionnel) dans un modèle
+  joint non linéaire, l'interaction ne crée AUCUN signal net > frais que l'analyse par
+  indicateur a manqué. IC OOS ≈ shuffle. Confirme le bilan §104 : l'edge (réversion
+  ~−0.04 IC) est réel mais < frais ; le levier est l'EXÉCUTION, pas la combinaison de signaux.
+-> global_interaction_results.json

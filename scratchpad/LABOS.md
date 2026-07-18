@@ -1,0 +1,24 @@
+# LABOS — index des laboratoires de recherche (scratchpad, NON committés)
+
+**But** : carte des labos locaux (éphémères, hors dépôt). Pour ne pas en re‑créer, savoir
+lequel a rendu quel verdict, et repérer les venvs lourds à nettoyer. Verdicts détaillés →
+`docs/VERDICTS.md`. Tous SAFE (lecture seule, aucun ordre).
+
+| Labo | But | Statut / verdict | venv | Fichiers clés |
+|---|---|---|---|---|
+| **openbb_forecast_lab** | Probe forecast Darts (NHITS/AutoETS) vs baseline, net de frais, échelle TF complète | **FAIT (REJETÉ 09/07)** : probe 21 sym × 8 TF = 0/477 passe la porte (seule UNI 1D/nhits = faux positif multi-test) ; IC réel surtout actions US (0.20 t4.7)/alts (0.23 t3.5) mais mangé par frais → RIEN à brancher. Consigné `docs/VERDICTS.md` | supprimé | `forecast_probe.py`, `evaluate.py`, `VERDICT.md/json`, `preds/` |
+| **mql5_codebase_tester** | Agent testeur : catalogue→triage→réimpl Python→mesure edge de la code base mql5 | ACTIF (outil) ; kalman_slope REJETÉ 0/34 | — | `harness.py`, `catalog.py`, `triage.py`, `candidates.py`, `run_candidate.py` |
+| **strategy_tester** | Backtester ÉVÉNEMENTIEL inspiré du MT5 tester (exécution réaliste + walk‑forward), données Bitget | ACTIF (outil réutilisable) ; ema_cross perdant/break‑even | — | `engine.py`, `metrics.py`, `optimize.py`, `run.py` |
+| **regime_lab** | Edge conditionnel du CONSENSUS live selon le régime (brain_log_history) | **PISTE VIVANTE** : edge banc double en haute‑vol mais 1 bloc → re‑mesurer ~15/07 | — | `journal_consensus.py` |
+| **garch_lab** | GARCH(1,1) fitté (arch) prévoit‑il mieux la vol que le FIGÉ ? | FAIT : le FIGÉ bat arch (11/12 QLIKE) → garder `volatility.py` | — | (1 fichier) |
+| **geometric_v2_lab** | Features v2 (topologie/dcor/nolds) : coût + edge, échelle TF complète | FAIT : 0/14 features isolées ; **+ `interaction_geom.py` 18/07** : vecteur complet en MODÈLE JOINT (RF+Ridge, WF purgé, net frais, shuffle) → net méd −1,19 bps, IC≈shuffle → **rejet confirmé en interaction** (2 « hits » = piège daily-small-sample) | — | `run_lab.py`, `features_v2.py`, `gate_lib.py`, `interaction_geom.py`, `resultats.json` |
+| **audit_indep** | Machinerie IC INDÉPENDANTE (écrite de zéro) — vérif croisée des mesures d'IC | outil d'audit (anti‑instrument‑cassé, cf. `measurement-blind-spot`) ; **+ `interaction_test.py` 18/07** : re‑test réversion 7 signaux en INTERACTION (confluence K‑parmi‑7 + slow‑mom/fast‑reversion) → **rejet CONFIRMÉ net de frais, 0/500 forte** (angle « individuel » d'ERR‑014) | — | `audit_core.py`, `signals_basket.py`, `interaction_test.py`, `global_interaction.py` (MODÈLE JOINT GLOBAL 18/07 : union réversion + gates régime + momentum cross‑sectionnel #8, RF+Ridge pooled cross‑sectionnel, WF purgé, net frais → 12 configs net méd −3,24 bps ≈ shuffle → rejet, aucun edge caché ; couvre le backlog §104 / 102 agents) |
+| **audit_tf** | Audit de l'échelle de timeframes (ERR‑001) | outil d'audit | — | (1 fichier) |
+| **exec_fees** | Classement de FAISABILITÉ MAKER par symbole (spread/vol/mouvement 12s) — prêt à étendre `FUTURES_MAKER_SYMBOLS` | ACTIF (outil rerunnable) ; 09/07 : PRIORITÉ=BTC/ETH/SOL, 2e vague=XRP, reste taker | — | `maker_feasibility.py`, `maker_feasibility.json` |
+
+## Conventions
+- Un labo réutilise `candles_history` (data_history/, bougies Bitget) et la méthodo purgée
+  (`purged_folds`/`t_across_folds`/`ic_rank`) — copiée du labo geometric.
+- **Dépendances tierces (darts, scrapling…) UNIQUEMENT dans un `.venv` local** (ERR‑004) —
+  jamais le Python système du bot.
+- Nettoyer les venvs lourds une fois le verdict rendu (ex. `openbb_forecast_lab/.venv` 5.6 G — **déjà supprimé**, verdict rendu 09/07).

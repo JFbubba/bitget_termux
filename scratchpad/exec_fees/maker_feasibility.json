@@ -1,0 +1,133 @@
+{
+ "ts": 1784303743.0090587,
+ "wait_s": 12.0,
+ "univers": [
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "XRPUSDT",
+  "XAUTUSDT",
+  "HYPEUSDT",
+  "UMXMUSDT",
+  "BGBUSDT",
+  "ZECUSDT"
+ ],
+ "prioritte": [
+  "BTCUSDT",
+  "ETHUSDT"
+ ],
+ "ok": [
+  "SOLUSDT",
+  "XRPUSDT"
+ ],
+ "reco_immediate": "BTCUSDT,ETHUSDT",
+ "reco_elargie": [
+  "BTCUSDT",
+  "ETHUSDT",
+  "SOLUSDT",
+  "XRPUSDT"
+ ],
+ "rangs": [
+  {
+   "sym": "BTCUSDT",
+   "lisible": true,
+   "mid": 63299.95,
+   "spread_bps": 0.02,
+   "top_depth_usd": 147578.0,
+   "vol24_musd": 2543.3,
+   "sig1m_bps": 4.5,
+   "move12s_bps": 2.0,
+   "score": 9.0,
+   "verdict": "PRIORITÉ"
+  },
+  {
+   "sym": "ETHUSDT",
+   "lisible": true,
+   "mid": 1827.295,
+   "spread_bps": 0.05,
+   "top_depth_usd": 18273.0,
+   "vol24_musd": 1685.2,
+   "sig1m_bps": 6.0,
+   "move12s_bps": 2.68,
+   "score": 8.68,
+   "verdict": "PRIORITÉ"
+  },
+  {
+   "sym": "SOLUSDT",
+   "lisible": true,
+   "mid": 74.6365,
+   "spread_bps": 0.13,
+   "top_depth_usd": 2008.0,
+   "vol24_musd": 174.2,
+   "sig1m_bps": 5.8,
+   "move12s_bps": 2.61,
+   "score": 7.69,
+   "verdict": "OK"
+  },
+  {
+   "sym": "XRPUSDT",
+   "lisible": true,
+   "mid": 1.08245,
+   "spread_bps": 0.92,
+   "top_depth_usd": 20452.0,
+   "vol24_musd": 105.6,
+   "sig1m_bps": 6.3,
+   "move12s_bps": 2.8,
+   "score": 7.28,
+   "verdict": "OK"
+  },
+  {
+   "sym": "HYPEUSDT",
+   "lisible": true,
+   "mid": 60.6585,
+   "spread_bps": 0.16,
+   "top_depth_usd": 172.0,
+   "vol24_musd": 138.1,
+   "sig1m_bps": null,
+   "move12s_bps": null,
+   "score": 6.11,
+   "verdict": "RISQUÉ"
+  },
+  {
+   "sym": "ZECUSDT",
+   "lisible": true,
+   "mid": 543.065,
+   "spread_bps": 0.18,
+   "top_depth_usd": 178.0,
+   "vol24_musd": 62.1,
+   "sig1m_bps": null,
+   "move12s_bps": null,
+   "score": 5.76,
+   "verdict": "RISQUÉ"
+  },
+  {
+   "sym": "XAUTUSDT",
+   "lisible": true,
+   "mid": 4014.545,
+   "spread_bps": 0.02,
+   "top_depth_usd": 321.0,
+   "vol24_musd": 14.8,
+   "sig1m_bps": null,
+   "move12s_bps": null,
+   "score": 5.17,
+   "verdict": "RISQUÉ"
+  },
+  {
+   "sym": "BGBUSDT",
+   "lisible": true,
+   "mid": 1.63315,
+   "spread_bps": 1.84,
+   "top_depth_usd": 67.0,
+   "vol24_musd": 2.2,
+   "sig1m_bps": null,
+   "move12s_bps": null,
+   "score": 3.98,
+   "verdict": "RISQUÉ"
+  },
+  {
+   "sym": "UMXMUSDT",
+   "lisible": false,
+   "verdict": "ILLISIBLE"
+  }
+ ]
+}

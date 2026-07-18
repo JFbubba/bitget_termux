@@ -1,0 +1,227 @@
+[
+ {
+  "score": 7,
+  "title": "The MQL5 Standard Library Explorer (Part 13): Implementing the Math Solvers Library in Trading",
+  "url": "https://www.mql5.com/en/articles/23127"
+ },
+ {
+  "score": 5,
+  "title": "Building a Divergence System: Creating the MPO4 Custom Indicator",
+  "url": "https://www.mql5.com/en/articles/22341"
+ },
+ {
+  "score": 4,
+  "title": "Low-Frequency Quantitative Strategies in MetaTrader 5 (Part 4): A Volatility-Adjusted Momentum-Based Intraday System",
+  "url": "https://www.mql5.com/en/articles/23226"
+ },
+ {
+  "score": 4,
+  "title": "Meta-Labeling the Classics (Part 2): Filtering and Sizing ADX Trades",
+  "url": "https://www.mql5.com/en/articles/22754"
+ },
+ {
+  "score": 4,
+  "title": "Artificial Atom Algorithm (A3)",
+  "url": "https://www.mql5.com/en/articles/18958"
+ },
+ {
+  "score": 2,
+  "title": "Creating an EMA Crossover Forward Simulation (Culmination): Interactive Synthetic Candles",
+  "url": "https://www.mql5.com/en/articles/22927"
+ },
+ {
+  "score": 2,
+  "title": "Forecasting in Trading Using Grey Models",
+  "url": "https://www.mql5.com/en/articles/19012"
+ },
+ {
+  "score": 2,
+  "title": "Price Action Analysis Toolkit Development (Part 74): Building an MQL5 Expert Advisor from Indicator Buffers",
+  "url": "https://www.mql5.com/en/articles/23015"
+ },
+ {
+  "score": 2,
+  "title": "Graph Theory: Network Flow of Commodities (Ford-Fulkerson Algorithm), Used as a Liquidity-Capacity Engine",
+  "url": "https://www.mql5.com/en/articles/22883"
+ },
+ {
+  "score": 1,
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (ACEFormer)",
+  "url": "https://www.mql5.com/en/articles/18004"
+ },
+ {
+  "score": 1,
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (DA-CG-LSTM)",
+  "url": "https://www.mql5.com/en/articles/17901"
+ },
+ {
+  "score": 0,
+  "title": "From Basic to Intermediate: Object Events (III)",
+  "url": "https://www.mql5.com/en/articles/16075"
+ },
+ {
+  "score": 0,
+  "title": "Duelist Algorithm",
+  "url": "https://www.mql5.com/en/articles/19093"
+ },
+ {
+  "score": 0,
+  "title": "Code, Tears, and Algo Forge",
+  "url": "https://www.mql5.com/en/articles/21732"
+ },
+ {
+  "score": 0,
+  "title": "Encoding Candlestick Patterns (Part 3): Frequency Analysis for Single Candlestick Type Structure",
+  "url": "https://www.mql5.com/en/articles/23009"
+ },
+ {
+  "score": 0,
+  "title": "Community of Scientists Optimization (CoSO): Practice",
+  "url": "https://www.mql5.com/en/articles/18935"
+ },
+ {
+  "score": 0,
+  "title": "Trading Options Without Options (Part 2): Use in Real Trading",
+  "url": "https://www.mql5.com/en/articles/18363"
+ },
+ {
+  "score": 0,
+  "title": "Community of Scientists Optimization (CoSO): Theory",
+  "url": "https://www.mql5.com/en/articles/18886"
+ },
+ {
+  "score": 0,
+  "title": "MQL5 Trading Tools (Part 37): Adding a Per-Object Property-Editing Ribbon to the Canvas Drawing Layer",
+  "url": "https://www.mql5.com/en/articles/22923"
+ },
+ {
+  "score": 0,
+  "title": "Competitive Learning Algorithm (CLA)",
+  "url": "https://www.mql5.com/en/articles/18857"
+ },
+ {
+  "score": 0,
+  "title": "CSV Data Analysis (Part 4): Building an Automated Python-Driven Comparative Analysis Module for MQL5 Strategy Validation",
+  "url": "https://www.mql5.com/en/articles/22921"
+ },
+ {
+  "score": -1,
+  "title": "Neural Networks in Trading: Generalizing Time Series Without Data-Specific Dependence (Mamba4Cast)",
+  "url": "https://www.mql5.com/en/articles/18116"
+ },
+ {
+  "score": -1,
+  "title": "MQL5 Trading Tools (Part 38): Adding a Tabbed Settings Window for Editing Object Properties",
+  "url": "https://www.mql5.com/en/articles/22977"
+ },
+ {
+  "score": -1,
+  "title": "Neural Networks in Trading: LSTM Optimization for Multivariate Time Series Forecasting (Final Part)",
+  "url": "https://www.mql5.com/en/articles/17939"
+ },
+ {
+  "score": -2,
+  "title": "Articles on algorithmic/automated trading in MetaTrader and MQL4/MQL5 programming",
+  "url": "https://www.mql5.com/en/articles"
+ },
+ {
+  "score": -2,
+  "title": "Neural Networks in Practice: Practice Makes Perfect",
+  "url": "https://www.mql5.com/en/articles/13748"
+ },
+ {
+  "score": -2,
+  "title": "Training a nonlinear U-Transformer on the residuals of a linear autoregressive model",
+  "url": "https://www.mql5.com/en/articles/18916"
+ },
+ {
+  "score": -2,
+  "title": "Dream Optimization Algorithm (DOA)",
+  "url": "https://www.mql5.com/en/articles/19177"
+ },
+ {
+  "score": -2,
+  "title": "Developing a Neural Network Trading Robot Based on Mamba with Selective State Space Models",
+  "url": "https://www.mql5.com/en/articles/19047"
+ },
+ {
+  "score": -2,
+  "title": "Feature Engineering for ML (Part 7): Entropy Features in Python",
+  "url": "https://www.mql5.com/en/articles/22756"
+ },
+ {
+  "score": -3,
+  "title": "Building an Internal and External Market Structure Indicator",
+  "url": "https://www.mql5.com/en/articles/22968"
+ },
+ {
+  "score": -3,
+  "title": "CSV Data Analysis (Part 5): Real-Time CSV Streaming from Live MetaTrader 5 Sessions",
+  "url": "https://www.mql5.com/en/articles/23065"
+ },
+ {
+  "score": -3,
+  "title": "From Basic to Intermediate: Objects (III)",
+  "url": "https://www.mql5.com/en/articles/16021"
+ },
+ {
+  "score": -3,
+  "title": "From Basic to Intermediate: Handling Mouse Events",
+  "url": "https://www.mql5.com/en/articles/16000"
+ },
+ {
+  "score": -4,
+  "title": "Implementation of the Quantum Reservoir Computing (QRC) circuit",
+  "url": "https://www.mql5.com/en/articles/19043"
+ },
+ {
+  "score": -4,
+  "title": "MetaTrader 5 Machine Learning Blueprint (Part 18): Sequential Bootstrap, Corrected — Clone, Class Erasure, and the Comparison Toolkit",
+  "url": "https://www.mql5.com/en/articles/22912"
+ },
+ {
+  "score": -4,
+  "title": "Neural Networks in Trading: Actor—Director—Critic (Final Part)",
+  "url": "https://www.mql5.com/en/articles/17819"
+ },
+ {
+  "score": -5,
+  "title": "Neural Networks in Trading: Time Series Forecasting Using Adaptive Modal Decomposition (Final Part)",
+  "url": "https://www.mql5.com/en/articles/18041"
+ },
+ {
+  "score": -5,
+  "title": "Building Automated Daily Trading Reports with the SendMail Function",
+  "url": "https://www.mql5.com/en/articles/23093"
+ },
+ {
+  "score": -5,
+  "title": "CSV Data Analysis (Part 6): Multi-Broker Result Normalization and Cross-Platform CSV Reconciliation",
+  "url": "https://www.mql5.com/en/articles/23067"
+ },
+ {
+  "score": -5,
+  "title": "From Basic to Intermediate: Object Events (I)",
+  "url": "https://www.mql5.com/en/articles/16035"
+ },
+ {
+  "score": -6,
+  "title": "Risk Manager for Trading Robots (Part I): Risk Control Include File for Expert Advisors",
+  "url": "https://www.mql5.com/en/articles/18918"
+ },
+ {
+  "score": -7,
+  "title": "AI Trading Platform: Why MetaTrader 5 Is the Best Choice for Algorithmic Trading with Python, ONNX, and AI Assistant",
+  "url": "https://www.mql5.com/en/articles/22718"
+ },
+ {
+  "score": -8,
+  "title": "From Basic to Intermediate: Object Events (II)",
+  "url": "https://www.mql5.com/en/articles/16050"
+ },
+ {
+  "score": -9,
+  "title": "MQL5 Trading Tools (Part 12): Enhancing the Correlation Matrix Dashboard with Interactivity",
+  "url": "https://www.mql5.com/en/articles/20962"
+ }
+]

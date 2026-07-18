@@ -1,0 +1,308 @@
+############################################################################
+# PANIER ÉLARGI — IC de RANG (6 plis purgés) par SECTEUR, échelle complète  #
+# cellule = IC_moyen / n_symboles / %même-signe.  IC<0 réversion, IC>0 mom. #
+# secteurs : cryptoMaj(9) cryptoMeme(3) metal(2) equity(5) etf(2)           #
+############################################################################
+/root/bitget_termux_repo/scratchpad/audit_indep/signals_indep.py:114: RuntimeWarning: invalid value encountered in divide
+  mfm = np.where(rng > 1e-12, ((c - l_) - (h_ - c)) / rng, 0.0)
+
+===== TF 1m — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.033/9/ 89% -0.046/3/100% -0.049/2/100% -0.022/5/ 80% +0.002/2/ 50%   | 3/4 secteurs concordants (signe -)
+  rsi14       -0.032/9/ 78% -0.052/3/100% -0.057/2/100% -0.028/5/100% +0.002/2/ 50%   | 3/4 secteurs concordants (signe -)
+  dist_sma50  -0.026/9/ 78% -0.045/3/100% -0.054/2/100% -0.020/5/100% +0.007/2/100%   | 3/4 secteurs concordants (signe -)
+  donchian20  -0.033/9/ 89% -0.045/3/100% -0.056/2/100% -0.031/5/100% -0.003/2/ 50%   | 3/4 secteurs concordants (signe -)
+  supertrend  -0.035/9/ 89% -0.040/3/100% -0.058/2/100% -0.025/5/100% -0.004/2/100%   | 3/4 secteurs concordants (signe -)
+  vortex      -0.022/9/ 78% -0.040/3/100% -0.030/2/100% -0.016/5/ 80% +0.007/2/ 50%   | 3/4 secteurs concordants (signe -)
+  cmf         -0.017/9/ 78% -0.037/3/100% -0.037/2/100% -0.024/5/ 80% +0.009/2/ 50%   | 3/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.037/9/100% -0.044/3/100% -0.066/2/100% -0.041/5/100% -0.047/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.045/9/100% -0.042/3/100% -0.071/2/100% -0.056/5/100% -0.061/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.040/9/100% -0.037/3/100% -0.065/2/100% -0.038/5/100% -0.040/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.036/9/ 89% -0.028/3/100% -0.063/2/100% -0.054/5/100% -0.062/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.041/9/100% -0.033/3/100% -0.066/2/100% -0.045/5/100% -0.051/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.029/9/ 89% -0.029/3/100% -0.048/2/100% -0.040/5/100% -0.048/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.023/9/100% -0.034/3/100% -0.039/2/100% -0.038/5/100% -0.030/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.025/9/ 78% -0.008/3/ 33% -0.031/2/100% -0.031/5/ 80% -0.054/2/100%   | 3/4 secteurs concordants (signe -)
+  rsi14       -0.040/9/100% -0.020/3/100% -0.055/2/100% -0.057/5/ 80% -0.093/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.040/9/100% -0.024/3/100% -0.063/2/100% -0.055/5/100% -0.089/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.032/9/ 89% -0.006/3/ 33% -0.046/2/100% -0.058/5/ 80% -0.079/2/100%   | 3/4 secteurs concordants (signe -)
+  supertrend  -0.038/9/ 89% -0.017/3/100% -0.030/2/100% -0.056/5/ 80% -0.095/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.027/9/ 89% -0.024/3/100% -0.050/2/100% -0.035/5/ 80% -0.075/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.001/9/ 56% -0.019/3/100% -0.019/2/100% -0.027/5/ 80% -0.004/2/ 50%   | crypto-maj ~plat
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.022/9/ 67% +0.061/3/ 67% +0.001/2/ 50% -0.005/5/ 40% -0.107/2/100%   | 1/4 secteurs concordants (signe -)
+  rsi14       -0.012/9/ 44% +0.045/3/100% +0.017/2/ 50% -0.007/5/ 60% -0.128/2/100%   | 1/4 secteurs concordants (signe -)
+  dist_sma50  -0.010/9/ 67% -0.006/3/ 67% -0.022/2/ 50% +0.015/5/ 40% -0.072/2/100%   | 2/4 secteurs concordants (signe -)
+  donchian20  -0.007/9/ 44% +0.084/3/100% +0.049/2/ 50% -0.029/5/ 60% -0.044/2/ 50%   | crypto-maj ~plat
+  supertrend  -0.021/9/ 56% +0.058/3/100% +0.052/2/100% -0.049/5/ 60% -0.069/2/ 50%   | 2/4 secteurs concordants (signe -)
+  vortex      -0.017/9/ 56% +0.083/3/100% +0.047/2/100% +0.003/5/ 60% -0.088/2/100%   | 1/4 secteurs concordants (signe -)
+  cmf         +0.011/9/ 67% +0.017/3/ 67% -0.059/2/ 50% +0.005/5/ 40% -0.056/2/100%   | 1/4 secteurs concordants (signe +)
+
+===== TF 5m — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.030/9/100% -0.030/3/100% -0.024/2/100% -0.029/5/100% -0.016/2/ 50%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.036/9/100% -0.038/3/100% -0.036/2/100% -0.032/5/100% -0.030/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.033/9/100% -0.040/3/100% -0.038/2/100% -0.025/5/100% -0.027/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.035/9/100% -0.032/3/100% -0.034/2/100% -0.035/5/100% -0.033/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.035/9/100% -0.020/3/100% -0.038/2/100% -0.025/5/100% -0.035/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.019/9/ 89% -0.024/3/100% -0.017/2/100% -0.021/5/ 80% -0.016/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.018/9/ 89% -0.023/3/100% -0.008/2/ 50% -0.022/5/100% -0.034/2/100%   | 3/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.025/9/100% -0.030/3/100% -0.042/2/100% -0.026/5/100% -0.047/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.038/9/ 89% -0.042/3/100% -0.040/2/100% -0.033/5/100% -0.054/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.039/9/ 89% -0.049/3/100% -0.035/2/100% -0.030/5/100% -0.043/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.034/9/ 89% -0.036/3/100% -0.036/2/100% -0.031/5/100% -0.050/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.040/9/100% -0.033/3/100% -0.043/2/100% -0.027/5/100% -0.050/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.026/9/ 89% -0.030/3/100% -0.029/2/100% -0.023/5/ 80% -0.032/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.025/9/100% -0.022/3/100% -0.016/2/100% -0.029/5/100% -0.035/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.026/9/ 78% -0.045/3/100% -0.002/2/ 50% -0.009/5/ 80% -0.023/2/100%   | 2/4 secteurs concordants (signe -)
+  rsi14       -0.050/9/ 89% -0.070/3/100% -0.025/2/100% -0.018/5/ 80% -0.050/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.076/9/ 89% -0.105/3/100% -0.041/2/100% -0.036/5/100% -0.039/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.040/9/ 89% -0.031/3/100% -0.007/2/100% -0.003/5/ 40% -0.032/2/100%   | 2/4 secteurs concordants (signe -)
+  supertrend  -0.042/9/ 89% -0.034/3/100% -0.046/2/100% +0.004/5/ 60% -0.018/2/100%   | 3/4 secteurs concordants (signe -)
+  vortex      -0.038/9/ 89% -0.049/3/100% -0.022/2/100% -0.006/5/ 80% -0.009/2/ 50%   | 2/4 secteurs concordants (signe -)
+  cmf         -0.049/9/100% -0.042/3/100% -0.005/2/ 50% -0.032/5/ 80% -0.021/2/100%   | 3/4 secteurs concordants (signe -)
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.035/9/ 78% +0.007/3/ 33% -0.033/2/100% -0.063/5/100% -0.132/2/100%   | 0/4 secteurs concordants (signe +)
+  rsi14       +0.007/9/ 56% -0.058/3/ 67% -0.079/2/100% -0.054/5/100% -0.187/2/100%   | crypto-maj ~plat
+  dist_sma50  -0.023/9/ 56% -0.091/3/ 67% -0.125/2/100% -0.057/5/ 80% -0.142/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.008/9/ 44% -0.054/3/ 67% -0.043/2/100% -0.057/5/100% -0.151/2/100%   | crypto-maj ~plat
+  supertrend  +0.005/9/ 56% -0.054/3/ 67% -0.117/2/100% -0.043/5/ 60% -0.214/2/100%   | crypto-maj ~plat
+  vortex      +0.014/9/ 56% -0.038/3/ 67% -0.057/2/100% -0.044/5/100% -0.108/2/100%   | 0/4 secteurs concordants (signe +)
+  cmf         +0.021/9/ 56% -0.072/3/100% -0.015/2/100% -0.035/5/ 60% -0.195/2/100%   | 0/4 secteurs concordants (signe +)
+
+===== TF 15m — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.037/9/ 89% -0.061/3/100% -0.052/2/100% -0.038/5/100% -0.034/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.030/9/ 89% -0.061/3/100% -0.049/2/100% -0.043/5/100% -0.058/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.020/9/ 89% -0.051/3/100% -0.041/2/100% -0.031/5/ 80% -0.042/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.034/9/ 89% -0.057/3/100% -0.050/2/100% -0.045/5/100% -0.066/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.028/9/ 89% -0.062/3/100% -0.039/2/100% -0.036/5/100% -0.044/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.019/9/ 89% -0.042/3/100% -0.040/2/100% -0.030/5/100% -0.020/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.014/9/ 78% -0.028/3/100% -0.029/2/100% -0.030/5/100% -0.022/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.035/9/ 89% -0.043/3/100% -0.059/2/100% -0.042/5/100% -0.039/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.036/9/ 89% -0.053/3/100% -0.041/2/100% -0.046/5/100% -0.059/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.032/9/ 89% -0.057/3/100% -0.027/2/100% -0.039/5/100% -0.041/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.036/9/ 89% -0.044/3/100% -0.040/2/100% -0.046/5/100% -0.062/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.030/9/ 89% -0.051/3/100% -0.024/2/100% -0.044/5/100% -0.061/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.021/9/ 89% -0.030/3/100% -0.019/2/100% -0.033/5/100% -0.027/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.017/9/ 78% -0.030/3/100% -0.026/2/100% -0.034/5/100% -0.028/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.005/9/ 56% -0.034/3/100% -0.001/2/ 50% -0.033/5/ 60% -0.049/2/100%   | crypto-maj ~plat
+  rsi14       -0.009/9/ 78% -0.043/3/100% -0.001/2/ 50% -0.039/5/ 60% -0.082/2/100%   | crypto-maj ~plat
+  dist_sma50  -0.021/9/ 89% -0.050/3/100% -0.005/2/ 50% -0.037/5/ 60% -0.072/2/100%   | 3/4 secteurs concordants (signe -)
+  donchian20  +0.002/9/ 44% -0.030/3/100% -0.012/2/ 50% -0.062/5/100% -0.083/2/100%   | crypto-maj ~plat
+  supertrend  -0.008/9/ 89% -0.028/3/100% +0.013/2/ 50% -0.053/5/100% -0.100/2/100%   | crypto-maj ~plat
+  vortex      -0.002/9/ 67% +0.002/3/ 67% +0.006/2/ 50% -0.041/5/ 80% -0.063/2/100%   | crypto-maj ~plat
+  cmf         +0.006/9/ 44% -0.020/3/ 67% -0.004/2/ 50% -0.014/5/ 80% -0.021/2/ 50%   | crypto-maj ~plat
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.019/9/ 56% -0.010/3/ 67% -0.026/2/100% +0.005/5/ 40% -0.039/1/100%   | 0/4 secteurs concordants (signe +)
+  rsi14       +0.002/9/ 56% -0.044/3/100% -0.030/2/100% +0.001/5/ 40% -0.023/1/100%   | crypto-maj ~plat
+  dist_sma50  -0.015/9/ 44% -0.063/3/100% -0.076/2/100% -0.013/5/ 80% -0.032/1/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  +0.043/9/ 67% +0.003/3/ 67% +0.043/2/100% +0.010/5/ 60% +0.005/1/100%   | 1/4 secteurs concordants (signe +)
+  supertrend  +0.011/9/ 56% -0.052/3/100% +0.016/2/ 50% +0.018/5/ 40% -0.007/1/100%   | 2/4 secteurs concordants (signe +)
+  vortex      +0.035/9/ 67% -0.002/3/ 67% +0.038/2/ 50% +0.048/5/ 80% -0.011/1/100%   | 2/4 secteurs concordants (signe +)
+  cmf         +0.041/9/ 89% +0.074/3/100% +0.003/2/ 50% +0.017/5/ 40% -0.073/1/100%   | 2/4 secteurs concordants (signe +)
+
+===== TF 30m — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.023/9/ 89% -0.028/3/100% -0.028/2/100% -0.031/5/100% -0.043/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.030/9/ 89% -0.037/3/100% -0.028/2/100% -0.028/5/100% -0.044/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.027/9/100% -0.029/3/100% -0.012/2/100% -0.018/5/ 80% -0.015/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.030/9/ 89% -0.039/3/100% -0.037/2/100% -0.035/5/100% -0.053/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.030/9/ 89% -0.037/3/100% -0.022/2/100% -0.023/5/100% -0.048/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.021/9/ 89% -0.026/3/100% -0.016/2/100% -0.022/5/100% -0.012/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.018/9/ 89% -0.023/3/100% -0.017/2/100% -0.012/5/100% -0.015/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.009/9/ 78% -0.014/3/ 67% -0.032/2/100% -0.043/5/100% -0.056/2/100%   | crypto-maj ~plat
+  rsi14       -0.025/9/ 89% -0.042/3/100% -0.025/2/100% -0.035/5/100% -0.063/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.031/9/ 89% -0.051/3/100% -0.015/2/ 50% -0.024/5/ 80% -0.039/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.018/9/ 89% -0.031/3/100% -0.038/2/100% -0.047/5/100% -0.069/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.030/9/ 89% -0.038/3/100% -0.008/2/ 50% -0.030/5/100% -0.079/2/100%   | 3/4 secteurs concordants (signe -)
+  vortex      -0.015/9/ 89% -0.018/3/100% -0.031/2/100% -0.032/5/100% -0.039/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.016/9/ 89% -0.019/3/100% -0.021/2/100% -0.009/5/ 80% +0.000/2/ 50%   | 2/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.014/9/ 56% +0.029/3/100% +0.124/2/100% -0.048/5/100% -0.093/2/100%   | 2/4 secteurs concordants (signe +)
+  rsi14       -0.018/9/ 78% -0.036/3/100% +0.069/2/100% -0.030/5/100% -0.086/2/100%   | 3/4 secteurs concordants (signe -)
+  dist_sma50  -0.039/9/ 89% -0.070/3/100% +0.038/2/100% -0.036/5/100% -0.063/2/100%   | 3/4 secteurs concordants (signe -)
+  donchian20  -0.007/9/ 67% -0.021/3/100% +0.067/2/100% -0.061/5/100% -0.087/2/100%   | crypto-maj ~plat
+  supertrend  -0.012/9/ 78% -0.041/3/100% +0.081/2/100% -0.036/5/100% -0.066/2/100%   | 3/4 secteurs concordants (signe -)
+  vortex      +0.004/9/ 44% +0.001/3/ 33% +0.039/2/100% -0.006/5/ 60% -0.030/2/ 50%   | crypto-maj ~plat
+  cmf         -0.031/9/ 78% -0.020/3/ 67% +0.004/2/ 50% +0.033/5/100% +0.019/2/ 50%   | 1/4 secteurs concordants (signe -)
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.034/9/ 67% -0.013/3/ 67%            -- +0.028/5/ 60%            --   | 1/2 secteurs concordants (signe +)
+  rsi14       +0.005/9/ 56% -0.053/3/100%            -- +0.049/5/ 80%            --   | crypto-maj ~plat
+  dist_sma50  -0.052/9/ 89% -0.126/3/100%            -- +0.022/5/ 80%            --   | 1/2 secteurs concordants (signe -)
+  donchian20  +0.046/9/ 78% +0.005/3/ 67%            -- +0.021/5/ 40%            --   | 1/2 secteurs concordants (signe +)
+  supertrend  +0.001/9/ 44% -0.058/3/100%            -- +0.005/5/ 80%            --   | crypto-maj ~plat
+  vortex      +0.045/9/ 78% -0.035/3/ 67%            -- +0.090/5/100%            --   | 1/2 secteurs concordants (signe +)
+  cmf         +0.046/9/ 78% +0.023/3/ 33%            -- +0.014/5/ 40%            --   | 2/2 secteurs concordants (signe +)
+
+===== TF 1H — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.022/9/ 89% -0.027/3/100% -0.065/2/100% -0.035/5/100% -0.044/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.027/9/ 89% -0.031/3/100% -0.042/2/100% -0.026/5/100% -0.026/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.024/9/ 89% -0.028/3/100% -0.022/2/100% -0.026/5/100% -0.010/2/100%   | 3/4 secteurs concordants (signe -)
+  donchian20  -0.026/9/ 89% -0.032/3/100% -0.046/2/100% -0.026/5/100% -0.033/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.025/9/ 89% -0.027/3/100% -0.027/2/100% -0.026/5/ 80% -0.022/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.016/9/ 78% -0.017/3/100% -0.028/2/100% -0.015/5/ 80% -0.006/2/ 50%   | 3/4 secteurs concordants (signe -)
+  cmf         -0.015/9/ 78% -0.019/3/100% -0.012/2/100% -0.006/5/ 80% +0.009/2/ 50%   | 2/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.018/9/ 78% -0.018/3/100% -0.019/2/100% -0.048/5/100% -0.059/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.029/9/ 89% -0.041/3/100% -0.012/2/100% -0.031/5/100% -0.057/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.034/9/100% -0.045/3/100% -0.012/2/100% -0.032/5/100% -0.037/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.020/9/ 89% -0.033/3/100% -0.010/2/100% -0.030/5/100% -0.054/2/100%   | 3/4 secteurs concordants (signe -)
+  supertrend  -0.025/9/ 89% -0.030/3/100% +0.002/2/ 50% -0.025/5/100% -0.047/2/100%   | 3/4 secteurs concordants (signe -)
+  vortex      -0.014/9/ 78% -0.015/3/100% -0.006/2/ 50% -0.026/5/ 80% -0.030/2/100%   | 3/4 secteurs concordants (signe -)
+  cmf         -0.017/9/ 89% -0.039/3/100% -0.007/2/ 50% +0.004/5/ 80% +0.014/2/ 50%   | 1/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.008/9/ 78% -0.013/3/ 67% -0.012/2/ 50% -0.047/5/100% -0.055/1/100%   | crypto-maj ~plat
+  rsi14       -0.013/9/ 78% -0.006/3/ 67% +0.024/2/ 50% -0.013/5/ 40% -0.065/1/100%   | 2/4 secteurs concordants (signe -)
+  dist_sma50  -0.020/9/ 78% -0.010/3/ 67% +0.006/2/ 50% -0.029/5/ 80% -0.035/1/100%   | 3/4 secteurs concordants (signe -)
+  donchian20  -0.006/9/ 78% -0.001/3/ 67% +0.037/2/100% -0.023/5/ 40% -0.056/1/100%   | crypto-maj ~plat
+  supertrend  -0.002/9/ 67% +0.027/3/100% +0.043/2/100% -0.024/5/ 80% -0.068/1/100%   | crypto-maj ~plat
+  vortex      -0.011/9/ 78% +0.022/3/100% +0.016/2/ 50% +0.026/5/ 80% -0.035/1/100%   | 1/4 secteurs concordants (signe -)
+  cmf         -0.011/9/ 78% -0.033/3/100% +0.073/2/100% +0.010/5/ 60% -0.054/1/100%   | 2/4 secteurs concordants (signe -)
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.041/9/ 78% -0.012/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe +)
+  rsi14       +0.038/9/ 67% +0.009/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe +)
+  dist_sma50  +0.008/9/ 56% -0.041/3/100%            --            --            --   | crypto-maj ~plat
+  donchian20  +0.057/9/ 89% +0.009/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe +)
+  supertrend  +0.041/9/ 67% +0.002/3/ 33%            --            --            --   | 0/1 secteurs concordants (signe +)
+  vortex      +0.041/9/ 78% +0.035/3/ 67%            --            --            --   | 1/1 secteurs concordants (signe +)
+  cmf         +0.017/9/ 67% -0.008/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe +)
+
+===== TF 4H — 21 symboles valides, secteurs présents : cryptoMaj, cryptoMeme, metal, equity, etf =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.037/9/100% -0.043/3/100% -0.010/2/100% -0.028/5/100% -0.055/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.028/9/100% -0.040/3/100% -0.024/2/100% -0.048/5/100% -0.063/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.024/9/100% -0.033/3/100% -0.032/2/100% -0.052/5/100% -0.069/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.027/9/100% -0.039/3/100% -0.013/2/100% -0.033/5/100% -0.047/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.029/9/100% -0.036/3/100% -0.022/2/100% -0.038/5/100% -0.052/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.020/9/100% -0.028/3/100% -0.014/2/100% -0.025/5/100% -0.027/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.020/9/100% -0.031/3/100% -0.023/2/ 50% -0.032/5/100% -0.057/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.023/9/100% -0.031/3/ 67% -0.034/2/100% -0.020/5/ 60% -0.039/2/100%   | 4/4 secteurs concordants (signe -)
+  rsi14       -0.027/9/ 89% -0.043/3/100% -0.045/2/100% -0.065/5/100% -0.102/2/100%   | 4/4 secteurs concordants (signe -)
+  dist_sma50  -0.033/9/ 89% -0.041/3/100% -0.053/2/100% -0.081/5/100% -0.108/2/100%   | 4/4 secteurs concordants (signe -)
+  donchian20  -0.023/9/100% -0.039/3/100% -0.018/2/ 50% -0.041/5/100% -0.063/2/100%   | 4/4 secteurs concordants (signe -)
+  supertrend  -0.031/9/ 89% -0.039/3/100% -0.079/2/100% -0.044/5/100% -0.083/2/100%   | 4/4 secteurs concordants (signe -)
+  vortex      -0.026/9/ 89% -0.035/3/100% -0.040/2/100% -0.063/5/100% -0.072/2/100%   | 4/4 secteurs concordants (signe -)
+  cmf         -0.025/9/100% -0.053/3/100% -0.039/2/ 50% -0.029/5/ 80% -0.098/2/100%   | 4/4 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.004/9/ 44% +0.048/3/100%            --            --            --   | crypto-maj ~plat
+  rsi14       -0.030/9/ 89% +0.018/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe -)
+  dist_sma50  -0.028/9/ 89% +0.002/3/ 33%            --            --            --   | 0/1 secteurs concordants (signe -)
+  donchian20  -0.016/9/ 78% +0.033/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe -)
+  supertrend  -0.003/9/ 67% +0.030/3/ 67%            --            --            --   | crypto-maj ~plat
+  vortex      -0.015/9/ 78% +0.010/3/ 67%            --            --            --   | 0/1 secteurs concordants (signe -)
+  cmf         -0.008/9/ 67% -0.016/3/ 67%            --            --            --   | crypto-maj ~plat
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   +0.015/4/ 75%            --            --            --            --   | 0/0 secteurs concordants (signe +)
+  rsi14       +0.037/4/ 75%            --            --            --            --   | 0/0 secteurs concordants (signe +)
+  dist_sma50  +0.044/4/ 75%            --            --            --            --   | 0/0 secteurs concordants (signe +)
+  donchian20  +0.053/4/100%            --            --            --            --   | 0/0 secteurs concordants (signe +)
+  supertrend  +0.077/4/100%            --            --            --            --   | 0/0 secteurs concordants (signe +)
+  vortex      +0.009/4/ 50%            --            --            --            --   | crypto-maj ~plat
+  cmf         -0.025/3/ 67%            --            --            --            --   | 0/0 secteurs concordants (signe -)
+
+===== TF 1D — 12 symboles valides, secteurs présents : cryptoMaj, cryptoMeme =====
+
+  --- horizon h=1 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.032/9/ 78% -0.035/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  rsi14       -0.029/9/ 78% -0.057/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  dist_sma50  -0.028/9/ 67% -0.063/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  donchian20  -0.022/9/ 78% -0.043/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  supertrend  -0.015/9/ 56% -0.056/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  vortex      -0.010/9/ 67% -0.033/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  cmf         -0.032/9/ 89% -0.045/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+
+  --- horizon h=4 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8   -0.027/9/ 89% -0.028/3/ 67%            --            --            --   | 1/1 secteurs concordants (signe -)
+  rsi14       -0.030/9/ 78% -0.059/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  dist_sma50  -0.033/9/ 78% -0.077/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  donchian20  -0.010/9/ 56% -0.021/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  supertrend  -0.004/9/ 44% -0.061/3/100%            --            --            --   | crypto-maj ~plat
+  vortex      -0.013/9/ 44% -0.067/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+  cmf         -0.045/9/100% -0.075/3/100%            --            --            --   | 1/1 secteurs concordants (signe -)
+
+  --- horizon h=24 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8              --            --            --            --            --   | pas de réf crypto-maj
+  rsi14                  --            --            --            --            --   | pas de réf crypto-maj
+  dist_sma50             --            --            --            --            --   | pas de réf crypto-maj
+  donchian20             --            --            --            --            --   | pas de réf crypto-maj
+  supertrend             --            --            --            --            --   | pas de réf crypto-maj
+  vortex                 --            --            --            --            --   | pas de réf crypto-maj
+  cmf                    --            --            --            --            --   | pas de réf crypto-maj
+
+  --- horizon h=96 barres ---
+  signal          cryptoMaj    cryptoMeme         metal        equity           etf   | verdict
+  momentum8              --            --            --            --            --   | pas de réf crypto-maj
+  rsi14                  --            --            --            --            --   | pas de réf crypto-maj
+  dist_sma50             --            --            --            --            --   | pas de réf crypto-maj
+  donchian20             --            --            --            --            --   | pas de réf crypto-maj
+  supertrend             --            --            --            --            --   | pas de réf crypto-maj
+  vortex                 --            --            --            --            --   | pas de réf crypto-maj
+  cmf                    --            --            --            --            --   | pas de réf crypto-maj
+
+===== TF 1W : aucun symbole exploitable (échantillon/plis trop courts) =====
+
+
+Lecture : un signal 'robuste cross-secteur' = même signe sur crypto-maj ET
+les secteurs non-crypto (metal/equity/etf) avec |IC|>=0.01. Cases '--' =
+échantillon trop court pour 6 plis purgés (honnête : profondeur haut-TF fine).
