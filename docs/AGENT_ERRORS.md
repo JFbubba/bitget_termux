@@ -437,3 +437,38 @@ interaction, poussée jusqu'au modèle joint de TOUTES les familles, ne révèle
 avec le bilan §104 (edge réversion réel ~−0,04 IC mais < frais) et avec les modèles DÉJÀ-joints Darts/TimesFM
 (qui combinent tout en interne et échouent pareil). Le mur des frais + l'exécution maker restent les seuls
 leviers. Le nouveau method a rendu les DIAGNOSTICS justes, pas des edges gagnants.**
+**Ré‑audit LENTILLE MAKER + specs COMPLÉTÉES (18/07 soir, demande proprio « analyse en ensemble pas isolé ;
+cherche des infos sur le net pour compléter chaque agent avant de ré‑analyser »).** Deux failles réelles
+trouvées AVANT de re‑juger (2 sous‑agents de recherche web) : (1) **specs incomplètes** — `supertrend` en ATR
+SMA au lieu de **Wilder/RMA** (écart canonique TradingView) ; surtout le **momentum cross‑sectionnel mal
+construit** (rang 8‑barres SANS skip → aux TF intraday capte du REVERSAL, signe inversé ; Jegadeesh‑Titman =
+skip‑1, Dobrynskaya crypto = momentum ~2‑3 sem puis flip reversal >1 mois) ; (2) tous les rejets jugés à frais
+**taker** seulement, jamais sous la lentille **maker** (le levier documenté). Corrigé (`signals_v2.py` :
+SuperTrend Wilder + formation skip‑1 + lead‑lag seesaw ; `joint_v2.py`, `fee_sweep.py`, `geom_fee_sweep.py`,
+`exit_fee_sweep.py`, `global_interaction_funding.py`). **Résultat** : sur specs canoniques ET sous maker ET avec
+shuffle/déflation, aucune famille intraday ne révèle d'edge robuste (réversion 0/config même à 0 frais ; joint V2
+ne bat jamais le shuffle ; funding ΔIC ~0 ; geometric = artefacts). **3ᵉ apprentissage — les OUTILS génèrent des
+FAUX POSITIFS que seule la discipline attrape** : (a) `geom_fee_sweep` a flaggé 8 « pistes » = toutes des
+artefacts (net +75‑106 bps/BARRE, long‑horizon, signes incohérents cross‑symbole, null shuffle SE≈0,1) ;
+(b) `orderflow_lab/ic_measure.py` imprime « EDGE plausible (maker) » sur n≈25 barres (|IC| 0,3‑0,56 = bruit) ;
+(c) `exit_calibration` best‑de‑grille « positif à maker » = déflaté ≤0 (sur‑testing) → **la convention RÉELLE des
+sorties est négative MÊME à 0 frais** (corrige la mémoire « @4 bps bascule positif »). Filtre requis désormais :
+un « hit » n'est réel que s'il **bat le shuffle de marge, survit à la déflation, est cohérent cross‑symbole, a une
+magnitude sensée, et tient en HOLDOUT temporel**. **À DURCIR** : `ic_measure.py` (exiger significativité +
+cohérence) et le filtre « strong » de `geom_fee_sweep`/`interaction_geom` (trop faible quand le null shuffle a
+SE≈0,1 aux longs horizons). **4ᵉ apprentissage — appliquer la méthode ENSEMBLE à la BONNE ÉCHELLE a fait émerger
+la SEULE vraie piste** : le momentum cross‑sectionnel **1D** (tri long‑short sur tout l'univers, skip‑1, L=21≈3 sem)
+donne +16,9 bps/j net maker (Sharpe 0,89, t 2,35), survit shuffle+déflation, est **market‑neutral** (corr −0,06),
+**culmine à L=21 puis redescend** (momentum Dobrynskaya, pas beta) — mais **holdout OOS MARGINAL** (2e moitié
+t=1,28) + L instable → **lead réel, pas déployable**, à valider en **walk‑forward à L glissant** (`docs/VERDICTS.md`,
+ligne « momentum cross‑sectionnel 1D »). L'analyse par‑indicateur et les joints intraday l'avaient manqué : elle
+n'apparaît qu'en traitant l'univers comme un ENSEMBLE cross‑actifs, à l'échelle daily. **WALK‑FORWARD FAIT
+(18/07)** : L sélectionné OOS sur train glissant → maker **t=1,62** (+13,4 bps/j), taker t=1,04 ; L fixe 14 j
+t=1,12 → **NON significatif OOS** (le t=2,35 plein‑échantillon était gonflé par la sélection in‑sample de L).
+Réel, market‑neutral, théorie‑cohérent MAIS sub‑seuil → **VIVANT, pas déployable** ; seul levier = univers
+élargi (12→~40 coins = puissance, pas p‑hacking). **5ᵉ apprentissage** : une sélection de paramètre in‑sample
+gonfle le t‑stat ; seul le walk‑forward (paramètre choisi OOS) donne le t honnête. **UNIVERS ÉLARGI FAIT
+(12→46 coins)** : plein‑échantillon renforcé (t 2,35→2,9) MAIS walk‑forward OOS reste **t=1,51 maker / 0,80
+taker** → effet RÉEL mais trop faible pour être tradable seul → **CLASSÉ réel‑non‑tradable**. 6ᵉ apprentissage :
+élargir l'univers renforce le plein‑échantillon (puissance in‑sample) sans forcément rescaper l'OOS — un effet
+peut être réel ET rester sub‑seuil en effet‑taille.
