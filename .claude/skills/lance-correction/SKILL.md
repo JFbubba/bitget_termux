@@ -43,6 +43,12 @@ Lire `docs/AGENT_ERRORS.md` et repasser à la main les contrôles de jugement :
   implémenté entier et dans l'ordre, pas décomposé en filtres indépendants ?
 - **ERR-003** — les affirmations factuelles récentes sont-elles vérifiées contre le système
   réel (API/config), pas supposées ?
+- **ERR-015** — AVANT de construire un correctif/module, l'existant a-t-il été vérifié ?
+  `python prior_art.py "<concept>"` (ou l'agent `prior-art-scout`) : « CODE EXISTANT » ⇒ étendre,
+  ne pas re-coder ; « DÉJÀ MESURÉ » ⇒ lire le verdict, ne pas re-tester (double data).
+- **ERR-016** — une mesure classe-t-elle bien l'INTENTION du module ? Un outil de RECONNAISSANCE
+  de structure / d'aide à l'EXÉCUTION (« où suis-je dans le mouvement ») ne se juge PAS à une IC
+  directionnelle mais à la qualité de PLACEMENT/exécution (fill, markout).
 
 ### 5. Consolider & agir
 - Produire un **verdict consolidé** : ce qui est vert, ce qui est signalé, par sévérité.

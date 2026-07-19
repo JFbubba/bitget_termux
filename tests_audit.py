@@ -11941,6 +11941,50 @@ def test_smc_ote_zone_and_overlay():
     assert any(ll["label"] == "OTE 0.705" for ll in ov["lines"])  # ligne sweet dessinée
 
 
+def test_prior_art_tokens_and_subwords():
+    """Tokenisation (mots vides retirés, ≥3 lettres) + découpe en sous-mots (underscore/camelCase)."""
+    import prior_art as pa
+    tk = pa.tokens("le SMC ICT killzone pour les FVG")
+    assert "smc" in tk and "ict" in tk and "killzone" in tk and "fvg" in tk
+    assert "les" not in tk and "pour" not in tk                    # mots vides retirés
+    assert pa._subwords("fair_value_gaps") == {"fair", "value", "gaps"}
+    assert pa._subwords("changeOfCharacter") == {"change", "of", "character"}
+
+
+def test_prior_art_symbol_matching_is_subword_not_substring():
+    """scan_symbols matche par SOUS-MOT (pas sous-chaîne) : 'value' ne matche PAS 'validation'."""
+    import prior_art as pa
+    src = "def fair_value_gaps(x):\n    pass\ndef agent_validation():\n    pass\n"
+    assert pa.scan_symbols(src, ["fair"]) == [("def", "fair_value_gaps")]
+    assert pa.scan_symbols(src, ["value"]) == [("def", "fair_value_gaps")]   # sous-mot de fvg, PAS validation
+    assert pa.scan_symbols(src, ["order"]) == []                             # aucun sous-mot 'order'
+    assert pa.scan_lines("une ligne SMC\nautre chose", ["smc"]) == [(1, "une ligne SMC")]
+
+
+def test_prior_art_report_flags_existing_and_empty():
+    """report() signale un concept DÉJÀ présent+testé (SMC -> smc.py + VERDICTS) et 'rien trouvé'
+    pour un concept inexistant. Hermétique (graphify désactivé)."""
+    import prior_art as pa
+    r = pa.report("SMC ICT fair value gap killzone", use_graphify=False)
+    assert "EXISTE" in r["verdict"]                                # code smc.py + verdict SMC détectés
+    assert any(f == "smc.py" for f, _s, _d in r["code"])
+    r2 = pa.report("zzqqxx wibblewobble nonexistentthing", use_graphify=False)
+    assert "rien trouvé" in r2["verdict"]
+
+
+def test_prior_art_source_is_readonly_safe():
+    """prior_art n'a AUCUN chemin d'exécution ; lecture seule pure."""
+    src = open("prior_art.py").read().lower()
+    forbidden = ["place_order", "open_long", "open_short", "close_position", "cancel_order",
+                 "withdraw", "send_order", "create_order", "submit_order", "set_leverage",
+                 "market_order", "post_order"]
+    assert not [k for k in forbidden if k in src]
+    for m in ("import spot_executor", "import futures_executor", "import bitget_execute",
+              "import spot_trader", "import margin_trader"):
+        assert m not in src
+    assert "verdict: safe" in src and "lecture seule" in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

@@ -186,6 +186,7 @@ FILES_TO_SCAN = [
     "mvrv_lab.py",
     "wyckoff_lab.py",
     "chart_patterns.py",
+    "prior_art.py",
     "grok_vision.py",
     "trade_forensics.py",
     "promotion_board.py",

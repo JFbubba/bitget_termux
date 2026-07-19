@@ -472,3 +472,66 @@ gonfle le t‑stat ; seul le walk‑forward (paramètre choisi OOS) donne le t h
 taker** → effet RÉEL mais trop faible pour être tradable seul → **CLASSÉ réel‑non‑tradable**. 6ᵉ apprentissage :
 élargir l'univers renforce le plein‑échantillon (puissance in‑sample) sans forcément rescaper l'OOS — un effet
 peut être réel ET rester sub‑seuil en effet‑taille.
+
+## ERR-015 · 2026-07-19 · Re-coder / re-mesurer ce qui existe déjà (contexte éphémère + ancrage sur le 1er fichier trouvé)
+
+**Contexte.** Tâche SMC/ICT : j'ai grep `price_action.py`, y ai trouvé FVG/market_structure, et
+j'ai ANCRÉ dessus en supposant que c'était tout l'existant. J'ai conçu — et commencé à construire —
+un nouveau module, alors que `smc.py` existait déjà : un agrégateur ICT COMPLET (FVG/sweep/ChoCh/
+BPR/killzone/PO3/SMT + setup) DÉJÀ câblé au dashboard. Il n'a surfacé que quand un agent de
+cartographie a interrogé **graphify**. Même classe d'erreur : re-mesurer une idée DÉJÀ rejetée
+(double data inutile — ex. re-tester SMC comme edge alors que `VERDICTS.md` le donne net-négatif).
+**Cause racine.** Mon contexte d'agent est ÉPHÉMÈRE (je repars sans le dépôt « en tête » chaque
+session). Face à une tâche « ajoute X », j'ancre sur le premier fichier que je trouve et je suppose
+qu'il borne l'existant. Les index anti-gaspillage EXISTENT déjà — graphify (graphe de tout le code),
+`docs/VERDICTS.md`, `scratchpad/LABOS.md`, la mémoire — mais je ne les consulte pas SUR LE CONCEPT,
+en PREMIER. Ce n'est pas un outil manquant, c'est une discipline ratée.
+**Solution.** `prior_art.py` — un réflexe UNIQUE `python prior_art.py "<concept>"` qui interroge d'un
+coup graphify + symboles def/class + VERDICTS + LABOS + mémoire, et rend un verdict (EXISTE DÉJÀ /
+DÉJÀ TESTÉ / rien trouvé). + sous-agent read-only `prior-art-scout` (accès lecture à tout le bot,
+aucun Edit/Write). + intégré à `/lance-correction`. À lancer AVANT de concevoir tout module/labo/voix.
+**Contrôle (détection ailleurs).** Avant de construire quoi que ce soit de neuf :
+`python prior_art.py "<le concept>"`. « ⚠ CODE EXISTANT » ⇒ ÉTENDRE le module, ne pas le re-coder ;
+« ⚠ DÉJÀ MESURÉ/REJETÉ » ⇒ lire le verdict avant de re-tester. graphify reste la source précise
+(communauté/nœuds) ; le scan de symboles est un filet de secours.
+**Statut.** RÉSOLU (`prior_art.py` + `prior-art-scout` + `/lance-correction`, 4 tests, 3 portes vertes)
+· RÈGLE ACTIVE.
+
+## ERR-016 · 2026-07-19 · Mesurer un outil de RECONNAISSANCE de structure / d'aide à l'EXÉCUTION comme un signal directionnel PRÉDICTIF (IC)
+
+**Contexte.** SMC/ICT : j'ai mesuré l'IC DIRECTIONNELLE de `smc_shadow` (le biais smc prédit-il le
+rendement forward) sur plusieurs régimes → IC≈0 → « aucun edge ». Le propriétaire a corrigé : **SMC
+n'est PAS un indicateur prédictif ; c'est la RECONNAISSANCE d'un processus structurel détectable — il
+dit OÙ on est dans le mouvement pour bien PLACER ses ordres.** On ne demande pas à un FVG/OTE/BPR/pool
+de liquidité de crier « achète », mais « prix en discount, près d'un pool, après un sweep → limit ICI,
+stop LÀ ». Mesuré comme un prédicteur directionnel, un outil de placement rend forcément un « no edge »
+qui répond à la MAUVAISE question.
+**Cause racine.** Réflexe de tester TOUT signal comme une prédiction directionnelle (IC vs rendement
+forward). Mais certains modules sont des aides au CONTEXTE / à la LOCALISATION / à l'EXÉCUTION, pas des
+prédicteurs. Leur valeur est dans le PLACEMENT des ordres (où poser le limit, qualité de fill, markout,
+sélection adverse), pas dans la direction. La lentille IC appliquée à un outil de reconnaissance
+GARANTIT un faux « rejeté ». (Le dashboard SMC — carte des zones pour placer — était, lui, le BON usage.)
+**Solution.** Avant de mesurer un module, CLASSER son intention : (a) prédicteur directionnel → IC/
+rendement forward net de frais ; (b) reconnaissance / exécution / contexte → mesurer la QUALITÉ
+D'EXÉCUTION (taux de fill, markout, slippage, sélection adverse) CONDITIONNÉE à ce contexte, pas une IC
+directionnelle. Pour SMC, le test aligné est : « placer un limit MAKER au bord d'un FVG/OTE/niveau de
+session donne-t-il de meilleurs fills / markout qu'un placement naïf ? » — pile sur le SEUL levier réel
+du bot (exécution/frais, cf. mémoire `exec-fees-lever`).
+**Contrôle (détection ailleurs) — RUBRIQUE de différenciation (reproductible, pas au feeling).**
+Classer CHAQUE module de mesure par la NATURE de sa sortie, via 4 questions :
+  1. **Type de sortie** : une DIRECTION signée à trader (long/short + conviction) ⇒ prédicteur.
+     Un NIVEAU de prix / une ZONE / une PHASE / un ÉTAT de régime / un label ⇒ contexte.
+  2. **Nomme-t-il une direction, ou un lieu/état ?** « achète » ⇒ prédicteur ; « on est en discount,
+     près d'un pool, vol haute, killzone Londres » ⇒ contexte/exécution/timing.
+  3. **Usage humain** : « j'entre parce qu'il dit long » ⇒ prédicteur ; « il dit OÙ je suis → je place
+     mon limit ici / j'attends / je réduis la taille » ⇒ contexte.
+  4. **Évaluation naturelle** : corrélation au rendement forward (IC) ⇒ prédicteur ; amélioration
+     CONDITIONNELLE (meilleur fill/markout, moindre sélection adverse, meilleur risk-adjusted d'une
+     stratégie existante QUAND ce contexte tient) ⇒ contexte/exécution/sizing.
+Verdict de la rubrique : **prédicteur** → IC / rendement net de frais. **contexte/exécution** → qualité
+de PLACEMENT (fill, markout, slippage, adverse selection). **risque/sizing** → z-score → taille, pas IC.
+NE JAMAIS rendre un « rejeté » sur une IC directionnelle pour un outil de contexte/exécution/risque.
+Exemples de bonne classification déjà faite : `geometric_agent` (reclassé descripteur de RISQUE→sizing,
+pas edge) ; `regime_lab` (régime = variable de CONDITIONNEMENT du consensus, pas prédicteur seul).
+**Statut.** RECONNU (correction propriétaire 19/07) · dashboard SMC = bon usage ; mesure d'EXÉCUTION SMC
+à faire (proposée) · RÈGLE ACTIVE.
