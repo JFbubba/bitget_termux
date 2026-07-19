@@ -54,7 +54,8 @@ def payoff_profile(rows, depuis_ts=None):
     réalisés (champ `profit` par fill) et classe l'edge — car scaler les caps (§45) sur
     un edge FRAGILE (gros taux de gain, gains minuscules, une grosse perte efface tout)
     est dangereux. Retourne win_rate, gain/perte moyens, payoff (gain moy / |perte moy|),
-    espérance, et un verdict. `shape` : robuste / fragile / asymétrique+ / perdant / n/a."""
+    espérance, un t-stat, et un verdict. `shape` : robuste / insuffisant (espérance +
+    mais non significative) / fragile / asymétrique+ / perdant / n/a."""
     gains, pertes = [], []
     for r in rows or []:
         if not isinstance(r, dict):
@@ -74,8 +75,25 @@ def payoff_profile(rows, depuis_ts=None):
     avg_loss = sum(pertes) / len(pertes) if pertes else 0.0          # négatif
     payoff = (avg_win / abs(avg_loss)) if avg_loss else None
     expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss      # $/trade attendu
+    # SIGNIFICATIVITÉ (§edge-deflate) : une espérance POSITIVE sur un petit échantillon est
+    # indistinguable de zéro — ne JAMAIS la déclarer « robuste » / scalable sans preuve. Le
+    # SIGNE ne suffit pas (leçon Deflated Sharpe, campagne de formation). On exige n ≥ MIN_N
+    # ET un t-stat ≥ T_MIN sur l'espérance/trade ; en dessous -> shape « insuffisant » (aucun
+    # feu vert au scaling des caps §45). t = espérance / (écart-type/√n) sur les PnL/trade.
+    serie = gains + pertes
+    if n > 1:
+        var = sum((x - expectancy) ** 2 for x in serie) / (n - 1)
+        std = var ** 0.5
+        t_stat = expectancy / (std / (n ** 0.5)) if std > 0 else 0.0
+    else:
+        t_stat = 0.0
+    MIN_N, T_MIN = 30, 2.0
     if expectancy <= 0:
         shape, verdict = "perdant", "espérance ≤ 0 — NE PAS scaler les caps"
+    elif n < MIN_N or t_stat < T_MIN:
+        shape, verdict = "insuffisant", (
+            f"espérance +{expectancy:.4f}/trade mais n={n} · t={t_stat:.2f} — indistinguable de "
+            "zéro (échantillon/déflation insuffisants), NE PAS scaler les caps")
     elif win_rate >= 0.7 and (payoff is not None and payoff < 0.5):
         shape, verdict = "fragile", "gros taux de gain mais gains minuscules — une perte efface tout, prudence sur le scaling"
     elif win_rate <= 0.45 and (payoff is None or payoff >= 1.8):
@@ -85,7 +103,8 @@ def payoff_profile(rows, depuis_ts=None):
     return {"n": n, "win_rate": round(win_rate, 3),
             "avg_win": round(avg_win, 4), "avg_loss": round(avg_loss, 4),
             "payoff": round(payoff, 2) if payoff is not None else None,
-            "expectancy": round(expectancy, 4), "shape": shape, "verdict": verdict}
+            "expectancy": round(expectancy, 4), "t_stat": round(t_stat, 2),
+            "shape": shape, "verdict": verdict}
 
 
 def stress_book(gross_usdt, equity_usdt, shock_pct, stop_pct=None):
@@ -266,6 +285,24 @@ def fetch_fills(limit=100, symbol=None):
     return rows
 
 
+def equity_delta_pct(current, equity_journal, days=7, now=None):
+    """PUR. Variation % de l'equity sur `days` jours : `current` vs la première ouverture
+    dans la fenêtre (`equity_journal`, écrit par `_book_equity` = le LIVRE COUVERT). RÈGLE :
+    appeler avec `current = _book_equity()` (couvert), JAMAIS `_futures_equity()` (wallet seul)
+    — sinon on compare wallet-seul (≈206 $) à une base couverte (≈249 $, wallet+jambe BTC spot)
+    et on affiche une perte FANTÔME (~-17 %) qui n'existe pas. None si base absente/nulle."""
+    cur = safe_float(current)
+    if cur is None or not equity_journal:
+        return None
+    now = time.time() if now is None else now
+    jour_now = int(now // 86400)
+    for row in equity_journal:
+        if isinstance(row, dict) and (jour_now - int(row.get("day", 0))) <= days:
+            base = safe_float(row.get("open_equity"))
+            return round((cur / base - 1.0) * 100.0, 3) if base else None
+    return None
+
+
 def snapshot():
     """État futures complet (lecture seule) : boucle auto (préview sans exécution),
     position, equity, stop journalier, journal exécuteur, fills réconciliés."""
@@ -290,22 +327,17 @@ def snapshot():
     except Exception:
         pass
     ej = led.get("equity_journal") or []
-    delta7 = None
-    eq_now = fe._futures_equity()
-    if eq_now and len(ej) >= 2:
-        base = None
-        jour_now = int(time.time() // 86400)
-        for row in ej:
-            if isinstance(row, dict) and (jour_now - int(row.get("day", 0))) <= 7:
-                base = safe_float(row.get("open_equity"))
-                break
-        if base:
-            delta7 = round((eq_now / base - 1.0) * 100.0, 3)
+    eq_now = fe._futures_equity()               # wallet futures SEUL (affichage wallet + stress)
+    book_now = fe._book_equity()                # livre COUVERT = MÊME base qu'equity_journal
+    # Le delta 7 j compare le COUVERT au COUVERT (bug corrigé §drawdown-base : avant, wallet-seul
+    # vs base couverte -> ~50 $ de jambe BTC spot soustraits d'un seul côté -> perte FANTÔME).
+    delta7 = equity_delta_pct(book_now, ej, days=7)
     fills = fetch_fills() if debut else []          # une seule lecture -> fills_bot ET payoff
     return {
         "boucle": st,
         "carry": carry,
         "equity_usdt": eq_now,
+        "book_equity_usdt": book_now,
         "equity_7j_delta_pct": delta7,
         "equity_journal_n": len(ej),
         "drawdown": fe.drawdown_status(),
@@ -363,9 +395,10 @@ def build_report(s=None):
                        f"{c.get('apr_net_pct')} % ({c.get('attrait')}) · couverture "
                        f"{c.get('couverture_usdt')} $ -> {str(cd.get('action', 'rien')).upper()}"
          )(s.get("carry") or {}, (s.get("carry") or {}).get("decision") or {}),
-        f"Equity wallet futures : {_n(s.get('equity_usdt'))} USDT · stop journalier −{s.get('stop_pct')} % "
-        f"sur le LIVRE COUVERT (ouverture du jour : {_n(stj.get('open_equity'))} = futures + expo BTC carry)"
-        + (f" · 7 j : {_n(s.get('equity_7j_delta_pct'), '{:+.2f}')} %"
+        f"Equity wallet futures : {_n(s.get('equity_usdt'))} USDT · livre COUVERT : "
+        f"{_n(s.get('book_equity_usdt'))} USDT (= wallet + expo BTC carry) · stop journalier "
+        f"−{s.get('stop_pct')} % sur le couvert (ouverture du jour : {_n(stj.get('open_equity'))})"
+        + (f" · 7 j : {_n(s.get('equity_7j_delta_pct'), '{:+.2f}')} % (couvert/couvert)"
            if s.get("equity_7j_delta_pct") is not None else ""),
         f"Caps : {_n(caps.get('per_trade'))} $/trade · {_n(caps.get('gross'))} $ cumulé "
         f"(murs {_n(caps.get('mur_per_trade'))}/{_n(caps.get('mur_gross'))})",
@@ -398,7 +431,8 @@ def build_report(s=None):
     if po.get("n"):
         lignes.append(f"Forme de l'edge : {po.get('shape', '?').upper()} — "
                       f"win {round((po.get('win_rate') or 0) * 100)}% · payoff {_n(po.get('payoff'))} · "
-                      f"espérance {_n(po.get('expectancy'), '{:+.4f}')} $/trade — {po.get('verdict', '')}")
+                      f"espérance {_n(po.get('expectancy'), '{:+.4f}')} $/trade · t {_n(po.get('t_stat'))} "
+                      f"(n={po.get('n')}) — {po.get('verdict', '')}")
     sx = s.get("stress") or {}
     if sx.get("shock_pct") is not None:
         lignes.append(f"Stress −{_n(sx.get('shock_pct'), '{:.0f}')}% : perte ~{_n(sx.get('perte_usdt'))} $ -> "

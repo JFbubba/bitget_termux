@@ -8235,13 +8235,37 @@ def test_futures_report_payoff_profile():
               [{"cTime": 1000, "profit": "-1.0"} for _ in range(2)]
     r = fr.payoff_profile(fragile)
     assert r["win_rate"] == 0.8 and r["expectancy"] < 0 and r["shape"] == "perdant"
-    # 6 gains +2, 4 pertes −0.5 : équilibré, espérance positive -> ROBUSTE
-    robuste = [{"cTime": 1000, "profit": "2"} for _ in range(6)] + \
-              [{"cTime": 1000, "profit": "-0.5"} for _ in range(4)]
+    # 24 gains +2, 16 pertes −0.5 (n=40) : équilibré, espérance +, SIGNIFICATIF -> ROBUSTE
+    robuste = [{"cTime": 1000, "profit": "2"} for _ in range(24)] + \
+              [{"cTime": 1000, "profit": "-0.5"} for _ in range(16)]
     r2 = fr.payoff_profile(robuste)
-    assert r2["expectancy"] > 0 and r2["payoff"] == 4.0 and r2["shape"] == "robuste"
+    assert r2["expectancy"] > 0 and r2["payoff"] == 4.0 and r2["t_stat"] >= 2.0 and r2["shape"] == "robuste"
+    # MÊME profil mais PETIT échantillon (n=10) : espérance + mais indistinguable de zéro
+    # -> INSUFFISANT (garde de significativité §edge-deflate : le signe ne suffit pas)
+    petit = [{"cTime": 1000, "profit": "2"} for _ in range(6)] + \
+            [{"cTime": 1000, "profit": "-0.5"} for _ in range(4)]
+    r3 = fr.payoff_profile(petit)
+    assert r3["expectancy"] > 0 and r3["n"] == 10 and r3["shape"] == "insuffisant"
     # borne temporelle respectée (comme resume_fills)
     assert fr.payoff_profile([{"cTime": 1000, "profit": "5"}], depuis_ts=3_000)["n"] == 0
+
+
+def test_futures_report_equity_delta_covered_base():
+    """§drawdown-base : le delta 7 j compare le COUVERT au COUVERT (fix du −17 % fantôme
+    qui comparait wallet-seul ~206 $ à une base couverte ~249 $). Helper PUR, fail-safe."""
+    import futures_report as fr
+    now = 100 * 86400 + 500                             # jour 100
+    ej = [{"day": 95, "open_equity": 249.06}, {"day": 100, "open_equity": 256.0}]
+    # couvert (256.30) vs 1ʳᵉ ouverture dans la fenêtre 7 j (249.06) -> ~+2,9 %
+    d = fr.equity_delta_pct(256.30, ej, now=now)
+    assert d is not None and 2.5 < d < 3.5
+    # le BUG d'origine : wallet-seul (206.44) vs base couverte (249.06) -> perte FANTÔME
+    assert fr.equity_delta_pct(206.44, ej, now=now) < -15
+    # fail-safe : journal vide / current None / base nulle / hors fenêtre -> None
+    assert fr.equity_delta_pct(256.0, [], now=now) is None
+    assert fr.equity_delta_pct(None, ej, now=now) is None
+    assert fr.equity_delta_pct(256.0, [{"day": 95, "open_equity": 0}], now=now) is None
+    assert fr.equity_delta_pct(256.0, [{"day": 80, "open_equity": 249.0}], now=now) is None
 
 
 def test_futures_report_somme_funding():
@@ -11121,6 +11145,114 @@ def test_grid_lab_status_readonly():
     for kw in ("place_order", "cancel_order", "withdraw", "set_leverage",
                "market_order", "limit_order", "close_position"):
         assert kw not in src
+
+
+# ---------- vpin_lab.py : banc de MESURE VPIN (toxicité du flux, lecture seule) ----------
+
+def test_vpin_pure_balanced_and_imbalanced():
+    """VPIN pur : flux parfaitement équilibré -> 0 ; parfaitement déséquilibré -> 1."""
+    import vpin_lab as v
+    bal = [{"ts": i, "buy": 10.0, "sell": 10.0} for i in range(200)]
+    vp = v.compute_vpin(bal, bucket_volume=20.0, window=50)
+    assert vp and abs(vp[-1]["vpin"] - 0.0) < 1e-9
+    imb = [{"ts": i, "buy": 20.0, "sell": 0.0} for i in range(200)]
+    vp2 = v.compute_vpin(imb, bucket_volume=20.0, window=50)
+    assert vp2 and abs(vp2[-1]["vpin"] - 1.0) < 1e-9
+    # bucket à volume ÉGAL : chaque bucket ≈ bucket_volume
+    b = v.volume_buckets(bal, 25.0)
+    assert b and all(abs((x["buy"] + x["sell"]) - 25.0) < 1e-6 for x in b)
+
+
+def test_vpin_failsafe_empty():
+    """FAIL-SAFE : données vides / None / bucket nul -> [] (aucun crash)."""
+    import vpin_lab as v
+    assert v.compute_vpin([], 10.0) == []
+    assert v.compute_vpin(None, 10.0) == []
+    assert v.compute_vpin([{"ts": 1, "buy": 5.0, "sell": 5.0}], 0) == []
+    assert v.bvc_series([]) == []
+    assert v.bvc_series(None) == []
+    assert v.volume_buckets([{"ts": 1, "buy": 0.0, "sell": 0.0}], 10.0) == []
+    assert v.simulate_and_tag([], {"spread_bps": 2.0, "markout_h": 3, "fee_bps": 4.0,
+                                    "bucket_volume": 1.0, "window": 5, "sigma_window": 5}) == []
+
+
+def test_vpin_bvc_conserves_volume_and_sign():
+    """BVC : buy+sell = volume de la barre ; delta suit le SENS du mouvement de prix."""
+    import vpin_lab as v
+    # incréments POSITIFS mais VARIABLES (σ>0, sinon z=0 dégénéré) -> flux net acheteur
+    cu = [100.0]
+    for i in range(60):
+        cu.append(cu[-1] + (1.0 if i % 2 else 1.6))
+    up = [[i, cu[i], cu[i] + 0.2, cu[i] - 0.2, cu[i + 1], 10.0] for i in range(60)]
+    ser = v.bvc_series(up, sigma_window=20)
+    assert ser
+    for r in ser:
+        assert abs((r["buy"] + r["sell"]) - 10.0) < 1e-6      # conservation du volume
+    assert ser[-1]["delta"] > 0                                # hausse -> flux net acheteur
+    cd = [100.0]
+    for i in range(60):
+        cd.append(cd[-1] - (1.0 if i % 2 else 1.6))
+    down = [[i, cd[i], cd[i] + 0.2, cd[i] - 0.2, cd[i + 1], 10.0] for i in range(60)]
+    serd = v.bvc_series(down, sigma_window=20)
+    assert serd and serd[-1]["delta"] < 0                      # baisse -> flux net vendeur
+
+
+def test_vpin_gate_monotone():
+    """Le gate ne GARDE JAMAIS plus de fills que sans gate, et est monotone au seuil VPIN."""
+    import vpin_lab as v
+    fills = [{"vpin": i / 100.0, "flow_against": (i % 2 == 0), "net_bps": -float(i)}
+             for i in range(100)]
+    kept_hi = v.apply_gate(fills, vpin_threshold=2.0)          # seuil > max VPIN -> tout gardé
+    kept_lo = v.apply_gate(fills, vpin_threshold=0.5)
+    assert len(kept_hi) == len(fills)                          # jamais plus que l'entrée
+    assert len(kept_lo) <= len(fills)
+    assert len(kept_hi) >= len(kept_lo)                        # seuil haut -> garde ≥
+    assert all(f in fills for f in kept_lo)                    # sous-ensemble strict (monotone)
+    # non directionnel + seuil 0 : tout ce qui a vpin≥0 est écarté
+    assert v.apply_gate(fills, 0.0, directional=False) == []
+
+
+def test_vpin_markout_sign_and_net():
+    """Markout signe correct (buy fill + prix qui monte -> markout>0) ; net = markout − frais."""
+    import vpin_lab as v
+    import microstructure as ms
+    assert ms.markout(100.0, "buy", 101.0) > 0                 # acheté puis ça monte = bon
+    assert ms.markout(100.0, "buy", 99.0) < 0                  # acheté puis ça baisse = toxique
+    assert ms.markout(100.0, "sell", 99.0) > 0                 # vendu puis ça baisse = bon
+    # câblage net_bps = markout_bps − fee dans simulate_and_tag (zigzag déterministe)
+    candles = _osc_candles(100.0, 104.0, 6, 400)
+    fills = v.simulate_and_tag(candles, {"spread_bps": 30.0, "markout_h": 3, "fee_bps": 4.0,
+                                          "bucket_volume": v.median_bar_volume(candles),
+                                          "window": 10, "sigma_window": 10})
+    assert fills, "le zigzag doit produire des fills maker"
+    for f in fills[:50]:
+        assert abs(f["net_bps"] - (f["markout_bps"] - 4.0)) < 1e-6
+        assert f["side"] in ("buy", "sell") and 0.0 <= f["vpin"] <= 1.0
+
+
+def test_vpin_gate_gain_and_condition():
+    """gate_gain : mean_kept correct ; condition_by_vpin sépare haut/bas VPIN sans crash."""
+    import vpin_lab as v
+    # fills toxiques concentrés en VPIN haut : le gate doit AMÉLIORER la moyenne gardée
+    fills = ([{"vpin": 0.9, "flow_against": True, "net_bps": -20.0, "i": i} for i in range(40)]
+             + [{"vpin": 0.1, "flow_against": False, "net_bps": 2.0, "i": 100 + i} for i in range(40)])
+    g = v.gate_gain(fills, vpin_threshold=0.5, directional=True)
+    assert g["n_kept"] < g["n_all"] and g["mean_kept"] > g["mean_all"] and g["improves"]
+    cond = v.condition_by_vpin(fills, q=0.25)
+    assert cond and cond["diff"] < 0                           # VPIN haut plus toxique ici
+    assert v.non_overlapping(fills, 5) and len(v.non_overlapping(fills, 5)) <= len(fills)
+
+
+def test_vpin_source_readonly():
+    """vpin_lab = SAFE : aucun mot-clé d'ordre dans le source ; status() = dict, aucun crash."""
+    import vpin_lab as v
+    from pathlib import Path
+    src = Path(v.__file__).read_text(encoding="utf-8").lower()
+    for kw in ("place_order", "cancel_order", "withdraw", "transfer", "set_leverage",
+               "market_order", "limit_order", "close_position", "send_order", "create_order",
+               "submit_order", "change_leverage", "post_order"):
+        assert kw not in src
+    assert not hasattr(v, "spot_trader") and not hasattr(v, "bitget_execute")
 
 
 def _run_all():

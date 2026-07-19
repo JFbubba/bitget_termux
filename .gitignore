@@ -116,3 +116,6 @@ accumulation_ledger_unreliable.flag
 accumulation_real_ledger.json.tmp
 trading_ledger_unreliable.flag
 trading_real_ledger.json.tmp
+
+# labo VPIN (résultats locaux, non committés)
+.vpin_lab_result.json
