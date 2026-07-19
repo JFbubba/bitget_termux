@@ -22,21 +22,32 @@ de raisonner sur des hypothèses/mémoire et s'appuyer sur les sources **autorit
 
 | Marché | Maker | Taker | Déduction BGB (−20 %) |
 |---|---|---|---|
-| **Spot** | 0,10 % | 0,10 % | ✅ **→ 0,08 %** (frais payés en BGB) |
-| **USDT-M perp** | 0,02 % | 0,06 % | ❌ **ne s'applique PAS aux futures** |
+| **Spot** | 0,10 % | 0,10 % | ✅ **→ 0,08 %** — BGB dans le **wallet spot** + toggle spot ON |
+| **Marge croisée** (spot margin) | 0,10 % | 0,10 % | ✅ **→ 0,08 %** — BGB dans le **compte MARGE CROISÉE** + toggle marge ON |
+| **USDT-M perp** | 0,02 % | 0,06 % | ❌ **ne s'applique PAS aux futures** (prévu « à venir », pas live) |
 | **COIN-M** | ~0,02 % | ~0,06 % | ❌ (à confirmer contre l'API) |
 
-- **BGB = SPOT UNIQUEMENT, −20 %**, activable dans les réglages du compte (« payer les frais en
-  BGB »). Confirmé par le support Bitget. → tranche l'ancienne incertitude « BGB futures » :
-  **non applicable au futures**.
+- **BGB = SPOT + MARGE CROISÉE (spot margin), −20 % — PAS le futures.** ⚠️ CORRIGÉ 19/07 (l'ancienne
+  note « SPOT UNIQUEMENT » était INCOMPLÈTE). Deux réglages **SÉPARÉS**, chacun avec SON wallet :
+  - **Spot** : toggle « payer les frais en BGB » (`GET /api/v2/spot/account/deduct-info`) + BGB dans
+    le **wallet spot**. C'est ce que lit `fee_rates.py`.
+  - **Marge croisée** (spot margin, ex. les jambes `alt_carry` en `crossed`) : activer
+    **« Margin > VIP > Activate BGB Fee Discount 20 % »** (app : Profile > Trading > Use BGB to Offset
+    Fees) **+ transférer les BGB dans le compte marge croisée**. Politique Bitget du **06/06/2024** : la
+    déduction s'est DÉPLACÉE du compte spot-margin vers le **compte cross-margin**. Solde BGB insuffisant
+    → frais payés en coin. Les BGB en marge croisée servent UNIQUEMENT aux frais (PAS comptés comme
+    marge ni dans le risk-ratio). `fee_rates.py` ne lit PAS encore ce toggle marge (angle mort).
+  - **Futures** : aucune remise BGB (Bitget prévoit de l'introduire, pas encore live). Le levier
+    futures reste le **maker** (0,06 → 0,02).
 - **VIP** : chaque +50k USDT de volume 30j baisse les deux côtés (spot ET futures) ; atteignable
-  aussi par solde d'actifs ou holdings BGB.
+  aussi par solde d'actifs ou holdings BGB (mécanisme distinct de la déduction).
 - **Empilement** BGB + VIP + parrainage → jusqu'à ~−65 % (spot ~0,04–0,05 % all-in).
 
 **Implication bot (net de frais).** Côté **spot**, la barre = ~0,08 %/côté (0,16 % aller-retour)
 au lieu de 0,10 %. Côté **futures**, **pas de remise BGB** : 0,06 % taker / 0,02 % maker restent
 le taux réel. → Le levier **maker** (futures 0,06 → 0,02, −67 %) est bien plus fort que BGB pour
-le **directionnel** ; BGB n'allège que le **spot** (accumulation, listing-hype, market making).
+le **directionnel** ; BGB allège le **spot** (accumulation, listing-hype, MM) **et la marge croisée**
+(jambes `alt_carry` en `crossed`, si BGB dans le compte marge croisée + toggle marge ON) — pas le futures.
 Cohérence à faire : `listing_hype` (spot) devrait modéliser 0,08 %, pas 6 bps pleins.
 
 ### 1b. Source AUTORITATIVE des frais = l'API (PAS le scraping) — règle proprio 18/07
