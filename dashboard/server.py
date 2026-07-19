@@ -851,6 +851,81 @@ def build_state(symbol=None, tf="5m"):
             pass
         return out
 
+    def _fees():
+        """Frais EFFECTIFS du compte + réservoir BGB (fee_rates, LECTURE SEULE, §exec-frais).
+        LE levier prouvé (maker sur ouvertures ≈ +27 % net). Chaque champ best-effort : si un
+        GET signé tombe, fee_rates retombe sur ses défauts fail-safe (jamais de crash)."""
+        import fee_rates as fr
+        out = {}
+        out["spot_bps"] = _safe(fr.spot_fee_bps)              # spot par côté, remise BGB incluse si effective
+        out["bgb_effective"] = _safe(fr.bgb_deduction_effective)
+        f = _safe(fr.futures_fee_bps) or {}                  # {'maker','taker'} bps, via trade_rate('mix')
+        out["fut_maker_bps"] = f.get("maker")
+        out["fut_taker_bps"] = f.get("taker")
+        out["bgb_balance"] = _safe(fr._bgb_spot_balance)     # réservoir BGB spot (available+frozen+locked)
+        out["bgb_dust"] = fr.BGB_DUST
+        return out
+
+    def _ic_honest():
+        """IC live HONNÊTE (§96). Le t POOLÉ gonfle ~×21 par pseudo-réplication (chaque vote
+        recompté n fois). Le t CLUSTERISÉ par fenêtre-horizon (n_eff = # FENÊTRES ~224, pas #
+        votes) déflate ça — une fois honnête, seul macro survit (~−4). On expose les DEUX t et
+        on lève un badge « fantôme » quand le poolé crie (|t|≥3) mais le clusterisé se tait
+        (|t|<2) : significativité illusoire. Réutilise le cache audit_live (partagé avec _viz)."""
+        import live_ic_audit as lia
+        snap = _cached("audit_live", 900, lambda: lia.snapshot())
+
+        def _am(*xs):
+            return max([abs(x) for x in xs if isinstance(x, (int, float))] or [0.0])
+
+        rows = []
+        for a in (snap or {}).get("agents", []):
+            pic_t, pic_tc = a.get("pic_t"), a.get("pic_t_clust")
+            ic_t, ic_tc = a.get("ic_t"), a.get("ic_t_clust")
+            ghost = _am(pic_t, ic_t) >= 3.0 and _am(pic_tc, ic_tc) < 2.0
+            rows.append({"agent": a.get("agent"), "ic": a.get("ic"), "pic": a.get("pic"),
+                         "ic_t": ic_t, "ic_t_clust": ic_tc, "pic_t": pic_t,
+                         "pic_t_clust": pic_tc, "n": a.get("n"), "n_eff": a.get("n_eff"),
+                         "ghost": ghost})
+        rows.sort(key=lambda r: -_am(r.get("pic_t_clust"), r.get("ic_t_clust")))
+        return {"agents": rows, "n_ghost": sum(1 for r in rows if r["ghost"])}
+
+    def _bitget_watch(n=5):
+        """Veille Bitget §bitget-watch (LECTURE SEULE) : N derniers changements de faits
+        autoritatifs (frais/BGB/contrats) journalisés par bitget_watch.py. Fichier local ;
+        absent -> aucun changement (déploiement récent ou faits Bitget stables)."""
+        p = REPO_ROOT / ".bitget_watch_journal.jsonl"
+        if not p.exists():
+            return {"present": False, "events": []}
+        rows = []
+        for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(d, dict):
+                rows.append({"ts": d.get("ts"), "changes": d.get("changes") or []})
+        return {"present": True, "events": rows[-n:][::-1]}   # plus récent d'abord
+
+    def _edge_gate():
+        """Porte d'edge directionnelle (LECTURE SEULE) : override EFFECTIF via
+        verrous_effectifs.summary(). override=0 => porte FERMÉE => directionnel EN PAUSE
+        (l'edge directionnel net-de-frais n'est PAS prouvé). Lit la valeur RÉELLE, n'invente
+        rien. Best-effort : override=None si la source tombe."""
+        import verrous_effectifs as ve
+        s = ve.summary()
+        try:
+            ovn = int(s.get("edge_gate_override"))
+        except (TypeError, ValueError):
+            ovn = None
+        ouverte = bool(ovn)                                   # 0 / None -> fermée
+        return {"override": ovn, "ouverte": ouverte,
+                "directionnel_en_pause": (not ouverte),
+                "notional": s.get("notional_futures")}
+
     # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
     # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
     # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
@@ -884,6 +959,10 @@ def build_state(symbol=None, tf="5m"):
         (f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {})),
         (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
         ("realpos", 10, lambda: _safe(lambda: __import__("real_positions").snapshot(), {})),
+        ("fees", 900, lambda: _safe(_fees, {})),
+        ("ic_honest", 900, lambda: _safe(_ic_honest, {})),
+        ("bitget_watch", 120, lambda: _safe(_bitget_watch, {"present": False, "events": []})),
+        ("edge_gate", 60, lambda: _safe(_edge_gate, {})),
         ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
         ("portfolio", 120, lambda: _safe(
             lambda: __import__("real_positions").all_account_balance(), {})),
@@ -952,6 +1031,13 @@ def build_state(symbol=None, tf="5m"):
         lambda: __import__("real_positions").all_account_balance(), {}))
     # Verrous EFFECTIFS d'exécution (.env OR config) + source + écarts — vue consolidée.
     state["verrous"] = _cached("verrous", 30, lambda: _safe(_verrous, {}))
+    # Frais EFFECTIFS + BGB (LE levier §exec-frais) · IC live HONNÊTE (t clusterisé §96) ·
+    # veille des faits Bitget · porte d'edge effective — 4 blocs LECTURE SEULE, fail-safe.
+    state["fees"] = _cached("fees", 900, lambda: _safe(_fees, {}))
+    state["ic_honest"] = _cached("ic_honest", 900, lambda: _safe(_ic_honest, {}))
+    state["bitget_watch"] = _cached("bitget_watch", 120,
+                                    lambda: _safe(_bitget_watch, {"present": False, "events": []}))
+    state["edge_gate"] = _cached("edge_gate", 60, lambda: _safe(_edge_gate, {}))
     # Labos de recherche (scratchpad, non committés) : probe forecast / mql5 tester / strategy tester.
     state["labos"] = _cached("labos", 30, lambda: _safe(_labos, {}))
 

@@ -70,6 +70,23 @@
   .chip .v{font-size:15px;color:var(--accent);font-weight:600} .chip .l{font-size:9px;color:var(--dim);font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase}
   .bar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden;margin:4px 0 8px}
   .bar i{display:block;height:100%;width:0}
+  /* ===== porte d'edge : bandeau clair (lecture seule) ===== */
+  .egate{border-radius:var(--radius);padding:9px 14px;margin:0 0 8px;font-family:var(--sans);
+    font-size:11px;letter-spacing:.03em;font-weight:600;display:flex;align-items:center;gap:9px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--dim)}
+  .egate::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;
+    box-shadow:0 0 8px currentColor;flex:none}
+  .egate.closed{color:var(--amber);background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.32)}
+  .egate.open{color:var(--green);background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.32)}
+  /* ===== IC agents honnête : grille compacte t poolé / t clusterisé / n_eff ===== */
+  .ic-h,.ic-r{display:grid;grid-template-columns:1fr 56px 56px 50px;gap:6px;align-items:center;
+    font-size:10.5px;padding:3px 0}
+  .ic-h{color:var(--dim);font-size:9px;letter-spacing:.08em;text-transform:uppercase;
+    font-family:var(--sans);border-bottom:1px solid var(--line)}
+  .ic-r{border-bottom:1px solid rgba(33,44,61,.4)}.ic-r:last-child{border-bottom:0}
+  .ic-r .r{text-align:right}.ic-r .sym{color:var(--accent)}
+  .ic-r .gh{color:var(--amber);font-size:8px;margin-left:5px;border:1px solid rgba(251,191,36,.4);
+    border-radius:4px;padding:0 4px;font-family:var(--sans);letter-spacing:.04em}
   /* positions : grille cliquable */
   .pos-h,.pos-r{display:grid;grid-template-columns:84px 56px 1fr 1fr 78px 1fr 1fr 52px;gap:8px;
     align-items:center;padding:4px 7px;font-size:10.5px}
@@ -263,6 +280,9 @@
     <span class="dim" style="font-size:9px;letter-spacing:.1em">UNIVERS</span>
     <span class="picker" id="sym-pick" title="univers dynamique — clic pour changer de symbole"></span>
   </div>
+
+  <div id="edge-gate" class="egate" role="status" aria-live="polite"
+       title="porte d'edge directionnelle — valeur effective (verrous_effectifs)">—</div>
 
   <div class="panel full" id="panel-trades" style="margin-bottom:8px">
     <h2>Trades RÉELS en cours <span class="dim" style="letter-spacing:0">— futures · PnL latent vivant (rafraîchi ~10 s) · détail par position (Bitget) · SL/TP = posés par le bot · lecture seule</span>
@@ -530,6 +550,24 @@
       <div class="row"><span class="k">porte edge · notional</span><span id="vx-edge">—</span></div>
       <div class="row"><span class="k">surfaces §67 · kill-switch</span><span id="vx-surf">—</span></div>
       <div class="row"><span class="k">écarts .env↔config</span><span id="vx-ecart" class="dim">—</span></div>
+    </div>
+    <div class="panel">
+      <h2>Frais &amp; BGB <span class="dim" style="letter-spacing:0">— frais EFFECTIFS du compte · LE levier prouvé (maker sur ouvertures ≈ +27 % net) · lecture seule</span></h2>
+      <div class="row"><span class="k">spot (par côté)</span><span id="fee-spot">—</span></div>
+      <div class="row"><span class="k">remise BGB</span><span id="fee-bgb">—</span></div>
+      <div class="row"><span class="k">futures maker / taker</span><span id="fee-fut">—</span></div>
+      <div class="row"><span class="k">réservoir BGB spot</span><span id="fee-res">—</span></div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">remise BGB effective seulement si l'option est ON <em>et</em> le réservoir &gt; poussière ; futures jamais de BGB</div>
+    </div>
+    <div class="panel">
+      <h2>IC agents · honnête <span class="dim" style="letter-spacing:0">— t CLUSTERISÉ par fenêtre (n_eff = # fenêtres, PAS # votes) · le t poolé gonfle ~×21 (§96)</span></h2>
+      <div class="ic-h"><span>AGENT</span><span class="r">t poolé</span><span class="r">t clust.</span><span class="r">n_eff</span></div>
+      <div id="ic-honest"><div class="dim" style="padding:6px 0">—</div></div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">badge « fantôme » = significativité illusoire (|t poolé|≥3 mais |t clust.|&lt;2). Une fois honnête, seul macro survit (~−4).</div>
+    </div>
+    <div class="panel">
+      <h2>Veille Bitget <span class="dim" style="letter-spacing:0">— derniers changements de faits autoritatifs (frais/BGB/contrats) · lecture seule</span></h2>
+      <div id="bwatch" class="dim" style="font-size:10.5px;line-height:1.7">—</div>
     </div>
     <div class="panel">
       <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
@@ -1365,6 +1403,55 @@ function renderState(){
       const ec=vx.ecarts||[];
       $("vx-ecart").textContent=ec.length?("⚠ "+ec.join(", ")+" (armé via .env, config=False)"):"aucun";
       $("vx-ecart").className=ec.length?"amber":"dim";
+    }
+    // --- Porte d'edge : bandeau clair (valeur EFFECTIVE, lecture seule) ---
+    const eg=st.edge_gate||{},egb=$("edge-gate");
+    if(egb){
+      if(eg.override==null){egb.className="egate";egb.textContent="Porte d'edge — état indisponible";}
+      else if(eg.ouverte){egb.className="egate open";egb.textContent="Porte d'edge OUVERTE — directionnel actif (override="+eg.override+")";}
+      else{egb.className="egate closed";egb.textContent="Porte d'edge FERMÉE — directionnel en pause (override=0 · edge directionnel net-de-frais non prouvé)";}
+    }
+    // --- Frais & BGB (fee_rates, lecture seule) — LE levier prouvé ---
+    const fe=st.fees||{};
+    const _bps=v=>(v==null)?"—":((+v).toFixed(Math.abs(v)>=10?1:2)+" bps");
+    if($("fee-spot"))$("fee-spot").textContent=_bps(fe.spot_bps);
+    if($("fee-bgb")){
+      if(fe.bgb_effective==null){$("fee-bgb").textContent="—";$("fee-bgb").className="";}
+      else{$("fee-bgb").textContent=fe.bgb_effective?"active ✓ (−20 %)":"inactive ✗";$("fee-bgb").className=fe.bgb_effective?"green":"amber";}
+    }
+    if($("fee-fut"))$("fee-fut").textContent=(fe.fut_maker_bps!=null&&fe.fut_taker_bps!=null)?(_bps(fe.fut_maker_bps)+" / "+_bps(fe.fut_taker_bps)):"—";
+    if($("fee-res")){
+      if(fe.bgb_balance==null){$("fee-res").textContent="—";$("fee-res").className="";}
+      else{const low=(fe.bgb_dust!=null)&&(fe.bgb_balance<=fe.bgb_dust);$("fee-res").textContent=(+fe.bgb_balance).toFixed(4)+" BGB"+(low?" · vide":"");$("fee-res").className=low?"amber":"green";}
+    }
+    // --- IC agents HONNÊTE (§96) : t clusterisé + n_eff + badge fantôme ---
+    const ich=(st.ic_honest||{}).agents||[],ih=$("ic-honest");
+    if(ih){
+      if(!ich.length){ih.innerHTML='<div class="dim" style="padding:6px 0">— (pas assez de votes appariés)</div>';}
+      else{
+        const tcls=v=>(v==null)?"dim":(Math.abs(v)>=2?(v>0?"green":"red"):"dim");
+        const t2=v=>(v==null)?"—":((v>=0?"+":"")+(+v).toFixed(2));
+        ih.innerHTML=ich.slice(0,8).map(r=>{
+          const tp=(r.pic_t!=null?r.pic_t:r.ic_t),tc=(r.pic_t_clust!=null?r.pic_t_clust:r.ic_t_clust);
+          return '<div class="ic-r"><span class="sym">'+esc(r.agent||"—")+
+            (r.ghost?'<span class="gh" title="significativité illusoire : le t poolé crie mais le t clusterisé se tait">fantôme</span>':"")+'</span>'+
+            '<span class="r dim">'+t2(tp)+'</span>'+
+            '<span class="r '+tcls(tc)+'">'+t2(tc)+'</span>'+
+            '<span class="r dim">'+(r.n_eff!=null?r.n_eff:"—")+'</span></div>';
+        }).join("");
+      }
+    }
+    // --- Veille Bitget : fil des N derniers changements de faits autoritatifs ---
+    const bw=st.bitget_watch||{},bwe=bw.events||[],bwd=$("bwatch");
+    if(bwd){
+      if(!bw.present||!bwe.length){bwd.textContent="aucun changement.";}
+      else{
+        bwd.innerHTML=bwe.map(ev=>{
+          const t=ev.ts?new Date(ev.ts*1000).toISOString().slice(5,16).replace("T"," "):"—";
+          const ch=(ev.changes||[]).map(c=>esc(String(c))).join("<br>");
+          return '<div style="margin-bottom:6px"><span class="dim" style="font-size:9px">'+t+' UTC</span><br>'+ch+'</div>';
+        }).join("");
+      }
     }
     // --- Recherche & Labos (scratchpad, non committés) ---
     const lb=st.labos||{},lf=lb.forecast||{},lm=lb.mql5||{},ls=lb.strategy_tester||{};
