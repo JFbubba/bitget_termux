@@ -741,8 +741,9 @@ def portfolio_structure(symbols=None, ttl=300):
         met = correlation_graph_metrics(M, denoise="rie")  # RIE = shrinkage non-linéaire (plus fin que MP)
         regime = connectivity_regime(met)                  # régime ADVISORY (sans hist, seuil absolu).
         # Le RISQUE -> SIZING (z-score DYNAMIQUE avec hist roulant) est branché à part dans
-        # `systemic_risk_scale()` ci-dessous, consommé par `futures_auto._notional_cfg` (gate opt-in
-        # GEOMETRIC_RISK_SIZING, réducteur-seulement, fail-open). B-2/ERR-013 ACHEVÉ (19/07).
+        # `systemic_risk_scale()` ci-dessous, consommé par `futures_auto._open_notional` (gate opt-in
+        # GEOMETRIC_RISK_SIZING, réducteur-seulement, fail-open, À L'OUVERTURE SEULEMENT — pas la
+        # faisabilité ni les réductions). B-2/ERR-013 ACHEVÉ (19/07).
         part = cheeger_partition(M)
         sponge = sponge_partition(M)                       # partition SIGNÉE (legs bêta-neutres)
         hrp = hrp_weights(M)                               # poids HRP (allocation intra-panier)

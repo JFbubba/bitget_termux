@@ -12069,15 +12069,18 @@ def test_notional_systemic_gate_off_by_default_reduces_when_armed_b2():
     try:
         os.environ["FUTURES_AUTO_NOTIONAL_USDT"] = "20"
         os.environ.pop("GEOMETRIC_RISK_SIZING", None)
-        base_off = fa._notional_cfg()
+        base_off = fa._open_notional()
+        pure_off = fa._notional_cfg()
         os.environ["GEOMETRIC_RISK_SIZING"] = "1"
-        base_on = fa._notional_cfg()
+        base_on = fa._open_notional()
+        pure_on = fa._notional_cfg()                                     # getter PUR : jamais scalé
     finally:
         ga.systemic_risk_scale = orig
         for kk, vv in (("GEOMETRIC_RISK_SIZING", saved_flag), ("FUTURES_AUTO_NOTIONAL_USDT", saved_not)):
             os.environ.pop(kk, None) if vv is None else os.environ.__setitem__(kk, vv)
     assert base_off == 20.0                                              # OFF : notional inchangé
     assert base_on == 10.0 and base_on <= base_off                       # ARMÉ : 20×0.5, ne fait que réduire
+    assert pure_off == 20.0 and pure_on == 20.0                          # _notional_cfg PUR (feasibility/TP/affichage)
 
 
 def test_wiring_audit_classify_and_safe():

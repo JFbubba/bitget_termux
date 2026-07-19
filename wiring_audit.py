@@ -16,6 +16,7 @@ CLI :
     python wiring_audit.py            # rapport complet (consommés / activés / outils / ORPHELINS)
     python wiring_audit.py --alert    # concis (pour /lance-correction & cron)
 """
+import ast
 import glob
 import os
 import re
@@ -44,23 +45,28 @@ def _cron_service_modules():
 
 
 def _importer_map():
-    """{module: set(fichiers de PROD qui l'importent)}. UN SEUL passage regex sur TOUS les *.py de
-    prod (RÉCURSIF : top-level + dashboard/ + data_collector/ + qml_prototype/… — dashboard/server.py
-    est un gros importeur), en excluant scratchpad et tests_audit. Remplace ~200 grep subprocess ->
-    quasi instantané, MÊME couverture que l'ancien `grep -r`. Fail-safe -> {}."""
+    """{module: set(fichiers de PROD qui l'importent)}. Parse l'AST de TOUS les *.py de prod
+    (RÉCURSIF : top-level + dashboard/ + data_collector/ + qml_prototype/… — dashboard/server.py est
+    un gros importeur), en excluant scratchpad et tests_audit. L'AST (vs regex) gère les imports en
+    virgule (`import a, b`) ET ignore les imports cités dans commentaires/docstrings/chaînes -> pas
+    de faux orphelin ni de dormant masqué. Un fichier non-parsable est ignoré. Fail-safe -> {}."""
     imp = {}
-    rx = re.compile(r"\bfrom\s+([a-z_][a-z0-9_]*)\s+import|\bimport\s+([a-z_][a-z0-9_]*)")
     for p in glob.glob(os.path.join(ROOT, "**", "*.py"), recursive=True):
         rel = os.path.relpath(p, ROOT)
         if rel.startswith("scratchpad" + os.sep) or os.path.basename(p) == "tests_audit.py":
             continue
         base = os.path.basename(p)[:-3]
         try:
-            txt = open(p, encoding="utf-8", errors="ignore").read()
+            tree = ast.parse(open(p, encoding="utf-8", errors="ignore").read())
         except Exception:
-            continue
-        for mo in rx.finditer(txt):
-            imp.setdefault(mo.group(1) or mo.group(2), set()).add(base)
+            continue                                   # fichier syntaxiquement invalide -> ignoré
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:               # `import a, b, c` -> chaque nom
+                    imp.setdefault(alias.name.split(".")[0], set()).add(base)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.level == 0:     # absolu seulement (ignore les `from . import`)
+                    imp.setdefault(node.module.split(".")[0], set()).add(base)
     return imp
 
 
@@ -92,7 +98,7 @@ def audit():
             continue
         has_importer = bool(imp.get(m, set()) - {m})     # importé par un AUTRE module de prod
         cat = classify(has_importer, m in activated, "__main__" in src)
-        if cat == "orphan" and "wiring-reserve" in src.lower():
+        if cat == "orphan" and "WIRING-RESERVE" in src:   # tag EXACT (pas une sous-chaîne lowercase)
             cat = "reserve"
         cats[cat].append(m)
     return cats
