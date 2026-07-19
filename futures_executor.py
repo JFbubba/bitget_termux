@@ -403,6 +403,10 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
         except Exception:
             futures_live = False
     if edge_override is None:
+        # _cfg = config.py SEUL, VOLONTAIRE : l'override est un knob de DÉCISION propriétaire
+        # (comme les murs), pas un réglage .env. NE PAS basculer vers env_num/env_flag — un
+        # FUTURES_EDGE_GATE_OVERRIDE=1 resté dans .env rouvrirait alors EN SILENCE une boucle
+        # directionnelle à edge RÉFUTÉ sur argent réel. Reprise = éditer config.py (décision).
         edge_override = int(_cfg("FUTURES_EDGE_GATE_OVERRIDE", 0) or 0)
     if not futures_live and not edge_override:
         reasons.append(f"agent '{agent}' non éligible LIVE (porte d'edge non franchie)")
