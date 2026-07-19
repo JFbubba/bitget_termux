@@ -6927,6 +6927,59 @@ def test_futures_liquidity_cap(monkeypatch=None):
     assert "25.0USDT" in rr["preview"]
 
 
+def test_futures_risk_pct_per_trade_cap():
+    """Garde RISQUE-PAR-TRADE (Kovner) : réduit le notionnel pour que |entry−SL|/entry ×
+    notional ≤ FUTURES_RISK_PCT_PER_TRADE % de l'equity ; garde ADDITIONNELLE sous les murs
+    (ne les desserre jamais) ; fail-open ; OUVERTURES seulement ; câblée dans execute()."""
+    import os
+    import futures_executor as fe
+    # equity 1000, risk 1 % -> budget 10$. entry 100, SL 90 -> dist 10 % -> risque plein =
+    # notional × 0,10. notional 200 risque 20$ > 10$ -> capé à budget·entry/dist = 10·100/10 = 100$.
+    capped, binds = fe.risk_capped_notional(200.0, 100.0, 90.0, 1000.0, risk_pct=1.0)
+    assert binds is True and abs(capped - 100.0) < 1e-9
+    # sous le budget -> INCHANGÉ (ne mord pas)
+    assert fe.risk_capped_notional(50.0, 100.0, 90.0, 1000.0, risk_pct=1.0) == (50.0, False)
+    # ne peut JAMAIS augmenter
+    c2, b2 = fe.risk_capped_notional(5.0, 100.0, 99.0, 1000.0, risk_pct=1.0)
+    assert c2 <= 5.0 and b2 is False
+    # garde DÉSACTIVÉE (risk_pct ≤ 0) -> inchangé
+    assert fe.risk_capped_notional(200.0, 100.0, 90.0, 1000.0, risk_pct=0.0) == (200.0, False)
+    # FAIL-OPEN : entry/SL/equity manquants, non finis, ou distance de stop nulle -> inchangé
+    for bad in [dict(entry=None), dict(stop_loss=None), dict(equity=None),
+                dict(stop_loss=100.0), dict(entry=float("inf")), dict(equity=0.0),
+                dict(notional=0.0)]:
+        args = dict(notional=200.0, entry=100.0, stop_loss=90.0, equity=1000.0, risk_pct=1.0)
+        args.update(bad)
+        assert fe.risk_capped_notional(args["notional"], args["entry"], args["stop_loss"],
+                                       args["equity"], risk_pct=args["risk_pct"])[1] is False
+    # _equity_now : dernier point fini > 0, sinon None (fail-open)
+    assert fe._equity_now([]) is None and fe._equity_now(None) is None
+    assert fe._equity_now([100.0, None, 250.5]) == 250.5
+    assert fe._equity_now([None, -3.0]) is None
+    # câblage execute() (DRY) : le notionnel du preview est réduit à 100$
+    prev = os.environ.get("FUTURES_RISK_PCT_PER_TRADE")
+    os.environ["FUTURES_RISK_PCT_PER_TRADE"] = "1.0"
+    try:
+        r = fe.execute("auto_dir", "long", 200.0, 3.0, entry=100.0, stop_loss=90.0,
+                       equity_curve=[1000.0], confirm=False, journal=False)
+        assert "100.0USDT" in r["preview"] and "200.0USDT" not in r["preview"]
+        # une FERMETURE (reduce=True) n'est JAMAIS capée par le risque
+        rr = fe.execute("auto_dir", "long", 200.0, 3.0, entry=100.0, stop_loss=90.0,
+                        equity_curve=[1000.0], reduce=True, confirm=False, journal=False)
+        assert "200.0USDT" in rr["preview"]
+        # la garde ne DESSERRE PAS le mur 50/trade : equity énorme -> le risque ne mord pas,
+        # seul le mur dur tranche (la garde ne peut qu'AJOUTER de la sévérité).
+        r3 = fe.execute("auto_dir", "long", 200.0, 3.0, entry=100.0, stop_loss=90.0,
+                        equity_curve=[1_000_000.0], confirm=False, journal=False,
+                        live=True, autonomous=True, futures_live=True, kill=False)
+        assert r3["ok"] is False and any("plafond/trade" in x for x in r3["reasons"])
+    finally:
+        if prev is None:
+            os.environ.pop("FUTURES_RISK_PCT_PER_TRADE", None)
+        else:
+            os.environ["FUTURES_RISK_PCT_PER_TRADE"] = prev
+
+
 def test_futures_quote_freshness_guard():
     """§98 : abstention SEULEMENT sur staleness AVÉRÉE (âge lisible > seuil) ; fail-open
     si l'âge manque ; tolérance de dérive d'horloge (âge négatif = frais)."""

@@ -563,6 +563,55 @@ def liquidity_capped_notional(notional, side, top_of_book):
     return (capped, capped < n - 1e-9)
 
 
+def _equity_now(equity_curve):
+    """Dernière equity LISIBLE du livre (dernier point fini > 0 de la courbe), ou None.
+    Base du cap de risque par trade ; sans historique lisible -> None (fail-open)."""
+    from numeric_utils import safe_float
+    if not equity_curve:
+        return None
+    for v in reversed(list(equity_curve)):
+        f = safe_float(v)
+        if f is not None and math.isfinite(f) and f > 0:
+            return f
+    return None
+
+
+def risk_capped_notional(notional, entry, stop_loss, equity, risk_pct=None):
+    """Cap de RISQUE PAR TRADE (Kovner, *Market Wizards*), PUR si `risk_pct` est injecté
+    (sinon lit `FUTURES_RISK_PCT_PER_TRADE`) — garde additionnelle SOUS les murs absolus 50/250. Réduit le notionnel pour que la perte encourue si le stop-loss
+    est touché (|entry−SL|/entry × notional) ne dépasse pas `risk_pct` % de l'equity du
+    livre. Le mur 50/trade est en DOLLARS fixes (donc en *notional*) ; cette garde borne le
+    *risque réellement encouru* (distance au stop × taille), l'invariant le plus universel
+    des grands traders. Elle ne fait que RÉDUIRE — jamais augmenter, jamais desserrer un mur.
+
+    FAIL-OPEN (retourne le notional INCHANGÉ, binds=False) si : garde désactivée
+    (`risk_pct` ≤ 0 via FUTURES_RISK_PCT_PER_TRADE), ou entry/SL/equity/notional
+    illisible / non fini / ≤ 0, ou distance de stop nulle (SL collé/absent). Une equity
+    illisible ne BLOQUE pas ici : le stop de perte journalier interdit déjà d'OUVRIR à
+    l'aveugle (daily_loss_breach). Retourne (notional_capé, binds:bool). OUVERTURES only."""
+    from numeric_utils import safe_float
+    try:
+        risk_pct = float(_cfg("FUTURES_RISK_PCT_PER_TRADE", 1.0) if risk_pct is None else risk_pct)
+    except (TypeError, ValueError):
+        return notional, False
+    if not math.isfinite(risk_pct) or risk_pct <= 0:              # garde désactivée
+        return notional, False
+    n, e, sl, eq = (safe_float(notional), safe_float(entry),
+                    safe_float(stop_loss), safe_float(equity))
+    if None in (n, e, sl, eq) or not all(math.isfinite(x) for x in (n, e, sl, eq)):
+        return notional, False
+    if n <= 0 or e <= 0 or eq <= 0:
+        return notional, False
+    dist = abs(e - sl)
+    if not math.isfinite(dist) or dist <= 0:                      # SL absent/collé -> incalculable
+        return notional, False
+    budget = risk_pct / 100.0 * eq                                # perte USDT tolérée
+    if n * dist / e <= budget:                                    # le notionnel plein ne mord pas
+        return notional, False
+    capped = math.floor(budget * e / dist * 100.0) / 100.0        # floor : ne JAMAIS dépasser le budget
+    return min(capped, n), True                                   # garde-fou : jamais d'agrandissement
+
+
 # ---------- stop de perte JOURNALIER (arme le kill-switch, fail-closed) ----------
 
 def daily_loss_state_check(equity, state, now=None, stop_pct=None, cliff_pct=None):
@@ -1563,6 +1612,16 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
         capped, binds = liquidity_capped_notional(notional_usdt, side, top_of_book)
         if binds:
             notional_capped_from, notional_usdt = float(notional_usdt), capped
+    # §risk-pct : cap de RISQUE PAR TRADE (Kovner) — SOUS les murs 50/250. Réduit le notionnel
+    # pour que la perte au stop-loss ne dépasse pas FUTURES_RISK_PCT_PER_TRADE % de l'equity du
+    # livre. OUVERTURES seulement, AVANT guards() (les murs voient le notionnel déjà réduit).
+    # Fail-open : entry/SL/equity manquants -> inchangé (le stop journalier bloque déjà l'aveugle).
+    risk_capped_from = None
+    if not reduce:
+        capped_r, binds_r = risk_capped_notional(notional_usdt, entry, stop_loss,
+                                                  _equity_now(equity_curve))
+        if binds_r:
+            risk_capped_from, notional_usdt = float(notional_usdt), capped_r
     ok, reasons = guards(agent, notional_usdt, leverage, equity_curve=equity_curve,
                          gross_open_usdt=gross_open_usdt, client_oid=oid, seen_oids=seen_oids,
                          hour_utc=hour_utc, macro_events=macro_events, now=now,
@@ -1572,6 +1631,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                                 symbol=symbol)
     if notional_capped_from is not None:          # trace : le cap de liquidité a mordu
         order["liquidity_capped_from"] = round(notional_capped_from, 2)
+    if risk_capped_from is not None:              # trace : le cap de risque par trade a mordu
+        order["risk_capped_from"] = round(risk_capped_from, 2)
     mode = order.get("execution_mode")
     preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "
