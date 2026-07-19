@@ -142,6 +142,10 @@ QML_AGENT_ENABLED=0         # 18ᵉ voix circuit quantique (opt-in, §100 — in
 QML_EDGE_GATE=prudent       # porte d'edge 18ᵉ voix : prudent (wf_edge − se) | brut (wf_edge seul)
 ACCUM_DCA_COSTBASIS=0       # DCA dynamique §72 : module l'achat par l'écart au coût moyen réel (opt-in)
 FUTURES_AUTO_NOTIONAL_USDT=10  # taille/trade boucle directionnelle (env-aware ; MONTÉE à 25 le 06/07, §76)
+FUTURES_RISK_PCT_PER_TRADE=1.0 # garde risque/trade (Kovner, §garde-risque) : RÉDUIT le notionnel d'ouverture
+                               # pour que la perte au SL (|entry−SL|/entry × notional) ≤ 1 % de l'equity du
+                               # livre. Garde ADDITIONNELLE SOUS les murs 50/250 (ne les desserre jamais),
+                               # fail-open, ouvertures seulement. 0 = OFF. Défaut ON (non-perturbant au sizing courant).
 FUTURES_EXEC_STYLE=limit_ioc   # ouvertures futures : limit_ioc (défaut, taker plafonné) ; "maker" =
                                # post-only au bid/ask + repli taker GARDÉ (§exec-frais ; ouvertures
                                # DIRECTIONNELLES only — le carry reste taker). Armé puis DÉSARMÉ le 09/07
