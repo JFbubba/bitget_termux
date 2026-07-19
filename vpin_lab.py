@@ -477,7 +477,9 @@ def status(symbol="BTCUSDT", period="1h"):
     except Exception as e:
         out["direct"] = {"error": type(e).__name__}
     try:
-        gran = {"5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H", "4h": "4H",
+        # mapping d'INPUT `period`->granularité pour le PROBE de STATUT (snapshot VPIN direct) ; la
+        # MESURE d'edge, elle, couvre GRANS complet M1..W1 (M1 direct indispo / W1 dégénéré annotés).
+        gran = {"5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H", "4h": "4H",  # tf-ladder-ok : probe de statut, pas un test-ladder
                 "12h": "1H", "1day": "1D"}.get(period, "1H")
         candles = _load_candles(symbol, gran, 3000)
         if len(candles) >= VPIN_WINDOW * 4:
