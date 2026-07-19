@@ -15,9 +15,15 @@ CLI :
     python risk_metrics.py            # descripteurs du livre courant (lecture seule)
     python risk_metrics.py --alert    # idem, format concis (cron/Telegram)
 """
+import json
+import os
 import sys
 
 import numpy as np
+
+from config_utils import cfg as _cfg
+
+STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".risk_alert_state.json")
 
 
 def _arr(x):
@@ -117,9 +123,42 @@ def report():
     }
 
 
+def _alert(r):
+    """Alerte Telegram de TAIL-RISK : ES99 >= plancher configurable (RISK_ES99_ALERT, défaut 2 %/point)
+    OU >= 2× la dernière valeur (spike de régime de risque). Dédupliqué via .risk_alert_state.json,
+    fail-safe. NE DÉCIDE RIEN — les caps 50/250 + stop −5 % + kill-switch restent le contrôle."""
+    if "note" in r or r.get("es_99") is None:
+        return False
+    es99 = float(r["es_99"])
+    try:
+        floor = float(_cfg("RISK_ES99_ALERT", 0.02))
+    except (TypeError, ValueError):
+        floor = 0.02
+    try:
+        last = float(json.load(open(STATE, encoding="utf-8")).get("es_99", 0.0))
+    except Exception:
+        last = 0.0
+    breach = es99 >= floor or (last > 0 and es99 >= 2.0 * last)
+    if breach:
+        try:
+            import telegram_notifier as tn
+            tn.send_telegram(f"⚠️ TAIL-RISK\nES99 {es99:.2%} · VaR99 {r['var_99']:.2%} · "
+                             f"Sortino {r['sortino']} (n={r['n']}, {r.get('source')})\n"
+                             f"Descripteur — les caps 50/250 + stop −5 % contrôlent.")
+        except Exception:
+            pass
+    try:
+        json.dump({"es_99": es99}, open(STATE, "w"))
+    except Exception:
+        pass
+    return breach
+
+
 def main():
     r = report()
     alert = "--alert" in sys.argv
+    if alert:
+        _alert(r)
     if alert:
         if "note" in r:
             print(f"RISK: {r['note']}")

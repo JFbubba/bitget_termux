@@ -29,6 +29,7 @@ conversation_state.json
 .geom_systemic_store.json
 .backlog_review_state.json
 .bitget_watch_state.json
+.risk_alert_state.json
 __pycache__/
 agent_loop.pid
 claude_export/

@@ -926,6 +926,13 @@ def build_state(symbol=None, tf="5m"):
                 "directionnel_en_pause": (not ouverte),
                 "notional": s.get("notional_futures")}
 
+    def _risk():
+        """Descripteurs de RISQUE du livre (risk_metrics, LECTURE SEULE, Aladdin-adaptés crypto) :
+        VaR/ES empiriques (queues lourdes) + Sortino, sur l'equity RÉELLE du livre couvert.
+        N'ajoute AUCUN mur (caps + stop restent le contrôle) — rend le tail-risk visible."""
+        import risk_metrics as rm
+        return rm.report()
+
     # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
     # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
     # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
@@ -963,6 +970,7 @@ def build_state(symbol=None, tf="5m"):
         ("ic_honest", 900, lambda: _safe(_ic_honest, {})),
         ("bitget_watch", 120, lambda: _safe(_bitget_watch, {"present": False, "events": []})),
         ("edge_gate", 60, lambda: _safe(_edge_gate, {})),
+        ("risk", 300, lambda: _safe(_risk, {})),
         ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
         ("portfolio", 120, lambda: _safe(
             lambda: __import__("real_positions").all_account_balance(), {})),
@@ -1038,6 +1046,7 @@ def build_state(symbol=None, tf="5m"):
     state["bitget_watch"] = _cached("bitget_watch", 120,
                                     lambda: _safe(_bitget_watch, {"present": False, "events": []}))
     state["edge_gate"] = _cached("edge_gate", 60, lambda: _safe(_edge_gate, {}))
+    state["risk"] = _cached("risk", 300, lambda: _safe(_risk, {}))
     # Labos de recherche (scratchpad, non committés) : probe forecast / mql5 tester / strategy tester.
     state["labos"] = _cached("labos", 30, lambda: _safe(_labos, {}))
 

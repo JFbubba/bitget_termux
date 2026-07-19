@@ -570,6 +570,14 @@
       <div id="bwatch" class="dim" style="font-size:10.5px;line-height:1.7">—</div>
     </div>
     <div class="panel">
+      <h2>Risque du livre <span class="dim" style="letter-spacing:0">— VaR/ES empiriques (queues lourdes crypto) + Sortino, sur l'equity RÉELLE · descripteur, n'ajoute aucun mur</span></h2>
+      <div class="row"><span class="k">source · n rendements</span><span id="rk-src">—</span></div>
+      <div class="row"><span class="k">VaR 95% / 99%</span><span id="rk-var">—</span></div>
+      <div class="row"><span class="k">ES 95% / 99% (CVaR)</span><span id="rk-es">—</span></div>
+      <div class="row"><span class="k">Sortino</span><span id="rk-sortino">—</span></div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">les caps durs 50/250 + stop −5 % + kill-switch restent LE contrôle ; ceci REND le tail-risk visible (jamais jugé à une IC)</div>
+    </div>
+    <div class="panel">
       <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
       <div class="row"><span class="k">probe forecast (Darts)</span><span id="lb-fc">—</span></div>
       <div class="row"><span class="k">testeur code base mql5</span><span id="lb-mql5">—</span></div>
@@ -1440,6 +1448,16 @@ function renderState(){
             '<span class="r dim">'+(r.n_eff!=null?r.n_eff:"—")+'</span></div>';
         }).join("");
       }
+    }
+    // --- Risque du livre (risk_metrics, lecture seule) : VaR/ES/Sortino descripteurs ---
+    const rk=st.risk||{};
+    const _pct=v=>(v==null)?"—":((+v*100).toFixed(2)+" %");
+    if($("rk-src"))$("rk-src").textContent=(rk.source||"—")+(rk.n!=null?(" · n="+rk.n):"");
+    if($("rk-var"))$("rk-var").textContent=(rk.var_95!=null)?(_pct(rk.var_95)+" / "+_pct(rk.var_99)):"—";
+    if($("rk-es"))$("rk-es").textContent=(rk.es_95!=null)?(_pct(rk.es_95)+" / "+_pct(rk.es_99)):"—";
+    if($("rk-sortino")){
+      if(rk.sortino==null){$("rk-sortino").textContent="—";$("rk-sortino").className="";}
+      else{$("rk-sortino").textContent=(rk.sortino>=0?"+":"")+(+rk.sortino).toFixed(3);$("rk-sortino").className=rk.sortino>=0?"green":"red";}
     }
     // --- Veille Bitget : fil des N derniers changements de faits autoritatifs ---
     const bw=st.bitget_watch||{},bwe=bw.events||[],bwd=$("bwatch");
