@@ -10978,6 +10978,98 @@ def test_orderflow_watch_measure():
     assert r["n"] >= ow.MIN_N and r["ic"] > 0 and "net_maker_bps" in r and "t_defl" in r
 
 
+# ---------- grid_lab (banc grid trading, lecture seule) ----------
+
+def _osc_candles(lo=100.0, hi=110.0, half=10, n=400, vol=1000.0):
+    """Triangle wave synthétique lo↔hi (oscillation en range). [ts,o,h,l,c,v]."""
+    closes, x, up = [], lo, True
+    step = (hi - lo) / half
+    for _ in range(n):
+        closes.append(x)
+        x = x + step if up else x - step
+        if x >= hi:
+            x, up = hi, False
+        elif x <= lo:
+            x, up = lo, True
+    out, prev = [], closes[0]
+    for i, c in enumerate(closes):
+        o = prev
+        out.append([i * 60000, o, max(o, c) + 0.5, min(o, c) - 0.5, c, vol])
+        prev = c
+    return out
+
+
+def test_grid_lab_geometric_levels():
+    """Espacement GÉOMÉTRIQUE : ratio constant + N = ln(hi/lo)/ln(1+g)."""
+    import grid_lab as gl
+    assert gl._n_levels(100.0, 110.0, 0.02) == 4          # int(ln(1.1)/ln(1.02))
+    lines = gl.grid_lines(100.0, 110.0, 0.02, 40)
+    assert len(lines) == 5
+    for j in range(len(lines) - 1):
+        assert abs(lines[j + 1] / lines[j] - 1.02) < 1e-9
+    assert gl.grid_lines(100.0, 100.4, 0.02, 40) == []    # dégénéré (<2 cellules)
+
+
+def test_grid_lab_regle_dor():
+    """Règle d'or ≥3× coûts : serré rejeté, large accepté (frais 8 bps + slip 2 bps)."""
+    import grid_lab as gl
+    ok_tight, cost = gl.regle_dor(0.004, 8.0, 2.0)
+    ok_wide, _ = gl.regle_dor(0.007, 8.0, 2.0)
+    assert cost == 0.002 and ok_tight is False and ok_wide is True
+
+
+def test_grid_lab_adx_trend_vs_range():
+    """ADX Wilder : plus élevé en TENDANCE qu'en range (implémentation portée)."""
+    import grid_lab as gl
+    trend_h = [100 + i * 0.5 + 0.1 for i in range(120)]
+    trend_l = [100 + i * 0.5 - 0.1 for i in range(120)]
+    trend_c = [100 + i * 0.5 for i in range(120)]
+    osc = _osc_candles(100.0, 102.0, 4, 120)
+    a_tr = [x for x in gl.dmi_adx(trend_h, trend_l, trend_c) if x is not None]
+    a_rg = [x for x in gl.dmi_adx([r[2] for r in osc], [r[3] for r in osc],
+                                  [r[4] for r in osc]) if x is not None]
+    assert a_tr and a_rg and a_tr[-1] > 20.0 and a_tr[-1] > a_rg[-1]
+
+
+def test_grid_lab_simulate_accounting_and_cycles():
+    """TOTAL-P&L = grid-profit − frais + latent (identité comptable) ; oscillation en
+    range large → cycles > 0. Filtres neutralisés pour un test déterministe."""
+    import grid_lab as gl
+    cfg = gl.config(spacing=0.02, k_atr=6.0, fee_bps=0.0, slip_bps=0.0, window=30,
+                    adx_max=1e9, adx_exit=1e9, atr_exit_mult=1e9, vol_spike=1e9,
+                    bb_expand_max=1e9, vol_expand_max=1e9)
+    r = gl.simulate(_osc_candles(100.0, 110.0, 10, 400), cfg)
+    assert r is not None and r["cycles"] > 0 and r["deployments"] >= 1
+    identite = r["grid_profit"] - r["fees"] + r["latent_final"]
+    assert abs(r["total_pnl"] - identite) < 1e-6
+    assert r["exposure_max"] <= r["exposure_cap"] + 1e-9      # cap anti-martingale
+
+
+def test_grid_lab_fees_reduce_pnl_and_failsafe():
+    """Les frais réduisent le TOTAL-P&L ; simulate FAIL-SAFE (None si insuffisant)."""
+    import grid_lab as gl
+    candles = _osc_candles(100.0, 110.0, 10, 400)
+    common = dict(spacing=0.02, k_atr=6.0, window=30, adx_max=1e9, adx_exit=1e9,
+                  atr_exit_mult=1e9, vol_spike=1e9, bb_expand_max=1e9, vol_expand_max=1e9)
+    r0 = gl.simulate(candles, gl.config(fee_bps=0.0, slip_bps=0.0, **common))
+    r2 = gl.simulate(candles, gl.config(fee_bps=20.0, slip_bps=0.0, **common))
+    assert r0 and r2 and r2["total_pnl"] <= r0["total_pnl"] + 1e-9
+    assert gl.simulate([], gl.config()) is None
+    assert gl.simulate(candles[:40], gl.config()) is None      # sous warmup+30
+
+
+def test_grid_lab_status_readonly():
+    """status() = consultation pure (dict, aucun réseau) ; aucun mot-clé d'ordre dans le source."""
+    import grid_lab as gl
+    from pathlib import Path
+    st = gl.status()
+    assert isinstance(st, dict)
+    src = Path(gl.__file__).read_text(encoding="utf-8").lower()
+    for kw in ("place_order", "cancel_order", "withdraw", "set_leverage",
+               "market_order", "limit_order", "close_position"):
+        assert kw not in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

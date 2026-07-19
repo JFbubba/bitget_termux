@@ -93,6 +93,7 @@ neural_net_pretrained.pt
 .daily_digest_stamp
 trading_real_ledger.json
 .mm_lab_result.json
+.grid_lab_result.json
 
 # Venv du prototype QML (qml_prototype)
 .venv/

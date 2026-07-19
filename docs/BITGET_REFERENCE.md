@@ -3,14 +3,18 @@
 Référentiel **durable** des faits Bitget qui conditionnent les décisions du bot. But : arrêter
 de raisonner sur des hypothèses/mémoire et s'appuyer sur les sources **autoritatives**.
 
-> ⚠️ **Discipline de source.** `bitget.com` **bloque le WebFetch (403, anti-bot)** — il n'y a
-> donc PAS de scrape frontal du site (ce qui invalide « scraper l'entièreté du site »). Ce doc
-> est grondé via : le **SDK officiel mirroré** (`github.com/tiagosiebler/bitget-api`, fetchable),
-> le **centre de support Bitget**, et la recherche des pages officielles. Tout ce qu'on
-> voudrait **brancher** doit d'abord être **vérifié contre l'API réelle** (clé Trade-only,
-> lecture) — un endpoint documenté n'est actionnable qu'une fois testé avec notre clé.
+> ⚠️ **Discipline de source.** **CORRECTION 18/07/2026 (soir)** : `bitget.com` **n'est plus
+> systématiquement 403 au WebFetch** — support, academy et blog sont désormais **fetchables**
+> (campagne de balayage §formation-lectures, cf. `docs/FORMATION_LECTURES.md`). Réserves qui
+> demeurent : (a) certains liens d'articles **404** (liens morts), (b) les pages academy/blog sont
+> **marketing** et **cachent presque tous les seuils chiffrés** (funding minimum, basis-rate, APY),
+> (c) le fil FR du blog s'arrête ~déc. 2025 → le récent 2026 se lit via les sections d'annonces
+> `/support/sections/...` et le **changelog UTA** `/api-doc/uta/changelog` (le changelog V2 legacy
+> s'arrête à jan-2026). **La source AUTORITATIVE des faits chiffrés (frais, specs de contrat, tiers)
+> reste l'API réelle** (clé Trade-only, lecture) — un endpoint documenté n'est actionnable qu'une
+> fois **testé avec notre clé**. Le SDK mirroré (`github.com/tiagosiebler/bitget-api`) reste utile.
 >
-> Dernière mise à jour : **18/07/2026**.
+> Dernière mise à jour : **18/07/2026** (soir — §6 ajoutée).
 
 ---
 
@@ -128,6 +132,68 @@ pas à adopter aujourd'hui.
 - API : [API Intro](https://www.bitget.com/api-doc/common/intro) · [WebSocket Intro](https://www.bitget.com/api-doc/common/websocket-intro) · [Taker Buy/Sell](https://www.bitget.com/api-doc/common/apidata/Taker-Buy-Sell) · [Changelog](https://www.bitget.com/api-doc/common/changelog) · [SDK mirror](https://github.com/tiagosiebler/bitget-api)
 - IA : [GetAgent launch](https://www.bitget.com/blog/articles/bitget-launches-getagent-ai-trading-assistant) · [AI Playbooks & Trade Harness](https://www.bitget.com/academy/which-crypto-exchange-has-ai-trading-playbooks-and-trade-harness-2026-guide)
 
-> Les pages `bitget.com` étant 403 au WebFetch, une mise à jour plus profonde (SPA) passerait par
-> le **scraper du data_collector** (scrapling, venv isolé) ou une vérification directe **contre
-> l'API** avec notre clé. Ne jamais confier l'exécution à un outil externe (murs constitutionnels).
+## 6. Balayage support / blog / academy (18/07/2026 soir — DELTA net-nouveau)
+
+> Faits issus des pages Bitget (support/blog/academy) + changelog UTA. **Statut = source doc :
+> à VÉRIFIER contre l'API live (clé Trade-only) avant tout branchement.** Verdicts entre crochets.
+
+### 6a. Exécution & risque (les plus actionnables)
+
+- **Demo trading via API** — en-tête **`paptrading: 1`** + **clé API Demo** dédiée, fonds virtuels
+  (~50 000 USDT), coins sim `SBTC/SETH/SUSDT/SUSDC/SEOS`, product types `sumcbl/sdmcbl/scmcbl`, WS
+  `wss://wspap.bitget.com/v3/ws/public`. `/api-doc/common/demotrading/restapi`.
+  **[À BRANCHER — test plomberie]** : rejouer la boucle directionnelle réelle (maker/repli taker,
+  **risque n°1 double-position**, TPSL, hedge-mode) en marché live **sans argent réel**, hors murs.
+- **Méthodologie de funding changée ~10/07/2026** : échantillon du premium index **1/min → 1/5 s**
+  (×12) + inclut le cycle de règlement précédent ; caps/intervalles inchangés. `/support/articles/12560603887880`.
+  **[À MESURER]** : recalibrer `funding_fade` et l'edge de carry (moins de « retard » minute exploitable).
+- **Marge de maintenance en mode union** (notre mode) : MM = **max**( valeur_position × (MMR_tier +
+  **0,06 % frais de liquidation**) ; **5 % × passif absolu** ) ; liquidation partielle jusqu'à ramener
+  la MMR à ~70 % ; conversion auto des coins (haircut le plus haut d'abord). `/support/articles/12560603812664`.
+  **[CORRECTION]** : ajouter le +0,06 % à la MMR de tier et le plancher 5 %-du-passif dans le calcul de
+  distance de liquidation ; ne jamais supposer une liq isolée en union.
+- **Position tiers (levier max par notionnel)** : BTCUSDT tier 1 = 0–150 k USDT, **MMR 0,40 %**. Le bot
+  (notionnel 10–25 $, ×5) est **toujours tier 1**. **Alts illiquides** (grille 26/12/2025) : **MMR
+  1,50 % dès le tier 1** (vs 0,40 % BTC) → liquidation plus proche à levier égal. `/support/articles/12560603819706`, `/12560603846455`.
+  **[À MESURER]** : plancher MMR 1,5 % dans le sizing vol-targeting sur alts.
+- **Delisting futures tag `ST`** : ouvertures interdites immédiatement ; à l'échéance **liq d'office au
+  prix = index moyen 30 min avant**, tous ordres annulés. `symbolStatus` ∈ {`normal`,`maintain`,`limit_open`}.
+  **[À BRANCHER — filtre univers]** : exclure `symbolStatus != normal` / tag ST avant d'ouvrir.
+- **Specs de contrat** (`Get-All-Symbols-Contracts`) : `minTradeUSDT`=5 (mini/ordre), `sizeMultiplier`,
+  `priceEndStep` (tick), `minLever`/`maxLever` 1…125. **[PRÉCISION]** confirme le filtre d'infaisabilité.
+- **Types d'ordres au-delà du câblé** : Advanced limit, **Trailing stop** (callback rate), **Scaled/
+  Iceberg/TWAP**, TIF **GTC/IOC/FOK**. **[À MESURER]** TWAP/iceberg = sans objet à 10-25 $ (garder pour
+  une montée de taille).
+
+### 6b. Nouvelles capacités API (changelog UTA 2026)
+
+- **16/06/2026 — 10 nouvelles Trading Data APIs** (whale flow, ratios de marge, **volume delta taker**,
+  métriques futures). **[PRIORITÉ — À MESURER]** : recoupe la « capacité non exploitée n°1 » (§2b) et
+  l'audit orderflow → features à IC net de frais. **Sert directement le gate VPIN** (cf. `FORMATION_LECTURES.md` §5).
+- **25/06/2026 — Get Liquidations History** (+ canal liquidations 1 s). **[À MESURER]** historique REST propre.
+- **02/07/2026 — All Symbol Fee Rates API** + `positionValue`/`leverage` sur Get Account Assets.
+  **[À CÂBLER]** : lire les frais maker/taker **effectifs par symbole** (VIP/BGB inclus) au lieu du dur —
+  sert le plancher de spread MM et le calcul d'edge net (cohérent avec §1b).
+- **RPI (Retail Price Improvement)** : **placement réservé aux market makers désignés** (pas nous), mais
+  **lecture** du RPI orderbook possible (`Get RPI OrderBook`). **[VEILLE]** entrée de prix, pas un type d'ordre accessible.
+- **12/05/2026 — mode delta-neutre** (`delta` + `delta-info`) ; **19/05-09/06 — isolated margin UTA +
+  levier long/short séparés**. **[VEILLE]** (le bot reste en compte classique). Marché « Reality » (actions
+  tokenisées) : **[VEILLE — hors univers]**.
+
+### 6c. Produits & promotions
+
+- **Funding-arb natif Bitget** = notre `carry` : deux réglages à voler → **porte basis-rate d'entrée**
+  ((Sell−Buy)/Buy) + **batch-splitting** des jambes. **[À MESURER]** (cf. backlog `FORMATION_LECTURES.md` §6).
+- **API Copy/Elite Trading** : *copier* est fee-killed (10 % profit-share, ~20-30 % des elites positifs
+  net à 12 mois) ; mais le **positioning net long/short agrégé** des top traders filtrés = feed gratuit.
+  **[À MESURER — vote d'ombre]** (façon `news_shadow`). Vérifier la lisibilité des positions via l'API.
+- **Listing-hype** : carburant crypto récent = **EVAA/NES/ARX/RE** (juin-juil. 2026) ; **exclure les
+  tickers `r*`** (actions tokenisées = bruit). Launchpool ≠ calendrier prédictif (produit réactif).
+- **Limites API** : défaut 10 req/s (market data 20/s), global **6000 req/IP/min** puis **ban 5 min**,
+  header `x-mbx-used-remain-limit`. **[PRÉCISION]** back-off proactif ; le ban 5 min = vrai risque si une
+  boucle part en vrille (watchdog). Compte classique (pas le 250 req/s UTA).
+- **Earn flexible** : intérêt journalier `montant × APR/365`, démarre le jour même si souscrit avant
+  **16:00 UTC+8**, rachat instantané sans pénalité. **[PRÉCISION `liquidity_manager`]** : USDT de marge
+  en flexible (jamais fixed), souscrire avant 16:00 UTC+8.
+- **Levier bridé nouveaux comptes** (créés ≥ 11/02/2026 → ×5, levé 7 j après) : notre compte **antérieur =
+  non affecté**. **[VEILLE]** — re-checker si on ouvre un sous-compte.

@@ -181,6 +181,7 @@ FILES_TO_SCAN = [
     "alt_carry.py",
     "market_maker.py",
     "mm_lab.py",
+    "grid_lab.py",
     "trade_forensics.py",
     "promotion_board.py",
     "daily_digest.py",
