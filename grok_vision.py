@@ -418,17 +418,55 @@ def cross_wyckoff(candles, window=None):
                 recent[name] = arr
                 net += _OBJ_SIGN.get(name, 0) * len(arr)
         objective_bias = "long" if net > 0 else "short" if net < 0 else "neutral"
+        # FIGURES chartistes OBJECTIVES look-ahead-free (chart_patterns, complément Wyckoff) dans la
+        # même fenêtre récente : ancre les 'patterns' déclarés par Grok sur un détecteur reproductible.
+        objective_patterns = {}
+        try:
+            import chart_patterns as cp
+            pats = cp.detect_patterns(o, h, low, c, v)
+            for name, idx in pats.items():
+                cnt = int(np.sum(np.asarray(idx, int) >= cutoff))
+                if cnt:
+                    objective_patterns[name] = cnt
+        except Exception:
+            objective_patterns = {}
         return {"objective_events": recent, "objective_bias": objective_bias,
+                "objective_patterns": objective_patterns,
                 "n_events": sum(len(a) for a in recent.values()), "window": win}
     except Exception:
         return {}
 
 
+_PAT_ALIASES = {"h&s": "head shoulders", "hs": "head shoulders", "sht": "head shoulders",
+                "inversehs": "head shoulders", "inverse": "head shoulders",
+                "tete": "head", "epaules": "shoulders", "epaule": "shoulders",
+                "biseau": "wedge", "coin": "wedge", "rectangle": "rectangle",
+                "canal": "rectangle", "double": "double", "triple": "triple",
+                "sommet": "top", "haut": "top", "creux": "bottom", "bas": "bottom",
+                "fanion": "flag", "drapeau": "flag"}
+
+
+def _pattern_tokens(patterns):
+    """PUR. Tokenise des libellés de figures (fr/en, snake_case ou libre) en un set de mots-clés
+    normalisés (alias appliqués) pour comparer Grok <-> détecteur objectif sans dépendre du format.
+    Gère aussi les sigles collés (« H&S » -> head shoulders) via la forme alphanumérique compacte."""
+    toks = set()
+    for p in patterns or []:
+        s = str(p).lower()
+        compact = "".join(ch for ch in s if ch.isalnum())     # « h&s » -> « hs »
+        if compact in _PAT_ALIASES:
+            toks.update(_PAT_ALIASES[compact].split())
+        for w in "".join(ch if ch.isalpha() else " " for ch in s).split():
+            toks.add(_PAT_ALIASES.get(w, w))
+    return toks
+
+
 def agreement(grok, objective):
     """PUR. Accord Grok <-> détecteur objectif. Retourne {bias_agree, event_overlap,
-    note}. Un désaccord n'est PAS une erreur — c'est une donnée à mesurer."""
+    pattern_overlap, note}. Un désaccord n'est PAS une erreur — c'est une donnée à mesurer."""
     if not grok or not objective:
-        return {"bias_agree": None, "event_overlap": False, "note": "croisement indisponible"}
+        return {"bias_agree": None, "event_overlap": False, "pattern_overlap": False,
+                "note": "croisement indisponible"}
     gb = grok.get("bias", "neutral")
     ob = objective.get("objective_bias", "neutral")
     bias_agree = (gb == ob)
@@ -442,6 +480,10 @@ def agreement(grok, objective):
             obj_dir |= _BEAR_EVENTS
     g_events = set(grok.get("events") or [])
     overlap = bool(g_events & obj_dir)
+    # recoupement FIGURES : Grok nomme-t-il une figure que le détecteur objectif confirme ?
+    g_pat = _pattern_tokens(grok.get("patterns"))
+    o_pat = _pattern_tokens((objective.get("objective_patterns") or {}).keys())
+    pattern_overlap = bool(g_pat & o_pat)
     if not (objective.get("objective_events") or {}):
         note = "aucun événement objectif dans la fenêtre"
     elif bias_agree and overlap:
@@ -452,7 +494,10 @@ def agreement(grok, objective):
         note = "accord événement, biais divergent"
     else:
         note = "désaccord"
-    return {"bias_agree": bias_agree, "event_overlap": overlap, "note": note}
+    if pattern_overlap:
+        note += " (+figure confirmée)"
+    return {"bias_agree": bias_agree, "event_overlap": overlap,
+            "pattern_overlap": pattern_overlap, "note": note}
 
 
 def _bias_to_vote(bias, confidence):
@@ -553,6 +598,8 @@ def _fmt(result):
     pat = ", ".join(result.get("patterns") or []) or "—"
     oe = obj.get("objective_events") or {}
     oe_txt = ", ".join(f"{k}×{len(vv)}" for k, vv in oe.items()) or "aucun"
+    op = obj.get("objective_patterns") or {}
+    op_txt = ", ".join(f"{k}×{n}" for k, n in sorted(op.items())) or "aucune"
     return (
         f"=== GROK VISION — {result['symbol']} {result['tf']} ===\n"
         f"  phase       : {result['phase']}\n"
@@ -563,6 +610,7 @@ def _fmt(result):
         f"  raison       : {result['raison'] or '—'}\n"
         f"  objectif WY  : biais {obj.get('objective_bias', '—')} · événements [{oe_txt}] "
         f"(fenêtre {obj.get('window', '—')} barres)\n"
+        f"  figures obj. : {op_txt}\n"
         f"  accord       : {a.get('note', '—')}\n"
         f"  (OMBRE MESURÉE — aucune décision, aucun ordre ; edge À PROUVER par IC live)\n"
         f"Lecture seule. VERDICT: SAFE"

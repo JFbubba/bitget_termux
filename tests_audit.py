@@ -11809,6 +11809,121 @@ def test_grok_vision_prompt_educates_and_grounds():
     assert gv._objective_summary({"objective_events": {}}).startswith("aucun")       # vide -> pas d'invention
 
 
+# ===================== chart_patterns.py — figures chartistes (complément wyckoff, mesuré) =====================
+def _cp_double_top(k=2):
+    """Séquence OHLC synthétique à DOUBLE SOMMET : montée, sommet1, creux (neckline), sommet2,
+    cassure sous le creux. Retourne (o,h,l,c,v) en np.array. Sommets ~égaux à ~16, neckline ~11."""
+    import numpy as np
+    seq = ([10, 11, 12, 13]
+           + [14, 15, 16, 15, 14]        # sommet 1
+           + [13, 12, 11]                # creux = neckline
+           + [12, 13, 14, 15, 16, 15, 14]  # sommet 2 (~égal)
+           + [13, 12, 11, 10.5, 10, 9])  # cassure sous la neckline
+    o = np.array(seq, float); c = o.copy()
+    h = o + 0.2; l = o - 0.2; v = np.ones(len(o))
+    return o, h, l, c, v
+
+
+def test_chart_patterns_detects_and_lookahead_free():
+    """Détecte un double sommet à sa barre de CASSURE, et la détection en t est INDÉPENDANTE du
+    futur (détecter sur la série tronquée [:t+1] reproduit t ; la série [:t] ne le contient PAS)."""
+    import numpy as np
+    import chart_patterns as cp
+    o, h, l, c, v = _cp_double_top()
+    pats = cp.detect_patterns(o, h, l, c, v, k=2)
+    dt = pats["double_top"]
+    assert len(dt) >= 1                                          # figure détectée
+    t = int(dt[0])
+    # causalité : tronquer à [:t+1] doit reproduire la détection en t (aucune barre future utilisée)
+    trunc = cp.detect_patterns(o[:t + 1], h[:t + 1], l[:t + 1], c[:t + 1], v[:t + 1], k=2)
+    assert t in set(int(x) for x in trunc["double_top"])
+    # confirmation : sans la barre de cassure, la figure n'est PAS confirmée en t
+    before = cp.detect_patterns(o[:t], h[:t], l[:t], c[:t], v[:t], k=2)
+    assert t not in set(int(x) for x in before.get("double_top", []))
+
+
+def test_chart_patterns_pure_and_failsafe():
+    """detect_patterns est PUR (n'altère pas les entrées), renvoie TOUTES les clés de PATTERNS,
+    et gère les entrées courtes/vides sans crash (fail-safe)."""
+    import numpy as np
+    import chart_patterns as cp
+    o, h, l, c, v = _cp_double_top()
+    o0 = o.copy()
+    out = cp.detect_patterns(o, h, l, c, v, k=2)
+    assert np.array_equal(o, o0)                                 # entrées inchangées (pur)
+    assert set(out.keys()) == set(cp.PATTERNS.keys())            # toutes les figures présentes
+    assert all(isinstance(x, np.ndarray) for x in out.values())
+    empty = cp.detect_patterns([], [], [], [], [], k=2)          # vide -> aucune figure, pas de crash
+    assert all(len(x) == 0 for x in empty.values())
+    short = cp.detect_patterns([1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 1, 1], k=2)
+    assert all(len(x) == 0 for x in short.values())
+
+
+def test_chart_patterns_sens_and_indicators():
+    """Sens ∈ {+1,-1} et paires directionnelles cohérentes ; RSI/SMA bornés et causaux."""
+    import numpy as np
+    import chart_patterns as cp
+    assert set(cp.PATTERNS.values()) == {+1, -1}
+    assert cp.PATTERNS["double_bottom"] == +1 and cp.PATTERNS["double_top"] == -1
+    assert cp.PATTERNS["sym_triangle_long"] == +1 and cp.PATTERNS["sym_triangle_short"] == -1
+    c = 100.0 + np.cumsum(np.ones(60))                           # série montante -> RSI élevé
+    rsi = cp._rsi(c, 14)
+    fin = rsi[np.isfinite(rsi)]
+    assert fin.min() >= 0.0 and fin.max() <= 100.0 and fin[-1] > 70.0
+    sma = cp._sma(np.ones(30) * 5.0, 20)
+    assert np.isnan(sma[0]) and abs(sma[-1] - 5.0) < 1e-9        # NaN avant fenêtre, exact ensuite
+
+
+def test_chart_patterns_confluence_subsets():
+    """confluence_mask (volume/full) et wyckoff_confluence_mask renvoient des SOUS-ensembles des
+    confirmations (jamais un sur-ensemble), et sont look-ahead-free (tout ≤ t)."""
+    import numpy as np
+    import chart_patterns as cp
+    o, h, l, c, v = _cp_double_top()
+    idx = cp.detect_patterns(o, h, l, c, v, k=2)["double_top"]
+    for mode in ("volume", "full"):
+        sub = cp.confluence_mask(o, h, l, c, v, idx, sens=-1, mode=mode)
+        assert set(int(x) for x in sub) <= set(int(x) for x in idx)
+    wk = cp.wyckoff_confluence_mask(o, h, l, c, v, idx, sens=-1)
+    assert set(int(x) for x in wk) <= set(int(x) for x in idx)
+
+
+def test_chart_patterns_source_is_readonly_safe():
+    """chart_patterns ne contient AUCUN chemin d'exécution ; il n'importe que des modules SAFE."""
+    src = open("chart_patterns.py").read().lower()
+    forbidden = ["place_order", "open_long", "open_short", "close_position", "cancel_order",
+                 "change_leverage", "withdraw", "send_order", "create_order",
+                 "submit_order", "set_leverage", "market_order", "post_order"]
+    assert not [k for k in forbidden if k in src]
+    for m in ("import spot_executor", "import futures_executor", "import bitget_execute",
+              "import spot_trader", "import margin_trader"):
+        assert m not in src
+    assert "verdict: safe" in src and "lecture seule" in src
+
+
+def test_grok_vision_objective_patterns_crosscheck():
+    """cross_wyckoff expose les FIGURES objectives (chart_patterns) ; agreement recoupe les
+    'patterns' de Grok avec elles (normalisation fr/en/sigles) ; fail-safe si data courte."""
+    import numpy as np
+    import grok_vision as gv
+    # tokenisation robuste : formats hétérogènes -> mots-clés communs
+    assert gv._pattern_tokens(["double top"]) & gv._pattern_tokens(["double_top"])
+    hs = gv._pattern_tokens(["H&S"])
+    assert "head" in hs and "shoulders" in hs                       # sigle collé -> alias
+    obj = {"objective_events": {"sc_long": [1]}, "objective_bias": "long",
+           "objective_patterns": {"double_bottom": 1}}
+    a = gv.agreement({"bias": "long", "events": ["SC"], "patterns": ["double bottom"]}, obj)
+    assert a["pattern_overlap"] is True and "figure confirmée" in a["note"]
+    a2 = gv.agreement({"bias": "long", "events": [], "patterns": ["triangle"]}, obj)
+    assert a2["pattern_overlap"] is False
+    # cross_wyckoff : la clé objective_patterns est TOUJOURS un dict (fail-safe), sans crash
+    n = 160
+    c = 100.0 + np.zeros(n)
+    cd = {"o": list(c), "h": list(c + 0.5), "l": list(c - 0.5), "c": list(c),
+          "v": list(np.ones(n)), "ts": list(range(n))}
+    assert isinstance(gv.cross_wyckoff(cd).get("objective_patterns"), dict)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

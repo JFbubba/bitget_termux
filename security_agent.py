@@ -185,6 +185,7 @@ FILES_TO_SCAN = [
     "grid_lab.py",
     "mvrv_lab.py",
     "wyckoff_lab.py",
+    "chart_patterns.py",
     "grok_vision.py",
     "trade_forensics.py",
     "promotion_board.py",
