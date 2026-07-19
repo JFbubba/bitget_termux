@@ -11621,6 +11621,178 @@ def test_wyckoff_source_is_readonly_safe():
     assert "verdict: safe" in src and "lecture seule" in src
 
 
+# ===================== grok_vision.py — voix d'OMBRE Grok vision (opt-in, mesurée) =====================
+def _gv_candles(n=60, seed=0):
+    """Bougies synthétiques {o,h,l,c,v,ts} pour tests hermétiques (aucun réseau)."""
+    import numpy as np
+    rng = np.random.RandomState(seed)
+    c = 100.0 * np.exp(np.cumsum(rng.randn(n) * 0.002))
+    o = np.concatenate([[c[0]], c[:-1]])
+    h = np.maximum(o, c) * (1.0 + np.abs(rng.randn(n)) * 0.001)
+    l = np.minimum(o, c) * (1.0 - np.abs(rng.randn(n)) * 0.001)
+    v = 100.0 + np.abs(rng.randn(n)) * 5.0
+    ts = list(range(1_600_000_000_000, 1_600_000_000_000 + n * 3_600_000, 3_600_000))
+    return {"o": list(o), "h": list(h), "l": list(l), "c": list(c),
+            "v": list(v), "ts": ts[:n]}
+
+
+def test_grok_vision_render_chart_png():
+    """render_chart -> PNG non vide (signature PNG) si matplotlib dispo, sinon skip PROPRE (None)."""
+    import grok_vision as gv
+    png = gv.render_chart(_gv_candles(80), "BTCUSDT", "1H")
+    try:
+        import matplotlib  # noqa: F401
+        assert png is not None and png[:8] == b"\x89PNG\r\n\x1a\n"      # rendu réel
+        assert gv.to_data_uri(png).startswith("data:image/png;base64,")
+    except ImportError:
+        assert png is None                                             # skip propre, jamais de crash
+    assert gv.render_chart({"o": [1], "h": [1], "l": [1], "c": [1], "v": [1]}, "X", "1H") is None
+
+
+def test_grok_vision_build_prompt():
+    """Prompt structuré : Wyckoff + JSON strict + champs bornés + symbole/TF."""
+    import grok_vision as gv
+    p = gv.build_prompt("ETHUSDT", "4H")
+    for token in ("Wyckoff", "JSON", "bias", "confidence", "phase", "ETHUSDT", "4H"):
+        assert token in p
+
+
+def test_grok_vision_parse_ok_and_broken():
+    """Parse d'une réponse Grok MOCKÉE -> dict structuré ; réponse cassée -> None ;
+    champs manquants -> défauts sûrs."""
+    import grok_vision as gv
+    good = ('bla {"phase":"accumulation","events":["SC","Spring"],"structure":"CHoCH",'
+            '"patterns":["double bottom"],"bias":"long","confidence":0.8,"raison":"spring"} fin')
+    d = gv._parse(good)
+    assert d["phase"] == "accumulation" and d["bias"] == "long" and d["structure"] == "CHOCH"
+    assert d["events"] == ["SC", "SPRING"] and d["confidence"] == 0.8
+    assert gv._parse("pas de json ici") is None
+    assert gv._parse("") is None
+    d2 = gv._parse('{"bias":"weird","confidence":"NaNish","phase":"xxx"}')   # valeurs hors bornes
+    assert d2["bias"] == "neutral" and d2["confidence"] == 0.0 and d2["phase"] == "unclear"
+    assert d2["structure"] == "NONE" and d2["events"] == [] and d2["patterns"] == []
+
+
+def test_grok_vision_failsafe_no_key_and_timeout():
+    """FAIL-SAFE : XAI_API_KEY absent -> _call_grok lève, analyze() -> None sans exception ;
+    call_fn qui timeout -> None."""
+    import os
+    import grok_vision as gv
+    saved = os.environ.pop("XAI_API_KEY", None)
+    try:
+        raised = False
+        try:
+            gv._call_grok("p", "data:image/png;base64,AAAA")
+        except Exception:
+            raised = True
+        assert raised                                                  # pas de clé -> lève (capté plus haut)
+        r = gv.analyze("BTCUSDT", "1H", candles=_gv_candles(60),
+                       render_fn=lambda *a, **k: b"\x89PNG\r\n\x1a\nfake",
+                       call_fn=gv._call_grok)                           # sans clé -> None
+        assert r is None
+    finally:
+        if saved is not None:
+            os.environ["XAI_API_KEY"] = saved
+
+    def _boom(prompt, data_uri):
+        raise TimeoutError("mocked timeout")
+    assert gv.analyze("BTCUSDT", "1H", candles=_gv_candles(60),
+                      render_fn=lambda *a, **k: b"\x89PNG\r\n\x1a\nfake", call_fn=_boom) is None
+
+
+def test_grok_vision_cross_wyckoff_and_agreement():
+    """Croisement avec wyckoff_lab.detect_events sur bougies synthétiques : un climax objectif
+    est détecté et l'accord Grok<->détecteur est calculé sans crash."""
+    import numpy as np
+    import grok_vision as gv
+    import wyckoff_lab as wl
+    n = wl.N_BASE + 60
+    o, h, l, c, v = _wl_quiet(n)
+    t = n - 5                                                          # climax DANS la fenêtre récente
+    l[t] = 95.0; h[t] = 100.5; c[t] = 100.0; o[t] = 99.0; v[t] = 400.0
+    cd = {"o": list(o), "h": list(h), "l": list(l), "c": list(c), "v": list(v),
+          "ts": list(range(n))}
+    obj = gv.cross_wyckoff(cd)
+    assert "sc_long" in obj.get("objective_events", {}) and obj["objective_bias"] == "long"
+    grok_long = {"bias": "long", "events": ["SC"]}
+    acc = gv.agreement(grok_long, obj)
+    assert acc["bias_agree"] is True and acc["event_overlap"] is True
+    grok_short = {"bias": "short", "events": ["UTAD"]}
+    assert gv.agreement(grok_short, obj)["bias_agree"] is False
+    assert gv.agreement(None, None)["bias_agree"] is None              # indispo -> pas de crash
+
+
+def test_grok_vision_bias_to_vote_and_shadow():
+    """Mapping bias->vote borné + forme de l'enregistrement d'ombre (façon news_shadow)."""
+    import grok_vision as gv
+    assert gv._bias_to_vote("long", 1.0) == 0.5                        # capé à CONF_CAP défaut 0.5
+    assert gv._bias_to_vote("short", 0.4) == -0.4
+    assert gv._bias_to_vote("neutral", 0.9) == 0.0
+    rec = gv.shadow_record(-0.3, "solusdt", 12.5, tf="1H")
+    assert rec["symbol"] == "SOLUSDT" and rec["votes"] == {"grok_shadow": -0.3}
+    assert rec["price"] == 12.5 and rec["tf"] == "1H" and isinstance(rec["ts"], int)
+
+
+def test_grok_vision_analyze_end_to_end_mocked_and_record():
+    """analyze() de bout en bout avec Grok MOCKÉ + record() écrit un vote grok_shadow
+    lisible par live_ic_audit (même journal que news/nn/qml)."""
+    import os
+    import tempfile
+    import grok_vision as gv
+    resp = ('{"phase":"markup","events":["SOS"],"structure":"BOS","patterns":["flag"],'
+            '"bias":"long","confidence":0.3,"raison":"breakout"}')
+    r = gv.analyze("BTCUSDT", "1H", candles=_gv_candles(60),
+                   render_fn=lambda *a, **k: b"\x89PNG\r\n\x1a\nfake",
+                   call_fn=lambda prompt, data_uri: resp, now=1_700_000_000)
+    assert r and r["bias"] == "long" and r["vote"] == 0.3 and r["structure"] == "BOS"
+    assert r["symbol"] == "BTCUSDT" and "agreement" in r and "objective" in r
+    d = tempfile.mkdtemp()
+    op = os.path.join(d, "ov.jsonl"); jp = os.path.join(d, "gv.jsonl")
+    assert gv.record(r, overlay_path=op, journal_path=jp) is True
+    import journal_append as ja
+    ov = ja.read_jsonl(op)
+    assert ov and ov[-1]["votes"].get("grok_shadow") == 0.3 and ov[-1]["symbol"] == "BTCUSDT"
+    full = ja.read_jsonl(jp)
+    assert full and full[-1]["phase"] == "markup" and "png_bytes" not in full[-1]
+
+
+def test_grok_vision_disabled_and_status_are_noop():
+    """Défaut OFF : CLI --analyze inerte sans flag/clé ; status() lecture seule sans appel Grok."""
+    import os
+    import grok_vision as gv
+    saved_en = os.environ.pop("GROK_VISION_ENABLED", None)
+    saved_key = os.environ.pop("XAI_API_KEY", None)
+    try:
+        # sans flag -> enabled() False -> CLI ne fait rien (pas d'exception)
+        os.environ["GROK_VISION_ENABLED"] = "0"
+        assert gv.enabled() is False
+        assert gv.analyze_cli("BTCUSDT", "1H") == 0
+        assert gv.status() == 0
+    finally:
+        os.environ.pop("GROK_VISION_ENABLED", None)
+        if saved_en is not None:
+            os.environ["GROK_VISION_ENABLED"] = saved_en
+        if saved_key is not None:
+            os.environ["XAI_API_KEY"] = saved_key
+
+
+def test_grok_vision_source_is_readonly_safe():
+    """grok_vision = SAFE : aucun mot d'ordre dans le source, aucun import d'exécuteur,
+    classé FILES_TO_SCAN, scan mots-clés vide."""
+    import security_agent
+    src = open("grok_vision.py").read().lower()
+    forbidden = ["place_order", "open_long", "open_short", "close_position", "cancel_order",
+                 "change_leverage", "transfer", "withdraw", "send_order", "create_order",
+                 "submit_order", "set_leverage", "market_order", "limit_order", "post_order"]
+    assert not [k for k in forbidden if k in src]
+    for m in ("import spot_executor", "import futures_executor", "import bitget_execute",
+              "import spot_trader", "import margin_trader", "import account_transfers"):
+        assert m not in src
+    assert "grok_vision.py" in security_agent.FILES_TO_SCAN
+    assert security_agent.scan_file_for_keywords("grok_vision.py") == []
+    assert "verdict: safe" in src and "lecture seule" in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

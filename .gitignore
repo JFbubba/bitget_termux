@@ -125,3 +125,9 @@ trading_real_ledger.json.tmp
 # Tape brute signée persistée (tape_store.py) : données market-data locales, bornées,
 # jamais committées (rotation par taille, plafond disque dur)
 .tape/
+
+# grok_vision.py : journal d'analyse structurée + charts PNG temporaires (locaux, non
+# committés ; le vote d'ombre va dans .overlay_votes.jsonl déjà couvert par *.jsonl)
+.grok_vision_journal.jsonl
+.grok_vision/
+grok_chart_*.png
