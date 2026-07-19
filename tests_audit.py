@@ -3757,6 +3757,35 @@ def test_live_ic_audit_pur():
     assert la.ic_par_agent([], 3600) == {}                       # vide -> {}
 
 
+def test_ic_cluster_t_deflates_pseudo_replication():
+    # §82 mesure-d'abord : la non-indépendance (même vote sur N symboles/fenêtre + lenteur) gonfle
+    # le |t| poolé -> le t clusterisé PAR FENÊTRE (façon Fama-MacBeth) le déflate honnêtement.
+    import agent_validation as av
+    import live_ic_audit as la
+    votes, fwd, ts = [], [], []
+    for w in range(200):                          # 200 fenêtres horaires
+        m = 1.0 if (w * 7) % 3 else -1.0          # vote (déterministe)
+        for sym in range(12):                     # répliqué sur 12 symboles dans la fenêtre
+            idio = (((w * 13 + sym * 5) % 9) - 4) * 0.004   # idiosyncratique ±0.016
+            votes.append(m)                       # vote IDENTIQUE dans la fenêtre (symbol-agnostique)
+            fwd.append(m * 0.010 + idio)          # IC modéré ; corrélation intra-fenêtre via m
+            ts.append(w * 3600)                   # une fenêtre horaire par w
+    ic_tc, pic_tc, n_eff = la._cluster_t(votes, fwd, ts, bucket_s=3600)
+    assert n_eff == 200                            # # fenêtres, PAS 2400 paires
+    naif = av.evaluate(votes, fwd)                 # t poolé (naïf) sur n=2400
+    assert abs(pic_tc) < abs(naif["pic_t"]) * 0.6  # déflation nette
+    assert abs(pic_tc) > 0.0                       # non dégénéré (SE conditionnée)
+    # 1 obs par fenêtre (pas de réplication) : clusterisé ≈ naïf, rien à corriger
+    v2, f2, ts2 = [], [], []
+    for i in range(300):
+        x = 1.0 if (i * 3) % 2 else -1.0
+        v2.append(x); f2.append(x * 0.010 + (((i * 17) % 9) - 4) * 0.004); ts2.append(i * 3600)
+    _, pic_tc2, n_eff2 = la._cluster_t(v2, f2, ts2, bucket_s=3600)
+    assert n_eff2 == 300
+    naif2 = av.evaluate(v2, f2)
+    assert abs(pic_tc2) > abs(naif2["pic_t"]) * 0.6  # peu déflaté (1 obs/fenêtre)
+
+
 def test_live_ic_audit_queue_du_journal():
     # ERR-006 : le cap max_lignes doit garder la QUEUE du journal (fenêtre
     # récente), jamais la tête — sinon l'instrument se fige sur l'ancien.

@@ -42,16 +42,63 @@ def charger_entrees(chemin=None, max_lignes=100_000):
     return entrees
 
 
+def _cluster_t(votes, fwd, ts, bucket_s=3600):
+    """t de l'IC ROBUSTE au clustering par FENÊTRE-TEMPS (façon Fama-MacBeth / cluster-by-period)
+    + n_eff. Corrige la NON-INDÉPENDANCE massive de l'audit poolé (§82, mesure-d'abord). Le journal
+    timestampe chaque (symbole×cycle) DISTINCTEMENT (pas de ts partagé), donc les ~99k paires
+    (symbole×temps) semblent indépendantes ALORS QUE : un agent symbol-AGNOSTIQUE (macro/flows/
+    sentiment) émet ~le même vote sur les ~24 symboles ET ~lentement dans le temps -> le vrai n
+    ≈ nb de FENÊTRES, pas de paires. On cluster les scores par fenêtre de `bucket_s` (= l'horizon,
+    blocs ~non-recouvrants) : la SE clusterisée gonfle quand les obs d'une fenêtre sont corrélées
+    -> le |t| déflate honnêtement (agent symbol-agnostique déflaté à fond ; agent à vraie variation
+    transversale/temporelle beaucoup moins). n_eff = # fenêtres distinctes. Mesuré en réel : n_eff
+    ~224 (vs 99k) ; macro −20,9->−4,0, mais technicals/carry/liquidations s'évaporent (< 2σ).
+    PUR (numpy). Retour (ic_t_clust, pic_t_clust, n_eff)."""
+    import numpy as np
+    v = np.asarray(votes, float)
+    f = np.asarray(fwd, float)
+    t = list(ts)
+    b = max(1.0, float(bucket_s))
+    n = min(len(v), len(f), len(t))
+    if n < 5:
+        return 0.0, 0.0, len({int(x // b) for x in t})
+    v, f, t = v[:n], f[:n], t[:n]
+    buckets = [int(x // b) for x in t]
+
+    def _z(x):
+        sd = x.std()
+        return (x - x.mean()) / sd if sd > 0 else np.zeros_like(x)
+
+    def _ct(zx, zy):
+        s = zx * zy                                   # score par obs ; IC = moyenne des scores
+        ic = float(s.mean())
+        acc = defaultdict(float)
+        for bk, si in zip(buckets, (s - ic).tolist()):  # somme des scores centrés PAR fenêtre
+            acc[bk] += si
+        num = sum(u * u for u in acc.values())         # Σ_g (Σ_{i∈g} s_i)²  -> SE clusterisée-période
+        se = (num ** 0.5) / n if num > 0 else 0.0
+        return round(ic / se, 2) if se > 1e-9 else 0.0
+
+    def _rank(x):
+        return np.argsort(np.argsort(x)).astype(float)
+
+    ic_t = _ct(_z(_rank(v)), _z(_rank(f)))            # Spearman (rank, dashboard)
+    pic_t = _ct(_z(v), _z(f))                          # Pearson (magnitude, métrique poids §96)
+    return ic_t, pic_t, len(set(buckets))
+
+
 def ic_par_agent(entrees, horizon_s=3600):
-    """PUR. {agent: {ic, ic_t, n, pct_votants}} : vote de chaque agent vs
-    rendement forward au premier point >= horizon_s (par symbole)."""
+    """PUR. {agent: {ic, ic_t, ic_t_clust, pic, pic_t, pic_t_clust, n, n_eff, pct_votants}} :
+    vote de chaque agent vs rendement forward au premier point >= horizon_s (par symbole).
+    *_t_clust = t ROBUSTES au clustering par fenêtre-horizon (déflate la non-indépendance
+    cross-sectionnelle + temporelle, cf. _cluster_t) ; n_eff = # fenêtres (« n : le vrai poids)."""
     import agent_validation as av
     par_sym = defaultdict(list)
     for e in entrees or []:
         par_sym[e["symbol"]].append(e)
     for s in par_sym:
         par_sym[s].sort(key=lambda x: x.get("ts", 0))
-    donnees = defaultdict(lambda: ([], []))
+    donnees = defaultdict(lambda: ([], [], []))
     for s, rows in par_sym.items():
         for i, e in enumerate(rows):
             j = next((k for k in range(i + 1, len(rows))
@@ -68,15 +115,17 @@ def ic_par_agent(entrees, horizon_s=3600):
                     continue
                 donnees[ag][0].append(float(vote))
                 donnees[ag][1].append(fwd)
+                donnees[ag][2].append(e.get("ts", i))
     out = {}
-    for ag, (votes, fwd) in donnees.items():
+    for ag, (votes, fwd, ts) in donnees.items():
         if len(votes) < 50:
             continue
         m = av.evaluate(votes, fwd)
+        ic_tc, pic_tc, n_eff = _cluster_t(votes, fwd, ts, bucket_s=horizon_s)
         nz = 100.0 * sum(1 for v in votes if v != 0) / len(votes)
-        out[ag] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"),
-                   "pic": m.get("pic"), "pic_t": m.get("pic_t"), "n": m.get("n"),
-                   "pct_votants": round(nz, 1)}
+        out[ag] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"), "ic_t_clust": ic_tc,
+                   "pic": m.get("pic"), "pic_t": m.get("pic_t"), "pic_t_clust": pic_tc,
+                   "n": m.get("n"), "n_eff": n_eff, "pct_votants": round(nz, 1)}
     return out
 
 
@@ -111,13 +160,19 @@ def snapshot(horizon_s=3600):
 def build_report(s=None):
     s = snapshot() if s is None else s
     lignes = [f"=== AUDIT IC LIVE — votes réellement émis, horizon {s['horizon_s'] // 60} min ===",
-              "  rankIC = ordinal (dashboard) · pearsonIC = pondéré-magnitude ≈ PnL (métrique RIDGE §78)"]
+              "  rankIC = ordinal (dashboard) · pearsonIC = pondéré-magnitude ≈ PnL (métrique RIDGE §78)",
+              "  clust = t robuste au clustering-timestamp (déflate la pseudo-réplication symbol-agnostique, §82)"]
     for r in s.get("agents", []):
-        pic = r.get("pic"); pic_t = r.get("pic_t")
-        pbloc = (f"pearsonIC {pic:+.4f} (t {pic_t:+.2f})" if pic is not None else "pearsonIC —")
+        pic = r.get("pic"); pic_t = r.get("pic_t"); pic_tc = r.get("pic_t_clust")
+        ic_tc = r.get("ic_t_clust"); n = r.get("n"); n_eff = r.get("n_eff")
+        pbloc = (f"pearsonIC {pic:+.4f} (t {pic_t:+.2f}·clust {pic_tc:+.2f})" if pic is not None
+                 else "pearsonIC —")
         flag = "  ⚠ SIGNES OPPOSÉS" if _signe_divergent(r) else ""
-        lignes.append(f"  {r['agent']:<12} rankIC {r['ic']:+.4f} (t {r['ic_t']:+.2f}) · "
-                      f"{pbloc} · n {r['n']}, votants {r['pct_votants']}%{flag}")
+        ghost = ""
+        if n_eff and n and n_eff < n * 0.5 and abs(pic_t or 0) >= 3 and abs(pic_tc or 0) < 2:
+            ghost = "  ⚠ t POOLÉ FANTÔME (clust < 2σ : significativité illusoire, obs non-indépendantes)"
+        lignes.append(f"  {r['agent']:<12} rankIC {r['ic']:+.4f} (t {r['ic_t']:+.2f}·clust {ic_tc:+.2f}) · "
+                      f"{pbloc} · n {n}(eff {n_eff}), votants {r['pct_votants']}%{flag}{ghost}")
     if not s.get("agents"):
         lignes.append("  historique insuffisant (< 50 obs/agent)")
     div = [r["agent"] for r in s.get("agents", []) if _signe_divergent(r)]
@@ -128,7 +183,8 @@ def build_report(s=None):
     lignes.append("--- voix opt-in (llm/nn/classics, §77) ---")
     if ov:
         for r in ov:
-            lignes.append(f"  {r['agent']:<12} IC {r['ic']:+.4f} (t {r['ic_t']:+.2f}, n {r['n']})")
+            lignes.append(f"  {r['agent']:<12} IC {r['ic']:+.4f} (t {r['ic_t']:+.2f}·clust "
+                          f"{r.get('ic_t_clust', 0.0):+.2f}, n {r['n']} eff {r.get('n_eff', r['n'])})")
     else:
         lignes.append("  accumule… (< 50 votes parlés par voix)")
     lignes.append("Lecture seule — l'instrument de vérité des poids (§51). VERDICT: SAFE")
