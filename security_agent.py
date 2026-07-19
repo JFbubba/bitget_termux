@@ -183,6 +183,8 @@ FILES_TO_SCAN = [
     "market_maker.py",
     "mm_lab.py",
     "grid_lab.py",
+    "mvrv_lab.py",
+    "wyckoff_lab.py",
     "trade_forensics.py",
     "promotion_board.py",
     "daily_digest.py",

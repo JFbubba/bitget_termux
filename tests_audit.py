@@ -11466,6 +11466,161 @@ def test_tape_store_source_readonly():
     assert not hasattr(ts, "spot_trader") and not hasattr(ts, "bitget_execute")
 
 
+def test_mvrv_realized_cap_and_zscore():
+    """MVRV-Z pur : realized_cap = mktcap/MVRV, numérateur = mktcap·(1−1/MVRV),
+    z = num/std(mktcap). Cas connu, plus fail-safe entrées invalides."""
+    import mvrv_lab as ml
+    assert ml.realized_cap(200.0, 2.0) == 100.0          # mktcap/MVRV
+    assert ml.realized_cap(0, 2.0) is None               # mktcap <= 0
+    assert ml.realized_cap(100.0, 0) is None             # MVRV <= 0
+    assert ml.realized_cap("x", 2.0) is None             # non numérique
+    caps = [100.0, 110.0, 90.0, 130.0, 105.0]
+    mvrv = [1.0, 1.10, 0.90, 1.30, 1.05]                 # num = cap·(1−1/mvrv)
+    z = ml.mvrv_zscores(caps, mvrv, mode="full", min_window=1)
+    num = [c * (1 - 1 / m) for c, m in zip(caps, mvrv)]
+    sd = ml._std(caps)
+    for zi, ni in zip(z, num):
+        assert abs(zi - ni / sd) < 1e-9
+    ze = ml.mvrv_zscores(caps, mvrv, mode="expanding", min_window=4)   # causal
+    assert ze[0] is None and ze[1] is None and ze[2] is None
+    assert ze[3] is not None
+
+
+def test_mvrv_tilt_equal_budget_and_monotone():
+    """Tilt DCA : multiplicateurs normalisés (moyenne active = 1 -> budget ÉGAL) et
+    MONOTONES (z bas -> multiplicateur plus grand = acheter plus quand pas cher)."""
+    import mvrv_lab as ml
+    zs = [-2.0, -1.0, 0.0, 1.0, 3.0]
+    m = ml.tilt_multipliers(zs, alpha=0.5, lo=0.25, hi=2.5)
+    active = [x for x in m if x is not None]
+    assert abs(sum(active) / len(active) - 1.0) < 1e-9
+    assert m[0] > m[1] > m[2] > m[3] >= m[4]
+    assert ml.tilt_multipliers([None, 0.0])[0] is None
+
+
+def test_mvrv_dca_tilt_lowers_cost_basis():
+    """Prix bas quand z bas -> le tilt achète plus au creux -> coût moyen strictement
+    plus bas que le DCA plat, à budget total égal."""
+    import mvrv_lab as ml
+    prices = [100.0, 50.0, 100.0, 50.0, 100.0]
+    zs = [1.0, -2.0, 1.0, -2.0, 1.0]
+    mt = ml.tilt_multipliers(zs)
+    flat = ml.simulate_dca(prices, [1.0] * len(prices))
+    tilt = ml.simulate_dca(prices, mt)
+    assert abs(flat["spent"] - tilt["spent"]) < 1e-6
+    assert tilt["cost_basis"] < flat["cost_basis"] and tilt["btc"] > flat["btc"]
+
+
+def test_mvrv_ic_sign_reversion():
+    """IC Spearman : z qui MONTE face à des rendements forward qui BAISSENT -> IC négatif
+    (réversion de valeur = orientation attendue du MVRV)."""
+    import mvrv_lab as ml
+    z = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    fwd = [0.20, 0.10, 0.00, -0.10, -0.20, -0.30]
+    assert ml.spearman_ic(z, fwd) < -0.9
+    assert abs(ml.spearman_ic(z, z) - 1.0) < 1e-9
+    assert ml.spearman_ic([1, 2], [1, 2]) == 0.0         # n<3 -> 0
+    idx, r = ml.forward_returns([10.0, 11.0, 12.0], 1)
+    assert idx == [0, 1] and abs(r[0] - 0.1) < 1e-9
+
+
+def test_mvrv_fetch_and_run_failsafe_offline():
+    """FAIL-SAFE : réseau coupé + cache absent -> fetch None et run rend un verdict
+    'no_data' SANS crash (jamais de blocage)."""
+    import mvrv_lab as ml
+    import tempfile
+    old_cache, old_result = ml.CACHE, ml.RESULT
+    try:
+        d = tempfile.mkdtemp()
+        ml.CACHE = ml.Path(d) / "absent_cache.json"
+        ml.RESULT = ml.Path(d) / "res.json"
+        assert ml.fetch_coinmetrics(use_net=False) is None
+        assert ml.run(use_net=False, verbose=False)["status"] == "no_data"
+    finally:
+        ml.CACHE, ml.RESULT = old_cache, old_result
+
+
+def test_mvrv_lab_source_readonly():
+    """mvrv_lab = SAFE : aucun mot d'ordre dans le source, classé FILES_TO_SCAN, scan vide."""
+    import mvrv_lab as ml
+    from pathlib import Path
+    src = Path(ml.__file__).read_text(encoding="utf-8").lower()
+    for kw in ("place_order", "cancel_order", "withdraw", "transfer", "transfert",
+               "set_leverage", "market_order", "limit_order", "close_position",
+               "send_order", "create_order", "submit_order", "change_leverage", "post_order"):
+        assert kw not in src, f"mot interdit present: {kw}"
+    assert not hasattr(ml, "spot_trader") and not hasattr(ml, "bitget_execute")
+    assert not hasattr(ml, "spot_executor") and not hasattr(ml, "futures_executor")
+    assert "mvrv_lab.py" in security_agent.FILES_TO_SCAN
+    assert security_agent.scan_file_for_keywords("mvrv_lab.py") == []
+
+
+def _wl_quiet(nbars, seed=0):
+    import numpy as np
+    rng = np.random.RandomState(seed)
+    c = np.full(nbars, 100.0); o = c.copy(); h = c + 0.25; l = c - 0.25
+    v = 100.0 + rng.randn(nbars) * 1.0
+    return o, h, l, c, v
+
+
+def test_wyckoff_climax_detected_on_known_case():
+    import wyckoff_lab as wl
+    n = wl.N_BASE + 60; o, h, l, c, v = _wl_quiet(n); t = wl.N_BASE + 30
+    l[t] = 95.0; h[t] = 100.5; c[t] = 100.0; o[t] = 99.0; v[t] = 400.0   # Selling Climax
+    ev = wl.detect_events(o, h, l, c, v, z=3.0)
+    assert t in ev["sc_long"] and t not in ev["bc_short"]
+    o2, h2, l2, c2, v2 = _wl_quiet(n, seed=1); t2 = wl.N_BASE + 30
+    h2[t2] = 105.0; l2[t2] = 99.5; c2[t2] = 100.0; o2[t2] = 101.0; v2[t2] = 400.0  # Buying Climax
+    assert t2 in wl.detect_events(o2, h2, l2, c2, v2, z=3.0)["bc_short"]
+
+
+def test_wyckoff_look_ahead_free():
+    import numpy as np
+    import wyckoff_lab as wl
+    n = wl.N_BASE + 60; o, h, l, c, v = _wl_quiet(n); t = wl.N_BASE + 30
+    l[t] = 95.0; h[t] = 100.5; c[t] = 100.0; o[t] = 99.0; v[t] = 400.0
+    full = wl.detect_events(o, h, l, c, v, z=3.0)["sc_long"]; k = t + 1
+    trunc = wl.detect_events(o[:k], h[:k], l[:k], c[:k], v[:k], z=3.0)["sc_long"]
+    assert t in full and t in trunc                       # détection en t indépendante du futur
+    oo = np.arange(1, 21, dtype=float) * 10.0; idx = np.array([5, 18])
+    gross, net = wl.forward_net(oo, idx, h=2, sens=+1, rt_fee_bps=4.0)
+    assert len(gross) == 1                                # event sans barre de sortie écarté
+    exp = (oo[8] - oo[6]) / oo[6] * 1e4
+    assert abs(gross[0] - exp) < 1e-6 and abs(net[0] - (exp - 4.0)) < 1e-6
+
+
+def test_wyckoff_shuffle_breaks_edge():
+    import numpy as np
+    import wyckoff_lab as wl
+    rng = np.random.RandomState(7); n = 4000; ret = rng.randn(n) * 5.0
+    ev_idx = rng.choice(n, 200, replace=False); ret[ev_idx] += 100.0     # edge planté
+    obs = float(np.mean(ret[ev_idx]))
+    sh = np.array([np.mean(rng.permutation(ret)[:200]) for _ in range(300)])
+    assert obs > np.mean(sh) + 5 * np.std(sh)
+    ret2 = rng.randn(n) * 5.0; obs2 = float(np.mean(ret2[ev_idx]))       # edge retiré
+    sh2 = np.array([np.mean(rng.permutation(ret2)[:200]) for _ in range(300)])
+    assert abs((obs2 - np.mean(sh2)) / (np.std(sh2) + 1e-9)) < 3.0       # effondré
+    o = 100.0 * np.exp(np.cumsum(rng.randn(3000) * 0.001))
+    loaded = {"X": {"o": o, "h": o * 1.001, "l": o * 0.999, "c": o,
+                    "v": np.ones(3000), "ts": np.arange(3000)}}
+    net_pool = (o[2:] - o[1:-1]) / o[1:-1] * 1e4 - 4.0
+    obs_series = rng.choice(net_pool, 100, replace=False)
+    p = wl.permutation_pvalue(loaded, "1H", "sc_long", 1, obs_series, +1, 4.0, n_perm=300, seed=1)
+    assert p is not None and 0.05 < p["p_value"] < 0.95
+
+
+def test_wyckoff_source_is_readonly_safe():
+    src = open("wyckoff_lab.py").read().lower()
+    forbidden = ["place_order", "open_long", "open_short", "close_position", "cancel_order",
+                 "change_leverage", "transfer", "withdraw", "send_order", "create_order",
+                 "submit_order", "set_leverage", "market_order", "limit_order", "post_order"]
+    assert not [k for k in forbidden if k in src]
+    for m in ("import spot_executor", "import futures_executor", "import bitget_execute",
+              "import spot_trader", "import margin_trader"):
+        assert m not in src
+    assert "verdict: safe" in src and "lecture seule" in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
