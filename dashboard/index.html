@@ -763,16 +763,16 @@ function drawSMC(smc){
   const ov=smc.overlay||{};
   // zones FVG (vert/rouge) + BPR (ambre) : paire de lignes bord haut/bas
   (ov.zones||[]).forEach(z=>{
-    const col=z.kind==="bpr"?"#E5A93D":(z.type==="bull"?"#3FBF7F":"#E5484D");
-    const tag=z.kind==="bpr"?"BPR":(z.type==="bull"?"FVG↑":"FVG↓");
-    _smcLines.push(series.candles.createPriceLine({price:+z.top,color:col,lineWidth:1,lineStyle:1,axisLabelVisible:false,title:tag}));
-    _smcLines.push(series.candles.createPriceLine({price:+z.bottom,color:col,lineWidth:1,lineStyle:1,axisLabelVisible:false,title:""}));
+    const col=z.kind==="bpr"?"#E5A93D":(z.kind==="ote"?"#6AA8FF":(z.type==="bull"?"#3FBF7F":"#E5484D"));
+    const tag=z.kind==="bpr"?"BPR":(z.kind==="ote"?"OTE 0.62–0.79":(z.type==="bull"?"FVG↑":"FVG↓"));
+    _smcLines.push(series.candles.createPriceLine({price:+z.top,color:col,lineWidth:1,lineStyle:z.kind==="ote"?2:1,axisLabelVisible:false,title:tag}));
+    _smcLines.push(series.candles.createPriceLine({price:+z.bottom,color:col,lineWidth:1,lineStyle:z.kind==="ote"?2:1,axisLabelVisible:false,title:""}));
   });
-  // niveaux de référence (Asian H/L, PDH/PDL, Midnight Open)
+  // niveaux de référence (Asian H/L, PDH/PDL, Midnight Open, OTE 0.705)
   (ov.lines||[]).forEach(ln=>{
-    const mo=ln.label==="Midnight Open";
-    _smcLines.push(series.candles.createPriceLine({price:+ln.price,color:mo?"#C9C4B8":"#8E8574",
-      lineWidth:1,lineStyle:mo?0:3,axisLabelVisible:true,title:ln.label}));
+    const mo=ln.label==="Midnight Open", ote=ln.label==="OTE 0.705";
+    _smcLines.push(series.candles.createPriceLine({price:+ln.price,color:ote?"#6AA8FF":(mo?"#C9C4B8":"#8E8574"),
+      lineWidth:1,lineStyle:(mo||ote)?0:3,axisLabelVisible:true,title:ln.label}));
   });
   // marqueurs : SWEEP (rond) + ChoCh (carré), ancrés à la bougie contenant l'event
   const t0=_candles[0][0],t1=_candles[_candles.length-1][0];
@@ -800,7 +800,9 @@ function renderSMCstrip(smc){
   let setup='';
   if(s){const col=s.direction==="LONG"?"#3FBF7F":"#E5484D";
     const flag=s.ready?'<span class="green">PRÊT</span>':(s.coherent?'en attente':'<span class="red">incohérent</span>');
-    setup=`<br><b style="color:${col}">${s.direction}</b> e:${(+s.entry).toFixed(2)} sl:${(+s.stop).toFixed(2)} tp:${(+s.tp1).toFixed(2)} · RR ${s.rr1} · ${flag}`;}
+    const ote=s.ote_aligned?'<span class="green">OTE✔</span>':'<span class="dim">OTE·</span>';
+    const sb=s.silver_bullet?' · <span class="amber">SB</span>':'';
+    setup=`<br><b style="color:${col}">${s.direction}</b> e:${(+s.entry).toFixed(2)} sl:${(+s.stop).toFixed(2)} tp:${(+s.tp1).toFixed(2)} · RR ${s.rr1} · ${ote}${sb} · ${flag}`;}
   else setup='<br><span class="dim">setup : aucun (pas de ChoCh+FVG récent)</span>';
   el.innerHTML=`SMC ${kzTxt} · conf ${smc.score}/4 [${chk}]${po3Txt}${setup}`;
 }

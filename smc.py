@@ -283,6 +283,29 @@ def balanced_price_ranges(candles, fvgs=None):
 
 
 # --------------------------------------------------------------------------- #
+#  OTE — Optimal Trade Entry (retracement Fibonacci de la jambe de displacement) #
+# --------------------------------------------------------------------------- #
+def ote_zone(leg_low, leg_high, direction, lo_r=0.62, hi_r=0.79, sweet_r=0.705):
+    """Zone OTE = retracement Fibonacci de la JAMBE de displacement (sweep -> ChoCh).
+
+    LONG : jambe du bas balayé (`leg_low`) au sommet du displacement (`leg_high`) ; l'entrée
+    idéale est un RETOUR dans 0.62–0.79 (sweet 0.705), SOUS l'équilibre 0.5 (zone « discount »).
+    SHORT : miroir (jambe haut->bas, retour 0.62–0.79 au-dessus de l'équilibre = « premium »).
+    Retourne {lo, hi, sweet, eq, direction} en PRIX, ou None si jambe dégénérée. PUR &
+    look-ahead-free : la jambe est déjà entièrement formée au ChoCh (bornes ≤ index du ChoCh)."""
+    rng = leg_high - leg_low
+    if rng <= 0:
+        return None
+    if direction == "LONG":                     # retour vers le BAS depuis le sommet
+        return {"lo": leg_high - hi_r * rng, "hi": leg_high - lo_r * rng,
+                "sweet": leg_high - sweet_r * rng, "eq": leg_high - 0.5 * rng,
+                "direction": "LONG"}
+    return {"lo": leg_low + lo_r * rng, "hi": leg_low + hi_r * rng,   # retour vers le HAUT
+            "sweet": leg_low + sweet_r * rng, "eq": leg_low + 0.5 * rng,
+            "direction": "SHORT"}
+
+
+# --------------------------------------------------------------------------- #
 #  Kill Zones / Silver Bullet / Power of Three (heure de New York)           #
 # --------------------------------------------------------------------------- #
 def _ny(dt):
@@ -471,6 +494,13 @@ def analyze(candles, dt=None, candles_smt=None):
             geo_ok = tp1 < entry < stop
         risk = abs(entry - stop) or 1e-9
         rr1 = abs(tp1 - entry) / risk
+        # OTE : jambe de displacement RÉELLE du sweep au ChoCh (bornes look-ahead-free)
+        seg2 = rows[max(0, lo):last_choch["index"] + 1] or rows[-recent:]
+        leg_low = min(r[_L] for r in seg2)
+        leg_high = max(r[_H] for r in seg2)
+        ote = ote_zone(leg_low, leg_high, direction)
+        # entrée FVG dans la zone OTE 0.62–0.79 (le raffinement canonique d'entrée) ?
+        ote_ok = bool(ote and ote["lo"] - 1e-9 <= entry <= ote["hi"] + 1e-9)
         # cohérence avec Power of Three (achat en discount / vente en premium)
         po3_ok = (direction == "LONG" and po3.get("discount")) or \
                  (direction == "SHORT" and po3.get("premium")) or po3.get("phase") is None
@@ -481,8 +511,11 @@ def analyze(candles, dt=None, candles_smt=None):
         setup = {"direction": direction, "entry": round(entry, 6), "stop": round(stop, 6),
                  "tp1": round(tp1, 6), "tp2": round(tp2, 6), "rr1": round(rr1, 2),
                  "po3_aligned": bool(po3_ok), "smt_aligned": bool(smt_ok),
+                 "ote_aligned": bool(ote_ok), "silver_bullet": bool(kz.get("silver_bullet")),
+                 "ote": ({k: round(v, 6) for k, v in ote.items() if k != "direction"} if ote else None),
                  "coherent": bool(geo_ok),
-                 "ready": bool(geo_ok and kz["tradeable"] and score >= 3 and po3_ok and smt_ok)}
+                 "ready": bool(geo_ok and kz["tradeable"] and score >= 3
+                               and po3_ok and smt_ok and ote_ok)}
 
     bias = "NEUTRE"
     if last_choch:
@@ -491,7 +524,7 @@ def analyze(candles, dt=None, candles_smt=None):
         bias = "LONG" if last_sweep["side"] == "sell" else "SHORT"
 
     # --- overlay graphique (zones + niveaux + marqueurs) ---
-    overlay = _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows)
+    overlay = _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows, setup=setup)
 
     return {
         "ok": True, "bias": bias, "score": score, "checklist": checklist,
@@ -513,7 +546,7 @@ def _light_choch(c):
     return out
 
 
-def _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows, max_zones=6, max_marks=10):
+def _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows, setup=None, max_zones=6, max_marks=10):
     """Construit le bloc `overlay` consommé par le front (zones/lignes/marqueurs).
     Ne garde que les éléments récents et non mitigés pour ne pas surcharger le graphique."""
     zones = []
@@ -523,6 +556,12 @@ def _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows, max_zones=6, m
     for z in bprs[-3:]:
         zones.append({"kind": "bpr", "type": "bpr", "top": round(z["top"], 6),
                       "bottom": round(z["bottom"], 6), "ts": int(z["ts"])})
+    # zone OTE (0.62–0.79) du setup courant : la « boîte » d'entrée canonique
+    if setup and setup.get("ote"):
+        o = setup["ote"]
+        zones.append({"kind": "ote", "type": setup["direction"].lower(),
+                      "top": round(o["hi"], 6), "bottom": round(o["lo"], 6),
+                      "ts": int(rows[-1][_TS])})
     lines = []
     label_map = {"asian_high": "Asian H", "asian_low": "Asian L",
                  "prev_day_high": "PDH", "prev_day_low": "PDL"}
@@ -531,6 +570,8 @@ def _build_overlay(fvgs, bprs, levels, po3, sweeps, chochs, rows, max_zones=6, m
             lines.append({"price": levels[key], "label": label})
     if po3.get("midnight_open") is not None:
         lines.append({"price": po3["midnight_open"], "label": "Midnight Open"})
+    if setup and setup.get("ote"):
+        lines.append({"price": round(setup["ote"]["sweet"], 6), "label": "OTE 0.705"})
     marks = []
     for s in sweeps[-max_marks:]:
         marks.append({"ts": int(s["ts"]), "kind": "sweep", "side": s["side"],

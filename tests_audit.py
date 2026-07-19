@@ -11924,6 +11924,23 @@ def test_grok_vision_objective_patterns_crosscheck():
     assert isinstance(gv.cross_wyckoff(cd).get("objective_patterns"), dict)
 
 
+def test_smc_ote_zone_and_overlay():
+    """OTE = retracement Fibonacci 0.62–0.79 de la jambe de displacement (LONG et SHORT),
+    jambe dégénérée -> None, et l'overlay expose la zone OTE + la ligne sweet 0.705."""
+    import smc
+    z = smc.ote_zone(100.0, 200.0, "LONG")                       # jambe 100->200 (rng 100)
+    assert abs(z["lo"] - 121) < 1e-6 and abs(z["hi"] - 138) < 1e-6      # 0.79 / 0.62 depuis le haut
+    assert abs(z["sweet"] - 129.5) < 1e-6 and abs(z["eq"] - 150) < 1e-6
+    zs = smc.ote_zone(100.0, 200.0, "SHORT")                     # miroir : retour vers le haut
+    assert abs(zs["lo"] - 162) < 1e-6 and abs(zs["hi"] - 179) < 1e-6 and abs(zs["sweet"] - 170.5) < 1e-6
+    assert smc.ote_zone(200.0, 100.0, "LONG") is None            # jambe dégénérée -> None
+    rows = smc._rows([[i, 100, 101, 99, 100, 1] for i in range(5)])
+    setup = {"direction": "LONG", "ote": {"lo": 121.0, "hi": 138.0, "sweet": 129.5, "eq": 150.0}}
+    ov = smc._build_overlay([], [], {}, {}, [], [], rows, setup=setup)
+    assert any(zz["kind"] == "ote" for zz in ov["zones"])         # zone OTE dessinée
+    assert any(ll["label"] == "OTE 0.705" for ll in ov["lines"])  # ligne sweet dessinée
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
