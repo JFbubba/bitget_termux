@@ -3803,6 +3803,26 @@ def test_bitget_watch_diff_and_impact():
     assert bw.diff(new, new) == []                         # idempotent
 
 
+def test_risk_metrics_pure():
+    # descripteurs de risque Aladdin-adaptés (VaR/ES empiriques, Sortino, beta) — purs, fail-safe
+    import risk_metrics as rm
+    rets = [0.01, -0.02, 0.015, -0.05, 0.008, -0.01, 0.02, -0.12, 0.005, -0.03,
+            0.01, -0.015, 0.02, -0.08, 0.006, -0.02, 0.01, -0.04, 0.012, -0.06]
+    v95 = rm.var_historical(rets, 0.95)
+    es95 = rm.expected_shortfall(rets, 0.95)
+    assert v95 > 0 and es95 >= v95                       # ES (tail) >= VaR toujours
+    assert rm.var_historical([0.01] * 3, 0.95) == 0.0     # < 10 obs -> 0 (fail-safe)
+    assert rm.expected_shortfall([0.01] * 3) == 0.0
+    s = rm.sortino([0.02, -0.01, 0.03, -0.005, 0.01, 0.02, -0.008, 0.015, 0.01, -0.006, 0.02, 0.01])
+    assert s > 0                                          # moyenne positive avec downside
+    assert rm.sortino([0.01, 0.02, 0.01]) == 0.0          # < 10 obs
+    m = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03, 0.01, -0.02, 0.03, -0.01, 0.02, -0.03]
+    assert abs(rm.beta(m, m) - 1.0) < 1e-9                # beta d'une série contre elle-même = 1
+    assert rm.beta([0.01] * 5, [0.02] * 5) == 0.0         # < 10 obs -> 0
+    r = rm.returns_from_curve([100.0, 110.0, 99.0])
+    assert abs(r[0] - 0.10) < 1e-9 and abs(r[1] + 0.10) < 1e-9
+
+
 def test_with_qml_weight_bounded_and_gated():
     # gap de câblage §4 comblé : la 18e voix qml a un poids FIXE BORNÉ (0.5) comme llm/nn/classics,
     # au lieu du défaut 1.0 ; identité quand absente ; jamais persistée dans le banc gelé à 14.
