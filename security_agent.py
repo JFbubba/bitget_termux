@@ -189,6 +189,7 @@ FILES_TO_SCAN = [
     "smc_execution_lab.py",
     "prior_art.py",
     "wiring_audit.py",
+    "backlog_review.py",
     "grok_vision.py",
     "trade_forensics.py",
     "promotion_board.py",

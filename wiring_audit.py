@@ -68,9 +68,11 @@ def classify(has_importer, activated, has_main):
 
 
 def audit():
-    """Classe tous les modules top-level. Retourne {catégorie: [modules]}."""
+    """Classe tous les modules top-level. Retourne {catégorie: [modules]}. Un module qui SERAIT
+    orphelin mais porte le marqueur `WIRING-RESERVE` (réserve ASSUMÉE, documentée) est classé
+    'reserve' (accepté), pas 'orphan' (dormant accidentel = vrai risque ERR-013)."""
     activated = _cron_service_modules()
-    cats = {"consumed": [], "activated": [], "standalone": [], "orphan": []}
+    cats = {"consumed": [], "activated": [], "standalone": [], "reserve": [], "orphan": []}
     for p in sorted(glob.glob(os.path.join(ROOT, "*.py"))):
         m = os.path.basename(p)[:-3]
         if m in SKIP:
@@ -79,7 +81,10 @@ def audit():
             src = open(p, encoding="utf-8", errors="ignore").read()
         except Exception:
             continue
-        cats[classify(_has_prod_importer(m), m in activated, "__main__" in src)].append(m)
+        cat = classify(_has_prod_importer(m), m in activated, "__main__" in src)
+        if cat == "orphan" and "wiring-reserve" in src.lower():
+            cat = "reserve"
+        cats[cat].append(m)
     return cats
 
 
@@ -89,17 +94,19 @@ def main():
     orphans = c["orphan"]
     if alert:
         print(f"WIRING: {len(orphans)} orphelin(s) biblio"
-              + ((" : " + ", ".join(orphans)) if orphans else " — tout câblé/activé/autonome"))
+              + ((" : " + ", ".join(orphans)) if orphans else " — tout câblé/activé/autonome/réserve"))
     else:
         print("=== WIRING AUDIT (câblage/activation, anti-ERR-013, lecture seule) ===")
         print(f"  CONSOMMÉS (importés en prod)   : {len(c['consumed'])}")
         print(f"  ACTIVÉS (cron/systemd)         : {len(c['activated'])}")
         print(f"  AUTONOMES (outils/labos CLI)   : {len(c['standalone'])}")
+        print(f"  RÉSERVE (marquée WIRING-RESERVE) : {len(c['reserve'])}"
+              + ((" -> " + ", ".join(c['reserve'])) if c['reserve'] else ""))
         print(f"  ⚠ ORPHELINS (biblio non consommée) : {len(orphans)}")
         for m in orphans:
             print(f"      - {m}")
         if not orphans:
-            print("  -> aucun module-bibliothèque dormant. Tout est câblé, activé ou autonome.")
+            print("  -> aucun module-bibliothèque dormant. Tout est câblé, activé, autonome ou réserve.")
     print("Lecture seule, aucun ordre. VERDICT: SAFE")
     return 0
 

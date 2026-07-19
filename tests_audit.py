@@ -12117,6 +12117,20 @@ def test_wiring_audit_classify_and_safe():
         assert k not in src
 
 
+def test_backlog_review_recommend_and_safe():
+    """backlog_review : recommandation cohérente (réserve/labo) et module lecture-seule (aucun ordre)."""
+    import backlog_review as br
+    k, r = br.recommend("risk_profiles")
+    assert "réserve" in k.lower() and isinstance(r, str)          # réserve reconnue
+    k2, r2 = br.recommend("wyckoff_lab")
+    assert "labo" in k2.lower() or "mesure" in (r2 or "").lower()  # labo reconnu
+    src = open("backlog_review.py").read().lower()
+    assert "verdict: safe" in src
+    for kk in ("place_order", "open_long", "open_short", "close_position", "withdraw",
+               "create_order", "submit_order", "set_leverage"):
+        assert kk not in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

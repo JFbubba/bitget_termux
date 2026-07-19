@@ -8,9 +8,16 @@ Issu des docx « stratégie agressivité 3/5 & 5/5 » et « Martingale » de pac
     nouveau signal indépendant. La martingale est bannie (edge négatif, ruine en
     présence de tail risk — et le marché en a). Cf. RESEARCH_NOTES §13.
 
-Ces fonctions sont des garde-fous PURS et testables ; cible d'intégration :
-`risk_manager`/`risk_limits`/`config_guard_agent` (pipeline d'ordres), pas le
-cerveau en lecture seule.
+Ces fonctions sont des garde-fous PURS et testables.
+
+WIRING-RESERVE (décision 19/07, audit orphelin) : module en RÉSERVE ASSUMÉE, PAS câblé live —
+et NE DOIT PAS l'être en l'état : (1) `aggressiveness_profile` a une grille dont le levier monte à
+8/12 aux niveaux 4/5, AU-DESSUS du mur en dur ×5 -> c'est une RÉFÉRENCE de design, la câbler
+suggérerait un levier ILLÉGAL ; (2) `martingale_guard` est un garde défensif MAIS la martingale est
+déjà structurellement IMPOSSIBLE (la boucle futures size par notional FIXE, jamais en doublant après
+perte) -> garde no-op. Le câbler ajouterait du risque (bug sur le chemin argent) sans gain pratique.
+Gardé comme référence/défense-en-profondeur ; à revisiter si un jour un sizing dynamique post-résultat
+est introduit. Marqué WIRING-RESERVE pour que `wiring_audit` le classe « réserve » (pas « orphelin »).
 """
 
 _GRID = {
