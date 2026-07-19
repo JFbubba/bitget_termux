@@ -11793,6 +11793,20 @@ def test_grok_vision_source_is_readonly_safe():
     assert "verdict: safe" in src and "lecture seule" in src
 
 
+def test_grok_vision_prompt_educates_and_grounds():
+    """Le prompt ÉDUQUE Grok à la méthode Wyckoff (définitions/signatures) et l'ANCRE sur les
+    événements OBJECTIFS du wyckoff_lab quand ils sont fournis (sinon aucun ancrage inventé)."""
+    import grok_vision as gv
+    p0 = gv.build_prompt("BTCUSDT", "4H")
+    assert "MÉTHODE DE WYCKOFF" in p0 and "Selling Climax" in p0 and "CHoCH" in p0   # éducation
+    assert '"phase"' in p0 and "ANCRAGE OBJECTIF" not in p0                          # schéma, pas d'ancrage sans objectif
+    obj = {"objective_events": {"sc_long": [1, 2], "spring_long": [3]},
+           "objective_bias": "long", "n_events": 3, "window": 30}
+    p1 = gv.build_prompt("BTCUSDT", "4H", obj)
+    assert "ANCRAGE OBJECTIF" in p1 and "biais objectif net = long" in p1            # ancrage injecté
+    assert gv._objective_summary({"objective_events": {}}).startswith("aucun")       # vide -> pas d'invention
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

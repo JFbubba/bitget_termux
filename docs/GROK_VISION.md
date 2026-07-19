@@ -41,7 +41,10 @@ Dans `.env` (gitignored, jamais committé) :
 GROK_VISION_ENABLED=1
 XAI_API_KEY=<votre clé xAI>          # https://console.x.ai — clé API, JAMAIS committée
 # facultatif :
-GROK_VISION_MODEL=grok-4.1-fast      # défaut ; modèle vision « cheap »
+GROK_VISION_MODEL=grok-4             # modèle vision xAI. ⚠️ vérifié 19/07 : `grok-4.1-fast` et
+                                     # `grok-2-vision-1212` renvoient « Model not found » ; `grok-4`
+                                     # est reconnu. Confirmer l'ID exact via GET /v1/models une fois
+                                     # une clé VALIDE en place (les IDs xAI changent).
 GROK_VISION_TIMEOUT_S=30             # défaut
 GROK_VISION_CONF_CAP=0.5             # borne du vote d'ombre (une voix opt-in ne domine pas)
 GROK_VISION_BASE_URL=https://api.x.ai/v1
@@ -61,7 +64,7 @@ L'échelle de TF suit `candles_history` : `1m 5m 15m 30m 1H 4H 1D 1W`.
 
 ## Coût
 
-Grok vision `grok-4.1-fast` : **~<0,01 $/chart** (un petit prompt + une image PNG). L'outil
+Grok vision `grok-4` : **~<0,03 $/chart** (un petit prompt + une image PNG). L'outil
 est **à la demande** (pas de cron) — le coût est négligeable et sous le contrôle du
 propriétaire. Aucune boucle automatique n'est posée ; le module ne s'exécute que quand on
 l'invoque.

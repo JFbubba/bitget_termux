@@ -227,13 +227,61 @@ def to_data_uri(png_bytes):
 
 
 # ===================== 3. PROMPT + APPEL GROK =====================
-def build_prompt(symbol="", tf=""):
-    """PUR. Prompt structuré : demande une lecture Wyckoff + patterns chartistes en JSON
-    STRICT borné. Aucun secret, aucun solde, aucune position — seulement le chart."""
-    return (
-        f"Tu es un analyste technique SCEPTIQUE spécialiste de la méthode Wyckoff. "
-        f"Voici un graphique en chandeliers ({symbol} {tf}, OHLC + volume). "
-        "Lis-le et réponds UNIQUEMENT par un JSON compact, rien d'autre :\n"
+# Étiquettes lisibles des événements OBJECTIFS de wyckoff_lab (pour l'ancrage du prompt).
+_OBJ_LABEL = {
+    "sc_long": "Selling Climax (signature haussière)",
+    "bc_short": "Buying Climax (signature baissière)",
+    "spring_long": "Spring intrabar (signature haussière)",
+    "upthrust_short": "Upthrust/UTAD intrabar (signature baissière)",
+}
+
+
+def _objective_summary(objective):
+    """PUR. Résume les événements objectifs de cross_wyckoff en texte pour le prompt."""
+    ev = (objective or {}).get("objective_events") or {}
+    parts = [f"{_OBJ_LABEL.get(name, name)} ×{len(idx)}" for name, idx in ev.items() if idx]
+    if not parts:
+        return "aucun climax de volume objectif dans la fenêtre récente"
+    return "; ".join(parts) + f" → biais objectif net = {objective.get('objective_bias', 'neutral')}"
+
+
+def build_prompt(symbol="", tf="", objective=None):
+    """PUR. Prompt ÉDUQUÉ : (1) rappelle à Grok la MÉTHODE de Wyckoff (événements +
+    signatures volume/prix + validation), (2) l'ANCRE sur les événements OBJECTIFS du
+    wyckoff_lab (détecteur look-ahead-free), (3) demande une lecture en JSON STRICT borné.
+    Aucun secret, aucun solde, aucune position — seulement le chart + la méthode."""
+    edu = (
+        "Tu es un analyste technique SCEPTIQUE, expert de la MÉTHODE DE WYCKOFF. Utilise ces "
+        "rappels pour LIRE le chart (pas pour inventer un événement absent) :\n"
+        "• 3 lois : Offre/Demande (direction) ; Cause/Effet (largeur du range latéral ∝ ampleur du "
+        "mouvement à venir) ; Effort/Résultat (gros VOLUME + petit range = absorption→retournement ; "
+        "petit volume + grand range = chemin de moindre effort).\n"
+        "• ACCUMULATION (bas de marché) : SC = Selling Climax (volume EXTRÊME, range large, clôture "
+        "HAUTE = pros achètent, définit le support) ; AR = rebond auto (définit la résistance) ; "
+        "ST = re-test à volume RÉDUIT ; Spring = fausse cassure SOUS le support puis rejet rapide, "
+        "idéalement volume FAIBLE (piège vendeurs) ; Test = re-descente volume faible / plus-bas plus "
+        "haut ; SOS = Sign of Strength (breakout range large + volume CROISSANT) ; LPS = dernier "
+        "pullback tenant au-dessus de l'ex-résistance.\n"
+        "• DISTRIBUTION (haut, miroir) : BC = Buying Climax ; UT/UTAD = fausse cassure AU-DESSUS de la "
+        "résistance puis rejet net (piège acheteurs) ; SOW = Sign of Weakness (range large à la baisse "
+        "+ volume) ; LPSY = rallye FAIBLE (écart étroit, plus-hauts plus bas).\n"
+        "• STRUCTURE : BOS = cassure dans le SENS de la tendance (continuation) ; CHoCH = 1ʳᵉ cassure "
+        "CONTRE la tendance (changement de caractère = retournement).\n"
+        "• VALIDATION (sois strict) : un Spring n'est CONFIRMÉ qu'avec recovery dans le range + Test à "
+        "volume plus faible ; un UTAD qu'avec rejet NET. Ne déclare un événement que si sa signature "
+        "VOLUME+PRIX est réellement visible sur le chart.\n"
+    )
+    grounding = ""
+    if objective and (objective.get("objective_events")):
+        grounding = (
+            "\nANCRAGE OBJECTIF — un détecteur de CLIMAX DE VOLUME look-ahead-free a tourné sur CES "
+            "mêmes bougies (indice fiable mais PARTIEL : il ne voit que les climax de volume, pas toute "
+            f"la structure) : {_objective_summary(objective)}. Confirme/situe ces événements sur le "
+            "chart. Si ta lecture visuelle diverge de l'ancrage, dis-le brièvement dans 'raison'.\n"
+        )
+    schema = (
+        f"\nVoici un graphique en chandeliers ({symbol} {tf}, OHLC + volume). Lis-le et réponds "
+        "UNIQUEMENT par un JSON compact, rien d'autre :\n"
         '{"phase": "accumulation|distribution|markup|markdown|range|unclear", '
         '"events": ["SC","BC","Spring","UTAD","SOS","LPSY","AR","ST"], '
         '"structure": "BOS|CHoCH|none", '
@@ -241,12 +289,13 @@ def build_prompt(symbol="", tf=""):
         '"bias": "long|short|neutral", '
         '"confidence": 0.0, '
         '"raison": "<= 120 caracteres"}\n'
-        "phase = phase Wyckoff dominante. events = evenements Wyckoff VISIBLES (liste vide "
-        "si aucun net). structure = cassure de structure. patterns = figures chartistes "
-        "classiques visibles. bias = biais directionnel NET pour les prochaines barres. "
-        "confidence in [0,1]. Sois PRUDENT : si le chart est ambigu, phase=unclear, "
-        "bias=neutral, confidence basse. Ne fabrique pas d'evenement absent."
+        "phase = phase Wyckoff dominante. events = evenements Wyckoff VISIBLES (liste vide si aucun "
+        "net). structure = cassure de structure. patterns = figures chartistes classiques visibles. "
+        "bias = biais directionnel NET pour les prochaines barres. confidence in [0,1]. Sois PRUDENT : "
+        "si le chart est ambigu, phase=unclear, bias=neutral, confidence basse. Ne fabrique pas "
+        "d'evenement absent."
     )
+    return edu + grounding + schema
 
 
 def _call_grok(prompt, data_uri, model=None, timeout=None):
@@ -258,7 +307,7 @@ def _call_grok(prompt, data_uri, model=None, timeout=None):
         raise RuntimeError("XAI_API_KEY absent")
     if not data_uri:
         raise RuntimeError("image vide")
-    model = model or str(_knob("GROK_VISION_MODEL", "grok-4.1-fast"))
+    model = model or str(_knob("GROK_VISION_MODEL", "grok-4"))
     timeout = float(timeout if timeout is not None else _knob("GROK_VISION_TIMEOUT_S", 30.0))
     base_url = str(_knob("GROK_VISION_BASE_URL", "https://api.x.ai/v1"))
     max_tokens = int(float(_knob("GROK_VISION_MAX_TOKENS", 700)))
@@ -428,11 +477,11 @@ def analyze(symbol, tf, candles=None, call_fn=None, render_fn=None, now=None):
         if not png:
             return None
         data_uri = to_data_uri(png)
-        text = (call_fn or _call_grok)(build_prompt(symbol, tf), data_uri)
+        objective = cross_wyckoff(candles)        # calculé AVANT : ÉDUQUE/ancre Grok sur l'objectif
+        text = (call_fn or _call_grok)(build_prompt(symbol, tf, objective), data_uri)
         grok = _parse(text)
         if not grok:
             return None
-        objective = cross_wyckoff(candles)
         acc = agreement(grok, objective)
         px = None
         try:
@@ -534,7 +583,7 @@ def status():
     """Consultation (lecture seule). No-op si pas de clé — n'appelle JAMAIS Grok."""
     en = enabled()
     key = has_key()
-    model = str(_knob("GROK_VISION_MODEL", "grok-4.1-fast"))
+    model = str(_knob("GROK_VISION_MODEL", "grok-4"))
     n_shadow = 0
     try:
         import journal_append as ja
