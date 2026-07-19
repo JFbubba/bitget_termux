@@ -3134,30 +3134,8 @@ def test_watchdog_is_agent_loop_precise():
 
 # ---------- agent_loop : PID file (arret/relance propre) ----------
 
-def test_agent_loop_pid_file_lifecycle():
-    import os
-    import tempfile
-    from pathlib import Path
-
-    import agent_loop
-
-    old = agent_loop.PID_FILE
-    with tempfile.TemporaryDirectory() as d:
-        agent_loop.PID_FILE = Path(d) / "agent_loop.pid"
-        try:
-            agent_loop.write_pid_file()
-            assert agent_loop.PID_FILE.exists()
-            assert agent_loop.PID_FILE.read_text().strip() == str(os.getpid())
-
-            agent_loop.remove_pid_file()
-            assert not agent_loop.PID_FILE.exists()
-
-            # remove_pid_file ne touche pas un PID file appartenant a autrui
-            agent_loop.PID_FILE.write_text("999999")
-            agent_loop.remove_pid_file()
-            assert agent_loop.PID_FILE.exists()
-        finally:
-            agent_loop.PID_FILE = old
+# (test_agent_loop_pid_file_lifecycle retiré 19/07 : agent_loop.py supprimé — boucle legacy
+#  remplacée par les timers systemd bitget-brain/bitget-scan, cf. watchdog heartbeat.)
 
 
 # ---------- stats_report (lecture seule, sans réseau) ----------
