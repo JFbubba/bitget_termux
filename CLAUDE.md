@@ -146,6 +146,11 @@ FUTURES_RISK_PCT_PER_TRADE=1.0 # garde risque/trade (Kovner, §garde-risque) : R
                                # pour que la perte au SL (|entry−SL|/entry × notional) ≤ 1 % de l'equity du
                                # livre. Garde ADDITIONNELLE SOUS les murs 50/250 (ne les desserre jamais),
                                # fail-open, ouvertures seulement. 0 = OFF. Défaut ON (non-perturbant au sizing courant).
+GEOMETRIC_RISK_SIZING=0        # gate de RISQUE SYSTÉMIQUE (B-2/ERR-013 achevé) : RÉDUIT le notionnel en
+                               # co-mouvement systémique anormal (systemic_z>0 = risk-off), facteur ∈[0.5,1]
+                               # réducteur-seulement, fail-open, SOUS les murs. Défaut OFF (mesure-d'abord :
+                               # observer `systemic_z` via geometric_agent avant d'armer). Source :
+                               # geometric_agent.systemic_risk_scale() (market_mode λ₁/N en z-score dynamique).
 FUTURES_EXEC_STYLE=limit_ioc   # ouvertures futures : limit_ioc (défaut, taker plafonné) ; "maker" =
                                # post-only au bid/ask + repli taker GARDÉ (§exec-frais ; ouvertures
                                # DIRECTIONNELLES only — le carry reste taker). Armé puis DÉSARMÉ le 09/07

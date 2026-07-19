@@ -194,12 +194,15 @@ def agent_liquidations(symbol):
     d = rc.get(f"liq:{symbol}", 120, lambda: lq.fetch_liquidations(symbol) or {}, fallback={})  # 2 min
     sk = d.get("skew") or {}
     net = sk.get("net")
-    if net is None:
-        return {"vote": 0, "confidence": 0, "note": "n/a"}
-    # net > 0 : pools de shorts au-dessus -> aimant haussier
-    vote = _clamp(net)
-    return {"vote": vote, "confidence": min(abs(net), 1.0),
-            "note": f"aimant {net:+.2f}, longs ~{int(d.get('long_share', 0) * 100)}%"}
+    # NEUTRALISÉ (audit B-1, 19/07) : l'« aimant » de liquidation est ESTIMÉ à partir du SEUL funding
+    # (`long_share = clamp(0.5 + funding·500)`), donc son vote directionnel se réduit à ≈clamp(−k·funding)
+    # -> DUPLIQUE `agent_derivs` (funding compté ~×2 dans le consensus). Les NIVEAUX/clusters restent un
+    # CONTEXTE (heatmap dashboard, via lq.fetch_liquidations). L'agent N'ÉMET PLUS de vote directionnel
+    # tant qu'aucun FLUX de liquidations RÉEL n'entre (le modèle s'auto-étiquette « pas un flux exchange »).
+    # RÉVERSIBLE : re-câbler `liquidation_skew` sur un vrai flux -> restaurer le vote ci-dessous.
+    return {"vote": 0, "confidence": 0,
+            "note": (f"aimant estimé {net:+.2f} = duplicata funding -> NEUTRALISÉ (contexte only)"
+                     if net is not None else "n/a")}
 
 
 def divergent_score(closes):

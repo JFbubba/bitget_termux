@@ -739,10 +739,10 @@ def portfolio_structure(symbols=None, ttl=300):
         L = min(len(r) for r in series)
         M = np.array([r[-L:] for r in series]).T          # (T, D)
         met = correlation_graph_metrics(M, denoise="rie")  # RIE = shrinkage non-linéaire (plus fin que MP)
-        regime = connectivity_regime(met)                  # spectre isopérimétrique -> régime. NB (ERR-013
-        # inachevé) : appelé SANS `hist` -> la branche z-score est sautée (systemic_z=None), régime sur
-        # seuil absolu non calibré ; et portfolio_structure n'est PAS encore consommé par un chemin de
-        # SIZING (seulement main()/CLI) -> le « descripteur de risque -> z-score -> sizing » reste À BRANCHER.
+        regime = connectivity_regime(met)                  # régime ADVISORY (sans hist, seuil absolu).
+        # Le RISQUE -> SIZING (z-score DYNAMIQUE avec hist roulant) est branché à part dans
+        # `systemic_risk_scale()` ci-dessous, consommé par `futures_auto._notional_cfg` (gate opt-in
+        # GEOMETRIC_RISK_SIZING, réducteur-seulement, fail-open). B-2/ERR-013 ACHEVÉ (19/07).
         part = cheeger_partition(M)
         sponge = sponge_partition(M)                       # partition SIGNÉE (legs bêta-neutres)
         hrp = hrp_weights(M)                               # poids HRP (allocation intra-panier)
@@ -752,6 +752,58 @@ def portfolio_structure(symbols=None, ttl=300):
                 "signed_legs": dict(zip(used, sponge["clusters"])) if sponge["clusters"] else {},
                 "hrp_weights": dict(zip(used, [round(float(x), 4) for x in hrp])) if hrp is not None else {}}
     return rc.get("geom_portfolio", ttl, fetch, fallback={"symbols": [], "metrics": {}})
+
+
+# ===================== risque SYSTÉMIQUE -> facteur de SIZING (B-2 / ERR-013 achevé) =====================
+def _sys_store_update(mm, cap=200, min_gap_s=280):
+    """Store roulant PERSISTÉ de market_mode (append si ≥ min_gap depuis le dernier). Retourne la
+    liste des market_mode. Fail-safe absolu (jamais d'exception)."""
+    import json
+    import time
+    from pathlib import Path
+    p = Path(__file__).resolve().parent / ".geom_systemic_store.json"
+    try:
+        data = json.loads(p.read_text()) if p.exists() else []
+    except Exception:
+        data = []
+    now = time.time()
+    if not data or (now - data[-1][0]) >= min_gap_s:
+        data.append([now, round(float(mm), 6)])
+        data = data[-cap:]
+        try:
+            p.write_text(json.dumps(data))
+        except Exception:
+            pass
+    return [d[1] for d in data]
+
+
+def systemic_risk_scale(k=0.25, floor=0.5, min_hist=30, ttl=300):
+    """Facteur de sizing RÉDUCTEUR-SEULEMENT ∈ [floor, 1.0] depuis le RISQUE SYSTÉMIQUE — market_mode
+    (λ₁/N de la structure de corrélation de l'univers) en Z-SCORE DYNAMIQUE (hist roulant persisté).
+    `systemic_z` > 0 (co-mouvement anormalement élevé = risk-off / crash-comovement) -> réduit la
+    taille ; z ≤ 0 -> 1.0 (aucun effet). Achève B-2/ERR-013 (le descripteur n'était ni calculé AVEC
+    hist, ni consommé par le sizing). FAIL-OPEN ABSOLU : métriques indispo / hist insuffisant / erreur
+    -> scale 1.0. Ne PEUT QUE réduire (jamais augmenter au-delà du notional configuré). Retourne
+    {scale, systemic_z, regime, n_hist, note}."""
+    try:
+        met = (portfolio_structure(ttl=ttl) or {}).get("metrics") or {}
+        mm = met.get("market_mode")
+        if mm is None:
+            return {"scale": 1.0, "systemic_z": None, "regime": None, "n_hist": 0, "note": "no-metrics"}
+        hist_vals = _sys_store_update(mm)
+        n = len(hist_vals)
+        if n < min_hist:
+            return {"scale": 1.0, "systemic_z": None,
+                    "regime": connectivity_regime(met).get("regime"), "n_hist": n, "note": "hist<min"}
+        mu = sum(hist_vals) / n
+        sd = (sum((x - mu) ** 2 for x in hist_vals) / (n - 1)) ** 0.5
+        reg = connectivity_regime(met, hist={"market_mode": (mu, sd)})
+        z = reg.get("systemic_z")
+        scale = 1.0 if z is None else max(floor, min(1.0, 1.0 - k * max(0.0, z)))
+        return {"scale": round(scale, 3), "systemic_z": z, "regime": reg.get("regime"),
+                "n_hist": n, "note": "ok"}
+    except Exception:
+        return {"scale": 1.0, "systemic_z": None, "regime": None, "n_hist": 0, "note": "fail-open"}
 
 
 def build_report(a):

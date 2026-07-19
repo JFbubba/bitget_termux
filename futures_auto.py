@@ -359,12 +359,24 @@ def run(now=None):
 
 def _notional_cfg():
     """Notional par trade, ENV-AWARE (env prioritaire > config, comme FUTURES_AUTO_RR) :
-    monter/baisser la taille = décision propriétaire par levier env, effet immédiat."""
+    monter/baisser la taille = décision propriétaire par levier env, effet immédiat.
+    Gate de RISQUE SYSTÉMIQUE (B-2, opt-in `GEOMETRIC_RISK_SIZING` défaut OFF) : en régime de
+    co-mouvement systémique anormal (systemic_z>0), RÉDUIT la taille (facteur ∈[0.5,1], jamais >1) ;
+    fail-open (indispo/erreur -> facteur 1). Garde SOUS les murs (ne fait que réduire), comme le
+    vol-targeting et FUTURES_RISK_PCT_PER_TRADE."""
     import os
     try:
-        return float(os.getenv("FUTURES_AUTO_NOTIONAL_USDT") or _cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+        base = float(os.getenv("FUTURES_AUTO_NOTIONAL_USDT") or _cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
     except (TypeError, ValueError):
-        return float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+        base = float(_cfg("FUTURES_AUTO_NOTIONAL_USDT", 10.0))
+    flag = str(os.getenv("GEOMETRIC_RISK_SIZING") or _cfg("GEOMETRIC_RISK_SIZING", 0) or "").strip().lower()
+    if flag in ("1", "true", "on", "yes"):
+        try:
+            import geometric_agent as ga
+            base *= float(ga.systemic_risk_scale().get("scale", 1.0))   # ∈[0.5,1] réducteur-seulement
+        except Exception:
+            pass                                                        # fail-open : jamais bloquer le sizing
+    return base
 
 
 def _tp_partiel_on():

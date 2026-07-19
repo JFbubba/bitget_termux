@@ -12048,6 +12048,60 @@ def test_smc_exec_source_is_readonly_safe():
     assert "verdict: safe" in src and "lecture seule" in src
 
 
+def test_agent_liquidations_neutralized_b1():
+    """B-1 : même AVEC un skew fort, agent_liquidations N'ÉMET PLUS de vote directionnel (duplicata
+    du funding neutralisé). Hermétique (rc.get patché, aucun réseau)."""
+    import swarm_brain as sb
+    import runtime_cache as rc
+    orig = rc.get
+    rc.get = lambda *a, **k: {"skew": {"net": 0.5}, "long_share": 0.7}   # skew FORT présent
+    try:
+        r = sb.agent_liquidations("BTCUSDT")
+    finally:
+        rc.get = orig
+    assert r["vote"] == 0 and r["confidence"] == 0                        # neutralisé malgré le skew
+    assert "NEUTRALIS" in r["note"].upper()
+
+
+def test_systemic_risk_scale_failopen_and_bounded_b2():
+    """B-2 : systemic_risk_scale est FAIL-OPEN (métriques indispo -> scale 1.0) et RÉDUCTEUR-SEULEMENT
+    (∈ [0.5, 1.0], jamais > 1)."""
+    import geometric_agent as ga
+    orig = ga.portfolio_structure
+    ga.portfolio_structure = lambda **k: {"metrics": {}}                  # pas de métriques
+    try:
+        s = ga.systemic_risk_scale()
+    finally:
+        ga.portfolio_structure = orig
+    assert s["scale"] == 1.0 and s["systemic_z"] is None                  # fail-open, aucun effet
+    assert set(s) >= {"scale", "systemic_z", "regime", "n_hist", "note"}
+    assert isinstance(ga._sys_store_update(0.3), list)                    # store roulant fail-safe
+
+
+def test_notional_systemic_gate_off_by_default_reduces_when_armed_b2():
+    """B-2 : le gate est OFF par défaut (notional inchangé) et, ARMÉ, applique le facteur réducteur
+    (jamais > base). Hermétique (systemic_risk_scale mockée, env sauvé/restauré)."""
+    import os
+    import futures_auto as fa
+    import geometric_agent as ga
+    saved_flag = os.environ.get("GEOMETRIC_RISK_SIZING")
+    saved_not = os.environ.get("FUTURES_AUTO_NOTIONAL_USDT")
+    orig = ga.systemic_risk_scale
+    ga.systemic_risk_scale = lambda **k: {"scale": 0.5}                   # facteur réducteur mocké
+    try:
+        os.environ["FUTURES_AUTO_NOTIONAL_USDT"] = "20"
+        os.environ.pop("GEOMETRIC_RISK_SIZING", None)
+        base_off = fa._notional_cfg()
+        os.environ["GEOMETRIC_RISK_SIZING"] = "1"
+        base_on = fa._notional_cfg()
+    finally:
+        ga.systemic_risk_scale = orig
+        for kk, vv in (("GEOMETRIC_RISK_SIZING", saved_flag), ("FUTURES_AUTO_NOTIONAL_USDT", saved_not)):
+            os.environ.pop(kk, None) if vv is None else os.environ.__setitem__(kk, vv)
+    assert base_off == 20.0                                              # OFF : notional inchangé
+    assert base_on == 10.0 and base_on <= base_off                       # ARMÉ : 20×0.5, ne fait que réduire
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
