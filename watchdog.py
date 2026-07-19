@@ -1,5 +1,11 @@
 """
-watchdog.py — surveillance LECTURE SEULE de la boucle agent_loop.py.
+watchdog.py — surveillance LECTURE SEULE de la LIVENESS du cerveau/scan.
+
+NB (retrait legacy 19/07) : `agent_loop.py` (ancienne boucle persistante) a été RETIRÉ ; la
+liveness se juge sur le HEARTBEAT per-cycle (`brain_log.json`, incident 14/07). La détection de
+process ci-dessous (PID/`/proc` d'agent_loop) est un fallback VESTIGIAL qui reste « indéterminé »
+(process_known=False) -> le verdict passe par le heartbeat. Logique de verdict inchangée à dessein
+(ne pas risquer un faux kill-switch pour du cosmétique).
 
 Classement : SAFE.
   - ne fait QUE constater (PID, /proc, fraicheur du dernier scan)

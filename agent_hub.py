@@ -12,7 +12,6 @@ FILES = {
     "Rapport détaillé": "state_report.py",
     "Rapport compact": "compact_report.py",
     "Contrôleur agent": "agent_control.py",
-    "Boucle automatique": "agent_loop.py",
     "Lecture solde Bitget": "bitget_balance_reader.py",
     "Equity dynamique": "account_equity.py",
     "Telegram notifier": "telegram_notifier.py",
@@ -95,7 +94,7 @@ def main():
 
     print("Commandes utiles:")
     print("- Cycle manuel local: python agent_control.py")
-    print("- Boucle auto locale: python agent_loop.py")
+    print("- Boucle auto: timers systemd (bitget-brain / bitget-scan)")
     print("- Bot Telegram commandes: python telegram_command_bot.py")
     print("- Rapport compact: python compact_report.py")
     print("- Hub local: python agent_hub.py")

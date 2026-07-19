@@ -45,7 +45,6 @@ EXECUTION_JOURNAL = Path("execution_dry_run_journal.jsonl")
 
 # Journaux/logs dont on affiche la taille (lecture seule).
 JOURNAL_FILES = [
-    "agent_loop.log",
     config.SIGNALS_JOURNAL_FILE,
     config.OPEN_STATE_FILE,
     config.FINAL_OUTCOMES_FILE,

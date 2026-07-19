@@ -80,7 +80,7 @@ if [ "$restarted" -eq 0 ]; then
   echo "  Aucun service systemd detecte. Lancement manuel possible :"
   echo "    python dashboard/server.py        # dashboard lecture seule (127.0.0.1:8787)"
   echo "    python telegram_command_bot.py    # bot Telegram (lecture seule)"
-  echo "  (ou 'bash restart_agent.sh' pour la boucle de signaux agent_loop.py)"
+  echo "  (la boucle cerveau/scan tourne via les timers systemd bitget-brain / bitget-scan)"
 fi
 echo
 

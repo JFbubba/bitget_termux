@@ -165,15 +165,6 @@ AGENTS = [
         "can_trade": False,
     },
     {
-        "id": "loop_agent",
-        "name": "Loop Agent",
-        "role": "Lance automatiquement le cycle à intervalle régulier.",
-        "file": "agent_loop.py",
-        "permissions": ["run_scheduled_cycle"],
-        "risk_level": "MEDIUM",
-        "can_trade": False,
-    },
-    {
         "id": "balance_agent",
         "name": "Balance Agent",
         "role": "Lit le solde futures Bitget en lecture seule.",
