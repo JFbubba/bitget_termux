@@ -37,6 +37,7 @@ Statuts : **REJETÉ** (mesuré perdant, ne pas re‑tester) · **GARDÉ** (branc
 | GARCH figé (`volatility.py`) | bat `arch` 11/12 QLIKE | mém. `pypi-tools-watchlist` |
 | Banc 14 agents déterministes (EARCP assaini §51) | socle, banc GELÉ à 14 (§62) | CLAUDE.md |
 | régime = instrument de VOL (CVIX) | module le sizing, sain | `learning_health` |
+| `fee_rates.py` — helper CENTRAL des frais EFFECTIFS (trade-rate signé + BGB effectif) | **19/07** branché et CONSOMMÉ (non dormant, ERR-013) : recâble `market_maker` (plancher spread), `listing_hype` (spot 8/10 — corrige l'ancien 6 SOUS-ESTIMÉ) et `exit_calibration` (A/R futures = round-trip taker). LECTURE SEULE, cache TTL 1 h, FAIL-SAFE = défauts en dur (taux VIP0 §1b, jamais de crash/blocage). Nuance clé : déduction BGB effective SSI option ON **ET** réservoir BGB > poussière (toggle seul ≠ remise). 5 tests (`_effective_spot_bps`, `bgb_deduction_effective` injecté, parse, fail-safe, SAFE-source) ; classé SAFE par `security_agent` ; 3 portes vertes. Corrige aussi le doc §1b (`taker_flow.py` = lecteur PUR, AUCUNE constante FEE). | `fee_rates.py` · `docs/BITGET_REFERENCE.md §1b` |
 
 ## MUET — branché mais neutralisé par la porte d'edge (mesure en ombre)
 | Voix | État | Réf |

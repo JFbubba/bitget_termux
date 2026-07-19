@@ -32,7 +32,18 @@ CUR_SL_ATR = 1.5
 CUR_RR = 2.0
 SL_GRID = (1.0, 1.5, 2.0, 2.5, 3.0)     # multiples d'ATR pour le stop
 RR_GRID = (1.0, 1.5, 2.0, 2.5, 3.0)     # ratio take-profit / stop
-DEFAULT_FEE_BPS = 10.0                    # frais ALLER-RETOUR (taker futures réaliste, borne haute)
+DEFAULT_FEE_BPS = 10.0                    # FALLBACK fail-safe A/R (si fee_rates indispo)
+
+
+def _default_fee_bps():
+    """Frais ALLER-RETOUR futures par défaut = borne haute (round-trip TAKER), lu du
+    helper central `fee_rates` (taux LIVE du compte, pas de BGB en futures). FAIL-SAFE :
+    DEFAULT_FEE_BPS en dur si fee_rates est indisponible. Reste surchargeable (--fee)."""
+    try:
+        import fee_rates
+        return round(2.0 * float(fee_rates.futures_fee_bps()["taker"]), 4)
+    except Exception:
+        return DEFAULT_FEE_BPS
 
 
 def _load_outcomes(max_rows=None):
@@ -169,9 +180,11 @@ def _deflate(best, n_trials):
     return {"deflation_bar": round(bar, 4), "deflated_R": defl, "robuste": bool(defl > 0)}
 
 
-def run(hours=48, granularity="15m", max_rows=None, fee_bps=DEFAULT_FEE_BPS):
+def run(hours=48, granularity="15m", max_rows=None, fee_bps=None):
     """Charge les trades, rejoue les chemins PROFONDS (1 série/symbole), calcule MFE/MAE +
-    grille NETTE DE FRAIS + déflation du meilleur setup."""
+    grille NETTE DE FRAIS + déflation du meilleur setup. `fee_bps=None` -> round-trip taker
+    futures LIVE (fee_rates, fallback en dur), sinon la valeur fournie (--fee)."""
+    fee_bps = _default_fee_bps() if fee_bps is None else float(fee_bps)
     trades = _load_outcomes(max_rows=max_rows)
     by_sym = {}
     for t in trades:
@@ -199,8 +212,9 @@ def run(hours=48, granularity="15m", max_rows=None, fee_bps=DEFAULT_FEE_BPS):
             "fee_bps": float(fee_bps), "hours": hours, "granularity": granularity}
 
 
-def snapshot(hours=48, granularity="15m", fee_bps=DEFAULT_FEE_BPS, now=None):
-    """Dict COMPACT pour la revue hebdo / le dashboard (advisory, lecture seule)."""
+def snapshot(hours=48, granularity="15m", fee_bps=None, now=None):
+    """Dict COMPACT pour la revue hebdo / le dashboard (advisory, lecture seule).
+    `fee_bps=None` -> défaut round-trip taker futures LIVE (résolu par run())."""
     r = run(hours=hours, granularity=granularity, fee_bps=fee_bps)
     best, cur, defl = r.get("best"), r.get("current"), r.get("deflation") or {}
     gain = (round(best["expectancy_R"] - cur["expectancy_R"], 3)
@@ -264,7 +278,8 @@ def main():
     p.add_argument("--hours", type=int, default=48)
     p.add_argument("--granularity", default="15m")
     p.add_argument("--max", type=int, default=None, help="limiter aux N derniers trades")
-    p.add_argument("--fee", type=float, default=DEFAULT_FEE_BPS, help="frais aller-retour en bps")
+    p.add_argument("--fee", type=float, default=None,
+                   help="frais aller-retour en bps (défaut = round-trip taker futures LIVE via fee_rates)")
     p.add_argument("--write", action="store_true", help="écrit .exit_calibration.json (revue/dashboard)")
     a = p.parse_args()
     s = snapshot(hours=a.hours, granularity=a.granularity, fee_bps=a.fee)

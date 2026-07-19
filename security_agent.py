@@ -163,6 +163,7 @@ FILES_TO_SCAN = [
     "agents_manifest.py",
     "bitget_balance_reader.py",
     "bitget_hub_bridge.py",
+    "fee_rates.py",
     "mandate.py",
     "macro_regime.py",
     "edge_ladder.py",

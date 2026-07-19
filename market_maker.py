@@ -117,6 +117,20 @@ def specs(symbol):
     return out
 
 
+def _spot_fee_bps():
+    """Frais maker SPOT effectif pour le plancher de spread, lu du helper central
+    `fee_rates` (taux LIVE du compte + déduction BGB EFFECTIVE). FAIL-SAFE : repli sur
+    le levier MM_FEE_BPS (défaut 10) si fee_rates est indisponible/incohérent —
+    le plancher de spread ne peut jamais tomber sous un frais mal lu."""
+    fallback = _flt("MM_FEE_BPS", 10.0)
+    try:
+        import fee_rates
+        v = float(fee_rates.spot_fee_bps())
+        return v if v > 0 else fallback
+    except Exception:
+        return fallback
+
+
 def config():
     """Leviers résolus (env > config > défaut). Le cap/cotation est REborné par le
     mur absolu de la surface (defense-in-depth : la surface re-vérifie tout)."""
@@ -127,7 +141,7 @@ def config():
         "per_quote_cap": ex.capped("MM_MAX_PER_QUOTE_USDT", 5.0, st.ABS_MM_PER_QUOTE_USDT),
         "min_spread_bps": _flt("MM_MIN_SPREAD_BPS", 8.0),
         "max_spread_bps": _flt("MM_MAX_SPREAD_BPS", 80.0),
-        "fee_bps": _flt("MM_FEE_BPS", 10.0),
+        "fee_bps": _spot_fee_bps(),
         "buffer_bps": _flt("MM_LATENCY_BUFFER_BPS", 3.0),
         "vol_mult": _flt("MM_VOL_MULT", 2.5),
         "budget": _flt("MM_BUDGET_USDT", 20.0),

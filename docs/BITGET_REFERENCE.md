@@ -51,10 +51,14 @@ RÉELS** (VIP + BGB déjà appliqués). **Vérifié live 18/07** (compte du bot,
 | `mix` (USDT-M) | `0.0002` = **0,02 %** | `0.0006` = **0,06 %** |
 
 → **Confirme exactement le modèle du bot** (donc les edges « mangés par les frais » le sont *à juste
-titre*, pas par excès de sévérité). Le bot applique déjà correctement : `market_maker` **fetch le
-maker LIVE** (`makerFeeRate×1e4`, plancher spread = 2×fee+buffer) ; `taker_flow.FEE=0.0006` (taker
-futures) ; `carry` 0,20 % A/R (2 jambes spot). **Reco** : centraliser un helper qui *fetch* le taux
-plutôt que hardcoder (auto-ajuste VIP/BGB si le compte monte de tier).
+titre*, pas par excès de sévérité). **Helper central câblé le 19/07** : `fee_rates.py` (LECTURE SEULE,
+SAFE, cache TTL, fail-safe -> défauts en dur) `fetch` `trade-rate` et expose `spot_fee_bps()` /
+`futures_fee_bps()` ; ses consommateurs recâblés = `market_maker` (plancher spread = 2×fee+buffer),
+`listing_hype` (spot), `exit_calibration` (A/R futures). Le taker futures 0,06 % (round-trip 0,12 %)
+est appliqué par les **modules d'exécution / labo** (pas une constante d'un module de market-data :
+`taker_flow.py` est un lecteur PUR de flux, il n'a **aucune** constante de frais). `carry` ≈ 0,20 %
+A/R (2 jambes spot). **Reco RÉALISÉE** : centraliser le *fetch* du taux plutôt que le hardcoder
+(auto-ajuste VIP/BGB si le compte monte de tier).
 
 **Matrice d'application (par possibilité)** :
 - **Spot** (accumulation, listing-hype, MM spot) : 0,10 %/côté ; **−20 % BGB → 0,08 %** si option BGB ON.

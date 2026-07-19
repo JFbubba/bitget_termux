@@ -137,6 +137,26 @@ def _spot_price(symbol):
         return None
 
 
+def _spot_fee_bps():
+    """Frais SPOT par côté effectif pour le PnL DRY, lu du helper central `fee_rates`
+    (8 bps si déduction BGB EFFECTIVE, 10 sinon). Le listing-hype est du SPOT : l'ancien
+    défaut 6 bps SOUS-ESTIMAIT le coût. Un LISTING_HYPE_FEE_BPS explicite dans la config
+    reste prioritaire (surcharge intentionnelle) ; FAIL-SAFE final : 10 bps."""
+    from config_utils import cfg as _cfg
+    override = _cfg("LISTING_HYPE_FEE_BPS", None)
+    if override is not None:
+        try:
+            return float(override)
+        except (TypeError, ValueError):
+            pass
+    try:
+        import fee_rates
+        v = float(fee_rates.spot_fee_bps())
+        return v if v > 0 else 10.0
+    except Exception:
+        return 10.0
+
+
 def _net_pnl(entry, exit_price, notional, fee_bps):
     """PnL DRY NET de frais (round-trip taker) d'une position hype. PUR."""
     try:
@@ -163,7 +183,7 @@ def cycle(anns=None, seen_path=None, journal_path=None, pos_path=None, now=None,
     from config_utils import cfg as _cfg
     now = _time.time() if now is None else now
     price_fn = _spot_price if price_fn is None else price_fn
-    fee_bps = float(_cfg("LISTING_HYPE_FEE_BPS", 6.0))
+    fee_bps = _spot_fee_bps()
     tp = float(_cfg("LISTING_HYPE_TP_PCT", 0.15)) if tp_pct is None else float(tp_pct)
     sl = float(_cfg("LISTING_HYPE_SL_PCT", 0.08)) if sl_pct is None else float(sl_pct)
     hold = float(_cfg("LISTING_HYPE_MAX_HOLD_S", 1800)) if max_hold_s is None else float(max_hold_s)

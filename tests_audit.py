@@ -11255,6 +11255,76 @@ def test_vpin_source_readonly():
     assert not hasattr(v, "spot_trader") and not hasattr(v, "bitget_execute")
 
 
+# ---------- fee_rates (helper central des frais effectifs, LECTURE SEULE) ----------
+
+def test_fee_rates_effective_spot_bps():
+    """PUR : la remise BGB −20 % (10 -> 8) ne s'applique QUE si bgb_effective."""
+    import fee_rates as fr
+    assert fr._effective_spot_bps(10, True) == 8.0
+    assert fr._effective_spot_bps(10, False) == 10.0
+    assert fr._effective_spot_bps(12.5, True) == 10.0     # 12.5 × 0.8
+    # base absente / <= 0 -> repli sur le défaut spot en dur (10)
+    assert fr._effective_spot_bps(0, False) == 10.0
+    assert fr._effective_spot_bps(None, True) == 8.0
+
+
+def test_fee_rates_bgb_deduction_effective_injection():
+    """LE point clé : toggle ON + réservoir vide = False (remise INACTIVE) ; il faut AUSSI
+    un solde BGB > poussière. Chemin PUR injecté (hermétique, aucun réseau)."""
+    import fee_rates as fr
+    assert fr.bgb_deduction_effective(toggle_on=True, bgb_balance=0.001) is False   # réservoir vide
+    assert fr.bgb_deduction_effective(toggle_on=True, bgb_balance=5.0) is True       # réservoir OK
+    assert fr.bgb_deduction_effective(toggle_on=False, bgb_balance=5.0) is False     # option OFF
+    assert fr.bgb_deduction_effective(toggle_on=True, bgb_balance=fr.BGB_DUST) is False  # pile au seuil
+    assert fr._bgb_effective(True, "oops") is False                                  # parse fail -> False
+
+
+def test_fee_rates_parse_trade_rate():
+    """PUR : parse tolérant + garde-fou de magnitude (>100 bps = aberrant -> None)."""
+    import fee_rates as fr
+    assert fr._parse_trade_rate([{"makerFeeRate": "0.0002", "takerFeeRate": "0.0006"}]) == \
+        {"maker": 0.0002, "taker": 0.0006}
+    assert fr._parse_trade_rate({"makerFeeRate": "0.001", "takerFeeRate": "0.001"}) == \
+        {"maker": 0.001, "taker": 0.001}
+    assert fr._parse_trade_rate({"makerFeeRate": "0.5", "takerFeeRate": "0.5"}) is None  # aberrant
+    assert fr._parse_trade_rate({"makerFeeRate": "x"}) is None
+    assert fr._parse_trade_rate([]) is None
+    assert fr._parse_trade_rate("nope") is None
+
+
+def test_fee_rates_failsafe_on_fetch_error():
+    """FAIL-SAFE : un GET signé qui LÈVE -> défauts en dur, aucune exception, aucun blocage."""
+    import fee_rates as fr
+    orig = fr._signed_get
+    fr._CACHE.clear()
+    try:
+        def _boom(path, params=None):
+            raise RuntimeError("réseau coupé")
+        fr._signed_get = _boom
+        assert fr.trade_rate("spot") == {"maker": 0.0010, "taker": 0.0010}
+        assert fr.trade_rate("mix") == {"maker": 0.0002, "taker": 0.0006}
+        assert fr.bgb_deduction_effective() is False           # I/O KO -> pas de remise (prudent)
+        assert fr.spot_fee_bps() == 10.0                       # sans BGB effectif
+        assert fr.futures_fee_bps() == {"maker": 2.0, "taker": 6.0}
+    finally:
+        fr._signed_get = orig
+        fr._CACHE.clear()
+
+
+def test_fee_rates_source_readonly():
+    """fee_rates = SAFE : aucun mot-clé d'ordre/écriture dans le source, classé dans
+    security_agent.FILES_TO_SCAN, scan mots-clés vide."""
+    import fee_rates as fr
+    from pathlib import Path
+    src = Path(fr.__file__).read_text(encoding="utf-8").lower()
+    for kw in ("place_order", "cancel_order", "withdraw", "transfer", "transfert",
+               "set_leverage", "market_order", "limit_order", "close_position",
+               "send_order", "create_order", "submit_order", "change_leverage", "post_order"):
+        assert kw not in src, f"mot interdit présent: {kw}"
+    assert "fee_rates.py" in security_agent.FILES_TO_SCAN
+    assert security_agent.scan_file_for_keywords("fee_rates.py") == []
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
