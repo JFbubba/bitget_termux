@@ -3786,6 +3786,23 @@ def test_ic_cluster_t_deflates_pseudo_replication():
     assert abs(pic_tc2) > abs(naif2["pic_t"]) * 0.6  # peu déflaté (1 obs/fenêtre)
 
 
+def test_bitget_watch_diff_and_impact():
+    # chantier #1 : veille Bitget = diff pur + mapping fait -> module (injection ciblée, sans réseau)
+    import bitget_watch as bw
+    old = {"spot_fee_bps": 8.0, "contract:BTCUSDT": {"status": "normal", "fund_interval_h": 8}}
+    new = {"spot_fee_bps": 10.0, "contract:BTCUSDT": {"status": "normal", "fund_interval_h": 4}}
+    keys = {k for k, a, b in bw.diff(old, new)}
+    assert "spot_fee_bps" in keys and "contract:BTCUSDT.fund_interval_h" in keys
+    assert "contract:BTCUSDT.status" not in keys          # inchangé -> hors diff
+    mod, _ = bw._impact_for("contract:BTCUSDT.fund_interval_h")
+    assert "carry" in mod                                  # funding -> carry
+    mod2, _ = bw._impact_for("contract:ETHUSDT.status")
+    assert "universe" in mod2                              # symbolStatus -> universe
+    assert bw._impact_for("inconnu") == (None, None)
+    assert len(bw.diff({}, new)) >= 2                       # baseline vide -> tout change
+    assert bw.diff(new, new) == []                         # idempotent
+
+
 def test_live_ic_audit_queue_du_journal():
     # ERR-006 : le cap max_lignes doit garder la QUEUE du journal (fenêtre
     # récente), jamais la tête — sinon l'instrument se fige sur l'ancien.
