@@ -1,3 +1,14 @@
+"""agent_loop.py — LEGACY (SUPERSEDED, revue backlog 19/07). Ancienne boucle persistante (PID file +
+subprocess) de l'ère « paper dry-run agent » (juin 2026). REMPLACÉE par l'architecture à TIMERS
+systemd : le cerveau tourne via `brain_cycle.py` (bitget-brain.timer) et le scan via `scan_paper.py`
+(bitget-scan.timer) — cf. `watchdog.py` (« la boucle persistante agent_loop.py a été remplacée par
+les timers »). N'est LANCÉ par AUCUN service/cron. Conservé UNIQUEMENT pour des références de FALLBACK
+vestigiales (watchdog/system_health scannent son PID ; agents_manifest/agent_hub le listent).
+
+NE PAS relancer. Retrait propre = tâche DÉDIÉE et RÉVISÉE (touche watchdog/liveness -> risque de faux
+kill-switch, cf. mémoire watchdog-liveness) : mettre à jour watchdog + system_health + agents_manifest
++ agent_hub + restart_agent.sh AVANT de supprimer ce fichier.
+"""
 import os
 import signal
 import subprocess
