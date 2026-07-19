@@ -90,7 +90,13 @@ def conditional_volatility(closes):
 
 def leverage_for(conviction, closes, base_vol=0.02):
     """Levier visé À PARTIR DES PRIX : vol conditionnelle GARCH -> target_leverage borné
-    par le mur. Si la vol n'est pas calculable, retombe sur base_vol. PUR (best-effort)."""
+    par le mur. Si la vol n'est pas calculable, retombe sur base_vol. PUR (best-effort).
+
+    ⚠️ ADVISORY/PAPER (audit B-3) : ce vol-targeting n'est consommé que par `preorder_engine`
+    (paper) et `bitget_hub_bridge` (advisory). La boucle futures RÉELLE (`futures_auto`) passe un
+    levier FIXE `FUTURES_AUTO_LEVERAGE` (défaut 2.0, clampé au mur ×5) — le risque réel est piloté
+    par les caps de notional (50/250), le SL, `FUTURES_RISK_PCT_PER_TRADE` et le gate systémique
+    `GEOMETRIC_RISK_SIZING`, PAS par ce levier vol-ciblé. Brancher au réel = décision proprio."""
     vol = conditional_volatility(closes)
     return target_leverage(conviction, vol if vol and vol > 0 else base_vol, base_vol=base_vol)
 
@@ -206,7 +212,10 @@ def numeraire_recommendation(usd_change_pct, refuges=None, threshold=None):
 # ---------- fenêtres de session ----------
 
 def in_active_session(hour_utc, sessions=None):
-    """Sommes-nous dans une fenêtre de session active (ouvertures de bourses) ? PUR."""
+    """Sommes-nous dans une fenêtre de session active (ouvertures de bourses) ? PUR.
+    ⚠️ ADVISORY (audit B-6) : NON appliqué sur le chemin réel — `futures_executor.guards` appelle ce
+    filtre seulement si `hour_utc` est fourni, or la boucle futures réelle passe `hour_utc=None`
+    (crypto 24/7, aucune restriction de session par conception). Utilisé en advisory (hub_bridge)."""
     sessions = _cfg("MANDATE_ACTIVE_SESSIONS_UTC", [[0, 3], [7, 10], [13, 17]]) if sessions is None else sessions
     h = float(hour_utc) % 24
     return any(float(a) <= h < float(b) for a, b in sessions)

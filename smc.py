@@ -441,6 +441,13 @@ def analyze(candles, dt=None, candles_smt=None):
     Produit un `setup` directionnel indicatif {direction, entry, stop, tp1, tp2},
     un score de confluence 0..4, et un bloc `overlay` prêt pour le graphique
     (zones, niveaux, marqueurs). Ne déclenche AUCUNE exécution.
+
+    ⚠️ PAS strictement look-ahead-free (audit B-5) : `change_of_character` associe un FVG jusqu'à
+    t+1, `swings` (fractale ±2) confirme un pivot 2 barres après, et le statut `filled` d'un FVG est
+    calculé sur des bougies POSTÉRIEURES. C'est SANS conséquence pour l'usage actuel — CONTEXTE de
+    lecture (dashboard) + une feature `neural_net` — mais INTERDIT de brancher `analyze` à un vote
+    d'ombre MESURÉ à l'IC (`smc_shadow`) SANS d'abord purger ces peeks (sinon IC gonflée). Les
+    bornes OTE, elles, SONT look-ahead-free (jambe déjà formée).
     """
     rows = _rows(candles)
     if len(rows) < 5:

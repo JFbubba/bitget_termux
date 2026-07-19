@@ -462,6 +462,9 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
             pass
 
     # 7. session active + pas de black-out macro
+    # NB (audit B-6) : gate de session ADVISORY/OPT-IN. La boucle futures RÉELLE appelle guards()
+    # avec hour_utc=None (crypto = marché 24/7, aucune restriction de session PAR CONCEPTION) ->
+    # ce filtre ne s'active que si un appelant fournit hour_utc (ex. bitget_hub_bridge advisory).
     if hour_utc is not None:
         try:
             import mandate
