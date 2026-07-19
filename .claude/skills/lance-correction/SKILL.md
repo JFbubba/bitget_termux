@@ -34,8 +34,12 @@ Un test rouge / un WARNING = une erreur à investiguer et corriger.
 python system_health.py      # fichiers manquants, journaux périmés, compteurs
 python learning_health.py    # alignement poids↔cible + garde pearson (§96), corr hit-rate↔IC
 python watchdog.py           # liveness des timers brain/scan (SANS --heal ici : lecture seule)
+python wiring_audit.py --alert  # CÂBLAGE : modules-biblio dormants (importés nulle part) — anti-ERR-013
 ```
-Signaler : artefacts figés/anciens, désalignement d'apprentissage, timer mort.
+Signaler : artefacts figés/anciens, désalignement d'apprentissage, timer mort, module ORPHELIN
+(biblio non consommée). Le watchdog couvre 17 artefacts CURÉS (fraîcheur) ; `wiring_audit` couvre
+l'EXHAUSTIVITÉ des modules (chacun est-il consommé/activé/autonome ?) — les deux sont complémentaires.
+Un orphelin = décision consciente : le brancher à un consommateur OU documenter qu'il est en réserve.
 
 ### 4. Revue de JUGEMENT (les erreurs non automatisables du journal)
 Lire `docs/AGENT_ERRORS.md` et repasser à la main les contrôles de jugement :

@@ -12102,6 +12102,21 @@ def test_notional_systemic_gate_off_by_default_reduces_when_armed_b2():
     assert base_on == 10.0 and base_on <= base_off                       # ARMÉ : 20×0.5, ne fait que réduire
 
 
+def test_wiring_audit_classify_and_safe():
+    """wiring_audit : la classification est PURE et correcte (les 4 catégories), et le module est
+    lecture-seule (aucun chemin d'ordre)."""
+    import wiring_audit as wa
+    assert wa.classify(True, False, False) == "consumed"      # importé en prod
+    assert wa.classify(False, True, False) == "activated"     # cron/systemd
+    assert wa.classify(False, False, True) == "standalone"    # outil/labo runnable
+    assert wa.classify(False, False, False) == "orphan"       # biblio non consommée -> ERR-013
+    src = open("wiring_audit.py").read().lower()
+    assert "verdict: safe" in src and "lecture seule" in src
+    for k in ("place_order", "open_long", "open_short", "close_position", "withdraw",
+              "create_order", "submit_order", "set_leverage"):
+        assert k not in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
