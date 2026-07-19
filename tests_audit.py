@@ -11799,11 +11799,13 @@ def test_grok_vision_prompt_educates_and_grounds():
     import grok_vision as gv
     p0 = gv.build_prompt("BTCUSDT", "4H")
     assert "MÉTHODE DE WYCKOFF" in p0 and "Selling Climax" in p0 and "CHoCH" in p0   # éducation
-    assert '"phase"' in p0 and "ANCRAGE OBJECTIF" not in p0                          # schéma, pas d'ancrage sans objectif
+    assert "COHERENCE OBLIGATOIRE" in p0                                             # règle de cohérence bias<->structure
+    assert '"phase"' in p0 and "INDICE OBJECTIF" not in p0                           # schéma, pas d'indice sans objectif
     obj = {"objective_events": {"sc_long": [1, 2], "spring_long": [3]},
            "objective_bias": "long", "n_events": 3, "window": 30}
     p1 = gv.build_prompt("BTCUSDT", "4H", obj)
-    assert "ANCRAGE OBJECTIF" in p1 and "biais objectif net = long" in p1            # ancrage injecté
+    assert "INDICE OBJECTIF" in p1 and "biais objectif net = long" in p1             # indice injecté (PAS un ordre)
+    assert "PRIME pour le champ 'bias'" in p1                                        # la lecture visuelle prime -> anti-incohérence
     assert gv._objective_summary({"objective_events": {}}).startswith("aucun")       # vide -> pas d'invention
 
 

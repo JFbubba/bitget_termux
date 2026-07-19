@@ -274,10 +274,14 @@ def build_prompt(symbol="", tf="", objective=None):
     grounding = ""
     if objective and (objective.get("objective_events")):
         grounding = (
-            "\nANCRAGE OBJECTIF — un détecteur de CLIMAX DE VOLUME look-ahead-free a tourné sur CES "
-            "mêmes bougies (indice fiable mais PARTIEL : il ne voit que les climax de volume, pas toute "
-            f"la structure) : {_objective_summary(objective)}. Confirme/situe ces événements sur le "
-            "chart. Si ta lecture visuelle diverge de l'ancrage, dis-le brièvement dans 'raison'.\n"
+            "\nINDICE OBJECTIF (un INDICE partiel, PAS un ordre) — un détecteur de CLIMAX DE VOLUME "
+            "look-ahead-free a tourné sur CES mêmes bougies (il ne voit QUE les climax de volume, pas "
+            f"la structure d'ensemble) : {_objective_summary(objective)}. RÈGLE DE RÉCONCILIATION : ta "
+            "lecture VISUELLE de la structure PRIME pour le champ 'bias'. Ne bascule PAS 'bias' pour "
+            "matcher cet indice s'il CONTREDIT ce que tu vois. Si l'indice et ton visuel divergent, "
+            "explique-le dans 'raison' (ex. « structure baissière mais climax haussier = surveiller un "
+            "possible retournement ») et garde un 'bias' cohérent avec la structure — souvent 'neutral' "
+            "tant que le retournement n'est pas confirmé par un Test/SOS visible.\n"
         )
     schema = (
         f"\nVoici un graphique en chandeliers ({symbol} {tf}, OHLC + volume). Lis-le et réponds "
@@ -293,7 +297,11 @@ def build_prompt(symbol="", tf="", objective=None):
         "net). structure = cassure de structure. patterns = figures chartistes classiques visibles. "
         "bias = biais directionnel NET pour les prochaines barres. confidence in [0,1]. Sois PRUDENT : "
         "si le chart est ambigu, phase=unclear, bias=neutral, confidence basse. Ne fabrique pas "
-        "d'evenement absent."
+        "d'evenement absent. "
+        "COHERENCE OBLIGATOIRE : le 'bias' DOIT etre coherent avec phase+events+structure. Une "
+        "structure baissiere (markdown / SOW / CHoCH / breakdown) => bias PAS 'long' sauf signal de "
+        "RETOURNEMENT confirme ET visible (Spring + Test reussi). Miroir cote haussier. En cas de "
+        "conflit non resolu => bias='neutral' (ne te contredis pas)."
     )
     return edu + grounding + schema
 
