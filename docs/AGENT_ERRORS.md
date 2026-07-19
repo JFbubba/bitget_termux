@@ -533,5 +533,36 @@ de PLACEMENT (fill, markout, slippage, adverse selection). **risque/sizing** →
 NE JAMAIS rendre un « rejeté » sur une IC directionnelle pour un outil de contexte/exécution/risque.
 Exemples de bonne classification déjà faite : `geometric_agent` (reclassé descripteur de RISQUE→sizing,
 pas edge) ; `regime_lab` (régime = variable de CONDITIONNEMENT du consensus, pas prédicteur seul).
-**Statut.** RECONNU (correction propriétaire 19/07) · dashboard SMC = bon usage ; mesure d'EXÉCUTION SMC
-à faire (proposée) · RÈGLE ACTIVE.
+**Statut.** RECONNU (correction propriétaire 19/07) · dashboard SMC = bon usage. `smc_execution_lab.py` a
+été construit pour mesurer l'edge d'EXÉCUTION du SMC — mais **CETTE construction est elle-même une instance
+d'ERR-017** (on ne mesure pas l'edge d'une méthode) : ce qui en reste VALIDE = le résultat d'un SIGNAL de
+placement concret (limit maker au bord FVG/OTE ≈/pire que naïf), PAS un verdict sur « SMC ». Voir ERR-017. · RÈGLE ACTIVE.
+
+## ERR-017 · 2026-07-19 · Attendre/mesurer un EDGE d'une MÉTHODE (l'edge est une propriété d'un SIGNAL, pas d'un cadre)
+
+**Contexte.** Après le reframe SMC (ERR-016 « reconnaissance, pas prédiction »), j'ai construit
+`smc_execution_lab.py` pour mesurer l'edge d'EXÉCUTION du SMC (markout des fills à la structure).
+Le propriétaire a re-corrigé : **mesurer/attendre un edge d'une MÉTHODE est aussi une erreur — l'edge
+est une réponse d'un SIGNAL, pas d'une méthode.** SMC est une MÉTHODE (un cadre pour organiser la
+perception et reconnaître la structure) ; lui demander un edge — directionnel OU exécution — est une
+erreur de CATÉGORIE. J'avais juste déplacé la mauvaise question (IC → markout) sans voir qu'aucune des
+deux ne s'applique à une méthode.
+**Cause racine.** Réflexe de tout réduire à « y a-t-il un edge ? » (IC, markout, rendement net). Mais
+un EDGE est une propriété d'un **SIGNAL** : un déclencheur PRÉCIS, testable, à espérance mesurable. Une
+**MÉTHODE** (SMC, Wyckoff, chartisme) est un CADRE — elle n'« a » pas d'edge, elle organise la
+perception, situe le contexte, oriente où regarder et comment exécuter. Demander un edge à un cadre
+force un test qui répond toujours « non » et rate le point.
+**Solution.** Distinguer 3 natures AVANT de choisir la mesure : (a) **SIGNAL** (déclencheur testable)
+→ se juge par EDGE net de frais (IC / markout / rendement) ; (b) **MÉTHODE / reconnaissance** (cadre)
+→ se juge par CORRECTION : reconnaît-elle juste, de façon consistante et CAUSALE, et organise-t-elle
+utilement le contexte/l'exécution ? PAS d'edge attendu ; (c) **RISQUE / descripteur** → z-score →
+sizing. Pour obtenir un edge « issu de » SMC, il faut DÉFINIR un signal précis DANS le cadre SMC et
+mesurer CE signal — jamais « SMC » en bloc. Étend ERR-016 : ERR-016 disait « ne mesure pas un outil de
+placement à l'IC directionnelle » ; ERR-017 ajoute « ne mesure pas non plus l'EDGE d'une méthode, en
+aucune lentille — une méthode se VÉRIFIE (fait-elle son travail), un signal se MESURE (a-t-il un edge) ».
+**Contrôle (détection ailleurs).** Pour tout module : d'abord « SIGNAL ou MÉTHODE/cadre ? ». Si MÉTHODE
+→ interdiction de conclure « rejeté (pas d'edge) » ; la bonne analyse est « travaille-t-elle et
+signale-t-elle CORRECTEMENT ? » (reconnaissance juste, causale, consistante). L'edge ne se mesure QUE
+sur des signaux définis. Un « labo » qui teste l'edge d'un cadre entier (SMC, Wyckoff) pose déjà la
+mauvaise question — reformuler en un signal concret, ou en une vérification de correction.
+**Statut.** RECONNU (correction propriétaire 19/07) · étend ERR-016 · RÈGLE ACTIVE.

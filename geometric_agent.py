@@ -739,7 +739,10 @@ def portfolio_structure(symbols=None, ttl=300):
         L = min(len(r) for r in series)
         M = np.array([r[-L:] for r in series]).T          # (T, D)
         met = correlation_graph_metrics(M, denoise="rie")  # RIE = shrinkage non-linéaire (plus fin que MP)
-        regime = connectivity_regime(met)                  # spectre isopérimétrique -> régime (sort de la dormance)
+        regime = connectivity_regime(met)                  # spectre isopérimétrique -> régime. NB (ERR-013
+        # inachevé) : appelé SANS `hist` -> la branche z-score est sautée (systemic_z=None), régime sur
+        # seuil absolu non calibré ; et portfolio_structure n'est PAS encore consommé par un chemin de
+        # SIZING (seulement main()/CLI) -> le « descripteur de risque -> z-score -> sizing » reste À BRANCHER.
         part = cheeger_partition(M)
         sponge = sponge_partition(M)                       # partition SIGNÉE (legs bêta-neutres)
         hrp = hrp_weights(M)                               # poids HRP (allocation intra-panier)

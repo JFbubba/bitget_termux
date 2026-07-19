@@ -37,7 +37,9 @@ def recent_items(items, now=None, hours=36, cap=40):
     les items frais ont jusqu'à ~24h), les plus récents d'abord (au plus `cap`)."""
     now = _time.time() if now is None else now
     cutoff = now - float(hours) * 3600.0
-    out = [it for it in (items or []) if _ts_of(it) >= cutoff]
+    # borne HAUTE `<= now` : en live c'est un no-op, mais en REPLAY-IC (now = point de coupe passé)
+    # ça empêche d'injecter des news POSTÉRIEURES au point de coupe (fuite du futur, IC gonflée).
+    out = [it for it in (items or []) if cutoff <= _ts_of(it) <= now]
     out.sort(key=_ts_of, reverse=True)
     return out[:cap]
 
