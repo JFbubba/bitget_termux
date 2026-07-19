@@ -11985,6 +11985,69 @@ def test_prior_art_source_is_readonly_safe():
     assert "verdict: safe" in src and "lecture seule" in src
 
 
+def _sel_candles(n=80, seed=3):
+    """Bougies synthétiques [ts,o,h,l,c,v] pour smc_execution_lab (volatiles -> des fills)."""
+    import numpy as np
+    rng = np.random.RandomState(seed)
+    c = 100.0 * np.exp(np.cumsum(rng.randn(n) * 0.004))
+    o = np.concatenate([[c[0]], c[:-1]])
+    h = np.maximum(o, c) * (1 + np.abs(rng.randn(n)) * 0.003)
+    l = np.minimum(o, c) * (1 - np.abs(rng.randn(n)) * 0.003)
+    return [[float(1_700_000_000 + i * 3600), float(o[i]), float(h[i]), float(l[i]),
+             float(c[i]), 100.0] for i in range(n)]
+
+
+def test_smc_exec_at_structure_causal_and_expiry():
+    """_at_structure : dans la zone du BON côté, établie ≤ i−CONFIRM_LAG et non expirée. PUR."""
+    import smc_execution_lab as sel
+    z = [{"side": "buy", "est": 10, "lo": 100.0, "hi": 102.0, "expire": 50}]
+    assert sel._at_structure(z, 20, 101.0, "buy") is True             # dans la zone, connue, active
+    assert sel._at_structure(z, 20, 101.0, "sell") is False           # mauvais côté
+    assert sel._at_structure(z, 11, 101.0, "buy") is False            # zone pas encore connue (est>i−2)
+    assert sel._at_structure(z, 60, 101.0, "buy") is False            # zone expirée (i>expire)
+    assert sel._at_structure(z, 20, 110.0, "buy") is False            # prix hors zone
+
+
+def test_smc_exec_zones_and_simulate():
+    """structure_zones renvoie des zones bien formées (side/lo/hi/est) et simulate_fills produit
+    des fills tagués at_structure (bool) avec net_bps (float). Look-ahead borné (zone est≤i−2)."""
+    import smc_execution_lab as sel
+    candles = _sel_candles(90)
+    zones = sel.structure_zones(candles)
+    assert isinstance(zones, list)
+    for z in zones:
+        assert {"side", "lo", "hi", "est"} <= set(z) and z["side"] in ("buy", "sell")
+    fills = sel.simulate_fills(candles, h=3, spread_bps=8.0)
+    assert len(fills) > 0
+    f = fills[0]
+    assert isinstance(f["at_structure"], bool) and isinstance(f["net_bps"], float)
+    assert f["side"] in ("buy", "sell")
+
+
+def test_smc_exec_condition_partitions():
+    """condition_by_structure sépare markout à-la-structure vs hors-structure (delta = diff)."""
+    import smc_execution_lab as sel
+    fills = ([{"at_structure": True, "net_bps": -5.0} for _ in range(40)]
+             + [{"at_structure": False, "net_bps": +1.0} for _ in range(40)])
+    cond = sel.condition_by_structure(fills)
+    assert cond["n_at"] == 40 and cond["n_off"] == 40
+    assert abs(cond["at_mean_net"] - (-5.0)) < 1e-9 and abs(cond["off_mean_net"] - 1.0) < 1e-9
+    assert abs(cond["delta"] - (-6.0)) < 1e-9
+    assert sel.condition_by_structure([{"at_structure": True, "net_bps": 0.0}]) is None  # trop peu
+
+
+def test_smc_exec_source_is_readonly_safe():
+    src = open("smc_execution_lab.py").read().lower()
+    forbidden = ["place_order", "open_long", "open_short", "close_position", "cancel_order",
+                 "withdraw", "send_order", "create_order", "submit_order", "set_leverage",
+                 "market_order", "post_order"]
+    assert not [k for k in forbidden if k in src]
+    for m in ("import spot_executor", "import futures_executor", "import bitget_execute",
+              "import spot_trader", "import margin_trader"):
+        assert m not in src
+    assert "verdict: safe" in src and "lecture seule" in src
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
