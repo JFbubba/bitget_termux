@@ -285,3 +285,13 @@ LLM_AGENT_TTL_S = 900                       # vote LLM caché/symbole (15 min) :
 LLM_AGENT_KEEPALIVE = "30m"                 # Ollama : garde qwen en mémoire entre cycles (évite le rechargement swap)
 LLM_AGENT_DAILY_BUDGET_USD = 0.50          # #3 : plafond $ / jour des appels LLM CLOUD (dépassé -> plus d'appel cloud du jour)
 LLM_AGENT_DAILY_MAX_CALLS = 2000           # #3 : plafond nb d'appels cloud / jour (borne les modèles gratuits type Gemini free-tier)
+
+# === Persistance de la TAPE brute signée (tape_store.py, socle microstructure) ===
+# SAFE (market-data, fichiers locaux .tape/ gitignorés, aucun ordre). Défaut ON : le but
+# EST d'accumuler la tape tick-level, mais BORNÉE. Plafond disque DUR par symbole :
+# (TAPE_KEEP + 1) fichiers × TAPE_MAX_MB Mo. Défaut : 50 × 5 = 250 Mo/symbole
+# (1 symbole par défaut -> ~250 Mo ; 3 symboles -> ~750 Mo max). TAPE_PERSIST=0 coupe.
+TAPE_PERSIST = 1                            # 1 = persiste la tape ; 0 = désactivé (surchargable .env)
+TAPE_MAX_MB = 50                           # taille max d'un fichier de tape avant rotation (Mo)
+TAPE_KEEP = 4                              # nb de rotations conservées par symbole (.1 .. .4)
+TAPE_MIN_FREE_MB = 500                     # plancher d'espace libre : en-dessous, on s'abstient (skip + log)

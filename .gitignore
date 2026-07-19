@@ -119,3 +119,7 @@ trading_real_ledger.json.tmp
 
 # labo VPIN (résultats locaux, non committés)
 .vpin_lab_result.json
+
+# Tape brute signée persistée (tape_store.py) : données market-data locales, bornées,
+# jamais committées (rotation par taille, plafond disque dur)
+.tape/

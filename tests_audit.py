@@ -4909,12 +4909,20 @@ def test_book_collector_handle_and_tick():
     bc.handle_message(state, json.dumps({"arg": {"channel": "trade", "instId": "ZZZUSDT"},
         "data": [{"side": "buy", "size": "1", "price": "10.05"}]}))
     assert state["books"]["ZZZUSDT"]["bids"][0] == [10.0, 5.0]
+    import tempfile, shutil as _sh
+    import tape_store as _ts
     old = ms.BUFFER_FILE
+    old_tape = _ts.TAPE_DIR                                        # hook tape_store hermétique
+    tmp_tape = Path(tempfile.mkdtemp(prefix="tape_bctick_"))
     try:
         ms.BUFFER_FILE = Path(old).with_name(".mbuf_bctick_test.json")
+        _ts.TAPE_DIR = tmp_tape
         if ms.BUFFER_FILE.exists():
             ms.BUFFER_FILE.unlink()
         assert bc.tick(state, ["ZZZUSDT"], ts=1) == 1
+        # le hook additif a persisté la tape brute (side/size/price) sans casser le tick
+        tape = _ts.load_tape("ZZZUSDT")
+        assert len(tape) == 1 and tape[0]["side"] == "buy" and tape[0]["size"] == 1.0
         # 2e snapshot avec carnet monté -> OFI acheteur > 0
         bc.handle_message(state, json.dumps({"arg": {"channel": "books15", "instId": "ZZZUSDT"},
             "data": [{"bids": [["10.05", "6"]], "asks": [["10.15", "5"]]}]}))
@@ -4927,6 +4935,8 @@ def test_book_collector_handle_and_tick():
         except Exception:
             pass
         ms.BUFFER_FILE = old
+        _ts.TAPE_DIR = old_tape
+        _sh.rmtree(tmp_tape, ignore_errors=True)
 
 
 def test_microstructure_staleness_guard():
@@ -11323,6 +11333,137 @@ def test_fee_rates_source_readonly():
         assert kw not in src, f"mot interdit présent: {kw}"
     assert "fee_rates.py" in security_agent.FILES_TO_SCAN
     assert security_agent.scan_file_for_keywords("fee_rates.py") == []
+
+
+# ---------- tape_store (persistance bornée de la tape brute signée, SAFE) ----------
+
+def _tape_env(**kv):
+    """Contexte : swap tape_store.TAPE_DIR -> tmp + pose des env, restaure tout. Hermétique."""
+    import os, tempfile, shutil
+    import tape_store as ts
+    old_dir = ts.TAPE_DIR
+    old_env = {k: os.environ.get(k) for k in kv}
+    tmp = tempfile.mkdtemp(prefix="tape_test_")
+    ts.TAPE_DIR = __import__("pathlib").Path(tmp)
+    for k, v in kv.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = str(v)
+
+    def restore():
+        ts.TAPE_DIR = old_dir
+        for k, v in old_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(tmp, ignore_errors=True)
+    return ts, restore
+
+
+def test_tape_store_format_and_load():
+    """persist écrit 1 ligne JSONL/trade {ts,symbol,side,size,price} ; load_tape relit,
+    filtre since_ts et borne limit. ts par trade préservé s'il est fourni."""
+    ts, restore = _tape_env(TAPE_PERSIST="1")
+    try:
+        trades = [{"ts": 1000, "side": "buy", "size": 2.0, "price": 100.0},
+                  {"ts": 2000, "side": "sell", "size": 1.0, "price": 101.0},
+                  {"ts": 3000, "side": "buy", "size": 0.5, "price": 100.5}]
+        assert ts.persist("btcusdt", trades) == 3
+        rows = ts.load_tape("BTCUSDT")
+        assert len(rows) == 3
+        r = rows[0]
+        assert set(r) == {"ts", "symbol", "side", "size", "price"}
+        assert r["symbol"] == "BTCUSDT" and r["side"] == "buy" and r["size"] == 2.0 and r["ts"] == 1000
+        # since_ts : ne garde que ts >= 2000
+        assert [x["ts"] for x in ts.load_tape("BTCUSDT", since_ts=2000)] == [2000, 3000]
+        # limit : les N derniers
+        assert [x["ts"] for x in ts.load_tape("BTCUSDT", limit=1)] == [3000]
+        # ts par trade absent -> repli sur le ts du tick
+        assert ts.persist("BTCUSDT", [{"side": "buy", "size": 1, "price": 9}], ts=777) == 1
+        assert ts.load_tape("BTCUSDT", limit=1)[0]["ts"] == 777
+    finally:
+        restore()
+
+
+def test_tape_store_rotation_caps():
+    """Rotation par taille : quand le fichier vif dépasse le seuil, rotation ; on garde au
+    plus TAPE_KEEP rotations (+ le vif). Aucun fichier au-delà du cap ; load_tape reste
+    chronologique sur les fichiers survivants."""
+    import os
+    ts, restore = _tape_env(TAPE_PERSIST="1", TAPE_MAX_MB="0.0002", TAPE_KEEP="2")  # ~209 o
+    try:
+        n_batches = 8
+        k = 0
+        for b in range(n_batches):
+            batch = [{"ts": 1000 * b + i, "side": "buy", "size": 1.0, "price": 100.0}
+                     for i in range(3)]
+            k += ts.persist("ROTUSDT", batch)
+        assert k == n_batches * 3
+        # inventaire : vif + rotations, au plus keep+1 fichiers, .3 (= keep+1) JAMAIS présent
+        base = ts.TAPE_DIR / "ROTUSDT.jsonl"
+        present = [f for f in [base] + [ts._rot(base, i) for i in range(1, 6)] if f.exists()]
+        assert 0 < len(present) <= ts._keep() + 1
+        assert not ts._rot(base, ts._keep() + 1).exists()      # cap dur respecté
+        # rotation a bien eu lieu (au moins une rotation existe)
+        assert ts._rot(base, 1).exists()
+        # load_tape lit à travers les rotations, ts non décroissant (ordre chronologique)
+        rows = ts.load_tape("ROTUSDT")
+        tss = [r["ts"] for r in rows]
+        assert 0 < len(rows) <= k and tss == sorted(tss)
+    finally:
+        restore()
+
+
+def test_tape_store_failsafe_never_raises():
+    """FAIL-SAFE ABSOLU : répertoire non créable ET disque « plein » (plancher géant) ->
+    persist renvoie 0, n'écrit rien, NE LÈVE JAMAIS (le collecteur continue)."""
+    import os, tempfile
+    from pathlib import Path
+    # (a) répertoire non créable : TAPE_DIR sous un FICHIER -> mkdir échoue
+    ts, restore = _tape_env(TAPE_PERSIST="1")
+    try:
+        blocker = Path(tempfile.mkstemp(prefix="tape_block_")[1])   # un fichier, pas un dossier
+        ts.TAPE_DIR = blocker / "sub"                                # mkdir(parents) lèvera
+        assert ts.persist("BTCUSDT", [{"side": "buy", "size": 1, "price": 1}]) == 0
+        blocker.unlink()
+    finally:
+        restore()
+    # (b) disque « plein » simulé : plancher d'espace libre gigantesque -> abstention
+    ts2, restore2 = _tape_env(TAPE_PERSIST="1", TAPE_MIN_FREE_MB="99999999999")
+    try:
+        assert ts2._enough_disk(ts2.TAPE_DIR) is False
+        assert ts2.persist("BTCUSDT", [{"side": "buy", "size": 1, "price": 1}]) == 0
+        assert ts2.load_tape("BTCUSDT") == []                        # rien écrit
+    finally:
+        restore2()
+
+
+def test_tape_store_disabled_gate():
+    """Gating : TAPE_PERSIST=0 -> persist no-op (0), aucun fichier écrit."""
+    ts, restore = _tape_env(TAPE_PERSIST="0")
+    try:
+        assert ts.enabled() is False
+        assert ts.persist("BTCUSDT", [{"side": "buy", "size": 1, "price": 1}]) == 0
+        assert ts.load_tape("BTCUSDT") == []
+    finally:
+        restore()
+
+
+def test_tape_store_source_readonly():
+    """tape_store = SAFE : aucun mot-clé d'ordre dans le source, classé dans
+    security_agent.FILES_TO_SCAN, scan mots-clés vide, aucun import d'exécuteur."""
+    import tape_store as ts
+    from pathlib import Path
+    src = Path(ts.__file__).read_text(encoding="utf-8").lower()
+    for kw in ("place_order", "cancel_order", "withdraw", "transfer", "transfert",
+               "set_leverage", "market_order", "limit_order", "close_position",
+               "send_order", "create_order", "submit_order", "change_leverage", "post_order"):
+        assert kw not in src, f"mot interdit présent: {kw}"
+    assert "tape_store.py" in security_agent.FILES_TO_SCAN
+    assert security_agent.scan_file_for_keywords("tape_store.py") == []
+    assert not hasattr(ts, "spot_trader") and not hasattr(ts, "bitget_execute")
 
 
 def _run_all():

@@ -39,12 +39,25 @@ def parse_ws_trades(data):
     out = []
     for t in data or []:
         if isinstance(t, dict):
-            out.append({"side": str(t.get("side", "")).lower(),
+            # `ts` par trade GARDÉ (additif) : les consommateurs microstructure lisent
+            # side/size/price et ignorent ts -> agrégation inchangée ; tape_store en profite
+            # pour horodater au niveau TICK (socle VPIN tick-level).
+            out.append({"ts": _to_int_ts(t.get("ts")),
+                        "side": str(t.get("side", "")).lower(),
                         "size": float(t.get("size", 0) or 0),
                         "price": float(t.get("price", 0) or 0)})
         elif isinstance(t, (list, tuple)) and len(t) >= 4:
-            out.append({"side": str(t[3]).lower(), "size": float(t[2]), "price": float(t[1])})
+            out.append({"ts": _to_int_ts(t[0]), "side": str(t[3]).lower(),
+                        "size": float(t[2]), "price": float(t[1])})
     return out
+
+
+def _to_int_ts(v):
+    """ts d'un trade WS -> int (ms epoch Bitget). 0 si absent/illisible. Pur."""
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return 0
 
 
 def subscribe_message(symbols, inst_type=DEFAULT_INST_TYPE):
@@ -91,6 +104,14 @@ def tick(state, symbols, ts=None):
         if not book:
             continue
         trades = state.get("trades", {}).pop(s, [])
+        # PERSISTANCE bornée de la tape brute signée AVANT qu'elle soit jetée (addition
+        # pure, fail-safe : ne change rien à l'agrégation/snapshot/book ci-dessous, et une
+        # erreur de persistance n'interrompt JAMAIS la collecte).
+        try:
+            import tape_store
+            tape_store.persist(s, trades, ts=ts)
+        except Exception:
+            pass
         snap = microstructure.features(prev.get(s), book, trades)
         snap["ts"] = int(ts if ts is not None else time.time())
         prev[s] = book

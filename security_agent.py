@@ -201,6 +201,7 @@ FILES_TO_SCAN = [
     "pro_indicators.py",
     "order_flow.py",
     "bitget_market_data.py",
+    "tape_store.py",
     "macro_context.py",
     "macro_data.py",
     "confluence_score.py",
