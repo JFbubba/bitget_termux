@@ -3803,6 +3803,17 @@ def test_bitget_watch_diff_and_impact():
     assert bw.diff(new, new) == []                         # idempotent
 
 
+def test_with_qml_weight_bounded_and_gated():
+    # gap de câblage §4 comblé : la 18e voix qml a un poids FIXE BORNÉ (0.5) comme llm/nn/classics,
+    # au lieu du défaut 1.0 ; identité quand absente ; jamais persistée dans le banc gelé à 14.
+    import swarm_brain as sb
+    w = {"orderflow": 1.0}
+    assert sb._with_qml_weight(w, {"orderflow": {}}) == w            # absente -> identité
+    aw = sb._with_qml_weight(w, {"qml": {"vote": 0.4, "confidence": 0.3}})
+    assert 0 <= aw["qml"] <= sb.BRAIN_WEIGHT_MAX and "qml" not in w   # bornée, non persistée
+    assert aw["qml"] == 0.5                                           # défaut borné (pas 1.0)
+
+
 def test_live_ic_audit_queue_du_journal():
     # ERR-006 : le cap max_lignes doit garder la QUEUE du journal (fenêtre
     # récente), jamais la tête — sinon l'instrument se fige sur l'ancien.
