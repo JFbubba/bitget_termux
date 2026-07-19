@@ -1,0 +1,38 @@
+==============================================================================================
+RÉ-TEST ICT 2022 — top-down (D1+4H) + NY equity-overlap killzone — LTF 15m
+N_trials (grille) = 48  [session{all,ny,silver} × OB × OTE × discount × align_D1]
+Frais : taker 6bps/côté | maker 2bps entrée+TP / 6bps stop | maker_ideal 2bps partout
+==============================================================================================
+
+### A) COMPTES par major — le setup filtré-session est RARE
+sym          B&H% |  CANON N  CORE N  CORE net_mk_bps
+BTCUSDT    -38.0% |        0      11            -5.93
+ETHUSDT    -28.6% |        0       9           -89.18
+SOLUSDT    -45.1% |        0      10           -87.42
+BNBUSDT    -36.6% |        0      13           -59.58
+XRPUSDT    -48.0% |        0       6           -17.16
+
+### B) VALEUR DE LA KILLZONE — core model POOLED, session all vs ny vs silver
+  session=all (maker)        N= 200  mean=  -25.09bps  Sharpe= -0.26  t_HAC=  -3.02
+  session=all (taker)        N= 200  mean=  -30.08bps  Sharpe= -0.31  t_HAC=  -3.67
+  session=ny (maker)         N=  49  mean=  -53.46bps  Sharpe= -0.58  t_HAC=  -3.68
+  session=ny (taker)         N=  49  mean=  -58.20bps  Sharpe= -0.63  t_HAC=  -4.05
+  session=silver (maker)     N=  34  mean=  -39.22bps  Sharpe= -0.44  t_HAC=  -2.70
+  session=silver (taker)     N=  34  mean=  -44.04bps  Sharpe= -0.50  t_HAC=  -3.06
+
+### C) POOLED sur la grille (maker) — best de grille + DSR déflatée
+   var[SR] sur 48 essais = 0.0864 ; SR0 attendu sous H0 = 0.664
+   BEST : sess=all ob0 ote1 disc0 d11
+     best pooled (maker)      N=  80  mean=  -19.36bps  Sharpe= -0.19  t_HAC=  -1.37
+     best pooled (taker)      N=  80  mean=  -24.49bps  Sharpe= -0.25  t_HAC=  -1.76
+   DSR_best = 0.0000  (SR_bar=-0.193, skew=1.17, kurt=4.80, N=80)   [seuil 0.95]
+   canonique pooled (maker)   N=0
+   long: N=20 mean=31.93bps | short: N=60 mean=-36.46bps  (asymétrie forte = beta, pas alpha)
+
+### D) WALK-FORWARD OOS POOLED (best config choisie sur TRAIN 60%, éval OOS 40%)
+   config sélectionnée sur TRAIN : sess=all ob0 ote1 disc0 d10
+   OOS pooled (maker)         N=  93  mean=  -33.30bps  Sharpe= -0.39  t_HAC=  -2.86
+   OOS pooled (taker)         N=  93  mean=  -38.12bps  Sharpe= -0.45  t_HAC=  -3.32
+
+   Benchmark buy-and-hold moyen (période 15m) = -39.2%
+==============================================================================================
