@@ -6167,6 +6167,123 @@ def test_bitget_execute_run_failcloses_on_record_failure():
             (be.LEDGER, be.LEDGER_UNRELIABLE, be._alert) = orig
 
 
+# ---------- journal des REFUS (§67) : le contrefactuel « ce que le bot a VOULU faire » ----------
+# Les raisons de blocage étaient CALCULÉES par guard() puis JETÉES : run() les rendait à
+# l'appelant sans rien persister, et seul le SUCCÈS appelait record(). Les 4 surfaces §67
+# ne disaient donc pas ce qu'elles avaient voulu faire ni pourquoi elles avaient été arrêtées,
+# alors que futures_executor journalise ses refus depuis toujours (FUTURES_REFUSED). Encore une
+# asymétrie entre chemins frères (ERR-020).
+# INVARIANT CRITIQUE : le journal des refus est un fichier SÉPARÉ, jamais trading_real_ledger.json.
+# Un refus rangé dans `ops` consommerait le cap journalier pour de l'argent JAMAIS dépensé ; et
+# comme le journal d'argent s'écrit en lecture-modification-écriture, une écriture de refus
+# pourrait écraser un record() concurrent -> dépense sous-comptée -> cap ROUVERT. Le journal des
+# refus est donc append-only (journal_append), borné, et incapable de toucher l'argent.
+
+def test_bitget_execute_refus_journalise_avec_ses_raisons():
+    """Un refus est PERSISTÉ : surface, montant, oid, raisons, horodatage."""
+    import tempfile, pathlib
+    import journal_append as ja
+    import bitget_execute as be
+    orig = be.REFUSALS
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.REFUSALS = pathlib.Path(td) / "refus.jsonl"
+            r = be.run(["spot", "spot_place_order"], False,
+                       ["SPOT_TRADE_LIVE=False (verrou LIVE coupé, défaut OFF)",
+                        "montant 300.0 > plafond/opération 200.0"],
+                       "spot", 300.0, "oidX", confirm=True, now=1_000_000)
+            assert r["ok"] is False and r["executed"] is False       # comportement INCHANGÉ
+            rows = ja.read_jsonl(be.REFUSALS)
+            assert len(rows) == 1
+            e = rows[0]
+            assert e["surface"] == "spot" and e["amount_usdt"] == 300.0
+            assert e["clientOid"] == "oidX" and e["ts"] == 1_000_000
+            assert len(e["reasons"]) == 2 and "verrou LIVE" in e["reasons"][0]
+            assert e.get("preview")                                   # ce que le bot VOULAIT faire
+        finally:
+            be.REFUSALS = orig
+
+
+def test_bitget_execute_refus_ne_touche_jamais_le_journal_argent():
+    """LE PIÈGE : un refus ne doit RIEN ajouter au journal RÉEL. Sinon il consommerait le cap
+    journalier pour de l'argent jamais dépensé (et pourrait écraser un record() concurrent)."""
+    import tempfile, pathlib, json as _json
+    import bitget_execute as be
+    orig = (be.LEDGER, be.REFUSALS)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.LEDGER = pathlib.Path(td) / "led.json"
+            be.REFUSALS = pathlib.Path(td) / "refus.jsonl"
+            be.record("spot", 10.0, "oidOK", now=1_000_000)            # 10 $ réellement engagés
+            avant = be.today_spent("spot", now=1_000_000)
+            empreinte = be.LEDGER.read_text()
+            for _ in range(5):                                         # 5 refus de 300 $
+                be.run(["spot", "x"], False, ["plafond dépassé"], "spot", 300.0, "oidN",
+                       confirm=True, now=1_000_000)
+            assert be.today_spent("spot", now=1_000_000) == avant == 10.0   # cap INTACT
+            assert be.LEDGER.read_text() == empreinte                  # fichier d'argent INTOUCHÉ
+            assert len(_json.loads(empreinte)["ops"]) == 1
+        finally:
+            (be.LEDGER, be.REFUSALS) = orig
+
+
+def test_bitget_execute_refus_echec_ecriture_non_bloquant():
+    """Journaliser un refus ne peut RIEN casser : écriture impossible -> résultat inchangé,
+    aucune exception, et surtout PAS de sentinel « journal non fiable » (une panne de
+    journalisation ne doit jamais suspendre les surfaces — seul l'argent le peut)."""
+    import tempfile, pathlib
+    import bitget_execute as be
+    orig = (be.REFUSALS, be.LEDGER_UNRELIABLE)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.REFUSALS = pathlib.Path("/nonexistent_dir_zzz_refus/refus.jsonl")
+            be.LEDGER_UNRELIABLE = pathlib.Path(td) / "unr.flag"
+            r = be.run(["spot", "x"], False, ["kill_switch actif"], "spot", 5.0, "oidF",
+                       confirm=True, now=1_000_000)
+            assert r["ok"] is False and r["reasons"] == ["kill_switch actif"]
+            assert not be.LEDGER_UNRELIABLE.exists()                   # surfaces NON suspendues
+        finally:
+            (be.REFUSALS, be.LEDGER_UNRELIABLE) = orig
+
+
+def test_bitget_execute_dry_et_succes_ne_sont_pas_des_refus():
+    """Un DRY est un APERÇU, pas un refus ; un succès non plus. Le journal des refus ne
+    contient QUE des blocages de gardes, sinon il ne mesure plus rien."""
+    import tempfile, pathlib
+    import journal_append as ja
+    import bitget_execute as be
+    orig = (be.LEDGER, be.REFUSALS)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.LEDGER = pathlib.Path(td) / "led.json"
+            be.REFUSALS = pathlib.Path(td) / "refus.jsonl"
+            be.run(["spot", "x"], True, [], "spot", 3.0, "oidD", confirm=False)      # DRY
+            be.run(["spot", "x"], True, [], "spot", 3.0, "oidS", confirm=True,       # SUCCÈS
+                   runner=lambda a: '{"code":"00000","data":{"orderId":"O1"}}')
+            assert ja.read_jsonl(be.REFUSALS) == []
+        finally:
+            (be.LEDGER, be.REFUSALS) = orig
+
+
+def test_bitget_execute_refus_journal_borne():
+    """Croissance BORNÉE : les surfaces §67 sont majoritairement OFF et certaines boucles
+    tournent toutes les 5 min -> le journal doit tourner, jamais grossir sans fin."""
+    import tempfile, pathlib
+    import bitget_execute as be
+    orig = (be.REFUSALS, be.REFUSALS_MAX_BYTES)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            be.REFUSALS = pathlib.Path(td) / "refus.jsonl"
+            be.REFUSALS_MAX_BYTES = 400                       # budget minuscule -> rotation forcée
+            for i in range(40):
+                be.run(["spot", "x"], False, [f"raison {i}"], "spot", 1.0, f"oid{i}",
+                       confirm=True, now=1_000_000 + i)
+            assert be.REFUSALS.stat().st_size < 4 * be.REFUSALS_MAX_BYTES
+            assert be.REFUSALS.with_suffix(".jsonl.old").exists()      # bascule effective
+        finally:
+            (be.REFUSALS, be.REFUSALS_MAX_BYTES) = orig
+
+
 def test_bitget_execute_run_ambiguous_alerts():
     """Sous-item 2 (§67) : réponse PERDUE (runner -> None) -> result['ambiguous'] + ALERTE,
     jamais une conclusion silencieuse « rien fait » (l'op a peut-être eu lieu)."""

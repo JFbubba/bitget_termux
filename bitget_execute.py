@@ -31,6 +31,20 @@ LEDGER = Path(__file__).resolve().parent / "trading_real_ledger.json"
 # jusqu'à réconciliation manuelle par le propriétaire (retrait du fichier).
 LEDGER_UNRELIABLE = Path(__file__).resolve().parent / "trading_ledger_unreliable.flag"
 
+# Journal des REFUS — le contrefactuel « ce que le bot a VOULU faire, et pourquoi il a été
+# arrêté ». guard() calculait ses raisons puis run() les JETAIT (seul le succès appelait
+# record()), alors que futures_executor journalise ses refus depuis toujours : encore une
+# asymétrie entre chemins frères (ERR-020).
+# FICHIER SÉPARÉ, JAMAIS le journal d'argent — invariant de sûreté, pas de rangement :
+#   • today_spent() somme `ops` pour le cap journalier : un refus rangé là consommerait le
+#     plafond pour de l'argent JAMAIS dépensé ;
+#   • le journal d'argent s'écrit en lecture-modification-écriture : une écriture de refus
+#     pourrait écraser un record() concurrent -> dépense SOUS-comptée -> cap ROUVERT.
+# D'où : append-only (journal_append), borné par rotation, best-effort. Une panne de
+# journalisation des refus ne suspend RIEN (seul l'argent non journalisé le peut).
+REFUSALS = Path(__file__).resolve().parent / "trading_refus_journal.jsonl"
+REFUSALS_MAX_BYTES = 5_000_000
+
 
 def gate(flag_name):
     """Verrou LIVE d'une surface : env PRIORITAIRE > config > défaut OFF. Tant qu'il est
@@ -147,6 +161,51 @@ def record(surface, amount_usdt, oid, meta=None, now=None):
         return False                                # écriture ratée -> l'appelant alerte + fail-closed
 
 
+def record_refusal(surface, amount_usdt, oid, reasons, preview=None, meta=None, now=None):
+    """Persiste un REFUS de gardes (best-effort, jamais bloquant, ne lève jamais).
+    N'écrit QUE dans REFUSALS — ne touche ni LEDGER ni le sentinel : une panne ici ne doit
+    jamais suspendre une surface ni fausser un cap. Retourne True si la ligne est écrite."""
+    now = time.time() if now is None else now
+    entry = {"ts": now, "surface": surface, "clientOid": oid,
+             "amount_usdt": round(float(amount_usdt or 0), 6),
+             "reasons": [str(r) for r in (reasons or [])]}
+    if preview:
+        entry["preview"] = str(preview)[:400]
+    for k, v in (meta or {}).items():
+        if isinstance(v, (int, float, str)) and k not in entry:
+            entry[k] = v
+    try:
+        import journal_append as ja
+        return ja.append_jsonl(REFUSALS, entry, max_bytes=REFUSALS_MAX_BYTES)
+    except Exception:
+        return False
+
+
+def refusals_today(surface=None, now=None, rows=None):
+    """Refus du jour (tous surfaces, ou une seule). Lecture seule, PUR si `rows` injecté —
+    de quoi lire « ce que le bot a voulu faire » dans un rapport ou le dashboard."""
+    now = time.time() if now is None else now
+    day = int(now // 86400)
+    if rows is None:
+        try:
+            import journal_append as ja
+            rows = ja.read_jsonl(REFUSALS, limit=2000)
+        except Exception:
+            rows = []
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            if int(float(r.get("ts", 0)) // 86400) != day:
+                continue
+        except (TypeError, ValueError):
+            continue
+        if surface is None or r.get("surface") == surface:
+            out.append(r)
+    return out
+
+
 # ---------- gardes communes (pures si l'état est injecté) ----------
 
 def guard(surface, live_flag, amount_usdt, per_op_cap, daily_cap,
@@ -211,12 +270,18 @@ def _ok_response(out):
                  in compact or '"code":"00000"' in compact))
 
 
-def run(args, ok, reasons, surface, amount_usdt, oid, confirm=False, runner=None, meta=None):
+def run(args, ok, reasons, surface, amount_usdt, oid, confirm=False, runner=None, meta=None,
+        now=None):
     """Point d'exécution BORNÉ commun. Si les gardes échouent -> refus. Sinon, DRY par
     défaut (aperçu, rien exécuté) ; confirm=True -> exécute réellement via bgc, journalise.
-    Retourne un dict de résultat homogène pour toutes les surfaces."""
+    Retourne un dict de résultat homogène pour toutes les surfaces.
+
+    Un REFUS de gardes est désormais PERSISTÉ (journal séparé, best-effort) : sans ça, les
+    raisons calculées par guard() étaient rendues à l'appelant puis perdues. La valeur de
+    retour est INCHANGÉE — c'est de la journalisation, pas une modification du chemin."""
     preview = "bgc " + " ".join(str(a) for a in args)
     if not ok:
+        record_refusal(surface, amount_usdt, oid, reasons, preview=preview, meta=meta, now=now)
         return {"ok": False, "executed": False, "reasons": reasons, "preview": preview}
     if not confirm:
         return {"ok": True, "executed": False, "dry": True, "preview": preview,
