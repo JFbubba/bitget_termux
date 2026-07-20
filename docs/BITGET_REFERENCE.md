@@ -300,3 +300,28 @@ level** de la croisée (liquidation ≥ 1,0). Consommation du BGB marge = preuve
   suivi TPSL — SANS polling. **[CANDIDAT — le bot POLL aujourd'hui ; le WS privé serait plus sûr/réactif.]**
 - Canaux PUBLICS : Tickers · Public-Trade (taker) · Order-Book (>25 niv.) · candle 1m/5m. **Limites WS** :
   240 sub/h/connexion · 1000 canaux/connexion · 4096 octets/subscribe. `/api-doc/common/websocket-intro`.
+
+## 9. Carry / funding-arbitrage — bonnes pratiques (20/07/2026, formation net)
+
+Le carry du bot (`alt_carry`/`carry_auto` : long spot / short perp quand funding > 0, delta-neutre)
+est une stratégie **EXÉCUTION/RISQUE** (pas un edge directionnel). Bonnes pratiques de la littérature,
+à **VÉRIFIER contre l'implémentation** (mesure-d'abord ; ne PAS re-bâtir l'existant) :
+- **Entrée = funding STABLE, pas juste extrême** : cibler les paires où le funding est resté favorable
+  **5+ jours** (BTC/ETH les plus prévisibles). ⚠ le bot entre sur funding *extrême* (percentile) —
+  VÉRIFIER s'il exige une STABILITÉ (sinon risque d'entrer sur un pic de funding qui flippe aussitôt).
+- **Sortie = 2-3 cycles de funding négatifs consécutifs** sous le break-even → fermer. **Fermer les DEUX
+  jambes en < 30 s** (minimise le basis risk) — VÉRIFIER que le bot ferme ~simultanément (pas de jambe
+  nue entre les deux).
+- **Déséquilibre de jambes** : notionnels spot vs futures à **< 5 %** l'un de l'autre ; au-delà =
+  exposition directionnelle. VÉRIFIER un moniteur d'imbalance / rééquilibrage.
+- **Tampon de marge** : garder ~**30 % de marge NON utilisée** pour absorber la divergence temporaire
+  spot/perp (éviter la liquidation de la jambe short sur un écart de base). VÉRIFIER le buffer.
+- **Risque n°1 = basis drift** : si le perp s'écarte du spot au lieu de converger, la jambe short perd
+  en directionnel. « Neutre en théorie, execution-heavy en pratique : frais + basis drift + funding flip
+  peuvent transformer une capture propre en perte plus vite que le funding n'accumule. » VÉRIFIER un
+  suivi du **basis** (spread perp-spot) + un stop sur drift.
+- Rendement réaliste : **10-30 % APY** (BTC/ETH), net dépend de l'exécution (**maker !**).
+
+**Copy/Elite positioning** (§6c) : confirmé — leaderboard + positions live des elite traders → consensus
+long/short agrégé (notional × nb traders × volume). Feed de sentiment **[À MESURER — prior bruité** comme
+les autres signaux directionnels ; accès API Elite ou scraper tiers].
