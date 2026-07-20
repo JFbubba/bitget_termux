@@ -234,3 +234,37 @@ Re-lecture ciblée (WebFetch support/academy Bitget, pas de scraping). §6 couvr
 **Bilan formation** : le bot utilise DÉJÀ les bons mécanismes (post-only/maker, auto-borrow/repay, BGB
 spot+marge à 0,08 %). Aucun changement requis ; seul risque de propre-usage à surveiller = le **margin
 level** de la croisée (liquidation ≥ 1,0). Consommation du BGB marge = preuve que la remise s'applique.
+
+## 8. Mining bitget.com (20/07/2026 — ADL/assurance, frais maker négatifs, Earn approfondi)
+
+### 8a. Fonds d'assurance & ADL (auto-deleveraging) — RISQUE futures [net-nouveau]
+- **Fonds d'assurance** : couvre le shortfall quand prix de liquidation < prix de faillite ; absorbe la
+  marge restante sinon. `/support/articles/360059239211`.
+- **ADL déclenché quand le fonds d'assurance du coin est ÉPUISÉ** → force-close des contreparties SANS
+  passer par le marché, au **mark price**, sans frais. `/support/articles/12560603800805`.
+- **ADL score** (qui est deleveragé en 1er) : croisée/multi-actifs profitable = `ROI × MMR_compte` ;
+  perdant = `ROI ÷ MMR`. **Les positions PROFITABLES à fort levier sont deleveragées EN PREMIER.**
+- **Réduire le risque ADL (par ordre d'efficacité)** : **baisser le levier** (le + efficace), fermer les
+  positions profitables, **hedging / DELTA-NEUTRE** (rangé plus bas dans la file ADL), diversifier.
+- **✅ PERTINENCE BOT (positive)** : le **carry est DELTA-NEUTRE** (long spot / short futures) + levier
+  ≤×5 + taille minuscule → **risque ADL structurellement bas** (rangé bas dans la file). Le design du bot
+  minimise déjà l'ADL. Rien à coder ; à savoir : ne jamais monter le levier sur une jambe NUE (non couverte).
+
+### 8b. Frais maker NÉGATIFS / Market Maker Program — le levier-frais [confirmation + veille]
+- Les **market makers désignés** touchent des **frais maker NÉGATIFS (rebates = payés pour coter)** :
+  spot Group A (BTC/ETH/SOL/XRP/DOGE/BGB) **MM1 −0,010 %** … MM5 0,000 %. Futures : maker 0,008→0 % par
+  tier PRO. `/support/articles/12560603880982`, `/12560603850208`.
+- **Éligibilité = application + règles d'assessment (programme MM), PAS accessible au retail/petit compte.**
+  → **le bot (25 $/trade) NE qualifie PAS.** Confirme que **maker = LA direction** (jusqu'à −0,01 % pour
+  les MM) ; le bot capte au mieux le taux maker standard via post-only. **[VEILLE]** : si un jour le bot
+  atteint une profondeur/volume MM, ces rebates seraient transformateurs (get-paid-to-quote).
+- **VIP** : sources divergent (VIP1 = 30k solde OU 1M volume selon `/880982` ; vs 500k/30k/20k BGB §7).
+  Peu importe : **hors de portée**. Volume des bots Spot-Margin/Futures-Grid compte pour le VIP (inutile ici).
+
+### 8c. Earn approfondi (liquidity_manager) [candidats mesure]
+- Au-delà du flexible (déjà utilisé, §6) : **Auto-Earn sur marge IDLE** (rendement auto sur la marge
+  oisive) = **candidat direct pour `liquidity_manager`** (yield sur l'USDT de marge dormant). **[À MESURER]**.
+- **Structured** (Dual Investment, Shark Fin, Smart Trend) = principal-garanti mais **PAS flexible**
+  (lock/conditionnel) → **inadapté** au besoin de liquidité redéployable du bot. **[VEILLE]**.
+- Rendements : stablecoins ~10 % APY, BTC/ETH 5-8 %, **XAUT flexible jusqu'à 15 % APR** (promo VIP — le
+  bot détient du XAUT ; à vérifier l'accès). `/earning`.
