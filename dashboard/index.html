@@ -578,6 +578,12 @@
       <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">les caps durs 50/250 + stop −5 % + kill-switch restent LE contrôle ; ceci REND le tail-risk visible (jamais jugé à une IC)</div>
     </div>
     <div class="panel">
+      <h2>Rang ADL <span class="dim" style="letter-spacing:0">— auto-deleveraging (1→5, 5 = deleveragé en 1er) des positions futures · descripteur, n'ajoute aucun mur</span></h2>
+      <div class="row"><span class="k">positions · rang max</span><span id="adl-max">—</span></div>
+      <div id="adl-list" class="dim" style="font-size:10.5px;line-height:1.7">—</div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">carry delta-neutre + ≤×5 → rang bas attendu ; alerte seulement si un rang monte à 4-5 (jambe nue à fort levier)</div>
+    </div>
+    <div class="panel">
       <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
       <div class="row"><span class="k">probe forecast (Darts)</span><span id="lb-fc">—</span></div>
       <div class="row"><span class="k">testeur code base mql5</span><span id="lb-mql5">—</span></div>
@@ -1458,6 +1464,16 @@ function renderState(){
     if($("rk-sortino")){
       if(rk.sortino==null){$("rk-sortino").textContent="—";$("rk-sortino").className="";}
       else{$("rk-sortino").textContent=(rk.sortino>=0?"+":"")+(+rk.sortino).toFixed(3);$("rk-sortino").className=rk.sortino>=0?"green":"red";}
+    }
+    // --- Rang ADL (adl_rank, lecture seule) : proximité d'un auto-deleveraging ---
+    const ad=st.adl||{};
+    if($("adl-max")){
+      if(ad.max_rank==null){$("adl-max").textContent=(ad.note?"N/A (aucune position)":"—");$("adl-max").className="dim";}
+      else{const hi=ad.max_rank>=4;$("adl-max").textContent=ad.n+" pos · "+ad.max_rank+"/5 ("+(ad.label||"")+")";$("adl-max").className=hi?"red":(ad.max_rank>=3?"amber":"green");}
+    }
+    if($("adl-list")){
+      const ps=ad.positions||[];
+      $("adl-list").innerHTML=ps.length?ps.map(p=>esc(p.symbol||"—")+" "+esc(p.side||"")+" : rang "+p.rank+"/5").join("<br>"):(ad.note?esc(ad.note):"—");
     }
     // --- Veille Bitget : fil des N derniers changements de faits autoritatifs ---
     const bw=st.bitget_watch||{},bwe=bw.events||[],bwd=$("bwatch");
