@@ -12412,6 +12412,81 @@ def test_trading_firm_debat_risque_off_par_defaut_et_sans_appel_llm():
             os.environ["FIRM_RISK_DEBATE"] = old
 
 
+def test_trading_firm_debat_bull_bear_off_par_defaut_et_sans_appel_llm():
+    """§106 — bull et bear sont ADVERSAIRES PAR CONSTRUCTION ; mesurés sur le cache réel ils
+    rendent le MÊME texte (similarité médiane 1,00, 4/5 paires ≥0,90). Même cause que le
+    débat de risque (§105) : différenciés par le seul RÔLE sur un contexte identique, ce que
+    le modèle local ne tient pas. Gaté défaut OFF -> 2 voix exclues, zéro appel LLM."""
+    import os
+    import trading_firm as tf
+    old = os.environ.get("FIRM_BULL_BEAR_DEBATE")
+    os.environ.pop("FIRM_BULL_BEAR_DEBATE", None)
+    appels = []
+    orig = tf._call
+    tf._call = lambda p, k, t: appels.append(k) or '{"argument": "x", "lean": 1}'
+    try:
+        assert tf._bull_bear_enabled() is False               # défaut OFF (mesuré)
+        bull, bear = tf._bull_bear_round({}, )
+        assert appels == [], "OFF doit n'émettre AUCUN appel LLM local"
+        assert bull["lean"] is None and bear["lean"] is None   # exclus, pas neutres
+        os.environ["FIRM_BULL_BEAR_DEBATE"] = "1"              # réarmable en un levier
+        assert tf._bull_bear_enabled() is True
+        bull, bear = tf._bull_bear_round({})
+        assert len(appels) == 2 and bull["lean"] == 1 and bear["lean"] == 1
+    finally:
+        tf._call = orig
+        os.environ.pop("FIRM_BULL_BEAR_DEBATE", None)
+        if old is not None:
+            os.environ["FIRM_BULL_BEAR_DEBATE"] = old
+
+
+def test_trading_firm_juge_ne_retombe_pas_en_silence_sur_le_modele_local():
+    """§106 — un rôle de JUGE (manager/trader/risk-judge) dont le cloud échoue NE doit PAS
+    être joué en silence par le modèle local : celui-ci est MESURÉ incapable de tenir un rôle
+    (similarité 1,00, 29 % muet, 88 % complaisant) et rend un verdict crédible d'ALLURE
+    (« Underweight, direction -0.5 ») qui alimenterait firm_shadow sans laisser de trace.
+    Défaut : étage INDISPONIBLE (None) -> _assemble retombe sur les biais analystes."""
+    import os
+    import llm_agent
+    import trading_firm as tf
+    old = os.environ.get("FIRM_JUDGE_LOCAL_FALLBACK")
+    os.environ.pop("FIRM_JUDGE_LOCAL_FALLBACK", None)
+    orig_g, orig_l = llm_agent._call_gemini, llm_agent._call_local
+    locaux = []
+    llm_agent._call_gemini = lambda p, m, t: (_ for _ in ()).throw(RuntimeError("cloud KO"))
+    llm_agent._call_local = lambda p, m, t: locaux.append(m) or '{"rating": "Sell"}'
+    try:
+        os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY", "factice")
+        assert tf._json("p", "judge") is None, "juge sans cloud doit être INDISPONIBLE"
+        assert locaux == [], "aucun repli local pour un rôle de juge"
+        # un rôle local NORMAL (analyste) continue de passer par le modèle local
+        assert tf._json("p", "analyst") is not None and locaux, "l'analyste doit rester local"
+        os.environ["FIRM_JUDGE_LOCAL_FALLBACK"] = "1"        # repli réarmable si voulu
+        locaux.clear()
+        assert tf._json("p", "judge") is not None and locaux
+    finally:
+        llm_agent._call_gemini, llm_agent._call_local = orig_g, orig_l
+        os.environ.pop("FIRM_JUDGE_LOCAL_FALLBACK", None)
+        if old is not None:
+            os.environ["FIRM_JUDGE_LOCAL_FALLBACK"] = old
+
+
+def test_trading_firm_analystes_restent_actifs_eux():
+    """Contre-épreuve de §106 : les analystes sont différenciés par leurs DONNÉES (et non
+    par un rôle) — mesurés à similarité 0,00 (0/43 paires identiques). Ils NE doivent PAS
+    être gatés : c'est le seul étage local qui produit de l'information."""
+    import trading_firm as tf
+    appels = []
+    orig = tf._call
+    tf._call = (lambda p, k, t: appels.append(k)
+                or '{"bias": -0.3, "confidence": 0.6, "note": "n"}')
+    try:
+        r = tf._analyst("technique", "instruction", {"prix": 1})
+        assert appels == ["analyst"] and r["bias"] == -0.3     # l'analyste APPELLE bien
+    finally:
+        tf._call = orig
+
+
 def test_llm_keepalive_pilotable_par_env():
     """Le keep_alive local doit être pilotable par .env comme les autres leviers : sinon un
     modèle lourd campe en RAM (mesuré : 4,6 Go, 30 min) sur le VPS qui trade."""

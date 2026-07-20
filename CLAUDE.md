@@ -163,6 +163,15 @@ FUTURES_MAKER_SYMBOLS=         # périmètre maker : CSV — VIDE = TOUS les tok
                                # directionnelle (~−0.088→−0.041R/trade) mais ne la bascule PAS positive ; sur
                                # alts illiquides le post-only remplit rarement → repli taker (neutre). Le
                                # directionnel réel est EN PAUSE (FUTURES_EDGE_GATE_OVERRIDE=0) → maker DORMANT.
+FIRM_BULL_BEAR_DEBATE=0     # débat haussier/baissier LOCAL (§106) — défaut OFF. Bull et bear sont ADVERSAIRES
+                            # par construction et rendent pourtant le MÊME texte (similarité médiane 1,00).
+                            # LOI mesurée (docs/SAVOIR.md §10) : à cette taille de modèle un PERSONA ne
+                            # différencie rien (1,00), des DONNÉES différencient tout (analystes : 0,00) —
+                            # d'où : analystes GARDÉS, étages de persona coupés.
+FIRM_JUDGE_LOCAL_FALLBACK=0 # (§106) juge cloud en échec -> PAS de repli sur le modèle local. Le 1.5b jouait
+                            # sinon Manager/Trader/PM en SILENCE et rendait un verdict crédible d'ALLURE qui
+                            # fixait direction+sizing+ombre firm_shadow, sans trace. Défaut : étage
+                            # INDISPONIBLE -> _assemble retombe sur les biais analystes (la vraie info).
 FIRM_RISK_DEBATE=0          # débat de risque LOCAL à 3 voix de la firme (§105) — défaut OFF, MESURÉ sans
                             # information : 29 % de voix muettes, 88 % de complaisance, similarité MÉDIANE
                             # 1,00 entre voix (elles rendent le MÊME texte = écho du trader, pas un débat).

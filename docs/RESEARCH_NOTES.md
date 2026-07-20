@@ -3789,3 +3789,49 @@ jour d'un modèle capable.
 ET `FIRM_EDGE_OVERRIDE` OFF) ; murs `guards()` inchangés. Le prior « LLM = bruit » sort
 renforcé, mais pour une raison précise et désormais chiffrée : sur ce matériel, un débat
 multi-voix local ne peut pas produire de divergence.
+
+## §106 — FIRME : la loi « données ≠ persona », et le juge fantôme (20/07/2026)
+
+Suite directe de §105 : le débat de risque étant un écho, la question de fond restait —
+**la firme produit-elle de l'information, ou chaque étage répète-t-il le précédent ?**
+Mesuré sur le cache RÉEL (8 symboles, aucun appel LLM : `scratchpad/firm_chain_echo.py`).
+
+**1. L'étage bull/bear est cassé lui aussi.** Bull et bear sont ADVERSAIRES PAR
+CONSTRUCTION — c'est tout l'intérêt du débat TradingAgents. Mesure : **similarité médiane
+1,00** (4/5 paires ≥0,90). Le juge cloud l'avait d'ailleurs lui-même écrit dans son
+rationale : « les arguments bull et bear sont presque identiques ». **Gaté défaut OFF**
+(`FIRM_BULL_BEAR_DEBATE`).
+
+**2. LA LOI, et sa contre-épreuve.** Pourquoi les analystes fonctionnent-ils alors que les
+débatteurs échouent ? Parce qu'ils ne sont pas différenciés de la même façon :
+
+| Étage | Différencié par | Similarité mesurée |
+|---|---|---|
+| 4 analystes | leurs **DONNÉES** (blocs distincts) | **0,00** (0/43 paires ≥0,8 ; étendue de biais 0,50) |
+| bull vs bear | leur **RÔLE** seul, contexte identique | **1,00** |
+| 3 voix de risque | leur **RÔLE** seul, contexte identique | **1,00** |
+
+**À cette taille de modèle, un persona ne différencie rien ; des données différencient
+tout.** 0,00 contre 1,00 : la séparation est nette. C'est pourquoi les analystes RESTENT
+actifs (seul étage local porteur d'information) et pourquoi tout étage « multi-voix sur
+contexte identique » est condamné ici — inutile d'en réessayer d'autres.
+Implication générale : ne jamais attendre d'un LLM local qu'il produise de la diversité par
+instruction de rôle ; la diversité doit venir de l'ENTRÉE.
+
+**3. Le juge fantôme (défaut le plus grave).** Découvert par un écart de compteur : le
+compteur d'appels cloud montait de 2 pendant un cycle qui en faisait 3
+(`_cloud_inc()` n'incrémente qu'en cas de succès). Reproduit : **quand le juge cloud échoue,
+`_call` retombait EN SILENCE sur le modèle local**, qui jouait alors Manager de recherche /
+Trader / Portfolio Manager. Il ne renvoie pas une erreur visible mais un verdict crédible
+d'ALLURE (« Underweight, direction −0,5, rationale plausible ») — donc la direction, le
+sizing ET l'ombre `firm_shadow` pouvaient être produits intégralement par le 1.5b, sans
+aucune trace. **Corrigé** : plus de repli local pour un rôle de juge (`_judge_local_fallback`,
+défaut OFF) — l'étage devient INDISPONIBLE et `_assemble` retombe sur les biais analystes,
+c'est-à-dire la seule information réelle. Fail-safe préservé (aucun blocage, aucun crash) :
+on refuse de FABRIQUER, on ne bloque pas.
+
+**Bilan des trois §105/§106.** Il ne reste actif en local que l'étage qui mesure quelque
+chose (les 4 analystes) ; les étages de persona sont coupés ; les rôles de juge sont soit
+cloud, soit absents. Cycle mesuré **~123 s (4 appels locaux + 3 cloud)** contre ~240 s et
+9 appels au départ. Portée argent NULLE (voix firm doublement fermée, murs inchangés). Tout
+est réarmable en un levier.

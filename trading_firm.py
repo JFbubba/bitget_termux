@@ -114,6 +114,12 @@ def _cloud_inc():
         pass
 
 
+def _judge_local_fallback():
+    """Autorise-t-on le modèle LOCAL à jouer un rôle de JUGE quand le cloud échoue ?
+    Défaut NON (§106) — voir la justification mesurée dans _call. Réarmable."""
+    return str(_knob("FIRM_JUDGE_LOCAL_FALLBACK", 0)).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _call(prompt, kind, timeout):
     """Un appel LLM. kind='judge' -> Gemini cloud (si clé + budget), sinon Ollama local.
     Réutilise la plomberie de llm_agent (coût cloud journalisé par _call_gemini)."""
@@ -128,7 +134,15 @@ def _call(prompt, kind, timeout):
             _cloud_inc()
             return txt
         except Exception:
-            pass                                  # repli local (fail-open, jamais de blocage)
+            pass                                  # -> repli, décidé juste en dessous
+    if kind == "judge" and not _judge_local_fallback():
+        # §106 — PAS de repli local pour un rôle de JUGE. Le modèle local est MESURÉ
+        # incapable de tenir un rôle (similarité 1,00 entre personas, 29 % muet, 88 %
+        # complaisant) et rendrait un verdict crédible d'ALLURE qui fixerait la direction,
+        # le sizing et donc l'ombre firm_shadow — sans laisser de trace. Mieux vaut un
+        # étage INDISPONIBLE (_json -> None) : _assemble retombe alors sur les biais des
+        # analystes, seul étage local mesuré porteur d'information.
+        raise RuntimeError("firm: juge cloud indisponible (pas de repli local, §106)")
     model = str(_knob("FIRM_LLM_LOCAL_MODEL", "qwen2.5:1.5b"))
     return llm_agent._call_local(prompt, model, timeout)
 
@@ -201,12 +215,45 @@ def _researcher(side, reports, last_opp):
             "lean": _num(r, "lean", -1, 1)}
 
 
+def _bull_bear_enabled():
+    """§106 — débat haussier/baissier LOCAL gaté, défaut OFF. MESURE (20/07, cache réel) :
+    bull et bear, ADVERSAIRES PAR CONSTRUCTION, rendent le MÊME texte — similarité MÉDIANE
+    **1,00** (4/5 paires ≥0,90) ; le juge cloud l'avait lui-même noté (« les arguments bull
+    et bear sont presque identiques »). Même cause que §105, et la contre-épreuve la
+    démontre : les ANALYSTES, différenciés par leurs DONNÉES, divergent à **0,00** (0/43
+    paires identiques, étendue de biais 0,50), alors que toute voix différenciée par le seul
+    RÔLE sur un contexte identique retombe à 1,00. À cette taille de modèle, un persona ne
+    différencie rien ; des données différencient tout. Les analystes restent donc actifs."""
+    return str(_knob("FIRM_BULL_BEAR_DEBATE", 0)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _bull_bear_round(reports):
+    """Le débat haussier<->baissier (n tours, chacun répondant au dernier argument adverse).
+    OFF -> 2 voix EXCLUES (lean None) sans aucun appel LLM."""
+    if not _bull_bear_enabled():
+        muet = {"argument": "", "lean": None}
+        return dict(muet), dict(muet)
+    bull = bear = None
+    last_bull = last_bear = ""
+    for _ in range(max(1, int(float(_knob("FIRM_DEBATE_ROUNDS", 1))))):
+        bull = _researcher("bull", reports, last_bear)
+        last_bull = bull.get("argument", "")
+        bear = _researcher("bear", reports, last_bull)
+        last_bear = bear.get("argument", "")
+    return bull, bear
+
+
 def _manager(reports, bull, bear):
     p = ("Tu es le Manager de recherche (juge du débat directionnel). Pèse la force des "
          "arguments bull/bear et TRANCHE. Échelle EXACTE (un cran) : Buy/Overweight/Hold/"
          "Underweight/Sell. Hold = équilibre réel des preuves OU edge attendu < frais "
          "(mesure-d'abord). Cite l'argument décisif.\n"
-         f"Rapports : {_compact(reports)}\nBull : {_compact(bull, 500)}\nBear : {_compact(bear, 500)}\n"
+         f"Rapports : {_compact(reports)}\n"
+         # débat OFF/muet -> on le DIT au juge plutôt que de lui servir deux voix vides.
+         + (f"Bull : {_compact(bull, 500)}\nBear : {_compact(bear, 500)}\n"
+            if ((bull or {}).get("lean") is not None or (bear or {}).get("lean") is not None)
+            else "Débat bull/bear : indisponible — tranche sur les rapports d'analystes seuls.\n")
+         +
          'Réponds STRICTEMENT en JSON : {"rating": "<un cran>", "direction": <-1..1>, '
          '"rationale": "<30 mots max>"}')
     r = _json(p, "judge") or {}
@@ -381,15 +428,8 @@ def run_symbol(symbol):
     }
     if sum(1 for r in reports.values() if r) < 2:
         return None                                # trop d'analystes muets -> pas de décision
-    # 2) DÉBAT bull<->bear (local)
-    rounds = max(1, int(float(_knob("FIRM_DEBATE_ROUNDS", 1))))
-    bull = bear = None
-    last_bull = last_bear = ""
-    for _ in range(rounds):
-        bull = _researcher("bull", reports, last_bear)
-        last_bull = bull.get("argument", "")
-        bear = _researcher("bear", reports, last_bull)
-        last_bear = bear.get("argument", "")
+    # 2) DÉBAT bull<->bear (local, gaté §106 — défaut OFF)
+    bull, bear = _bull_bear_round(reports)
     # 3) research-manager (cloud juge)
     plan = _manager(reports, bull, bear)
     # 4) trader (cloud juge)

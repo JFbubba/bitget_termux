@@ -225,6 +225,31 @@ Avellaneda & Stoikov (2008) — déjà noté « exigeant » dans simons_agent.py
 
 ---
 
+
+## 10. Diversité d'un comité de LLM : elle vient des DONNÉES, pas des rôles (mesuré le 20/07/2026, §106)
+
+**Acquis (mesuré sur ce bot, pas lu).** Dans un comité multi-agents LLM, donner à plusieurs
+voix des INSTRUCTIONS DE RÔLE différentes (haussier/baissier, agressif/neutre/conservateur)
+sur un CONTEXTE IDENTIQUE ne produit AUCUNE diversité : les voix rendent le même texte
+(similarité de Jaccard **1,00**, y compris entre deux rôles explicitement adversaires). En
+revanche, différencier les voix par leurs **DONNÉES D'ENTRÉE** (chaque analyste reçoit des
+blocs distincts : prix/orderflow, sentiment/funding, macro, on-chain) produit une divergence
+franche (similarité **0,00**, étendue de biais 0,50).
+
+**Mécanisme.** Un persona est une contrainte FAIBLE : elle est noyée par le contexte partagé,
+qui domine la génération. Une entrée différente est une contrainte FORTE : elle change ce
+qu'il y a à dire. La taille du modèle module l'effet (un 7b redescend à 0,22 de similarité
+entre personas) mais ne l'annule pas — et un modèle assez gros pour tenir un rôle ne tient
+pas dans le budget latence/RAM de ce VPS (§105).
+
+**Implication opérationnelle.** (1) Ne jamais construire un « débat » ou un « comité »
+d'agents dont la seule différence est le prompt de rôle — c'est un écho qui COMPTE PLUSIEURS
+FOIS le même avis et fabrique une fausse confiance (ici, cela triple-pondérait le trader et
+polluait la mesure d'ombre). (2) Pour obtenir de la vraie diversité : donner des DONNÉES
+différentes, des horizons différents, ou des méthodes différentes — pas des personnalités.
+(3) Contrôle systématique avant de croire un comité : mesurer la similarité texte-à-texte
+entre les voix ; deux voix adversaires qui se ressemblent à ≥0,8 invalident l'étage.
+
 ## Traçabilité
 
 Constitué le 03/07/2026 (§56 des RESEARCH_NOTES). Sources primaires citées par
