@@ -140,14 +140,62 @@ def _signe_divergent(r):
 
 
 OVERLAY = Path(__file__).resolve().parent / ".overlay_votes.jsonl"
+EPOCHS = Path(__file__).resolve().parent / "voice_epochs.json"
+
+
+def charger_epochs(chemin=None):
+    """§107 — {voix: ts_min}. Quand l'implémentation d'une voix CHANGE (correction,
+    réentraînement, étage coupé), ses votes d'ombre antérieurs ne mesurent plus la même
+    chose : les garder mélangerait deux populations et fabriquerait un IC qui ne
+    correspond à aucune version du code. Fichier COMMITTÉ (c'est une décision de mesure,
+    pas de l'état runtime). Best-effort {} : jamais d'exception, jamais de blocage."""
+    try:
+        d = json.loads(Path(chemin or EPOCHS).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out = {}
+    for voix, v in (d or {}).items():
+        if str(voix).startswith("_"):          # clés de documentation (_lisezmoi)
+            continue
+        try:                                   # une entrée illisible n'invalide pas les AUTRES
+            ts = v.get("since_ts") if isinstance(v, dict) else v
+            if ts is not None:
+                out[str(voix)] = float(ts)
+        except Exception:
+            continue
+    return out
+
+
+def filtrer_epochs(entrees, epochs):
+    """PURE. Retire les votes d'une voix ANTÉRIEURS à son epoch — VOIX PAR VOIX, jamais la
+    ligne entière (plusieurs voix partagent le journal d'ombre). Renvoie
+    (entrees_filtrees, {voix: n_écartés}) : le compte est rendu VISIBLE, un filtrage
+    silencieux serait son propre piège (on croirait mesurer tout l'historique)."""
+    if not epochs:
+        return entrees, {}
+    out, ignores = [], {}
+    for e in entrees:
+        votes, garde = e.get("votes") or {}, {}
+        ts = float(e.get("ts", 0) or 0)
+        for voix, v in votes.items():
+            if voix in epochs and ts < epochs[voix]:
+                ignores[voix] = ignores.get(voix, 0) + 1
+            else:
+                garde[voix] = v
+        if garde:
+            out.append({**e, "votes": garde})
+    return out, ignores
 
 
 def overlay_snapshot(horizon_s=3600):
     """IC des VOIX OPT-IN (llm/nn/classics, §77) — même juge que les 14, journal
-    séparé (.overlay_votes.jsonl, écrit par _record quand une voix PARLE)."""
-    res = ic_par_agent(charger_entrees(OVERLAY), horizon_s)
+    séparé (.overlay_votes.jsonl, écrit par _record quand une voix PARLE).
+    §107 : les votes antérieurs à l'epoch d'une voix sont ÉCARTÉS (voice_epochs.json)."""
+    entrees, ignores = filtrer_epochs(charger_entrees(OVERLAY), charger_epochs())
+    res = ic_par_agent(entrees, horizon_s)
     tri = sorted(res.items(), key=lambda x: -(x[1]["ic"] if x[1]["ic"] is not None else -9))
-    return {"horizon_s": horizon_s, "agents": [{"agent": a, **m} for a, m in tri]}
+    return {"horizon_s": horizon_s, "agents": [{"agent": a, **m} for a, m in tri],
+            "epochs_ignores": ignores}
 
 
 def snapshot(horizon_s=3600):
@@ -179,8 +227,13 @@ def build_report(s=None):
     if div:
         lignes.append("  ⚠ divergence rankIC↔pearsonIC : " + ", ".join(div)
                       + " — le POIDS suit le pearson (ridge), le dashboard montrait le rank (§96)")
-    ov = overlay_snapshot(s["horizon_s"]).get("agents", [])
+    ovs = overlay_snapshot(s["horizon_s"])
+    ov = ovs.get("agents", [])
     lignes.append("--- voix opt-in (llm/nn/classics, §77) ---")
+    ign = ovs.get("epochs_ignores") or {}
+    if ign:                                    # §107 : jamais d'écartement SILENCIEUX
+        lignes.append("  ⓘ votes écartés (epoch de voix, voice_epochs.json) : "
+                      + ", ".join(f"{v} −{n}" for v, n in sorted(ign.items())))
     if ov:
         for r in ov:
             lignes.append(f"  {r['agent']:<12} IC {r['ic']:+.4f} (t {r['ic_t']:+.2f}·clust "

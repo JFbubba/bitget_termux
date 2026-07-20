@@ -1,0 +1,9 @@
+{
+  "_lisezmoi": "Epochs de MESURE des voix d'ombre (§107). Un vote ANTERIEUR a l'epoch de sa voix est ECARTE par live_ic_audit.overlay_snapshot — donc par promotion_board, le dashboard et voice_shadow_measure. A POSER a chaque fois que l'implementation d'une voix change de facon a rendre ses votes passes incomparables (correction, reentrainement, etage coupe). Le nombre de votes ecartes est affiche dans le rapport d'audit : jamais de filtrage silencieux.",
+  "firm_shadow": {
+    "since_ts": 1784565838,
+    "since_lisible": "2026-07-20 16:43:58",
+    "why": "§105/§106 — les votes anterieurs ont ete produits par une chaine MESUREE cassee : debat bull/bear et debat de risque en ECHO (similarite mediane 1,00, les voix rendent le meme texte), et repli SILENCIEUX du role de juge sur le modele local quand le cloud echouait (direction+sizing fabriques par un 1.5b, sans trace). Ces votes ne mesurent aucune version exploitable du code.",
+    "ref": "commits §105/§106 (HEAD 26b47a2)"
+  }
+}

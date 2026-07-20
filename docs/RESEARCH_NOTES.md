@@ -3835,3 +3835,31 @@ chose (les 4 analystes) ; les étages de persona sont coupés ; les rôles de ju
 cloud, soit absents. Cycle mesuré **~123 s (4 appels locaux + 3 cloud)** contre ~240 s et
 9 appels au départ. Portée argent NULLE (voix firm doublement fermée, murs inchangés). Tout
 est réarmable en un levier.
+
+## §107 — EPOCHS DE MESURE DES VOIX D'OMBRE : dater ce qui redevient comparable (20/07/2026)
+
+Conséquence directe de §105/§106. Les 8 votes `firm_shadow` déjà journalisés ont été produits
+par la chaîne mesurée cassée (débats en écho + repli silencieux du juge sur le modèle local).
+Les laisser dans l'audit mélangerait DEUX POPULATIONS et fabriquerait un IC ne correspondant à
+aucune version du code — précisément le genre de chiffre sur lequel on armerait une voix par
+erreur.
+
+**Mécanisme (généralisé, pas un correctif ponctuel)** : `voice_epochs.json` (COMMITTÉ — c'est
+une décision de mesure, pas de l'état runtime) associe à chaque voix un `since_ts`.
+`live_ic_audit.filtrer_epochs` (PURE) écarte les votes antérieurs **VOIX PAR VOIX** — jamais la
+ligne entière, puisque ~10 voix partagent `.overlay_votes.jsonl`. Appliqué dans
+`overlay_snapshot`, qui est le **point de passage UNIQUE** de `promotion_board` (celui qui peut
+promouvoir une voix), du dashboard et de `voice_shadow_measure` : filtrer là couvre tous les
+consommateurs. Le nombre d'écartés est **affiché dans le rapport** (`ⓘ votes écartés … : firm_shadow −8`) —
+un filtrage silencieux serait son propre piège, on croirait mesurer tout l'historique.
+
+**À POSER** à chaque changement rendant les votes passés d'une voix incomparables : correction
+de bug, réentraînement (nn/qml), étage coupé, changement de prompt. C'est le geste qui manquait :
+jusqu'ici un réentraînement laissait cohabiter l'ancien et le nouveau régime dans le même IC.
+
+**Défaut attrapé en posant le marqueur** : la 1ʳᵉ version de `charger_epochs` avait un
+`try/except` GLOBAL — la clé de documentation `_lisezmoi` (une chaîne) faisait lever `float()`
+et **jetait silencieusement TOUT le fichier** (epochs chargés = `{}`, marqueur inopérant alors
+qu'il semblait posé). Vu parce que l'effet a été VÉRIFIÉ après l'écriture, pas supposé
+(ERR-018). Durci : clés `_*` ignorées, et parsing par entrée — une entrée illisible n'invalide
+plus les autres.

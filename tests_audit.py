@@ -12440,6 +12440,54 @@ def test_trading_firm_debat_bull_bear_off_par_defaut_et_sans_appel_llm():
             os.environ["FIRM_BULL_BEAR_DEBATE"] = old
 
 
+def test_voice_epochs_filtre_les_votes_perimes_par_voix():
+    """§107 — quand l'implémentation d'une voix change, ses votes d'ombre ANTÉRIEURS ne
+    mesurent plus la même chose. L'epoch les écarte VOIX PAR VOIX (jamais la ligne entière :
+    plusieurs voix partagent le même journal), et le nombre d'écartés est RENDU VISIBLE."""
+    import json
+    import os
+    import tempfile
+    import live_ic_audit as lia
+    entrees = [
+        {"ts": 100, "symbol": "BTCUSDT", "price": 1.0, "votes": {"vieille": 0.5, "autre": 0.9}},
+        {"ts": 300, "symbol": "BTCUSDT", "price": 1.0, "votes": {"vieille": -0.5}},
+        {"ts": 100, "symbol": "ETHUSDT", "price": 1.0, "votes": {"autre": 0.1}},
+    ]
+    out, ignores = lia.filtrer_epochs(entrees, {"vieille": 200})
+    assert ignores == {"vieille": 1}                       # 1 seul vote écarté
+    # la ligne ts=100 SURVIT avec le vote de l'autre voix (filtrage par VOIX, pas par ligne)
+    assert out[0]["votes"] == {"autre": 0.9}
+    assert out[1]["votes"] == {"vieille": -0.5}            # postérieur à l'epoch -> gardé
+    assert len(out) == 3
+    # une ligne vidée de tous ses votes disparaît
+    out2, _ = lia.filtrer_epochs([entrees[2]], {"autre": 200})
+    assert out2 == []
+    # aucun epoch -> identité stricte
+    assert lia.filtrer_epochs(entrees, {})[0] == entrees
+    # lecture du fichier : best-effort, jamais d'exception
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "e.json")
+        open(p, "w").write(json.dumps({"v": {"since_ts": 42, "why": "x"}}))
+        assert lia.charger_epochs(p) == {"v": 42}
+        open(p, "w").write("{ casse")
+        assert lia.charger_epochs(p) == {}
+        assert lia.charger_epochs(os.path.join(d, "absent.json")) == {}
+        # une clé de doc ou une entrée illisible NE DOIT PAS invalider les autres epochs
+        # (le fichier a d'abord été écrit avec un _lisezmoi : float() levait et jetait TOUT)
+        open(p, "w").write(json.dumps({"_lisezmoi": "texte", "pourri": {"since_ts": "abc"},
+                                       "bonne": {"since_ts": 7}}))
+        assert lia.charger_epochs(p) == {"bonne": 7.0}
+
+
+def test_voice_epochs_applique_par_overlay_snapshot():
+    """L'epoch doit être honoré par overlay_snapshot — le point de passage UNIQUE de
+    promotion_board, du dashboard et de voice_shadow_measure. Sinon le marqueur est décoratif."""
+    import inspect
+    import live_ic_audit as lia
+    src = inspect.getsource(lia.overlay_snapshot)
+    assert "filtrer_epochs" in src and "charger_epochs" in src
+
+
 def test_trading_firm_juge_ne_retombe_pas_en_silence_sur_le_modele_local():
     """§106 — un rôle de JUGE (manager/trader/risk-judge) dont le cloud échoue NE doit PAS
     être joué en silence par le modèle local : celui-ci est MESURÉ incapable de tenir un rôle
