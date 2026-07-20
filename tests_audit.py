@@ -3849,29 +3849,6 @@ def test_alt_carry_stability_gate():
     assert ac.decider({"position": None}, old)["action"] == "ouvrir"
 
 
-def test_variant_shadows_sentiment_and_savant_robust():
-    # §75 : variantes MESURÉES (voix d'ombre) — sentiment percentile-contrarien + savant robuste
-    import numpy as np
-    import savant_agent as sa
-    import sentiment_index as si
-    import variant_shadows as vs
-    # sentiment shadow (noyau PUR) : greed extrême -> négatif (fade), fear extrême -> positif, centre -> 0
-    assert si._shadow_from_pctl(0.95)["vote"] < 0
-    assert si._shadow_from_pctl(0.05)["vote"] > 0
-    assert si._shadow_from_pctl(0.50) == {"vote": 0.0, "confidence": 0.0}   # deadzone
-    assert si._shadow_from_pctl(0.60) == {"vote": 0.0, "confidence": 0.0}
-    # savant : le param robust est honoré (chemin médiane/MAD) et rend un score fini positif
-    rows = [[((i * 7) % 5 - 2) * 0.1, ((i * 3) % 4) * 0.1, ((i * 5) % 3 - 1) * 0.1,
-             ((i * 11) % 6) * 0.05, ((i * 13) % 7) * 0.1] for i in range(80)]
-    X = np.asarray(rows, float)
-    X[-1] = X[-1] + 3.0                                                     # dislocation du dernier point
-    _, s_non = sa.mahalanobis_anomaly(X, robust=False)
-    _, s_rob = sa.mahalanobis_anomaly(X, robust=True)
-    assert s_non >= 0.0 and s_rob >= 0.0
-    # driver d'ombre : registre de symboles borné + point d'entrée présent
-    assert isinstance(vs.WATCH, list) and len(vs.WATCH) >= 3 and callable(vs.cycle)
-
-
 def test_with_qml_weight_bounded_and_gated():
     # gap de câblage §4 comblé : la 18e voix qml a un poids FIXE BORNÉ (0.5) comme llm/nn/classics,
     # au lieu du défaut 1.0 ; identité quand absente ; jamais persistée dans le banc gelé à 14.

@@ -78,35 +78,6 @@ def download_history(timeout=25):
     return len(rows)
 
 
-def _shadow_from_pctl(pctl):
-    """PUR. Percentile F&G [0,1] -> {vote, confidence} CONTRARIEN à emphase extrême (deadzone centre).
-    greed (pctl haut) -> vote négatif ; fear (pctl bas) -> vote positif ; centre [0.35,0.65] -> 0."""
-    dev = pctl - 0.5                                       # >0 greed relatif, <0 fear relatif
-    if abs(dev) < 0.15:                                    # deadzone centrale : pas d'edge canonique
-        return {"vote": 0.0, "confidence": 0.0}
-    mag = min((abs(dev) - 0.15) / 0.35, 1.0)               # emphase croissante vers les extrêmes
-    return {"vote": round(-mag if dev > 0 else mag, 3), "confidence": round(mag, 3)}
-
-
-def shadow_vote(fng=None):
-    """VARIANTE MESURÉE (§75, voix d'ombre) du vote sentiment. Au lieu du contrarian LINÉAIRE ancré
-    sur 50 arbitraire, vote en PERCENTILE du F&G courant vs sa PROPRE distribution historique (déjà
-    téléchargée via load_history, mais IGNORÉE par le vote live = le gaspillage identifié) + EMPHASE
-    AUX EXTRÊMES (deadzone au centre, là où le F&G n'a pas d'edge canonique). Contrarian : greed
-    extrême -> vote NÉGATIF (fade) ; peur extrême -> vote POSITIF. Best-effort -> {0,0}. Ne vote PAS
-    dans le consensus (journal d'ombre) — mesuré vs l'agent live par live_ic_audit."""
-    try:
-        fng = fetch_fear_greed() if fng is None else fng
-        v = (fng or {}).get("value")
-        hist = [r[1] for r in load_history() if isinstance(r, (list, tuple)) and len(r) >= 2]
-        if v is None or len(hist) < 30:
-            return {"vote": 0.0, "confidence": 0.0}
-        pctl = sum(1 for x in hist if x <= v) / len(hist)     # percentile du F&G courant [0,1]
-        return _shadow_from_pctl(pctl)
-    except Exception:
-        return {"vote": 0.0, "confidence": 0.0}
-
-
 def build_report(fng):
     if not fng:
         return "=== FEAR & GREED ===\nIndisponible.\nVERDICT: SAFE"
