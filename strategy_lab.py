@@ -427,7 +427,9 @@ def base_registry(candles, symbol=None):
     absente (le lab classe ce qui existe)."""
     names = ["ema_cross_20_50", "rsi_reversion_14", "donchian_20", "vp_fade_60",
              "structure_bos", "macd_12_26_9", "bollinger_20",
-             "vwap_24", "grid_60_8", "rf_25", "donchianvol_20_13", "pullbackc_20_50"]
+             "vwap_24", "grid_60_8", "rf_25", "donchianvol_20_13", "pullbackc_20_50",
+             # variants ÉVOLUÉS (sep-CMA-ES, ajoutés à la MESURE 20/07 ; build_named strip 'evo_')
+             "evo_vwap_18", "evo_grid_51_12", "evo_bollinger_47", "evo_rsi_reversion_12"]
     ref = "ETHUSDT" if str(symbol or "").upper() == "BTCUSDT" else "BTCUSDT"
     names.append(f"pairs_{ref}_20")
     if symbol:
