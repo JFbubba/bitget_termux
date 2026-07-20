@@ -242,6 +242,7 @@ FILES_TO_SCAN = [
     "flows_agent.py",
     "carry_agent.py",
     "carry_monitor.py",
+    "carry_pnl.py",
     "assistant/llm_client.py",
     "assistant/tools.py",
     "assistant/agent.py",

@@ -2059,6 +2059,102 @@ def test_maker_measure_aggregation():
     assert mm.agreger(fills, sym="DOGEUSDT", cutoff_ts=2000)["n_fills"] == 0
 
 
+# ---------- carry_pnl : le carry RÉELLEMENT encaissé, net de frais (mesure OOS) ----------
+# La deep-research du 20/07 a tranché : 100 % des magnitudes de carry publiées sont BRUTES et
+# in-sample (« out-of-sample » = 0 occurrence dans les 3 papiers primaires). La seule mesure
+# vraiment hors-échantillon dont nous disposons est notre PROPRE registre. Arithmétique qui
+# commande tout : 21,84 %/an sur 1095 périodes de 8 h = ~1,99 bps BRUT par règlement, contre
+# jusqu'à ~24 bps l'aller-retour 2 jambes en taker -> le carry ne paie QUE si la couverture est
+# TENUE. D'où la métrique centrale : règlements de funding capturés PAR ALLER-RETOUR.
+# SCHÉMA RÉEL relevé le 2026-07-20 via /api/v2/mix/account/bill (ERR-007/009 : fixture ancrée
+# sur le vrai) : contract_settle_fee -> amount = funding (positif = PERÇU), fee = 0 ;
+# open_* -> amount = 0, fee NÉGATIF ; close_* -> amount = PnL réalisé, fee NÉGATIF.
+
+def test_carry_pnl_agrege_signes_et_familles():
+    """PURE. Sépare funding / frais / réalisé selon le businessType, avec les signes RÉELS."""
+    import carry_pnl as cp
+    rows = [
+        {"symbol": "BANKUSDT", "businessType": "contract_settle_fee", "amount": "0.02421935", "fee": "0", "cTime": "1784577603780"},
+        {"symbol": "BANKUSDT", "businessType": "contract_settle_fee", "amount": "-0.005", "fee": "0", "cTime": "1784548803780"},   # funding PAYÉ
+        {"symbol": "BANKUSDT", "businessType": "open_short", "amount": "0", "fee": "-0.00497518", "cTime": "1784556147000"},
+        {"symbol": "BANKUSDT", "businessType": "close_short", "amount": "0.15903176", "fee": "-0.00235032", "cTime": "1784560079000"},
+        {"symbol": "", "businessType": "trans_from_exchange", "amount": "15", "fee": "0", "cTime": "1784560079000"},   # virement -> ignoré
+    ]
+    a = cp.agreger(rows)
+    b = a["par_symbole"]["BANKUSDT"]
+    assert abs(b["funding_usdt"] - 0.01921935) < 1e-9        # 0.02421935 − 0.005 (le payé COMPTE)
+    assert abs(b["frais_usdt"] - (-0.0073255)) < 1e-9        # frais NÉGATIFS, jamais en valeur absolue
+    assert abs(b["realise_usdt"] - 0.15903176) < 1e-9
+    assert b["n_reglements"] == 2 and b["n_ouvertures"] == 1 and b["n_fermetures"] == 1
+    assert abs(b["net_usdt"] - (0.01921935 + 0.15903176 - 0.0073255)) < 1e-9
+    assert "" not in a["par_symbole"]                        # les virements n'entrent pas
+
+
+def test_carry_pnl_reglements_par_aller_retour():
+    """LA métrique : combien de règlements de funding par aller-retour. < 1 = on churne la
+    couverture et les frais mangent le funding avant qu'il ne s'accumule."""
+    import carry_pnl as cp
+    tenu = [{"symbol": "XUSDT", "businessType": "open_short", "amount": "0", "fee": "-0.01", "cTime": "1000"}]
+    tenu += [{"symbol": "XUSDT", "businessType": "contract_settle_fee", "amount": "0.01", "fee": "0",
+              "cTime": str(2000 + i)} for i in range(6)]
+    tenu += [{"symbol": "XUSDT", "businessType": "close_short", "amount": "0", "fee": "-0.01", "cTime": "9000"}]
+    assert abs(cp.agreger(tenu)["par_symbole"]["XUSDT"]["reglements_par_ar"] - 6.0) < 1e-9
+
+    churn = [{"symbol": "YUSDT", "businessType": bt, "amount": "0", "fee": "-0.01", "cTime": str(1000 + i)}
+             for i, bt in enumerate(["open_short", "close_short"] * 5)]
+    churn += [{"symbol": "YUSDT", "businessType": "contract_settle_fee", "amount": "0.01", "fee": "0", "cTime": "5000"}]
+    y = cp.agreger(churn)["par_symbole"]["YUSDT"]
+    assert y["n_fermetures"] == 5 and abs(y["reglements_par_ar"] - 0.2) < 1e-9   # 1 règlement / 5 AR
+    assert y["net_usdt"] < 0                                  # 10 frais pour 1 règlement -> perdant
+    # aucun aller-retour bouclé -> ratio indéfini (None), jamais une division par zéro
+    ouvert = [{"symbol": "ZUSDT", "businessType": "contract_settle_fee", "amount": "0.5", "fee": "0", "cTime": "1"}]
+    assert cp.agreger(ouvert)["par_symbole"]["ZUSDT"]["reglements_par_ar"] is None
+
+
+def test_carry_pnl_verdict_funding_vs_frais():
+    """Le verdict porte sur LA question de la deep-research : le funding encaissé dépasse-t-il
+    la facture de frais ? Un net positif tiré du PnL directionnel n'est PAS du carry."""
+    import carry_pnl as cp
+    gagnant = {"funding_usdt": 1.0, "frais_usdt": -0.4, "realise_usdt": 0.0, "n_reglements": 10}
+    assert cp.verdict(gagnant)["carry_paie"] is True
+    perdant = {"funding_usdt": 0.3, "frais_usdt": -0.9, "realise_usdt": 5.0, "n_reglements": 10}
+    v = cp.verdict(perdant)
+    assert v["carry_paie"] is False                            # le +5 directionnel ne sauve PAS le carry
+    assert abs(v["funding_net_frais_usdt"] - (-0.6)) < 1e-9
+    assert cp.verdict({"funding_usdt": 0.0, "frais_usdt": 0.0, "realise_usdt": 0.0,
+                       "n_reglements": 0})["carry_paie"] is None      # rien mesuré -> None, pas False
+
+
+def test_carry_pnl_failsafe_lignes_illisibles():
+    """Lecture seule et fail-safe : une ligne illisible est ignorée, jamais d'exception."""
+    import carry_pnl as cp
+    rows = [
+        {"symbol": "XUSDT", "businessType": "contract_settle_fee", "amount": "pas_un_nombre", "cTime": "1"},
+        {"symbol": "XUSDT", "businessType": "contract_settle_fee", "amount": "0.02", "fee": None, "cTime": "2"},
+        None, "chaine", {"businessType": "contract_settle_fee", "amount": "1.0"},        # sans symbole
+    ]
+    a = cp.agreger(rows)
+    assert abs(a["par_symbole"]["XUSDT"]["funding_usdt"] - 0.02) < 1e-9
+    assert cp.agreger(None)["total"]["n_reglements"] == 0
+
+
+def test_carry_pnl_perimetre_attribution():
+    """ATTRIBUTION : le registre est celui du COMPTE (bot + trades manuels du propriétaire).
+    Mesuré le 20/07 : 99 % de la perte de funding venait d'un symbole que le bot ne trade PAS.
+    Sans filtre de périmètre, on lirait l'activité manuelle comme « le carry du bot »."""
+    import carry_pnl as cp
+    rows = [
+        {"symbol": "TSLAUSDT", "businessType": "contract_settle_fee", "amount": "-36.67", "fee": "0", "cTime": "1"},
+        {"symbol": "BTCUSDT", "businessType": "contract_settle_fee", "amount": "0.60", "fee": "0", "cTime": "2"},
+    ]
+    tout = cp.agreger(rows)["total"]
+    assert abs(tout["funding_usdt"] - (-36.07)) < 1e-9        # compte entier : négatif
+    bot = cp.agreger(rows, symboles=["BTCUSDT"])              # périmètre du bot seul
+    assert abs(bot["total"]["funding_usdt"] - 0.60) < 1e-9    # verdict INVERSÉ par l'attribution
+    assert "TSLAUSDT" not in bot["par_symbole"]
+    assert cp.agreger(rows, symboles=[])["total"]["n_reglements"] == 0   # périmètre vide ≠ pas de filtre
+
+
 def test_maker_measure_verdict_thresholds():
     """Le verdict ne devient ACTIONNABLE (Telegram) qu'avec assez d'ouvertures
     post-armement — anti-bruit (leçon ERR-012). building < MIN_OPENS ; extend si fill
