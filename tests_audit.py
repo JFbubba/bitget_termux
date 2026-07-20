@@ -16,6 +16,36 @@ Aucun ordre, aucune clé, aucun secret.
 import os as _os
 _os.environ.setdefault("BITGET_SKIP_DOTENV", "1")  # tests HERMÉTIQUES : config.py ne doit PAS charger .env
 
+# tests HERMÉTIQUES (volet ARTEFACTS) — ERR-019, RÉCIDIVE du 2026-07-20.
+# Ajouter une écriture de journal dans un chemin DÉJÀ exercé par des tests préexistants suffit à
+# polluer un artefact de production : le journal des refus §67 a ramassé 203 lignes de 'bogus' /
+# 'external_wallet' en 29 passages du harnais, alors que mes PROPRES tests injectaient bien un
+# tmpdir. Un test écrit AVANT l'ajout ne peut pas deviner qu'il doit se protéger — la discipline
+# ne protège donc pas, seule la structure le fait. On redirige ici, UNE FOIS, tous les journaux
+# à écriture par effet de bord ; `test_aucune_ecriture_dans_un_journal_de_production` vérifie que
+# la redirection est bien en place (et échoue si un module futur en ajoute un sans le rediriger).
+import tempfile as _tf
+from pathlib import Path as _TmpPath
+_ARTEFACTS_TMP = _TmpPath(_tf.mkdtemp(prefix="tests_audit_artefacts_"))
+_ARTEFACTS_REDIRIGES = []
+
+
+def _rediriger_artefacts():
+    """(module, attribut, nom de fichier temporaire) — à étendre pour tout nouveau journal."""
+    cibles = [("bitget_execute", "REFUSALS", "refus.jsonl"),
+              ("term_structure", "HISTO", "term_history.jsonl"),
+              ("term_structure", "STATE", "term_state.json")]
+    for nom_mod, attr, fichier in cibles:
+        try:
+            mod = __import__(nom_mod)
+            setattr(mod, attr, _ARTEFACTS_TMP / fichier)
+            _ARTEFACTS_REDIRIGES.append((nom_mod, attr))
+        except Exception:
+            pass
+
+
+_rediriger_artefacts()
+
 from datetime import datetime, timedelta
 
 import indicators
@@ -2142,6 +2172,20 @@ def test_term_structure_regime_et_pente():
     for vide in ({"points": []}, {}, None):
         v = ts.regime(vide)
         assert v["regime"] is None and v["stress"] is False             # rien mesuré ≠ stress
+
+
+def test_aucune_ecriture_dans_un_journal_de_production():
+    """ERR-019 (récidive du 20/07) — CONTRÔLE GÉNÉRAL, pas propre à un module : aucun journal
+    à écriture par effet de bord ne doit pointer sur la RACINE du dépôt pendant les tests.
+    Échoue si un module futur ajoute un journal sans l'inscrire dans _rediriger_artefacts()."""
+    from pathlib import Path
+    racine = Path(__file__).resolve().parent
+    assert _ARTEFACTS_REDIRIGES, "aucune redirection d'artefact en place"
+    for nom_mod, attr in _ARTEFACTS_REDIRIGES:
+        chemin = Path(getattr(__import__(nom_mod), attr))
+        assert chemin.parent != racine, (
+            f"{nom_mod}.{attr} pointe sur la PRODUCTION pendant les tests ({chemin})")
+        assert str(_ARTEFACTS_TMP) in str(chemin), f"{nom_mod}.{attr} hors du tmpdir des tests"
 
 
 def test_term_structure_historisation():

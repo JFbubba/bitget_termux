@@ -635,6 +635,34 @@ prouvé OFF avec assertion de no-op (au 20/07 : `na.cycle` → injecte `overlay_
 `FIRM_ENABLED=0` + `assert == 0`, ✅).
 **Statut.** CORRIGÉ (epoch posé, voix disparue du board et de l'audit) · RÈGLE ACTIVE.
 
+**RÉCIDIVE le 2026-07-20, ~2 h après avoir écrit cette entrée — et elle corrige la leçon.**
+En livrant le journal des refus §67 (`bitget_execute.record_refusal`), j'ai appliqué scrupuleusement
+ma propre solution : mes 5 nouveaux tests injectaient `be.REFUSALS` vers un `TemporaryDirectory`.
+Insuffisant. J'avais ajouté une écriture dans un chemin **déjà exercé par des tests PRÉEXISTANTS**
+(`test_margin_trader_rejects_bad_type`, `test_account_transfers_allowlist_blocks_external`,
+`test_earn_manager_action_validation`, `test_spot_trader_off_by_default_and_args`, + mm) — écrits
+des semaines plus tôt, ils ne pouvaient pas deviner qu'ils devaient se protéger. Résultat :
+**203 lignes de `'bogus'` / `'external_wallet'` dans le journal de production**, soit 29 passages
+du harnais × 7 tests produisant un refus. Découvert par `/lance-correction`, pas par moi.
+**Ce que la récidive apprend.** (a) Mon contrôle initial était trop étroit : je cherchais des
+**timestamps** suspects (l'incident `sentiment_shadow` était daté de 1970), or ici l'horodatage
+était parfaitement légitime et c'est le **contenu** qui trahissait. Un contrôle calqué sur la
+signature d'un incident passé ne détecte que cet incident-là. (b) Surtout : « injecter le chemin
+dans le test » ne protège que les tests qu'on écrit soi-même. La faute vit dans les **tests déjà
+là**, donc la protection doit être **globale et antérieure**, pas locale.
+**Solution (v2, structurelle).** Redirection UNIQUE en tête de `tests_audit.py`, dans le volet
+« tests hermétiques » qui existait déjà pour `.env` : `_rediriger_artefacts()` pointe tout journal
+à écriture par effet de bord vers un tmpdir de suite. Plus
+`test_aucune_ecriture_dans_un_journal_de_production` qui **échoue si un journal pointe encore sur
+la racine du dépôt** pendant les tests — donc si un module futur en ajoute un sans l'inscrire.
+Vérifié : après un passage complet, le journal de production est ABSENT. Les 203 lignes ont été
+purgées (100 % artefacts de test, 0 évènement réel — contrairement au registre d'argent
+`FUTURES_REAL_FAILED`, qu'on ne réécrit jamais).
+**Contrôle (v2).** Après tout ajout d'une écriture de fichier dans un chemin de production :
+`grep` les tests qui exercent ce chemin **avant** de committer, et inscrire le journal dans
+`_rediriger_artefacts()`. Le test d'enforcement fait le reste. Généralisation : ne jamais juger la
+propreté d'un artefact sur la seule signature d'un incident passé — inspecter le CONTENU.
+
 ## ERR-020 · 2026-07-20 · Corriger un mode de défaillance sur UN chemin sans traiter son chemin SYMÉTRIQUE
 
 **Contexte.** Le 07-09, deux ordres d'OUVERTURE réellement remplis ont été journalisés FAILED :
