@@ -212,3 +212,25 @@ pas à adopter aujourd'hui.
   en flexible (jamais fixed), souscrire avant 16:00 UTC+8.
 - **Levier bridé nouveaux comptes** (créés ≥ 11/02/2026 → ×5, levé 7 j après) : notre compte **antérieur =
   non affecté**. **[VEILLE]** — re-checker si on ouvre un sous-compte.
+
+## 7. Bons usages de l'app (20/07/2026 — spot margin croisé, delta net-nouveau vs §6)
+
+Re-lecture ciblée (WebFetch support/academy Bitget, pas de scraping). §6 couvre déjà exec/risque
+**futures/union** ; ci-dessous le DELTA **spot margin** (surface `margin_trader`/`alt_carry` en croisé) :
+- **Levier spot margin : croisée ×3 max · isolée ×10 max.** La croisée d'alt_carry est donc plafonnée
+  ×3 côté Bitget (sous le mur ×5 du bot). `/support/articles/12560603820651`.
+- **Auto-borrow ON par défaut** (emprunte le nécessaire à l'ordre, contrôlé par le levier) · **auto-repay**
+  = Quick Repay / close-at-market. = exactement ce que fait alt_carry (`sideEffectType`). Bon usage confirmé.
+- **Liquidation spot margin** : **margin level ≥ 1,0** → liquidation ; **0,8** → margin call ; **frais 2 %**
+  du montant liquidé. → surveiller le margin level croisé, ne jamais approcher 0,8.
+- **Post-only** = ordre limite qui garantit le rôle **MAKER**, **auto-annulé s'il croiserait** = exactement
+  le `FUTURES_EXEC_STYLE=maker` du bot (le levier-frais prouvé). **TP/SL = reduce-only** ; OCO/trailing/trigger
+  dispo (déjà en §6a).
+- ⚠️ **« BGB Futures Burn −15 % / lock 2000 BGB / Fee Vault »** = claim de sources TIERCES (metapress/bitqed)
+  **NON confirmé** par la page fees autoritative (qui ne cite que « holdings BGB → VIP »). **NON acté**
+  (ERR-003) ; non-viable de toute façon (lock ~1–3k$ pour un volume futures minuscule). [VEILLE]
+- **VIP1** = 500k vol 30j **OU** 30k solde **OU** 20k BGB → **hors de portée** du bot.
+
+**Bilan formation** : le bot utilise DÉJÀ les bons mécanismes (post-only/maker, auto-borrow/repay, BGB
+spot+marge à 0,08 %). Aucun changement requis ; seul risque de propre-usage à surveiller = le **margin
+level** de la croisée (liquidation ≥ 1,0). Consommation du BGB marge = preuve que la remise s'applique.

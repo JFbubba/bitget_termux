@@ -36,6 +36,10 @@ IMPACT = {
     "bgb_effective": ("fee_rates", "état de la remise BGB spot a changé"),
     "bgb_spot_balance_low": ("spot_trader (refuel)",
                              "REFUEL BGB : réservoir spot sous la poussière -> remise 8->10 bps perdue"),
+    "bgb_crossed_margin": ("marge croisée (alt_carry) / remise BGB",
+                           "variation du réservoir BGB marge (BAISSE = remise -20% ACTIVE, consommée par les frais)"),
+    "bgb_crossed_low": ("refuel BGB marge (§67 spot->crossed_margin)",
+                        "REFUEL BGB MARGE : réservoir croisé sous poussière -> remise marge -20% perdue"),
     "fund_interval_h": ("carry/funding_fade", "intervalle de funding changé -> recalibrer le carry"),
     "status": ("universe", "symbolStatus != normal -> exclure ce symbole (delisting/ST)"),
     "min_notional_usdt": ("futures_auto (faisabilité)", "notional minimal du contrat changé"),
@@ -58,6 +62,16 @@ def snapshot():
             snap["bgb_dust"] = fr.BGB_DUST
         except Exception:
             pass
+    except Exception:
+        pass
+    try:                                              # BGB sur la MARGE CROISÉE (remise marge -20% alt_carry)
+        import fee_rates as fr
+        data = fr._signed_get("/api/v2/margin/crossed/account/assets", {"coin": "BGB"})
+        if isinstance(data, dict):                    # _signed_get renvoie la data brute (liste) ou {data:[...]}
+            data = data.get("data") or []
+        snap["bgb_crossed_margin"] = round(sum(
+            float(a.get("available") or 0) for a in (data or [])
+            if isinstance(a, dict) and str(a.get("coin", "")).upper() == "BGB"), 4)
     except Exception:
         pass
     try:
@@ -108,6 +122,8 @@ def review(alert=False):
     changes = diff(old, new)
     bgb_low = ("bgb_spot_balance" in new and "bgb_dust" in new
                and new["bgb_spot_balance"] <= new["bgb_dust"])
+    bgb_m_low = ("bgb_crossed_margin" in new and "bgb_dust" in new
+                 and new["bgb_crossed_margin"] <= new["bgb_dust"])
     print(f"=== BITGET WATCH — {len(changes)} changement(s) vs baseline ===")
     lignes = []
     for k, a, b in changes:
@@ -121,9 +137,14 @@ def review(alert=False):
         print(f"  ⚠ BGB réservoir bas : {new.get('bgb_spot_balance')} <= poussière {new.get('bgb_dust')}")
         print(f"      -> [{mod}] {rec}")
         lignes.append(f"BGB bas  [{mod}: {rec}]")
-    if not changes and not bgb_low:
+    if bgb_m_low:
+        mod, rec = IMPACT["bgb_crossed_low"]
+        print(f"  ⚠ BGB marge croisée bas : {new.get('bgb_crossed_margin')} <= poussière {new.get('bgb_dust')}")
+        print(f"      -> [{mod}] {rec}")
+        lignes.append(f"BGB marge bas  [{mod}: {rec}]")
+    if not changes and not bgb_low and not bgb_m_low:
         print("  aucun changement. Faits Bitget stables.")
-    if alert and (changes or bgb_low):
+    if alert and (changes or bgb_low or bgb_m_low):
         try:
             import telegram_notifier as tn
             tn.send_telegram("🛰️ BITGET WATCH\n" + "\n".join(lignes))
@@ -132,7 +153,7 @@ def review(alert=False):
     if alert:
         try:
             json.dump(new, open(STATE, "w"))
-            if changes or bgb_low:
+            if changes or bgb_low or bgb_m_low:
                 with open(JOURNAL, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"ts": int(time.time()), "changes": lignes}) + "\n")
         except Exception:
