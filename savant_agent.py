@@ -139,7 +139,7 @@ def turbulence_percentile(X, min_n=20):
 
 # ---------- rupture de symétrie : distance de Mahalanobis ----------
 
-def mahalanobis_anomaly(X, ridge=1e-2):
+def mahalanobis_anomaly(X, ridge=1e-2, robust=False):
     """Score de rupture de structure du DERNIER point vs le nuage récent. PUR.
 
     d² = (x−μ)ᵀ Σ⁻¹ (x−μ) sur features standardisées (Σ = corrélation régularisée).
@@ -148,7 +148,7 @@ def mahalanobis_anomaly(X, ridge=1e-2):
     Retourne (d2, score_normalisé = d2/D). Robuste : pinv régularisée."""
     if len(X) < X.shape[1] + 3:
         return 0.0, 0.0
-    Z = _standardize(X)
+    Z = _standardize_robuste(X) if robust else _standardize(X)   # variante mesurée : robuste médiane/MAD
     base, x = Z[:-1], Z[-1]
     mu = base.mean(0)
     cov = np.cov(base, rowvar=False)
@@ -258,7 +258,7 @@ def _erfinv(y):
 
 # ---------- signal du savant (pur) ----------
 
-def signal(candles, fear_greed=None, thresh=0.55, window=72):
+def signal(candles, fear_greed=None, thresh=0.55, window=72, robust=False):
     """Cœur PUR : perçoit la rupture de symétrie du tenseur (Mahalanobis), en déduit
     un signal À CONTRE-COURANT de la dislocation, immunisé au bruit, VaR indicative.
     Déterministe, aucun NN.
@@ -278,7 +278,7 @@ def signal(candles, fear_greed=None, thresh=0.55, window=72):
     X = feature_matrix(candles[-(int(window) + 1):])
     if len(X) < 12:
         return out
-    d2, score = mahalanobis_anomaly(X)
+    d2, score = mahalanobis_anomaly(X, robust=robust)   # robust=True : variante mesurée (médiane/MAD)
     sb = 1.0 - math.exp(-score / 2.0)
     rets = X[:, 0]
     var = value_at_risk(rets)

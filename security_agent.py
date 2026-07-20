@@ -153,6 +153,7 @@ FILES_TO_SCAN = [
     "bitget_watch.py",
     "risk_metrics.py",
     "adl_rank.py",
+    "variant_shadows.py",
     "telegram_command_bot.py",
     "preorder_approval.py",
     "execution_gateway.py",
