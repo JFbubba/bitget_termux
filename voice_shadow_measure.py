@@ -30,7 +30,10 @@ STATE = ROOT / ".voice_shadow_state.json"
 MIN_N = 500             # échantillon minimal d'ombre pour juger
 PIC_MIN = 0.02          # pearsonIC (PnL) : seuil de « fortement positif »
 PIC_T_MIN = 3.0         # significativité (t-stat)
-VOICES = {"qml_shadow": "qml_voice_weights.json", "nn_shadow": "neural_net_meta.json"}
+VOICES = {"qml_shadow": "qml_voice_weights.json", "nn_shadow": "neural_net_meta.json",
+          "firm_shadow": "firm_voice_meta.json"}   # §firme : firm n'a pas de wf_edge (LLM non
+# entraîné) -> wf_edge=None ; le suivi mesure alors l'IC live d'ombre et FLAGGE une revue si
+# fortement positif (l'armement de la voix reste un acte délibéré, jamais auto).
 
 
 def wf_edge_of(voice, root=None):

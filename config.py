@@ -259,6 +259,22 @@ LLM_AGENT_MODEL_CLOUD = "openai/gpt-5-mini"  # modèle OpenRouter (OPENROUTER_AP
 LLM_AGENT_MODEL_GEMINI = "gemini-2.5-flash"  # modèle Google AI Studio direct (backend "gemini", GEMINI_API_KEY)
 LLM_AGENT_GEMINI_THINKING = 0              # budget raisonnement Gemini (0 = coupé -> vote rapide, tient dans max_tokens)
 
+# === Firme de trading multi-agents (12 rôles TradingAgents, arXiv 2412.20138) ===
+# trading_firm.py (orchestrateur autonome sur cron) + firm_agent.py (19ᵉ voix opt-in).
+# SAFE : lecture seule + LLM, AUCUN ordre. La firme MESURE son ombre `firm_shadow` (net-de-
+# frais) ; elle ne pèse sur le consensus QUE via la 19ᵉ voix, gated + porte d'edge délibérée.
+FIRM_ENABLED = False                        # interrupteur maître de la firme autonome (mesure d'ombre — SAFE)
+FIRM_AGENT_ENABLED = False                  # 19ᵉ voix qui PÈSE sur le consensus (défaut OFF)
+FIRM_EDGE_OVERRIDE = 0                      # ouverture DÉLIBÉRÉE de la porte d'edge (après revue IC d'ombre)
+FIRM_AGENT_WEIGHT = 0.5                     # poids borné de la voix (comme llm/nn/classics/qml)
+FIRM_AGENT_CONF_CAP = 0.5                   # plafond de confiance (ne domine pas le banc déterministe)
+FIRM_LLM_LOCAL_MODEL = "qwen2.5:1.5b"      # analystes + débatteurs (Ollama local ; le 7b swappe sur ce VPS)
+FIRM_LLM_JUDGE_BACKEND = "gemini"          # juges décisifs : "gemini" cloud (repli local si cap coût atteint)
+FIRM_LLM_JUDGE_MODEL = "gemini-2.5-flash"  # modèle des 3 juges (research-manager/trader/risk-judge)
+FIRM_MAX_CLOUD_CALLS_PER_DAY = 120         # cap DUR d'appels cloud/jour -> repli local au-delà
+FIRM_DEBATE_ROUNDS = 1                      # tours de débat (bull/bear et risque) — défaut 1 (papier)
+FIRM_SYMBOLS = ""                           # CSV : vide = univers complet (universe.symbols())
+
 # === Véto de contradiction du cerveau (cognition, idée NERVA) ===
 # Un bloc minoritaire FORT opposé au consensus -> escompte dur la conviction.
 BRAIN_CONTRADICTION_MIN = 2                 # nb d'agents forts opposés déclenchant le véto

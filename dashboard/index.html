@@ -418,6 +418,12 @@
     </div>
   </div>
 
+  <div class="panel full" style="margin-top:8px" id="panel-firme">
+    <h2>Firme (12 rôles) <span class="dim" style="letter-spacing:0">— TradingAgents · dernière décision · lecture seule · mesure d'ombre</span>
+      <span id="fm-badge" style="margin-left:auto;letter-spacing:0;font-family:var(--sans);display:inline-flex;align-items:center;gap:8px">—</span></h2>
+    <div id="fm-body"><div class="rp-empty">Firme — chargement…</div></div>
+  </div>
+
   <div class="panel full" style="margin-top:8px">
     <h2>Réflexion en cours <span class="dim" style="letter-spacing:0">— le raisonnement vivant du bot : cerveau → décision → gardes → méthodes (relu à chaque cycle, lecture seule)</span></h2>
     <div id="reflexion" style="font-size:11px;line-height:2;letter-spacing:0">—</div>
@@ -1060,6 +1066,78 @@ function renderBrain(b){
   styleBrainIso();
 }
 
+// --- Firme multi-agents (TradingAgents, 12 rôles) : dernière décision d'OMBRE, lecture seule ---
+//     N'AGIT sur rien : pur affichage de trading_firm.latest(symbol) (ou {} si rien produit).
+//     Défensif de bout en bout (optional chaining, valeurs manquantes -> « — »).
+function renderFirme(f){
+  const body=$("fm-body"),badge=$("fm-badge");
+  if(!body)return;
+  const E=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const T=(s,n)=>{s=String(s==null?"":s).trim();return s.length>n?E(s.slice(0,n-1))+"…":E(s);};
+  f=f||{};
+  // ÉTAT VIDE : la firme n'a encore rien produit (ou symbole non couvert)
+  if(!f||f.rating==null&&f.direction==null&&!f.reports){
+    if(badge)badge.textContent="—";
+    body.innerHTML='<div class="rp-empty">Firme : pas encore de décision (mesure d\'ombre en cours)</div>';
+    return;
+  }
+  // --- classes couleur ---
+  const ratingCls=r=>{r=String(r||"").toLowerCase();
+    return (r==="buy"||r==="overweight")?"green":(r==="underweight"||r==="sell")?"red":"dim";};
+  const dirCls=d=>(d>0.05?"green":d<-0.05?"red":"dim");
+  const dirArrow=d=>(d>0.05?"↑":d<-0.05?"↓":"→");
+  const ageStr=ts=>{if(!ts)return"—";const s=Math.max(0,Date.now()/1000-(+ts));
+    if(s<90)return"il y a "+Math.round(s)+" s";
+    if(s<5400)return"il y a "+Math.round(s/60)+" min";
+    if(s<172800)return"il y a "+Math.round(s/3600)+" h";
+    return"il y a "+Math.round(s/86400)+" j";};
+  const dir=(f.direction!=null)?+f.direction:0;
+  const conv=(f.conviction!=null)?Math.round(f.conviction*100)+"%":"—";
+  const rating=f.rating||"—",rCls=ratingCls(f.rating);
+  // --- badge d'en-tête : rating coloré + direction fléchée + conviction ---
+  if(badge)badge.innerHTML=
+    `<span class="rc-badge ${rCls}">${E(rating)}</span>`+
+    `<span class="${dirCls(dir)}" style="font-size:14px">${dirArrow(dir)}</span>`+
+    `<span class="dim">conv <b class="accent">${conv}</b></span>`;
+  // --- ligne méta : taille · horizon · net de frais · âge ---
+  const sizing=(f.sizing_suggested_usdt!=null)?("$"+(+f.sizing_suggested_usdt).toFixed(2)):"—";
+  const net=!!f.net_of_fees_ok;
+  let html=`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px 16px;margin-bottom:11px;font-size:11px">`+
+    `<span class="dim">taille suggérée <b class="accent">${sizing}</b></span>`+
+    `<span class="dim">horizon <b class="accent">${E(f.horizon||"—")}</b></span>`+
+    `<span class="rc-badge ${net?"green":"amber"}">net de frais : ${net?"oui":"non"}</span>`+
+    `<span class="dim">direction <b class="${dirCls(dir)}">${(dir>=0?"+":"")+dir.toFixed(2)}</b></span>`+
+    `<span class="dim" style="margin-left:auto">${E((f.symbol||"").replace(/USDT$/,""))}`+
+      `${f.price!=null?(" · $"+(+f.price).toLocaleString("fr-FR")):""} · ${ageStr(f.ts)}</span>`+
+    `</div>`;
+  // --- 4 analystes : technique / sentiment / news / fondamental ---
+  const reps=f.reports||{};
+  const analysts=[["technical","Technique"],["sentiment","Sentiment"],["news","News"],["fundamental","Fondamental"]];
+  html+=`<div class="rp-grid">`+analysts.map(([k,lbl])=>{
+    const r=reps[k];
+    if(!r){return `<div class="rp-col"><div class="rp-h"><span>${lbl}</span><span class="dim">—</span></div>`+
+      `<div class="rp-empty" style="padding:6px 2px">—</div></div>`;}
+    const b=(r.bias!=null)?+r.bias:0;
+    const cf=(r.confidence!=null)?Math.round(r.confidence*100)+"%":"—";
+    return `<div class="rp-col"><div class="rp-h"><span>${lbl}</span>`+
+      `<span class="${dirCls(b)}" style="font-weight:600">${dirArrow(b)} ${(b>=0?"+":"")+b.toFixed(2)}</span></div>`+
+      `<div class="dim" style="font-size:9px;letter-spacing:.02em">confiance ${cf}</div>`+
+      `<div style="font-size:10px;line-height:1.45;margin-top:5px;color:var(--txt)">${r.note?T(r.note,90):'<span class="dim">—</span>'}</div>`+
+      `</div>`;
+  }).join("")+`</div>`;
+  // --- trader · risk-judge · plan du débat (petit texte, lecture seule) ---
+  const tr=f.trader||{},rk=f.risk||{},pl=(f.debate||{}).plan||{};
+  const trCls=(String(tr.action||"").toLowerCase()==="buy")?"green":(String(tr.action||"").toLowerCase()==="sell")?"red":"dim";
+  html+=`<div style="margin-top:12px;font-size:10.5px;line-height:1.65;border-top:1px solid var(--line);padding-top:9px">`;
+  if(tr.action!=null)html+=`<div><span class="dim">Trader :</span> <b class="${trCls}">${E(tr.action)}</b>`+
+    `${tr.reasoning?` <span class="dim">${T(tr.reasoning,140)}</span>`:""}</div>`;
+  if(rk.verdict!=null&&rk.verdict!=="")html+=`<div style="margin-top:4px"><span class="dim">Risk-judge :</span> ${T(rk.verdict,180)}</div>`;
+  if(pl.rationale!=null&&pl.rationale!=="")html+=`<div style="margin-top:4px"><span class="dim">Plan`+
+    `${pl.rating?" ("+E(pl.rating)+")":""} :</span> <span class="dim">${T(pl.rationale,180)}</span></div>`;
+  html+=`</div>`;
+  body.innerHTML=html;
+}
+
 // --- positions RÉELLES (compte réel, lecture seule) : spot · marge iso · cross · futures ---
 function _sgn(x){x=+x||0;return (x>=0?"+":"")+x.toFixed(2);}
 function _rpFill(id,nid,rows){
@@ -1564,6 +1642,7 @@ function renderState(){
     try{ renderGarde96(st.learning||{}); }catch(e){}
     try{ renderCollecte(st.collecte||{}); }catch(e){}
     try{ renderPortfolio(st.portfolio||{}); }catch(e){}
+    try{ renderFirme(st.firme||{}); }catch(e){}
     try{ renderReflexion(st); }catch(e){}
     // --- bandeau de pilotage : les trois voies (signature) ---
     $("v-acc-reel").textContent=ac.autonomous_armed?"RÉEL":"paper";

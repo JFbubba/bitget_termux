@@ -1032,6 +1032,11 @@ def build_state(symbol=None, tf="5m"):
     state["neural"] = _cached(f"neural:{symbol}", 60,
                               lambda: _safe(lambda: __import__("neural_net").connectivity_map(
                                   symbol, brain=brain, smc=state.get("smc") or {}), {}))
+    # Firme multi-agents §firme (12 rôles TradingAgents, lecture seule) : dernière décision
+    # cachée par le cron de la firme (rating/direction/conviction/débat/risque) — AUCUN appel
+    # LLM ici, juste la lecture de trading_firm.latest(). {} tant que la firme n'a rien produit.
+    state["firme"] = _cached(f"firme:{symbol}", 120,
+                             lambda: _safe(lambda: __import__("trading_firm").latest(symbol), {}))
     # Positions RÉELLES en cours (lecture seule) : spot · marge iso · marge cross · futures.
     # 4 GET signés best-effort -> cache 30 s (indépendant du symbole affiché).
     state["real_positions"] = _cached("realpos", 10,

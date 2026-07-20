@@ -93,6 +93,10 @@ neural_net_pretrained.pt
 .alt_carry_journal.jsonl
 .mm_state.json
 .mm_journal.jsonl
+# firme multi-agents (§firme) — état runtime régénéré par le cron, comme neural_net_meta.json
+.firm_decisions.json
+.firm_cloud_calls.json
+firm_voice_meta.json
 .xs_promotion_alerted
 .trades_archive.jsonl
 .daily_digest_stamp

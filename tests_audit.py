@@ -12215,6 +12215,142 @@ def test_backlog_review_recommend_and_safe():
         assert kk not in src
 
 
+def test_firm_agent_disabled_is_neutral():
+    import os
+    import firm_agent
+    # défaut OFF -> vote neutre de confiance nulle (ignoré par l'agrégation), jamais d'erreur
+    old = os.environ.pop("FIRM_AGENT_ENABLED", None)
+    try:
+        assert firm_agent.enabled() is False
+        r = firm_agent.agent("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0
+    finally:
+        if old is not None:
+            os.environ["FIRM_AGENT_ENABLED"] = old
+
+
+def test_firm_agent_sans_edge_reste_muet_sauf_override():
+    import os
+    import time
+    import firm_agent
+    import trading_firm
+    # sans walk-forward, la 19ᵉ voix se TAIT (porte d'edge) même très directionnelle ;
+    # l'override délibéré (après revue IC d'ombre) l'ouvre, confiance bornée par le cap.
+    orig = trading_firm.latest
+    trading_firm.latest = lambda symbol=None: {
+        "symbol": "BTCUSDT", "ts": int(time.time()), "direction": 0.8,
+        "conviction": 0.9, "rating": "Buy"}
+    old_en = os.environ.get("FIRM_AGENT_ENABLED")
+    old_ov = os.environ.pop("FIRM_EDGE_OVERRIDE", None)
+    os.environ["FIRM_AGENT_ENABLED"] = "1"
+    try:
+        r = firm_agent._produce_vote("BTCUSDT")
+        assert r["vote"] == 0 and r["confidence"] == 0 and "sans-edge" in r["note"]
+        os.environ["FIRM_EDGE_OVERRIDE"] = "1"
+        r2 = firm_agent._produce_vote("BTCUSDT")
+        assert r2["vote"] == 0.8 and 0 < r2["confidence"] <= 0.5
+        assert r2["note"].startswith("firm:")
+    finally:
+        trading_firm.latest = orig
+        os.environ.pop("FIRM_EDGE_OVERRIDE", None)
+        if old_ov is not None:
+            os.environ["FIRM_EDGE_OVERRIDE"] = old_ov
+        if old_en is None:
+            os.environ.pop("FIRM_AGENT_ENABLED", None)
+        else:
+            os.environ["FIRM_AGENT_ENABLED"] = old_en
+
+
+def test_firm_agent_decision_perimee_est_muette():
+    import os
+    import firm_agent
+    import trading_firm
+    orig = trading_firm.latest
+    trading_firm.latest = lambda symbol=None: {"symbol": "BTCUSDT", "ts": 1,   # très vieux
+                                               "direction": 0.9, "conviction": 0.9, "rating": "Buy"}
+    old_en = os.environ.get("FIRM_AGENT_ENABLED")
+    os.environ["FIRM_AGENT_ENABLED"] = "1"
+    os.environ["FIRM_EDGE_OVERRIDE"] = "1"
+    try:
+        r = firm_agent._produce_vote("BTCUSDT")
+        assert r["vote"] == 0 and "périmée" in r["note"]
+    finally:
+        trading_firm.latest = orig
+        os.environ.pop("FIRM_EDGE_OVERRIDE", None)
+        if old_en is None:
+            os.environ.pop("FIRM_AGENT_ENABLED", None)
+        else:
+            os.environ["FIRM_AGENT_ENABLED"] = old_en
+
+
+def test_with_firm_weight_bounded_and_gated():
+    import swarm_brain as sb
+    # identité quand la voix firm est absente (OFF) ; présente & bornée sinon (banc 14 intact)
+    w = {"a": 1.0}
+    assert sb._with_firm_weight(dict(w), {}) == w
+    out = sb._with_firm_weight({"a": 1.0}, {"firm": {"vote": 0.5, "confidence": 0.4}})
+    assert "firm" in out and 0.0 <= out["firm"] <= float(sb.BRAIN_WEIGHT_MAX)
+
+
+def test_trading_firm_assemble_respecte_le_mur_et_emet():
+    import trading_firm as tf
+    # juge sans direction -> repli déterministe sur la moyenne des signaux ; sizing clampé au mur
+    reports = {"technical": {"bias": 0.6, "confidence": 0.5, "note": ""},
+               "sentiment": {"bias": 0.4, "confidence": 0.5, "note": ""},
+               "news": None, "fundamental": None}
+    verdict = {"rating": None, "direction": None, "conviction": None, "sizing_usdt": 9999,
+               "horizon": "court", "net_of_fees_ok": None, "thesis": ""}
+    plan = {"rating": None, "rationale": ""}
+    trader = {"action": "Hold", "reasoning": ""}
+    rd = {"aggressive": {"argument": "", "lean": 0.0}, "neutral": {"argument": "", "lean": 0.0},
+          "conservative": {"argument": "", "lean": 0.0}}
+    d = tf._assemble("BTCUSDT", {"last": 100.0}, reports, {"argument": "", "lean": 0.5},
+                     {"argument": "", "lean": -0.1}, plan, trader, rd, verdict)
+    assert d["sizing_suggested_usdt"] <= tf.HARD_WALL_USDT        # mur ABSOLU respecté
+    assert d["rating"] in tf.RATINGS and -1.0 <= d["direction"] <= 1.0
+    assert d["symbol"] == "BTCUSDT"
+
+
+def test_trading_firm_cycle_noop_si_desarmee():
+    import os
+    import trading_firm as tf
+    old = os.environ.get("FIRM_ENABLED")
+    os.environ["FIRM_ENABLED"] = "0"
+    try:
+        assert tf.enabled() is False
+        assert tf.cycle() == 0                    # OFF -> aucun appel LLM, no-op
+    finally:
+        if old is None:
+            os.environ.pop("FIRM_ENABLED", None)
+        else:
+            os.environ["FIRM_ENABLED"] = old
+
+
+def test_trading_firm_json_failsafe():
+    import trading_firm as tf
+    orig = tf._call
+    tf._call = lambda p, k, t: "réponse illisible { cassée"
+    try:
+        assert tf._json("x", "analyst") is None           # JSON illisible -> None (pas de crash)
+        tf._call = lambda p, k, t: '{"bias": 0.5, "confidence": 0.4, "note": "ok"}'
+        r = tf._json("x", "analyst")
+        assert r and r.get("bias") == 0.5
+    finally:
+        tf._call = orig
+
+
+def test_trading_firm_latest_lecture_sure():
+    import trading_firm as tf
+    d = tf.latest("ZZZINCONNU")                   # jamais d'exception, même sans cache
+    assert d is None or isinstance(d, dict)
+    assert isinstance(tf.latest(), dict)
+
+
+def test_firm_shadow_enregistree_dans_voice_measure():
+    import voice_shadow_measure as vsm
+    assert "firm_shadow" in vsm.VOICES            # l'ombre firm est bien suivie/mesurée
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
