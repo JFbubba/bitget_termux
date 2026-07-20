@@ -592,3 +592,45 @@ verrou avec `_load_env()` puis lecture (et non `cfg()` à froid).
 constitution), soit c'est un piège. Et avant tout run coûteux/long sous contrainte de ressource :
 observer l'état réel (`ollama ps`, `free -m`, `--status`) plutôt que de faire confiance au levier.
 **Statut.** CORRIGÉ (levier + test) · RÈGLE ACTIVE.
+
+## ERR-019 · 2026-07-20 · Un TEST a écrit dans un journal de PRODUCTION (cas « dégénéré » qui n'en était pas)
+
+**Contexte.** Découvert en cherchant l'origine d'un vote daté de **1970** dans `.overlay_votes.jsonl`.
+16 lignes `sentiment_shadow` y portent `ts=0`. Elles ne viennent d'aucun cron ni d'aucun incident :
+elles viennent de **mon propre test**. Livrant `variant_shadows.py` (§variantes-mesurées, commit
+`5255d89`), j'avais écrit le garde-fou `assert vs.cycle(symbols=[], now=0) == 0` — « liste de
+symboles vide → 0 ligne journalisée ». Or le driver faisait `syms = symbols or WATCH` : **une liste
+vide est falsy**, donc `[] or WATCH` = `WATCH`. Le test n'a pas exercé un cas dégénéré, il a lancé un
+**cycle complet réel** : appels réseau Bitget sur 8 symboles, et 8 lignes appendées dans le journal
+d'ombre **de production**, horodatées `ts=0` puisque je passais `now=0` pour la déterminisme. Deux
+exécutions avant correction → 16 lignes. J'ai ensuite corrigé l'assertion (`isinstance(vs.WATCH, list)
+and callable(vs.cycle)`) **sans jamais nettoyer ce que le test avait écrit**, et sans me demander s'il
+avait écrit quelque part.
+**Cause racine.** DEUX défauts qui se composent, et c'est la composition qui fait mal :
+(1) `x or DEFAULT` sur une **collection** transforme « vide » en « tout » — l'exact inverse du cas
+qu'on croit tester ; le garde-fou testait la valeur la plus dangereuse en croyant tester la plus
+inoffensive. (2) Surtout : `cycle()` n'avait **aucun point d'injection du chemin de journal** (`OVERLAY`
+= constante de module), donc rien ne pouvait empêcher un test de toucher l'artefact réel. Comparer à
+`news_agent.cycle(overlay_path=...)`, dont le test écrit dans un `TemporaryDirectory` : même famille de
+module, même risque, mais l'injection rend la faute *impossible*. La discipline seule ne protège pas —
+la structure, oui.
+**Conséquence (pourquoi ce n'est pas cosmétique).** La voix a été RETIRÉE 1 h plus tard (commit
+`3c67950`, mesure = aucun gain), mais ses 56 votes ont survécu dans le journal, dont 16 faux. Le
+`promotion_board` affichait encore `sentiment_shadow · n 56 · progression 100 %` — une voix **sans
+aucun producteur dans le dépôt**, présentée comme prête à franchir la barre des 50 votes. Même famille
+que §107/§107b (firm_shadow) : une population morte qui progresse vers une promotion.
+**Solution.** (1) Epoch posé sur `sentiment_shadow` dans `voice_epochs.json` à l'heure du retrait
+(1784523695) → les 56 votes écartés, **et le compte affiché** dans le rapport d'audit
+(`sentiment_shadow −56`) : jamais de filtrage silencieux. (2) Règle : **tout module qui écrit un
+artefact partagé expose le chemin en paramètre** (`overlay_path=`, `chemin=`) et son test l'injecte
+vers un `TemporaryDirectory`. (3) Un test qui affirme « ne fait rien » doit vérifier **l'absence
+d'effet** (taille/mtime du journal avant/après), pas seulement une valeur de retour.
+**Contrôle (détection ailleurs).** Deux greps, à passer ensemble :
+`grep -nE "^\s*\w+ = (symbols|syms|items|rows|targets|liste) or [A-Z_]+" *.py` — chaque occurrence est
+un piège si un appelant peut légitimement passer une collection vide (au 20/07 : `smc_execution_lab.py:218`,
+`vpin_lab.py:389`, tous deux écrivant dans un fichier de lab DÉDIÉ, pas dans un journal partagé → sans
+gravité, mais à ne pas laisser dériver). Puis, dans `tests_audit.py`, lister les appels de cycle de
+production (`\w+\.(cycle|main|run)\(`) et exiger pour chacun soit une injection de chemin, soit un gate
+prouvé OFF avec assertion de no-op (au 20/07 : `na.cycle` → injecte `overlay_path`, ✅ ; `tf.cycle` →
+`FIRM_ENABLED=0` + `assert == 0`, ✅).
+**Statut.** CORRIGÉ (epoch posé, voix disparue du board et de l'audit) · RÈGLE ACTIVE.

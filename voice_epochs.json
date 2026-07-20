@@ -5,5 +5,11 @@
     "since_lisible": "2026-07-20 16:43:58",
     "why": "§105/§106 — les votes anterieurs ont ete produits par une chaine MESUREE cassee : debat bull/bear et debat de risque en ECHO (similarite mediane 1,00, les voix rendent le meme texte), et repli SILENCIEUX du role de juge sur le modele local quand le cloud echouait (direction+sizing fabriques par un 1.5b, sans trace). Ces votes ne mesurent aucune version exploitable du code.",
     "ref": "commits §105/§106 (HEAD 26b47a2)"
+  },
+  "sentiment_shadow": {
+    "since_ts": 1784523695,
+    "since_lisible": "2026-07-20 05:01:35",
+    "why": "VOIX RETIREE (commit 3c67950) : le driver variant_shadows.py et sentiment_index.shadow_vote n'existent PLUS dans le depot — plus aucun producteur, les 56 votes sont geles pour toujours. Le promotion_board l'affichait pourtant a 100 % de progression vers la barre des 50 votes, pour une voix qui ne peut pas etre armee. En prime 16 des 56 votes sont des ARTEFACTS DE TEST a ts=0 (1970) : l'assertion `cycle(symbols=[], now=0) == 0` croyait exercer un cas degenere, mais `[] or WATCH` = WATCH (liste vide falsy) -> cycle REEL de 8 symboles ecrit dans le journal de production, deux fois (cf. ERR-019). Epoch pose a l'heure du retrait : tous les votes sont anterieurs, donc tous ecartes, et le compte est AFFICHE dans le rapport d'audit.",
+    "ref": "commits 5255d89 (livraison) -> 3c67950 (retrait) ; ERR-019"
   }
 }
