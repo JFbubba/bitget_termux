@@ -634,3 +634,39 @@ production (`\w+\.(cycle|main|run)\(`) et exiger pour chacun soit une injection 
 prouvé OFF avec assertion de no-op (au 20/07 : `na.cycle` → injecte `overlay_path`, ✅ ; `tf.cycle` →
 `FIRM_ENABLED=0` + `assert == 0`, ✅).
 **Statut.** CORRIGÉ (epoch posé, voix disparue du board et de l'audit) · RÈGLE ACTIVE.
+
+## ERR-020 · 2026-07-20 · Corriger un mode de défaillance sur UN chemin sans traiter son chemin SYMÉTRIQUE
+
+**Contexte.** Le 07-09, deux ordres d'OUVERTURE réellement remplis ont été journalisés FAILED :
+Bitget répond parfois `data:{orderId:null}` sans code d'erreur. J'ai construit
+`_confirm_futures_open_fill()` — re-poll des fills, match par symbole + côté + `tradeSide` + fenêtre
+temporelle — et le faux négatif a disparu. **À l'ouverture seulement.** Le branchement portait
+`if not rejet_definitif and not order.get("reduce")`, excluant explicitement les réductions. Le
+2026-07-20, la MÊME réponse ambiguë est arrivée sur deux **fermetures** (HYPEUSDT 05:56, BANKUSDT
+15:07) : journalisées `FUTURES_REAL_FAILED` « position à vérifier » alors que les fills de l'exchange
+montrent les deux remplies INTÉGRALEMENT (0,22/0,22 et 85/85, positions ensuite à plat).
+**Cause racine.** J'ai corrigé le cas que j'avais OBSERVÉ, pas le mode de défaillance. La réponse
+ambiguë est une propriété de **l'API**, pas de la direction de l'ordre : elle frappe donc les deux
+phases. En n'instrumentant qu'une moitié, j'ai laissé l'autre produire des faux négatifs pendant
+11 jours. C'est la **deuxième occurrence du même geste le même jour** : §107b — le `promotion_board`
+honorait l'epoch de voix pour l'IC mais recomptait les votes en contournant le filtre. Motif commun :
+**une correction appliquée au point où le symptôme a été vu, au lieu de tous les points où sa cause
+peut s'exprimer.**
+**Solution.** Noyau unique `_confirm_futures_fill(order, phase)` paramétré par la phase, et deux
+enveloppes `_confirm_futures_open_fill` / `_confirm_futures_close_fill` ; le branchement choisit la
+phase au lieu d'exclure les réductions. Relevé réel encodé : pour une fermeture, Bitget rend
+`side` = DIRECTION DE LA POSITION (un short s'ouvre en `sell open` ET se ferme en `sell close`) — le
+mapping de côté est donc identique aux deux phases, seul `tradeSide` s'inverse. Au passage,
+`price_avg` est passé de 2 à 8 décimales : l'arrondi écrasait le prix des alts sous le dollar
+(BANK 0,2798 → 0,28) dans un registre d'ARGENT. 5 tests TDD (rouges d'abord), dont la rejouabilité des
+deux cas réels du 20/07 contre les vrais fills → tous deux confirmés INTÉGRAL.
+**Sens de l'erreur préservé.** On ne déclare soldé qu'après avoir VU le fill de fermeture : un faux
+positif ferait croire une position fermée alors qu'elle est ouverte. Filet de dernier ressort inchangé :
+`flatten_all`/`futures_auto` relisent `positions_ouvertes()` à chaque tick — l'autorité finale est le
+livre, jamais ce drapeau. Un rejet EXPLICITE ne déclenche aucune réconciliation (testé).
+**Contrôle (détection ailleurs).** Devant toute garde/réconciliation/instrument corrigé, énumérer les
+chemins où la MÊME cause peut s'exprimer avant de clore : ouverture ↔ fermeture, achat ↔ vente,
+IC ↔ comptage, spot ↔ futures ↔ marge, entrée ↔ sortie. Un `and not <cas>` dans une correction est le
+drapeau rouge : il dit « je n'ai pas traité ce cas » — soit c'est motivé en commentaire, soit c'est un
+trou. `grep -nE "and not .*\.get\(|if not .*reduce|only|seulement" ` sur les chemins d'argent.
+**Statut.** CORRIGÉ (noyau symétrique + 5 tests, cas réels rejoués) · RÈGLE ACTIVE.

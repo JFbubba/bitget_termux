@@ -1100,6 +1100,137 @@ def test_confirm_futures_open_fill_matches_by_side_and_time():
     assert fe._confirm_futures_open_fill(order, runner=r_old, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
 
 
+# ---- symétrie FERMETURE (ERR-020) : le confirmateur n'existait QUE pour les ouvertures ----
+# Le 2026-07-20, DEUX fermetures réelles (HYPEUSDT 05:56, BANKUSDT 15:07) ont reçu la même réponse
+# ambiguë data:{orderId:null} SANS code d'erreur. `_submit_taker` excluait explicitement les
+# réductions de la réconciliation (`and not order.get("reduce")`) -> journalisées FUTURES_REAL_FAILED
+# « position à vérifier » alors que les DEUX avaient REMPLI INTÉGRALEMENT (vérifié aux fills de
+# l'exchange : HYPE 0.05+0.17=0.22 sur 0.22 ; BANK 14+44+27=85 sur 85, positions ensuite à plat).
+# SCHÉMA RÉEL RELEVÉ le 2026-07-20 (mock ancré sur le vrai, ERR-007/ERR-009) : pour une FERMETURE,
+# Bitget rend `side` = DIRECTION DE LA POSITION (short -> "sell"), pas le verbe d'exécution — un
+# short s'ouvre en `sell open` ET se ferme en `sell close`. Le mapping côté est donc IDENTIQUE à
+# l'ouverture ; seul le filtre tradeSide s'inverse.
+
+def test_confirm_futures_close_fill_matches_by_side_and_time():
+    """Miroir exact du confirmateur d'ouverture : matche le fill de FERMETURE par côté + tradeSide
+    close + cTime récent ; ignore les OUVERTURES et les fills antérieurs à since_ts."""
+    import json as _json
+    import futures_executor as fe
+    order = {"symbol": "HYPEUSDT", "side": "short", "reduce": True}
+    def r_close(cmd):
+        return _json.dumps({"data": {"fillList": [
+            {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "0.17", "price": "60.292", "cTime": "1000500"},
+            {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "open", "baseVolume": "0.22", "price": "60.155", "cTime": "1000600"}]}})
+    f = fe._confirm_futures_close_fill(order, runner=r_close, since_ts=1000.0, tries=1, sleeper=lambda s: None)
+    assert f and abs(f["size_btc"] - 0.17) < 1e-9 and abs(f["price_avg"] - 60.29) < 1e-2
+    # une OUVERTURE seule ne doit JAMAIS être prise pour une fermeture (faux positif = croire soldé)
+    r_openonly = lambda cmd: _json.dumps({"data": {"fillList": [
+        {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "open", "baseVolume": "0.22", "price": "60.1", "cTime": "1000500"}]}})
+    assert fe._confirm_futures_close_fill(order, runner=r_openonly, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+    # fermeture ANTÉRIEURE (ex. un TP partiel déjà soldé) -> pas la nôtre
+    r_old = lambda cmd: _json.dumps({"data": {"fillList": [
+        {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "0.2", "price": "60", "cTime": "900000"}]}})
+    assert fe._confirm_futures_close_fill(order, runner=r_old, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+    # mauvais côté (fermeture d'un LONG alors qu'on solde un SHORT) -> ignoré
+    r_wrong = lambda cmd: _json.dumps({"data": {"fillList": [
+        {"symbol": "HYPEUSDT", "side": "buy", "tradeSide": "close", "baseVolume": "0.2", "price": "60", "cTime": "1000500"}]}})
+    assert fe._confirm_futures_close_fill(order, runner=r_wrong, since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+    # FAIL-SAFE : réponse illisible -> None, jamais d'exception (l'ordre est DÉJÀ parti)
+    assert fe._confirm_futures_close_fill(order, runner=lambda cmd: "pas du json",
+                                          since_ts=1000.0, tries=1, sleeper=lambda s: None) is None
+
+
+def test_confirm_futures_close_fill_agrege_le_cas_reel_bank_20_07():
+    """RÉGRESSION ancrée sur le RÉEL : la fermeture BANKUSDT du 2026-07-20 15:07:59 a rempli en
+    TROIS fills partiels (14+44+27 = 85, la taille demandée) et fut pourtant journalisée FAILED."""
+    import json as _json
+    import futures_executor as fe
+    order = {"symbol": "BANKUSDT", "side": "short", "reduce": True, "size_btc": 85.0}
+    def runner(cmd):
+        return _json.dumps({"data": {"fillList": [
+            {"symbol": "BANKUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "14", "price": "0.2798", "cTime": "1784560079000"},
+            {"symbol": "BANKUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "44", "price": "0.2798", "cTime": "1784560079000"},
+            {"symbol": "BANKUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "27", "price": "0.2798", "cTime": "1784560079000"},
+            {"symbol": "BANKUSDT", "side": "sell", "tradeSide": "open", "baseVolume": "26", "price": "0.29114", "cTime": "1784556147000"}]}})
+    f = fe._confirm_futures_close_fill(order, runner=runner, since_ts=1784560075.9, tries=1, sleeper=lambda s: None)
+    assert f and abs(f["size_btc"] - 85.0) < 1e-9          # les 3 partiels agrégés, l'ouverture exclue
+    assert abs(f["price_avg"] - 0.2798) < 1e-4
+
+
+def test_submit_taker_reduce_reconcilie_orderid_null_via_fills():
+    """LE TROU (ERR-020) : une RÉDUCTION avec orderId:null n'était PAS réconciliée -> FAILED à
+    tort. Elle doit l'être comme une ouverture : fill de fermeture confirmé -> executed=True."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": None}})      # orderId NULL
+        if "futures_get_fills" in s:
+            return _json.dumps({"data": {"fillList": [
+                {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "0.22", "price": "60.292", "cTime": "1000500"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 13.26, 2.0, client_oid="c1",
+                                   symbol="HYPEUSDT", reduce=True, size_btc=0.22)
+    res = fe._submit_taker(order, runner, spec, 60.292, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is True and res.get("fill")
+    assert abs(res["fill"]["size_btc"] - 0.22) < 1e-9
+    assert not res.get("ambiguous")
+
+
+def test_submit_taker_reduce_ambigu_sans_fill_reste_non_execute():
+    """Le sens PRUDENT est préservé : réduction ambiguë SANS fill de fermeture constaté ->
+    executed=False + ambiguous=True. On ne déclare JAMAIS soldé sans avoir vu le fill (un faux
+    positif ici ferait croire une position fermée alors qu'elle est ouverte)."""
+    import os, json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": None}})
+        if "futures_get_fills" in s:                      # QUE l'ouverture : rien n'a été soldé
+            return _json.dumps({"data": {"fillList": [
+                {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "open", "baseVolume": "0.22", "price": "60.1", "cTime": "1000400"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 13.26, 2.0, client_oid="c1",
+                                   symbol="HYPEUSDT", reduce=True, size_btc=0.22)
+    old = {k: os.environ.get(k) for k in ("FUTURES_FILL_CONFIRM_TRIES", "FUTURES_FILL_CONFIRM_DELAY_S")}
+    try:
+        os.environ["FUTURES_FILL_CONFIRM_TRIES"] = "1"; os.environ["FUTURES_FILL_CONFIRM_DELAY_S"] = "0"
+        res = fe._submit_taker(order, runner, spec, 60.1, "crossed", "hedge_mode", now=1000.0)
+        assert res["executed"] is False and res.get("ambiguous") is True
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_submit_taker_rejet_explicite_ne_reconcilie_pas_une_reduction():
+    """Un code d'erreur EXPLICITE veut dire RIEN placé : aucune réconciliation, aucun appel aux
+    fills (sinon on attribuerait à notre ordre une fermeture voisine, ex. un TP partiel)."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    vus = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        vus.append(s)
+        if "futures_place_order" in s:
+            return _json.dumps({"code": "40774", "msg": "rejet", "data": None})
+        if "futures_get_fills" in s:                      # ne DOIT pas être appelé
+            return _json.dumps({"data": {"fillList": [
+                {"symbol": "HYPEUSDT", "side": "sell", "tradeSide": "close", "baseVolume": "0.22", "price": "60.2", "cTime": "1000500"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 13.26, 2.0, client_oid="c1",
+                                   symbol="HYPEUSDT", reduce=True, size_btc=0.22)
+    res = fe._submit_taker(order, runner, spec, 60.2, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is False and not res.get("ambiguous")      # rejet NET, pas ambigu
+    assert not any("futures_get_fills" in s for s in vus)             # aucune réconciliation
+
+
 def test_submit_taker_reconciles_orderid_null_via_fills():
     """RÉGRESSION bug 07-09 : place renvoie orderId:null mais l'ordre a REMPLI -> réconcilié via
     les fills -> executed=True (plus de faux négatif)."""

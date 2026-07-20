@@ -1352,16 +1352,21 @@ def _pending_order_by_client_oid(symbol, client_oid, runner=None):
     return ""                                         # carnet VIDE -> ordre vraiment non placé -> repli taker SÛR
 
 
-def _confirm_futures_open_fill(order, runner=None, since_ts=None, tries=None, delay=None, sleeper=None):
-    """Confirme qu'un ordre d'OUVERTURE a RÉELLEMENT rempli, en re-pollant les fills futures.
-    Bitget peut remplir un limit_ioc en renvoyant orderId:null (ordre identifié par clientOid,
+def _confirm_futures_fill(order, phase, runner=None, since_ts=None, tries=None, delay=None,
+                          sleeper=None):
+    """NOYAU de réconciliation par les fills, commun à l'OUVERTURE et à la FERMETURE.
+    Bitget peut remplir un ordre en renvoyant orderId:null (ordre identifié par clientOid,
     ABSENT des fills) : on ne peut donc PAS matcher par id -> on matche par SYMBOLE + côté
-    d'exécution (buy pour un long, sell pour un short) + tradeSide 'open' + cTime >= since_ts.
-    Sous le verrou d'ouverture, un fill d'ouverture frais est le nôtre. Retourne {size_btc,
-    price_avg, amount_usdt} agrégé, ou None. FAIL-SAFE : ne lève jamais (l'ordre est DÉJÀ passé)."""
+    d'exécution + tradeSide (`phase`) + cTime >= since_ts.
+
+    CÔTÉ : pour une FERMETURE aussi, Bitget rend `side` = DIRECTION DE LA POSITION (un short
+    s'ouvre en `sell open` ET se ferme en `sell close`, relevé réel du 2026-07-20) — le mapping
+    est donc le même aux deux phases, seul `phase` change. Retourne {size_btc, price_avg,
+    amount_usdt} agrégé, ou None. FAIL-SAFE : ne lève jamais (l'ordre est DÉJÀ passé)."""
     from numeric_utils import safe_float
     sym = str(order.get("symbol") or SYMBOL).upper()
     exec_side = "buy" if str(order.get("side")) == "long" else "sell"
+    veut_close = str(phase) == "close"
     since = 0.0 if since_ts is None else float(since_ts) - 5.0     # marge d'horloge (serveur vs local)
     tries = int(_cfg("FUTURES_FILL_CONFIRM_TRIES", 3)) if tries is None else int(tries)
     delay = float(_cfg("FUTURES_FILL_CONFIRM_DELAY_S", 1.0)) if delay is None else float(delay)
@@ -1375,7 +1380,8 @@ def _confirm_futures_open_fill(order, runner=None, since_ts=None, tries=None, de
         for r in (rows or []):
             if not isinstance(r, dict) or str(r.get("side")).lower() != exec_side:
                 continue
-            if "close" in str(r.get("tradeSide") or "").lower():   # on veut l'OUVERTURE, pas une fermeture
+            est_close = "close" in str(r.get("tradeSide") or "").lower()
+            if est_close != veut_close:            # on veut la phase DEMANDÉE, jamais l'autre
                 continue
             ct = safe_float(r.get("cTime"))
             if ct is None or ct / 1000.0 < since:                  # fill antérieur au placement -> pas le nôtre
@@ -1385,11 +1391,36 @@ def _confirm_futures_open_fill(order, runner=None, since_ts=None, tries=None, de
                 size += b
                 notion += b * p
         if size > 0:
-            return {"size_btc": round(size, 8), "price_avg": round(notion / size, 2),
+            # price_avg à 8 décimales : un arrondi à 2 écrasait le prix des alts sous le dollar
+            # (BANK 0.2798 -> 0.28) dans un registre d'ARGENT. size_btc/amount_usdt inchangés.
+            return {"size_btc": round(size, 8), "price_avg": round(notion / size, 8),
                     "amount_usdt": round(notion, 6)}
         if i < tries - 1:
             sleeper(delay)
     return None
+
+
+def _confirm_futures_open_fill(order, runner=None, since_ts=None, tries=None, delay=None, sleeper=None):
+    """Confirme qu'un ordre d'OUVERTURE a RÉELLEMENT rempli (tradeSide 'open'). Sous le verrou
+    d'ouverture, un fill d'ouverture frais est le nôtre."""
+    return _confirm_futures_fill(order, "open", runner=runner, since_ts=since_ts,
+                                 tries=tries, delay=delay, sleeper=sleeper)
+
+
+def _confirm_futures_close_fill(order, runner=None, since_ts=None, tries=None, delay=None, sleeper=None):
+    """Confirme qu'une RÉDUCTION a RÉELLEMENT rempli (tradeSide 'close') — ERR-020.
+
+    Le confirmateur n'existait QUE pour les ouvertures : une fermeture recevant la réponse
+    ambiguë orderId:null était journalisée FUTURES_REAL_FAILED « position à vérifier » alors
+    qu'elle avait rempli (2 cas réels le 2026-07-20 : HYPEUSDT 05:56, BANKUSDT 15:07, toutes
+    deux intégralement remplies, positions ensuite à plat).
+
+    SENS DE L'ERREUR : on ne déclare soldé qu'après avoir VU le fill de fermeture — un faux
+    positif ferait croire une position fermée alors qu'elle est ouverte. Le garde-fou de dernier
+    ressort reste le livre : `flatten_all`/`futures_auto` relisent `positions_ouvertes()` à
+    chaque tick, donc l'autorité finale est la position réelle, jamais ce drapeau."""
+    return _confirm_futures_fill(order, "close", runner=runner, since_ts=since_ts,
+                                 tries=tries, delay=delay, sleeper=sleeper)
 
 
 def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit_ioc", now=None):
@@ -1418,8 +1449,12 @@ def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit
         raw_code = parsed.get("code") if isinstance(parsed, dict) else None
         code = str(raw_code) if raw_code is not None else ""
         rejet_definitif = bool(code) and code not in ("00000", "0")     # erreur explicite -> rien placé
-        if not rejet_definitif and not order.get("reduce"):
-            fill = _confirm_futures_open_fill(order, runner=runner, since_ts=t0)
+        if not rejet_definitif:
+            # ERR-020 : les RÉDUCTIONS étaient exclues de la réconciliation -> FAILED à tort.
+            # Même geste des deux côtés, sur la phase correspondante (open vs close).
+            fill = (_confirm_futures_close_fill(order, runner=runner, since_ts=t0)
+                    if order.get("reduce") else
+                    _confirm_futures_open_fill(order, runner=runner, since_ts=t0))
         if fill and (fill.get("size_btc") or 0) > 0:
             success = True                                              # fill RÉEL constaté -> ordre exécuté
         else:
