@@ -239,6 +239,7 @@ FILES_TO_SCAN = [
     "onchain_btc.py",
     "stablecoin_flow.py",
     "deribit_vol.py",
+    "term_structure.py",
     "flows_agent.py",
     "carry_agent.py",
     "carry_monitor.py",

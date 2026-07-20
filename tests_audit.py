@@ -2059,6 +2059,103 @@ def test_maker_measure_aggregation():
     assert mm.agreger(fills, sym="DOGEUSDT", cutoff_ts=2000)["n_fills"] == 0
 
 
+# ---------- term_structure : courbe des échéances Deribit (descripteur de RÉGIME) ----------
+# Surface que le bot ne voyait pas : carry_monitor ne mesure que la base perp<->spot Bitget ; la
+# COURBE des échéances datées est une autre information (pente = régime de carry, backwardation =
+# stress). Source Deribit publique SANS CLÉ. Le perpétuel sert d'ancre spot.
+# CLASSEMENT D'INTENTION (ERR-016) : DESCRIPTEUR DE RÉGIME / CARRY, PAS un prédicteur directionnel.
+# À juger sur le régime qu'il identifie et le sizing du carry qu'il module — JAMAIS à l'IC.
+# SCHÉMA RÉEL relevé le 2026-07-20 (ERR-007/009) : get_book_summary_by_currency?kind=future ->
+# [{instrument_name:"BTC-PERPETUAL"|"BTC-7AUG26", mark_price, mid_price, last, open_interest, ...}].
+# Échéances Deribit à 08:00 UTC. Nommage : <DEVISE>-<J><MMM><AA>, jour sur 1 ou 2 chiffres.
+
+def test_term_structure_parse_echeance():
+    """Noms d'instruments RÉELS -> jours jusqu'à l'échéance (08:00 UTC). Perpétuel et
+    illisibles -> None, jamais d'exception."""
+    import datetime
+    import term_structure as ts
+    now = datetime.datetime(2026, 7, 20, 8, 0, tzinfo=datetime.UTC).timestamp()
+    assert abs(ts.jours_echeance("BTC-7AUG26", now=now) - 18.0) < 1e-6      # 08:00 -> 08:00 pile
+    assert abs(ts.jours_echeance("BTC-25DEC26", now=now) - 158.0) < 1e-6
+    assert ts.jours_echeance("BTC-PERPETUAL", now=now) is None              # l'ancre, pas une échéance
+    for mauvais in ("BTC-32XXX26", "n'importe quoi", "", None, "BTC-"):
+        assert ts.jours_echeance(mauvais, now=now) is None
+
+
+def test_term_structure_garde_7_jours():
+    """LA LEÇON EMPRUNTÉE (constatée en production par la source) : sous ~1 semaine, le
+    multiplicateur 365/jours transforme le bruit de funding en « basis » à ±30 %. Un écart de
+    112 $ à 3 jours s'annualisait en −24 %. Sous le seuil -> None, jamais un chiffre trompeur."""
+    import term_structure as ts
+    assert ts.MIN_JOURS_BASIS >= 7
+    # cas documenté : 112 $ de décote sur ~65 000 $, 3 jours -> ~−21 % annualisé si on ne gardait pas
+    assert ts.basis_annualise_pct(65374.15 - 112, 65374.15, 3.0) is None
+    assert ts.basis_annualise_pct(65498.26, 65374.15, 18.0) is not None      # 18 j -> calculé
+    b = ts.basis_annualise_pct(65498.26, 65374.15, 18.0)
+    assert 3.5 < b < 4.2                                                     # ~3,85 % (valeurs réelles)
+    assert ts.basis_annualise_pct(64000.0, 65374.15, 30.0) < 0               # décote -> backwardation
+    for mauvais in ((None, 100.0, 30.0), (100.0, 0.0, 30.0), (100.0, 100.0, 0.0), (100.0, 100.0, None)):
+        assert ts.basis_annualise_pct(*mauvais) is None                      # fail-safe, pas de /0
+
+
+def test_term_structure_courbe_ancree_sur_le_perpetuel():
+    """PURE. Le PERPÉTUEL est l'ancre spot ; les échéances sous le seuil sont écartées ;
+    la courbe sort triée par échéance croissante."""
+    import datetime
+    import term_structure as ts
+    now = datetime.datetime(2026, 7, 20, 8, 0, tzinfo=datetime.UTC).timestamp()
+    rows = [                                                     # valeurs RÉELLES du 20/07
+        {"instrument_name": "BTC-25JUN27", "mark_price": 67967.54},
+        {"instrument_name": "BTC-PERPETUAL", "mark_price": 65374.15},
+        {"instrument_name": "BTC-26MAR27", "mark_price": 67210.64},
+        {"instrument_name": "BTC-28AUG26", "mark_price": 65636.59},
+        {"instrument_name": "BTC-7AUG26", "mark_price": 65498.26},
+        {"instrument_name": "BTC-25DEC26", "mark_price": 66514.79},
+        {"instrument_name": "BTC-22JUL26", "mark_price": 65390.0},   # 2 jours -> ÉCARTÉ (garde)
+    ]
+    c = ts.courbe(rows, now=now)
+    assert abs(c["ancre_usd"] - 65374.15) < 1e-9
+    noms = [p["instrument"] for p in c["points"]]
+    assert "BTC-22JUL26" not in noms and "BTC-PERPETUAL" not in noms
+    assert noms == sorted(noms, key=lambda n: dict(zip(noms, [p["jours"] for p in c["points"]]))[n])
+    assert [p["jours"] for p in c["points"]] == sorted(p["jours"] for p in c["points"])
+    assert all(p["basis_pct"] > 0 for p in c["points"])            # contango réel ce jour-là
+    assert c["n_ecartes_sous_seuil"] == 1
+    assert ts.courbe([], now=now)["points"] == [] and ts.courbe(None, now=now)["ancre_usd"] is None
+    # sans perpétuel dans le lot -> aucune ancre -> aucun basis (jamais d'ancre inventée)
+    assert ts.courbe([{"instrument_name": "BTC-25DEC26", "mark_price": 66514.79}], now=now)["points"] == []
+
+
+def test_term_structure_regime_et_pente():
+    """Le livrable est un RÉGIME, pas une direction : contango / plat / backwardation (= stress),
+    plus la pente entre la première et la dernière échéance retenue."""
+    import term_structure as ts
+    contango = {"points": [{"jours": 18.0, "basis_pct": 3.85}, {"jours": 158.0, "basis_pct": 4.03},
+                           {"jours": 340.0, "basis_pct": 4.26}]}
+    r = ts.regime(contango)
+    assert r["regime"] == "contango" and r["pente_pct"] > 0 and r["stress"] is False
+    backw = {"points": [{"jours": 18.0, "basis_pct": -6.0}, {"jours": 158.0, "basis_pct": -2.0}]}
+    rb = ts.regime(backw)
+    assert rb["regime"] == "backwardation" and rb["stress"] is True     # backwardation = stress
+    plat = {"points": [{"jours": 18.0, "basis_pct": 0.2}, {"jours": 158.0, "basis_pct": -0.1}]}
+    assert ts.regime(plat)["regime"] == "plat"
+    for vide in ({"points": []}, {}, None):
+        v = ts.regime(vide)
+        assert v["regime"] is None and v["stress"] is False             # rien mesuré ≠ stress
+
+
+def test_term_structure_failsafe_et_lecture_seule():
+    """Aucune exception quelle que soit l'entrée ; le module ne passe aucun ordre."""
+    import inspect
+    import term_structure as ts
+    for pourri in ([{"pas_de_nom": 1}], [None, "chaine", 42], [{"instrument_name": "BTC-PERPETUAL"}]):
+        c = ts.courbe(pourri, now=1784500000.0)
+        assert isinstance(c["points"], list)
+    src = inspect.getsource(ts)
+    for interdit in ("place_order", "futures_place", "spot_place", "--confirm"):
+        assert interdit not in src                                      # SAFE par construction
+
+
 # ---------- carry_pnl : le carry RÉELLEMENT encaissé, net de frais (mesure OOS) ----------
 # La deep-research du 20/07 a tranché : 100 % des magnitudes de carry publiées sont BRUTES et
 # in-sample (« out-of-sample » = 0 occurrence dans les 3 papiers primaires). La seule mesure
