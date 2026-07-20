@@ -124,8 +124,35 @@ def _ledger_path():
     return Path(__file__).resolve().parent / str(_cfg("FUTURES_REAL_LEDGER", "futures_real_ledger.json"))
 
 
+# §108 — TÉLÉMÉTRIE opérationnelle, canal SÉPARÉ du registre d'ARGENT.
+# Le registre est borné à 1000 évènements TOUTES ACTIONS CONFONDUES. Mesuré le 20/07 :
+# l'auto-réparation de stop y occupait 600 places (60 %) contre 14 évènements d'argent (1,4 %),
+# et à ~29 évts/h tout se renouvelait en ~34 h. Or CINQ consommateurs filtrent sur FUTURES_REAL
+# (real_positions._parse_ledger_sltp, stop_guardian, trade_forensics,
+# futures_report._symboles_trades, intended_sl_from_events) et AUCUN ne lit cette télémétrie :
+# du bruit en écriture seule évinçait la donnée dont tout le monde dépend.
+# PIRE : `intended_sl_from_events` relit FUTURES_REAL pour retrouver le SL INTENTIONNEL à
+# re-poser — l'auto-réparation évinçait donc la donnée dont ELLE-MÊME a besoin. Auto-saboteur.
+# Ici : append-only borné (pas de lecture-modification-écriture de 500 Ko à chaque tic sur le
+# chemin de l'argent), et le registre retrouve ses 1000 places pour ce qui compte.
+TELEMETRIE = Path(__file__).resolve().parent / "futures_telemetrie.jsonl"
+TELEMETRIE_MAX_BYTES = 20_000_000
+
+
+def _journal_telemetrie(event):
+    """Télémétrie opérationnelle (auto-réparation de stop) — JAMAIS le registre d'argent.
+    Best-effort : ne lève jamais, et son échec n'affecte aucune exécution."""
+    try:
+        import journal_append as ja
+        return ja.append_jsonl(TELEMETRIE, event, max_bytes=TELEMETRIE_MAX_BYTES)
+    except Exception:
+        return False
+
+
 def _journal(event):
-    """Journalise un évènement (best-effort). Le ledger est gitignored."""
+    """Journalise un évènement d'ARGENT (best-effort). Le ledger est gitignored.
+    La télémétrie opérationnelle passe par `_journal_telemetrie` (§108) : elle évinçait
+    autrement les évènements que cinq consommateurs relisent."""
     path = _ledger_path()
     try:
         led = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"events": []}
@@ -1989,9 +2016,10 @@ def _place_position_sl(symbol, side, size, trigger_price, runner=None):
     out = _run(cmd, runner=runner)
     compact = (out or "").replace(" ", "").lower()
     ok = bool(out) and '"ok":false' not in compact and "error" not in compact
-    _journal({"ts": int(time.time()), "action": "FUTURES_SL_PLACED",
-              "order": {"symbol": sym, "side": side, "size": sz, "trigger": px, "clientOid": coid},
-              "ok": ok, "response": str(out)[:300]})
+    _journal_telemetrie({"ts": int(time.time()), "action": "FUTURES_SL_PLACED",   # §108 : canal séparé
+                         "order": {"symbol": sym, "side": side, "size": sz, "trigger": px,
+                                   "clientOid": coid},
+                         "ok": ok, "response": str(out)[:300]})
     return {"ok": ok, "response": out, "clientOid": coid}
 
 
@@ -2036,9 +2064,9 @@ def enforce_position_sl(dry=None, live=None, nus=_UNSET, events=_UNSET, position
                 "size": size_by.get((p["symbol"], p["side"]))}
                for p in nus]
     if planned:
-        _journal({"ts": int(time.time()),
-                  "action": "FUTURES_SL_AUTOHEAL_DRY" if dry else "FUTURES_SL_AUTOHEAL",
-                  "dry": bool(dry), "planned": planned})
+        _journal_telemetrie({"ts": int(time.time()),                      # §108 : canal séparé
+                             "action": "FUTURES_SL_AUTOHEAL_DRY" if dry else "FUTURES_SL_AUTOHEAL",
+                             "dry": bool(dry), "planned": planned})
     if dry or not planned:
         return {"ok": True, "dry": True, "planned": planned, "placed": []}
     placed = []

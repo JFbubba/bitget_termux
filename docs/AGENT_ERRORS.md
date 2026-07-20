@@ -698,3 +698,34 @@ IC ↔ comptage, spot ↔ futures ↔ marge, entrée ↔ sortie. Un `and not <ca
 drapeau rouge : il dit « je n'ai pas traité ce cas » — soit c'est motivé en commentaire, soit c'est un
 trou. `grep -nE "and not .*\.get\(|if not .*reduce|only|seulement" ` sur les chemins d'argent.
 **Statut.** CORRIGÉ (noyau symétrique + 5 tests, cas réels rejoués) · RÈGLE ACTIVE.
+
+## ERR-021 · 2026-07-20 · Modifier hors-ligne un fichier que des DÉMONS VIVANTS détiennent et réécrivent
+
+**Contexte.** Après avoir corrigé §108 (la télémétrie d'auto-réparation quitte le registre d'argent),
+j'ai voulu récupérer immédiatement les 612 places déjà occupées : migration des anciennes entrées
+vers le nouveau canal, puis réécriture du registre sans elles. Exécution nickel — sauvegarde
+préalable, migration vérifiée 612/612, réécriture atomique, contrôle « aucune perte sur les familles
+non-télémétrie », 388 évènements restants, 612 places libérées. **Et trente secondes plus tard le
+fichier était revenu à 1000 évènements, 0 marqueur de migration.**
+**Cause racine.** `stop_guardian.py` tourne en **démon permanent** (visible dans `ps`, démarré le
+10/07). Il lit le registre, le garde, et le réécrit en entier (lecture-modification-écriture). Ma
+version a été écrasée par la sienne, plus ancienne. Je n'ai pas vérifié *qui détenait le fichier*
+avant de le modifier — j'ai raisonné comme si le dépôt était au repos alors que le bot tourne en
+continu. Ironie utile : j'avais décrit ce danger EXACT deux heures plus tôt en concevant le journal
+des refus (« le journal d'argent s'écrit en lecture-modification-écriture -> une écriture de refus
+pourrait écraser un `record()` concurrent »), et je l'ai quand même fait.
+**Dégâts : AUCUN**, par chance de conception. La migration écrivait d'abord dans le canal neuf
+(append-only, non détenu) et n'effaçait qu'ensuite ; l'écrasement a donc restauré l'état d'origine
+sans rien détruire — les 612 lignes existent aux deux endroits. Un ordre inverse (effacer puis
+écrire) aurait perdu 612 entrées.
+**Solution.** Ne PAS réessayer : le correctif de CODE suffit — la télémétrie n'entrant plus, les
+anciennes entrées s'évacuent d'elles-mêmes par le plafond FIFO (~3-4 j au débit actuel). Une
+migration immédiate n'apportait que de la vitesse, contre un risque sur le journal d'argent.
+**Contrôle (détection ailleurs).** Avant toute modification hors-ligne d'un artefact partagé :
+`ps aux | grep -E "<module>|python3"` pour lister les démons vivants, et se demander **qui d'autre
+écrit ce fichier**. Si un processus long le détient : soit passer par le module lui-même (qui
+sérialise), soit arrêter le service, soit — le plus souvent — **ne rien faire** et laisser la
+rotation opérer. Corollaire général : un fichier réécrit en entier par plusieurs processus n'a pas
+de modification « hors-ligne » sûre. Et quand une migration est malgré tout nécessaire : **écrire la
+destination AVANT d'effacer la source**, jamais l'inverse.
+**Statut.** RECONNU (aucun dégât, migration abandonnée volontairement) · RÈGLE ACTIVE.

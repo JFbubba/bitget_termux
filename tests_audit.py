@@ -34,7 +34,8 @@ def _rediriger_artefacts():
     """(module, attribut, nom de fichier temporaire) — à étendre pour tout nouveau journal."""
     cibles = [("bitget_execute", "REFUSALS", "refus.jsonl"),
               ("term_structure", "HISTO", "term_history.jsonl"),
-              ("term_structure", "STATE", "term_state.json")]
+              ("term_structure", "STATE", "term_state.json"),
+              ("futures_executor", "TELEMETRIE", "futures_telemetrie.jsonl")]
     for nom_mod, attr, fichier in cibles:
         try:
             mod = __import__(nom_mod)
@@ -2172,6 +2173,71 @@ def test_term_structure_regime_et_pente():
     for vide in ({"points": []}, {}, None):
         v = ts.regime(vide)
         assert v["regime"] is None and v["stress"] is False             # rien mesuré ≠ stress
+
+
+# ---------- §108 : la télémétrie d'auto-réparation quitte le registre d'ARGENT ----------
+# Mesuré le 20/07 : le registre futures est borné à 1000 évènements TOUTES ACTIONS CONFONDUES, et
+# l'auto-réparation de stop en occupait 600 (60 %) contre 14 évènements d'argent (1,4 %). À
+# ~29 évts/h, tout se renouvelait en ~34 h. Or CINQ consommateurs filtrent sur FUTURES_REAL
+# (real_positions._parse_ledger_sltp, stop_guardian, trade_forensics, futures_report._symboles_trades,
+# intended_sl_from_events) et AUCUN ne lit la télémétrie : du bruit en écriture seule évinçait la
+# donnée dont tout le monde dépend.
+# PIRE, et c'est ce qui rend le correctif nécessaire : `intended_sl_from_events` relit FUTURES_REAL
+# pour retrouver le SL INTENTIONNEL à re-poser. L'auto-réparation évinçait donc la donnée dont
+# elle-même a besoin — passé 34 h, plus rien à réparer. Mécanisme auto-saboteur.
+
+def test_futures_telemetrie_canal_separe():
+    """La télémétrie d'auto-réparation va dans SON journal (append-only), jamais dans le registre."""
+    import os, tempfile, json as _json, pathlib
+    import config
+    import futures_executor as fe
+    import journal_append as ja
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led, orig_tel = getattr(config, "FUTURES_REAL_LEDGER", None), fe.TELEMETRIE
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            fe.TELEMETRIE = pathlib.Path(td) / "telemetrie.jsonl"
+            fe._journal_telemetrie({"ts": 1, "action": "FUTURES_SL_PLACED", "ok": True})
+            fe._journal_telemetrie({"ts": 2, "action": "FUTURES_SL_AUTOHEAL", "planned": []})
+            rows = ja.read_jsonl(fe.TELEMETRIE)
+            assert [r["action"] for r in rows] == ["FUTURES_SL_PLACED", "FUTURES_SL_AUTOHEAL"]
+            led = _json.loads(pathlib.Path(config.FUTURES_REAL_LEDGER).read_text()) \
+                if pathlib.Path(config.FUTURES_REAL_LEDGER).exists() else {"events": []}
+            assert led.get("events", []) == []            # le registre d'ARGENT n'a PAS bougé
+        finally:
+            fe.TELEMETRIE = orig_tel
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            elif hasattr(config, "FUTURES_REAL_LEDGER"):
+                delattr(config, "FUTURES_REAL_LEDGER")
+
+
+def test_futures_telemetrie_n_evince_plus_l_argent():
+    """RÉGRESSION §108 : 2000 tics de télémétrie ne doivent plus chasser un évènement d'ARGENT du
+    registre — et le SL intentionnel doit rester retrouvable (l'auto-réparation en dépend)."""
+    import os, tempfile, json as _json, pathlib
+    import config
+    import futures_executor as fe
+    had = hasattr(config, "FUTURES_REAL_LEDGER")
+    orig_led, orig_tel = getattr(config, "FUTURES_REAL_LEDGER", None), fe.TELEMETRIE
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            config.FUTURES_REAL_LEDGER = os.path.join(td, "led.json")
+            fe.TELEMETRIE = pathlib.Path(td) / "telemetrie.jsonl"
+            fe._journal({"ts": 100, "action": "FUTURES_REAL",
+                         "order": {"symbol": "BTCUSDT", "side": "long", "stop_loss": 61000.0}})
+            for i in range(2000):                          # le déluge d'auto-réparation
+                fe._journal_telemetrie({"ts": 200 + i, "action": "FUTURES_SL_AUTOHEAL_DRY"})
+            ev = _json.loads(pathlib.Path(config.FUTURES_REAL_LEDGER).read_text())["events"]
+            assert len(ev) == 1 and ev[0]["action"] == "FUTURES_REAL"       # l'argent a SURVÉCU
+            assert fe.intended_sl_from_events("BTCUSDT", "long", ev) == 61000.0
+        finally:
+            fe.TELEMETRIE = orig_tel
+            if had:
+                config.FUTURES_REAL_LEDGER = orig_led
+            elif hasattr(config, "FUTURES_REAL_LEDGER"):
+                delattr(config, "FUTURES_REAL_LEDGER")
 
 
 def test_aucune_ecriture_dans_un_journal_de_production():
