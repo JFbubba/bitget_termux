@@ -117,11 +117,14 @@ def scan(universe=None):
             if len(rows) < 30:
                 continue
             taux = rows[-1][1]
+            n_stab = max(1, int(_flt("ALT_CARRY_STABILITY_N", 3)))   # §9 : entrée sur funding STABLE
+            recent = [r[1] for r in rows[-n_stab:]]                    # les N derniers prints de funding
+            stable = bool(recent) and (all(x > 0 for x in recent) or all(x < 0 for x in recent))
             pctl = fh.percentile_taux(rows, taux)
             apr = taux * 3 * 365 * 100.0
             out.append({"symbol": sym, "taux": round(taux, 8),
                         "pctl": round(pctl, 1) if pctl is not None else None,
-                        "apr_pct": round(apr, 2)})
+                        "apr_pct": round(apr, 2), "stable": stable})
         except Exception:
             continue
     out.sort(key=lambda r: -(r["apr_pct"] or 0))
@@ -173,10 +176,11 @@ def decider(etat, cands, pctl_min=None, apr_min=None, pctl_exit=None, apr_exit=N
                                             f"(pctl {c.get('pctl')}, APR {c.get('apr_pct')} %)"}
     for c in cands or []:
         taux, pctl, apr = c.get("taux") or 0, c.get("pctl") or 50, c.get("apr_pct") or 0
-        if taux > 0 and pctl >= pctl_min and apr >= apr_min:
+        stable = c.get("stable", True)   # §9 : funding STABLE (N derniers prints même signe) — reducer-only
+        if taux > 0 and pctl >= pctl_min and apr >= apr_min and stable:
             return {"action": "ouvrir", "symbol": c["symbol"], "mode": "classic",
-                    "raison": f"funding extrême (pctl {pctl}, APR {apr} %)"}
-        if neg and taux < 0 and pctl <= (100 - pctl_min) and (abs(apr) - borrow_apr) >= apr_min:
+                    "raison": f"funding extrême STABLE (pctl {pctl}, APR {apr} %)"}
+        if neg and taux < 0 and pctl <= (100 - pctl_min) and (abs(apr) - borrow_apr) >= apr_min and stable:
             if _reverse_bloque(etat, c["symbol"]):
                 continue                               # coin non empruntable (liste noire §90)
             return {"action": "ouvrir", "symbol": c["symbol"], "mode": "reverse",

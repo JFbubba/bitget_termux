@@ -99,6 +99,20 @@ def _symboles(symbols=None):
     return list(SYMBOLES_REPLI)[:MAX_SYMBOLES]
 
 
+def _spot_price(sym):
+    """Dernier prix SPOT (`lastPr`, ticker Bitget public) pour le calcul du basis perp-spot. `_get`
+    renvoie la data brute (liste). Best-effort -> None (le basis devient n/a, fail-safe)."""
+    try:
+        import bitget_market_data as bmd
+        rows = bmd._get("/api/v2/spot/market/tickers", {"symbol": sym})
+        if isinstance(rows, dict):
+            rows = rows.get("data") or []
+        row = rows[0] if isinstance(rows, (list, tuple)) and rows else None
+        return float(row["lastPr"]) if row and row.get("lastPr") else None
+    except Exception:
+        return None
+
+
 def evaluer(symbols=None):
     """Évalue le carry par symbole (best-effort par symbole, ne lève jamais).
     Retourne [{symbol, funding, apr_brut_pct, apr_net_pct, attrait}]."""
@@ -125,10 +139,20 @@ def evaluer(symbols=None):
             pctl = fhy.percentile_courant(str(sym).upper(), funding)
         except Exception:
             pctl = None
+        # §9 : BASIS DRIFT (spread perp-spot) — « risque n°1 » du carry (advisory, read-only). Réutilise
+        # derivs_positioning.basis_en_pct (déjà présent). La neutralité tient tant que |basis| reste borné ;
+        # un décrochage perp-vs-spot = perte MtM DIRECTIONNELLE sur la jambe short, invisible sinon.
+        basis_pct = None
+        try:
+            import derivs_positioning as _dp
+            basis_pct = _dp.basis_en_pct((snap or {}).get("mark"), _spot_price(str(sym).upper()))
+        except Exception:
+            basis_pct = None
         out.append({"symbol": str(sym).upper(), "funding": funding,
                     "apr_brut_pct": round(brut, 2) if brut is not None else None,
                     "apr_net_pct": round(net, 2) if net is not None else None,
                     "funding_pctl": pctl,
+                    "basis_pct": round(basis_pct, 4) if basis_pct is not None else None,
                     "attrait": attrait(net, seuil)})
     return out
 
@@ -197,6 +221,25 @@ def _alerte_attractif(nouveaux):
         pass
 
 
+def _alerte_basis(res):
+    """Advisory Telegram si le BASIS (spread perp-spot) décroche au-delà du seuil (§9, « risque n°1 »
+    du carry). PAPER : signale une divergence perp/spot qui rendrait la jambe short DIRECTIONNELLE ;
+    décision humaine (surveiller/fermer), AUCUNE exécution auto. Fail-safe, seuil CARRY_BASIS_ALERT_PCT."""
+    try:
+        seuil = float(_cfg("CARRY_BASIS_ALERT_PCT", 0.5))
+        drift = [r for r in (res or []) if r.get("basis_pct") is not None and abs(r["basis_pct"]) >= seuil]
+        if not drift:
+            return
+        import telegram_notifier as tn
+        lignes = [f"⚠️ BASIS DRIFT carry (seuil {seuil} %, spread perp-spot) — jambe short devient directionnelle si non convergent :"]
+        for r in drift:
+            lignes.append(f"  {r['symbol']} : basis {_fmt_pct(r.get('basis_pct'))}")
+        lignes.append("Advisory PAPER — surveiller / fermer si la divergence persiste ; aucune exécution auto.")
+        tn.send_telegram("\n".join(lignes))
+    except Exception:
+        pass
+
+
 # ---------- rapport ----------
 
 
@@ -214,7 +257,7 @@ def build_report(resultats=None):
     for r in res:
         lignes.append(f"{r['symbol']:<10} funding {_fmt_funding(r['funding'])} | "
                       f"APR brut {_fmt_pct(r['apr_brut_pct'])} | "
-                      f"net {_fmt_pct(r['apr_net_pct'])} | {r['attrait']}")
+                      f"net {_fmt_pct(r['apr_net_pct'])} | basis {_fmt_pct(r.get('basis_pct'))} | {r['attrait']}")
     lignes.append("APR net = funding moyen 30 périodes annualisé − frais amortis (horizon 30 j).")
     lignes.append("Stratégie mesurée en PAPER uniquement (delta-neutre, long spot + short perp). Aucune exécution.")
     lignes.append("Lecture seule (hors journal local). Aucun ordre. VERDICT: SAFE")
@@ -228,6 +271,7 @@ def main():
         # alerte UNIQUEMENT quand une nouvelle entrée est journalisée (throttle 1h) :
         # sinon un état attractif stable ré-alerterait à chaque cycle de 5 min.
         _alerte_attractif(transitions_attractif(precedent, res))
+        _alerte_basis(res)                            # §9 : advisory sur le basis drift (risque n°1)
     print(build_report(res))
 
 

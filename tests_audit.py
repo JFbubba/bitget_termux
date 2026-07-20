@@ -3836,6 +3836,19 @@ def test_adl_rank_parse_and_label():
     assert ar._label(5) == "RISQUE ADL ÉLEVÉ" and ar._label(None) == "—"  # 5 = deleveragé en 1er
 
 
+def test_alt_carry_stability_gate():
+    # §9 gap 2 : decider n'OUVRE PAS sur un funding extrême INSTABLE (stable=False) ; ouvre si stable.
+    import alt_carry as ac
+    inst = [{"symbol": "XUSDT", "taux": 0.001, "pctl": 95.0, "apr_pct": 30.0, "stable": False}]
+    assert ac.decider({"position": None}, inst)["action"] == "rien"        # instable -> pas d'ouverture
+    stab = [{"symbol": "XUSDT", "taux": 0.001, "pctl": 95.0, "apr_pct": 30.0, "stable": True}]
+    d = ac.decider({"position": None}, stab)
+    assert d["action"] == "ouvrir" and d["symbol"] == "XUSDT"              # stable -> ouvre
+    # compat : champ absent -> fail-open (True), comportement historique préservé hors prod
+    old = [{"symbol": "XUSDT", "taux": 0.001, "pctl": 95.0, "apr_pct": 30.0}]
+    assert ac.decider({"position": None}, old)["action"] == "ouvrir"
+
+
 def test_with_qml_weight_bounded_and_gated():
     # gap de câblage §4 comblé : la 18e voix qml a un poids FIXE BORNÉ (0.5) comme llm/nn/classics,
     # au lieu du défaut 1.0 ; identité quand absente ; jamais persistée dans le banc gelé à 14.
