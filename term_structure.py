@@ -40,6 +40,15 @@ from numeric_utils import safe_float
 BOOK_URL = "https://www.deribit.com/api/v2/public/get_book_summary_by_currency"
 UA = {"User-Agent": "Mozilla/5.0"}
 
+# MESURE D'ABORD : sans historisation, on aurait dans un mois encore UN seul instantané. Une ligne
+# par passage, append-only et bornée, POINTS COMPRIS — c'est la matière d'une mesure future (la
+# pente dit-elle quelque chose ?). Rien n'est branché à l'argent tant que ce n'est pas mesuré.
+from pathlib import Path as _Path
+HISTO = _Path(__file__).resolve().parent / "term_structure_history.jsonl"
+HISTO_MAX_BYTES = 20_000_000
+# Dédup d'alerte (même motif que voice_shadow_measure / risk_metrics).
+STATE = _Path(__file__).resolve().parent / ".term_structure_state.json"
+
 # Seuil de la garde ci-dessus. Ne pas descendre sous 7 sans re-mesurer le bruit court-terme.
 MIN_JOURS_BASIS = 7.0
 # Deribit règle ses échéances à 08:00 UTC.
@@ -181,6 +190,52 @@ def snapshot(devise="BTC", rows=None, now=None):
     return {"devise": str(devise).upper(), **c, **regime(c)}
 
 
+def record(snap, now=None):
+    """Historise UN instantané (append-only, borné, best-effort). False si la courbe est vide :
+    une ligne sans points ne serait mesurable par rien plus tard. Ne lève jamais."""
+    if not (snap or {}).get("points"):
+        return False
+    entree = {"ts": int(time.time() if now is None else now)}
+    for k in ("devise", "regime", "basis_median_pct", "pente_pct", "ancre_usd", "stress",
+              "n_ecartes_sous_seuil", "points"):
+        if k in snap:
+            entree[k] = snap[k]
+    try:
+        import journal_append as ja
+        return ja.append_jsonl(HISTO, entree, max_bytes=HISTO_MAX_BYTES)
+    except Exception:
+        return False
+
+
+def doit_alerter(precedent, courant):
+    """PURE. Alerter au CHANGEMENT de régime, et TOUJOURS à l'entrée en stress (même en 1re
+    observation). Jamais sur une 1re observation banale, jamais sur un stress qui dure, et
+    jamais sur une mesure PERDUE (courant None n'est pas un évènement)."""
+    if courant is None:
+        return False
+    if courant == "backwardation" and precedent != "backwardation":
+        return True                      # entrée en stress : on parle même sans historique
+    if precedent is None:
+        return False                     # 1re observation banale -> silence
+    return courant != precedent
+
+
+def _etat():
+    try:
+        import json
+        return json.loads(STATE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _sauve_etat(st):
+    try:
+        import json
+        STATE.write_text(json.dumps(st), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _n(v, motif="{:+.2f}"):
     return motif.format(v) if isinstance(v, (int, float)) else "—"
 
@@ -213,8 +268,34 @@ def build_report(snaps=None, devises=("BTC", "ETH")):
 
 def main():
     import sys
-    devises = tuple(a.upper() for a in sys.argv[1:] if not a.startswith("-")) or ("BTC", "ETH")
-    print(build_report(devises=devises))
+    args = sys.argv[1:]
+    devises = tuple(a.upper() for a in args if not a.startswith("-")) or ("BTC", "ETH")
+    snaps = [snapshot(d) for d in devises]
+    print(build_report(snaps=snaps))
+    if "--record" in args or "--alert" in args:
+        for s in snaps:
+            record(s)                                  # historise AVANT d'alerter
+    if "--alert" in args:
+        st = _etat()
+        change = []
+        for s in snaps:
+            dev, cour = s.get("devise"), s.get("regime")
+            if doit_alerter(st.get(dev), cour):
+                change.append(f"{dev} : {st.get(dev) or '—'} -> {cour} "
+                              f"(basis médian {_n(s.get('basis_median_pct'))} %, "
+                              f"pente {_n(s.get('pente_pct'))} pt)")
+            if cour is not None:
+                st[dev] = cour                         # une mesure perdue n'efface pas l'état connu
+        _sauve_etat(st)
+        if change:
+            stress = any(s.get("stress") for s in snaps)
+            msg = ("🛑 STRUCTURE PAR TERME — BACKWARDATION (stress)\n" if stress
+                   else "ℹ️ Structure par terme — changement de régime\n") + "\n".join(change)
+            try:
+                import telegram_notifier as tn
+                tn.send_telegram(msg)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ conversation_state.json
 .backlog_review_state.json
 .bitget_watch_state.json
 .risk_alert_state.json
+.term_structure_state.json
 .adl_rank_state.json
 __pycache__/
 agent_loop.pid

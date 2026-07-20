@@ -2144,6 +2144,49 @@ def test_term_structure_regime_et_pente():
         assert v["regime"] is None and v["stress"] is False             # rien mesuré ≠ stress
 
 
+def test_term_structure_historisation():
+    """MESURE D'ABORD : sans historisation, dans un mois on aurait encore UN seul instantané.
+    Une ligne par passage, append-only et bornée, avec les points (la matière d'une mesure future)."""
+    import tempfile, pathlib
+    import journal_append as ja
+    import term_structure as ts
+    orig = (ts.HISTO, ts.HISTO_MAX_BYTES)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            ts.HISTO = pathlib.Path(td) / "term.jsonl"
+            snap = {"devise": "BTC", "regime": "contango", "basis_median_pct": 4.09,
+                    "pente_pct": 0.11, "ancre_usd": 65361.22, "stress": False,
+                    "points": [{"instrument": "BTC-7AUG26", "jours": 17.5, "basis_pct": 3.88}],
+                    "n_ecartes_sous_seuil": 4}
+            assert ts.record(snap, now=1_000_000) is True
+            rows = ja.read_jsonl(ts.HISTO)
+            assert len(rows) == 1 and rows[0]["ts"] == 1_000_000
+            assert rows[0]["devise"] == "BTC" and rows[0]["regime"] == "contango"
+            assert rows[0]["points"][0]["instrument"] == "BTC-7AUG26"      # points CONSERVÉS
+            assert rows[0]["n_ecartes_sous_seuil"] == 4                     # traçabilité de la garde
+            ts.HISTO_MAX_BYTES = 300                                        # rotation forcée
+            for i in range(30):
+                ts.record(snap, now=1_000_000 + i)
+            assert ts.HISTO.stat().st_size < 4 * ts.HISTO_MAX_BYTES
+            # un instantané sans courbe n'est PAS historisé (rien à mesurer plus tard)
+            assert ts.record({"devise": "BTC", "points": []}, now=1) is False
+        finally:
+            (ts.HISTO, ts.HISTO_MAX_BYTES) = orig
+
+
+def test_term_structure_alerte_seulement_au_changement():
+    """PURE. Jamais de spam : on alerte au CHANGEMENT de régime, et TOUJOURS à l'entrée en
+    stress (backwardation) même si c'est la première observation."""
+    import term_structure as ts
+    assert ts.doit_alerter("contango", "contango") is False
+    assert ts.doit_alerter("contango", "plat") is True
+    assert ts.doit_alerter(None, "contango") is False        # 1re observation banale -> silence
+    assert ts.doit_alerter(None, "backwardation") is True    # 1re observation en STRESS -> on parle
+    assert ts.doit_alerter("backwardation", "backwardation") is False   # stress qui dure -> 1 seule fois
+    assert ts.doit_alerter("backwardation", "contango") is True         # sortie de stress -> on le dit
+    assert ts.doit_alerter("contango", None) is False        # mesure perdue n'est PAS un évènement
+
+
 def test_term_structure_failsafe_et_lecture_seule():
     """Aucune exception quelle que soit l'entrée ; le module ne passe aucun ordre."""
     import inspect
