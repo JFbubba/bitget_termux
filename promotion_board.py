@@ -28,7 +28,11 @@ def _voix(overlay=None, comptes=None):
             snap = lia.overlay_snapshot(3600)
             overlay = snap.get("agents", [])
             comptes = {}
-            for e in lia.charger_entrees(lia.OVERLAY, max_lignes=50_000):
+            # §107 : le COMPTE de votes doit honorer les epochs comme l'IC — sinon la barre
+            # « ≥ 50 votes » progresserait sur des votes périmés que l'IC, lui, écarte.
+            entrees, _ = lia.filtrer_epochs(lia.charger_entrees(lia.OVERLAY, max_lignes=50_000),
+                                            lia.charger_epochs())
+            for e in entrees:
                 for k in (e.get("votes") or {}):
                     comptes[k] = comptes.get(k, 0) + 1
     except Exception:

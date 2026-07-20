@@ -12479,6 +12479,17 @@ def test_voice_epochs_filtre_les_votes_perimes_par_voix():
         assert lia.charger_epochs(p) == {"bonne": 7.0}
 
 
+def test_voice_epochs_honores_aussi_par_le_compte_du_promotion_board():
+    """§107 — le board comptait les votes DIRECTEMENT depuis le journal brut, contournant
+    l'epoch : une voix dont l'IC est écarté progressait quand même vers la barre « ≥ 50
+    votes ». C'est l'organe qui déclare une voix promouvable — il doit voir la MÊME
+    population que l'IC."""
+    import inspect
+    import promotion_board as pb
+    src = inspect.getsource(pb._voix)
+    assert "filtrer_epochs" in src and "charger_epochs" in src
+
+
 def test_voice_epochs_applique_par_overlay_snapshot():
     """L'epoch doit être honoré par overlay_snapshot — le point de passage UNIQUE de
     promotion_board, du dashboard et de voice_shadow_measure. Sinon le marqueur est décoratif."""
