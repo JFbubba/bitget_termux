@@ -152,6 +152,7 @@ FILES_TO_SCAN = [
     "telegram_notifier.py",
     "bitget_watch.py",
     "risk_metrics.py",
+    "adl_rank.py",
     "telegram_command_bot.py",
     "preorder_approval.py",
     "execution_gateway.py",

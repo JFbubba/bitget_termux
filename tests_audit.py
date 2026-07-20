@@ -3823,6 +3823,19 @@ def test_risk_metrics_pure():
     assert abs(r[0] - 0.10) < 1e-9 and abs(r[1] + 0.10) < 1e-9
 
 
+def test_adl_rank_parse_and_label():
+    # descripteur ADL (§8f) : parse robuste (par côté adlRankLong/Short OU générique) + labels
+    import adl_rank as ar
+    rows = [{"symbol": "BTCUSDT", "adlRankLong": "1", "adlRankShort": "5"},
+            {"symbol": "ETHUSDT", "holdSide": "long", "adlRank": "3"}]
+    got = {(x["symbol"], x["side"], x["rank"]) for x in ar.parse(rows)}
+    assert ("BTCUSDT", "long", 1) in got and ("BTCUSDT", "short", 5) in got
+    assert ("ETHUSDT", "long", 3) in got
+    assert ar.parse([]) == [] and ar.parse([{"bad": 1}]) == []           # rien d'exploitable -> []
+    assert ar._label(1) == "SÛR" and ar._label(3) == "SURVEILLER"
+    assert ar._label(5) == "RISQUE ADL ÉLEVÉ" and ar._label(None) == "—"  # 5 = deleveragé en 1er
+
+
 def test_with_qml_weight_bounded_and_gated():
     # gap de câblage §4 comblé : la 18e voix qml a un poids FIXE BORNÉ (0.5) comme llm/nn/classics,
     # au lieu du défaut 1.0 ; identité quand absente ; jamais persistée dans le banc gelé à 14.
