@@ -163,7 +163,7 @@ BRAIN_EARCP_LISSAGE = 0.02            # lissage vers la cible : même vitesse ho
 # FUTURES_EDGE_GATE_OVERRIDE=0 la referme instantanément. Les caps effectifs démarrent
 # BAS (montée progressive si l'exécution est propre) ; murs absolus en dur dans
 # futures_executor : 50 $/trade, 250 $ cumulé, infranchissables par env/config.
-FUTURES_EDGE_GATE_OVERRIDE = 0        # REFERMÉE 17/07 (décision proprio, pivot structurel : edge directionnel réfuté ; carry/accum/earn continuent ; reprise AUTO dès qu'un agent bat la porte d'edge)
+FUTURES_EDGE_GATE_OVERRIDE = 1        # ROUVERTE 20/07 (décision proprio §45, EN CONNAISSANCE de la mesure : edge directionnel réfuté, espérance ~négative même en maker). Démarrage PRUDENT (1 position, notional ~25$, ×2). =0 referme instantanément ; caps partagés carry 50/200 et murs durs 50/250/×5 INCHANGÉS.
 FUTURES_REAL_MAX_PER_TRADE_USDT = 50.0   # cap effectif par ordre = mur dur (décision propriétaire 03/07, cap carry 200)
 FUTURES_REAL_MAX_GROSS_USDT = 200.0      # cap effectif exposition cumulée (mur dur : 250 ; décision propriétaire 03/07)
 FUTURES_DAILY_LOSS_STOP_PCT = 5.0        # perte journalière -> kill-switch (fail-closed)
@@ -179,7 +179,7 @@ FUTURES_AUTO_LEVERAGE = 2.0           # levier demandé (mur ×5)
 FUTURES_AUTO_SEUIL_ENTREE = 0.35      # |consensus| minimal pour OUVRIR (conviction rare)
 FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (conviction morte)
 FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
-FUTURES_AUTO_MAX_POSITIONS = 3        # positions directionnelles simultanées max (multi-symboles §47,
+FUTURES_AUTO_MAX_POSITIONS = 1        # RÉDUIT 3->1 le 20/07 (démarrage prudent porte §45 rouverte ; remonter par paliers si exécution propre) — positions directionnelles simultanées max (multi-symboles §47,
                                       # une par symbole ; aligné sur MAX_OPEN_POSITIONS)
 FUTURES_MARGE_ALERTE_DIST_PCT = 15.0
 FUTURES_FUNDING_TIMING_MIN = 20       # report d'OUVERTURE si un règlement de funding tombe
