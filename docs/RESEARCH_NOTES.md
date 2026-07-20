@@ -3863,3 +3863,37 @@ et **jetait silencieusement TOUT le fichier** (epochs chargés = `{}`, marqueur 
 qu'il semblait posé). Vu parce que l'effet a été VÉRIFIÉ après l'écriture, pas supposé
 (ERR-018). Durci : clés `_*` ignorées, et parsing par entrée — une entrée illisible n'invalide
 plus les autres.
+
+## §108 — le registre futures ne retient que 34 h : le bavardage évince la trace d'argent (OUVERT)
+
+Constat de `/lance-correction` du 20/07/2026, non corrigé — décision propriétaire requise (chemin
+argent). `futures_executor._journal` borne `led["events"]` à **1000 entrées, toutes actions
+confondues**. Or la composition mesurée est :
+
+| famille | places | part |
+|---|---|---|
+| `FUTURES_SL_AUTOHEAL` + `_DRY` + `SL_PLACED` | 600 | **60 %** |
+| `FUTURES_REFUSED` | 386 | 39 % |
+| **argent** (`FUTURES_REAL`, `_SUBMIT`, `_FAILED`, `TP_PARTIAL`) | **14** | **1,4 %** |
+
+À ~29 évènements/h, les 1000 places se renouvellent en **~34 h** : le plus ancien évènement
+conservé datait du 19/07 11:12. Autrement dit **la trace des ordres RÉELS du bot s'efface en un
+peu plus d'une journée**, évincée par du bavardage opérationnel d'auto-réparation de stop.
+
+**Pourquoi ça compte, au-delà de l'esthétique** : `futures_report._symboles_trades()` reconstruit
+les symboles tradés par le bot **à partir des évènements `FUTURES_REAL`/`FUTURES_REAL_FAILED` du
+registre**. C'est cette liste qui donne l'attribution par symbole de `carry_pnl.py` et du PnL bot.
+Quand les évènements d'argent sont évincés, l'attribution devient **aveugle aux symboles anciens**
+— exactement l'angle mort que `carry_pnl --symboles` sert à combler. L'instrument de mesure dépend
+donc d'un registre qui l'oublie en 34 h.
+
+**Trois corrections possibles**, par ordre de sûreté croissante (aucune n'est appliquée) :
+1. **Séparer les canaux** — sortir l'auto-réparation de stop vers son propre journal JSONL
+   append-only borné (motif `journal_append`, comme le journal des refus §67), laissant le registre
+   aux évènements d'argent. Le plus propre ; touche `futures_executor`.
+2. **Plafond par famille** — garder N évènements d'argent quoi qu'il arrive, borner le reste.
+3. **Relever le plafond global** — une ligne, mais ne fait que repousser l'échéance et gonfle un
+   fichier relu à chaque écriture (lecture-modification-écriture).
+
+⚠️ Ne PAS purger le registre pour « faire de la place » : c'est le journal d'argent, il dit ce qui
+s'est passé (cf. les deux `FUTURES_REAL_FAILED` du 20/07 délibérément conservés).
