@@ -289,3 +289,14 @@ level** de la croisée (liquidation ≥ 1,0). Consommation du BGB marge = preuve
   auto-entretenue **dust → BGB → remise de frais**. **[CANDIDAT liquidity_manager / petit outil]** :
   marginal (2 % de frais, montants ~1 $) mais nettoie la poussière ET recharge le levier-frais depuis
   du capital autrement mort. À armer seulement si le réservoir BGB baisse (sinon inutile).
+
+### 8f. WebSocket temps-réel & ADL rank (exécution/risque) [candidats ACTIONNABLES]
+- **`GET /api/v2/mix/position/adlRank`** = LIRE le rang ADL de NOS positions (à quel point on est proche
+  d'un auto-deleveraging). ⇐ complète §8a : le bot peut **MESURER** son risque ADL, pas juste le connaître.
+  **[CANDIDAT descripteur de risque** (façon `risk_metrics`) : lire le rang, alerter s'il monte ; prior =
+  toujours bas (delta-neutre + ≤×5) mais bon témoin.] `/api-doc` (ajout changelog 2026).
+- **Canaux WS PRIVÉS** : `Order` (fills/statut temps-réel) + `Plan-Order`/algo (SL/TP/trigger). ⇐ candidat
+  pour **DURCIR l'exécution** : confirmation maker-fill temps-réel, détection **double-position (ERR-008)**,
+  suivi TPSL — SANS polling. **[CANDIDAT — le bot POLL aujourd'hui ; le WS privé serait plus sûr/réactif.]**
+- Canaux PUBLICS : Tickers · Public-Trade (taker) · Order-Book (>25 niv.) · candle 1m/5m. **Limites WS** :
+  240 sub/h/connexion · 1000 canaux/connexion · 4096 octets/subscribe. `/api-doc/common/websocket-intro`.
