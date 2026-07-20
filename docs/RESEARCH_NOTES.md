@@ -3742,3 +3742,50 @@ jamais le banc gelé ni les murs `guards()`. Les mesures qui trancheront iront i
 pas dans le backlog. Convergence forte notée : les 3 sources externes pointent le GATING de régime,
 pas un meilleur indicateur directionnel — ce qui recadre positivement la piste geometric (§103, 1c :
 régime × consensus live) vers le conditionnement, pas le vote.
+
+## §105 — FIRME : le débat de risque à 3 voix est un ÉCHO, pas un débat (20/07/2026)
+
+**Question posée** (suite au constat de voix muettes) : le débat de risque local produit-il
+de l'information indépendante, et un modèle plus gros (7b) le sauverait-il ?
+
+**Mesure — ligne de base 1.5b, cache RÉEL `.firm_decisions.json`, 8 symboles, 24 appels :**
+29 % d'arguments **vides** (7/24) ; 88 % de **complaisance** quand la voix parle (15/17
+commencent par « le trader a raison/propose ») ; **similarité médiane 1,00** entre paires de
+voix parlantes (Jaccard sur mots pleins), **8/12 paires quasi-identiques (≥0,9)**. Les trois
+voix rendent littéralement le même texte. Ce n'est pas un débat, c'est un écho de la
+proposition du trader.
+
+**Mesure — qwen2.5:7b, rejeu des MÊMES prompts réels (2 symboles, 6 appels,
+`scratchpad/firm_7b_test.py`)** : 0 % vide, 0 % complaisant, **similarité médiane 0,22** —
+les voix divergent réellement. L'écho était donc un **artefact de capacité du 1.5b**, pas un
+défaut de conception des prompts. **MAIS latence médiane 78,5 s / max 83,8 s** contre un
+`FIRM_LOCAL_TIMEOUT_S` de 30 s : en production *chaque* appel expirerait, portant le taux de
+vide de 29 % à 100 %. Cause matérielle : VPS 2 cœurs, **pas de GPU**, modèle résident 4,6 Go
+sur 7,9 Go (1,2 Go libres pendant le run). Défauts de contenu propres au 7b relevés au
+passage : « Hold limité à **50k USD** » alors que le mur est 50 $/trade (facteur 1000), et
+`lean` décorrélé du texte (ETH neutre : « volatilité haute justifie position agressive » avec
+`lean=-1`). **Conclusion : le 7b règle la pathologie mécanique mais ne rentre pas dans la
+machine, et son contenu n'est pas fiable pour autant.**
+
+**Décision (déléguée §92, réversible)** : le débat de risque local est **gaté défaut OFF**
+(`FIRM_RISK_DEBATE`). Motifs cumulés : (a) il n'apporte aucune information mesurable ;
+(b) les 3 voix étant un écho du trader, les compter comme 3 signaux **triple-pondérait** le
+trader dans le repli déterministe de `_assemble`, et polluait donc l'ombre `firm_shadow`
+(`direction × conviction`) — c'est-à-dire le chiffre même sur lequel on déciderait un jour
+d'armer la voix argent : un **IC fantôme** ; (c) économie de 3 appels locaux/symbole
+(cycle BTCUSDT mesuré **155 s au lieu de ~240 s**, 9 appels → 6). Réarmable en un levier le
+jour d'un modèle capable.
+
+**Deux vrais défauts de code corrigés au passage :**
+- **Asymétrie de la voix muette** — `_risk` ET `_researcher` défaultaient `lean` à `0.0` :
+  une voix qui ne répond pas votait **neutre** dans l'agrégat, alors qu'un analyste muet est
+  proprement exclu (`if r and r.get("bias") is not None`). Désormais `lean=None` = EXCLU,
+  symétrique. (Le second site, `_researcher`, n'avait pas été repéré au premier constat.)
+- **`LLM_AGENT_KEEPALIVE` lu par `_cfg` (config seule)** alors que tous les autres leviers
+  passent par `_knob` (.env prioritaire) : un override d'env était silencieusement ignoré et
+  le 7b a campé 4,6 Go pendant 30 min sur le VPS qui trade. Corrigé (`llm_agent._keepalive()`).
+
+**Portée argent : NULLE.** La voix firm reste doublement fermée (`FIRM_AGENT_ENABLED` OFF
+ET `FIRM_EDGE_OVERRIDE` OFF) ; murs `guards()` inchangés. Le prior « LLM = bruit » sort
+renforcé, mais pour une raison précise et désormais chiffrée : sur ce matériel, un débat
+multi-voix local ne peut pas produire de divergence.

@@ -163,6 +163,13 @@ FUTURES_MAKER_SYMBOLS=         # périmètre maker : CSV — VIDE = TOUS les tok
                                # directionnelle (~−0.088→−0.041R/trade) mais ne la bascule PAS positive ; sur
                                # alts illiquides le post-only remplit rarement → repli taker (neutre). Le
                                # directionnel réel est EN PAUSE (FUTURES_EDGE_GATE_OVERRIDE=0) → maker DORMANT.
+FIRM_RISK_DEBATE=0          # débat de risque LOCAL à 3 voix de la firme (§105) — défaut OFF, MESURÉ sans
+                            # information : 29 % de voix muettes, 88 % de complaisance, similarité MÉDIANE
+                            # 1,00 entre voix (elles rendent le MÊME texte = écho du trader, pas un débat).
+                            # Les compter comme 3 signaux triple-pondérait le trader dans le repli de
+                            # `_assemble` et polluait l'ombre firm_shadow (IC fantôme). Un 7b les fait
+                            # diverger (0,22) mais coûte 78 s/appel sur ce VPS (2 cœurs, pas de GPU) contre
+                            # un timeout de 30 s -> inexploitable ici. Réarmer le jour d'un modèle capable.
 LIQUIDITY_AUTO=0            # gestion de liquidité autonome bornée §76 (virements internes + Earn ; ARMÉE le 06/07)
 MM_AUTO=0                   # market making spot borné §94 (défaut OFF -> DRY ; exécution via SPOT_TRADE_LIVE)
 MM_SYMBOLS=BTCUSDT          # paires cotées (CSV — budget/inventaire max PARTAGÉS entre paires)

@@ -195,8 +195,10 @@ def _researcher(side, reports, last_opp):
          f"Dernier argument {adv} : {str(last_opp)[:400]}\n"
          'Réponds STRICTEMENT en JSON : {"argument": "<45 mots max>", "lean": <-1..1>}')
     r = _json(p, "debate") or {}
+    # voix muette -> lean None = EXCLUE de l'agrégat (jamais un vote neutre 0.0 fantôme),
+    # symétrique de _analyst qui renvoie None quand le biais manque.
     return {"argument": str(r.get("argument", ""))[:300],
-            "lean": _num(r, "lean", -1, 1, 0.0)}
+            "lean": _num(r, "lean", -1, 1)}
 
 
 def _manager(reports, bull, bear):
@@ -237,7 +239,31 @@ def _risk(profile, trader, reports, last_a, last_c):
          f"Dernier agressif : {str(last_a)[:250]}\nDernier conservateur : {str(last_c)[:250]}\n"
          'Réponds STRICTEMENT en JSON : {"argument": "<40 mots max>", "lean": <-1..1>}')
     r = _json(p, "debate") or {}
-    return {"argument": str(r.get("argument", ""))[:250], "lean": _num(r, "lean", -1, 1, 0.0)}
+    return {"argument": str(r.get("argument", ""))[:250], "lean": _num(r, "lean", -1, 1)}
+
+
+def _risk_debate_enabled():
+    """§105 — débat de risque LOCAL gaté, défaut OFF. MESURE (20/07, cache réel 8 symboles,
+    24 appels) : 29 % de voix muettes, 88 % de complaisance (« le trader a raison »),
+    similarité MÉDIANE 1,00 entre les voix qui parlent (8/12 paires quasi-identiques).
+    Les 3 voix ne sont pas un débat mais un ÉCHO de la proposition du trader : les compter
+    comme 3 signaux triple-pondère le trader dans le repli de `_assemble` et pollue l'ombre
+    firm_shadow. Un modèle plus capable les fait diverger (qwen2.5:7b -> similarité 0,22,
+    0 % muet, 0 % complaisant) mais coûte 78 s/appel sur ce VPS (2 cœurs, pas de GPU) contre
+    un timeout de 30 s : inexploitable ici. Réarmable en un levier le jour d'un vrai modèle."""
+    return str(_knob("FIRM_RISK_DEBATE", 0)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _risk_round(trader, reports):
+    """Les 3 voix de risque (agressif -> conservateur -> neutre, chacune voyant les
+    précédentes). OFF -> 3 voix EXCLUES (lean None) sans aucun appel LLM."""
+    if not _risk_debate_enabled():
+        muet = {"argument": "", "lean": None}
+        return {p: dict(muet) for p in ("aggressive", "conservative", "neutral")}
+    agg = _risk("aggressive", trader, reports, "", "")
+    con = _risk("conservative", trader, reports, agg.get("argument", ""), "")
+    neu = _risk("neutral", trader, reports, agg.get("argument", ""), con.get("argument", ""))
+    return {"aggressive": agg, "conservative": con, "neutral": neu}
 
 
 def _risk_judge(plan, trader, risk_debate):
@@ -247,7 +273,12 @@ def _risk_judge(plan, trader, risk_debate):
          "Sell. Sizing final SOUS les murs (mur dur 50 $/trade). net_of_fees_ok=false si l'edge "
          "attendu ne couvre pas ~6 bps/côté (-> Hold).\n"
          f"Plan : {_compact(plan, 400)}\nTrader : {_compact(trader, 300)}\n"
-         f"Débat risque : {_compact(risk_debate, 800)}\n"
+         # débat OFF/muet -> on le DIT au juge plutôt que de lui servir des voix vides
+         # (qui l'inviteraient à broder un consensus inexistant).
+         + (f"Débat risque : {_compact(risk_debate, 800)}\n"
+            if any((v or {}).get("lean") is not None for v in risk_debate.values())
+            else "Débat risque : indisponible — tranche sur le plan et la proposition seuls.\n")
+         +
          'Réponds STRICTEMENT en JSON : {"rating": "<un cran>", "direction": <-1..1>, '
          '"conviction": <0..1>, "sizing_usdt": <0..50>, "horizon": "<court|moyen>", '
          '"net_of_fees_ok": <true|false>, "thesis": "<30 mots max>"}')
@@ -363,11 +394,8 @@ def run_symbol(symbol):
     plan = _manager(reports, bull, bear)
     # 4) trader (cloud juge)
     trader = _trader(plan, reports)
-    # 5) DÉBAT risque agressif->conservateur->neutre (local)
-    agg = _risk("aggressive", trader, reports, "", "")
-    con = _risk("conservative", trader, reports, agg.get("argument", ""), "")
-    neu = _risk("neutral", trader, reports, agg.get("argument", ""), con.get("argument", ""))
-    risk_debate = {"aggressive": agg, "conservative": con, "neutral": neu}
+    # 5) DÉBAT risque agressif->conservateur->neutre (local, gaté §105 — défaut OFF)
+    risk_debate = _risk_round(trader, reports)
     # 6) risk-judge (cloud juge) -> décision finale
     verdict = _risk_judge(plan, trader, risk_debate)
     return _assemble(symbol, snap, reports, bull, bear, plan, trader, risk_debate, verdict)

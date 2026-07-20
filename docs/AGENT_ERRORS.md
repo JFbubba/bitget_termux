@@ -566,3 +566,29 @@ signale-t-elle CORRECTEMENT ? » (reconnaissance juste, causale, consistante). L
 sur des signaux définis. Un « labo » qui teste l'edge d'un cadre entier (SMC, Wyckoff) pose déjà la
 mauvaise question — reformuler en un signal concret, ou en une vérification de correction.
 **Statut.** RECONNU (correction propriétaire 19/07) · étend ERR-016 · RÈGLE ACTIVE.
+
+## ERR-018 · 2026-07-20 · Poser un levier et supposer qu'il a PRIS EFFET (levier lu par `_cfg` config-seule au lieu de `_knob` env-prioritaire)
+
+**Contexte.** Test du modèle 7b pour la firme (§105). Sachant que le VPS n'a que 7,9 Go et fait
+tourner des boucles argent, j'ai lancé le test avec `LLM_AGENT_KEEPALIVE=2m` en variable
+d'environnement pour que le modèle de 4,6 Go soit relâché vite. Le levier a été **silencieusement
+ignoré** : `llm_agent._call_local` lisait `_cfg("LLM_AGENT_KEEPALIVE", "30m")` — `_cfg` lit
+**config.py seul**, pas l'environnement. Le 7b a campé 4,6 Go pendant 30 min, ne laissant que
+1,2 Go libres, pendant que les crons `futures_auto` (:10/:25/:40/:55) tournaient. Découvert par
+hasard en lisant `ollama ps` (« UNTIL : 29 minutes from now »), pas par une vérification.
+**Cause racine.** DEUX conventions coexistent dans le dépôt pour lire un réglage :
+`_knob(name, default)` = **.env PRIORITAIRE** puis config (tous les verrous opérationnels), et
+`_cfg(name, default)` = **config.py SEUL**. Elles sont indiscernables au point d'appel. J'ai
+supposé la convention `_knob` (la dominante) sans la vérifier, et j'ai surtout **supposé l'effet
+au lieu de l'observer**. Cousin de `verrous-env-vs-config` (mémoire) et de ERR-010 : croire un
+réglage actif parce qu'on l'a écrit quelque part.
+**Solution.** (1) `llm_agent._keepalive()` passe par `_knob` (env prioritaire), testé. (2) Règle
+générale : **un levier posé se VÉRIFIE par son effet observable**, jamais par le fait de l'avoir
+posé — ici `ollama ps` AVANT de lancer un run long, comme on vérifie l'état runtime réel d'un
+verrou avec `_load_env()` puis lecture (et non `cfg()` à froid).
+**Contrôle (détection ailleurs).** `grep -n "_cfg(\"" *.py` sur tout réglage à vocation
+**opérationnelle** (armement, timeout, taille, résidence mémoire, périmètre) : s'il est lu par
+`_cfg` et non `_knob`, il n'est PAS pilotable par `.env` — soit c'est voulu (constante de
+constitution), soit c'est un piège. Et avant tout run coûteux/long sous contrainte de ressource :
+observer l'état réel (`ollama ps`, `free -m`, `--status`) plutôt que de faire confiance au levier.
+**Statut.** CORRIGÉ (levier + test) · RÈGLE ACTIVE.

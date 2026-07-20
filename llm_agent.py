@@ -116,11 +116,18 @@ def _prompt(snap):
     )
 
 
+def _keepalive():
+    """Durée de résidence du modèle local en RAM. .env PRIORITAIRE (comme les autres
+    leviers) : un modèle lourd doit pouvoir être relâché SANS toucher config.py — mesuré
+    le 20/07, un 7b campait 4,6 Go pendant 30 min sur ce VPS de 7,9 Go qui trade."""
+    return str(_knob("LLM_AGENT_KEEPALIVE", "30m"))
+
+
 def _call_local(prompt, model, timeout):
     import urllib.request
     # keep_alive : garde le modèle EN MÉMOIRE entre les cycles (sinon rechargement
     # ~40 s via swap à chaque appel sur ce VPS). À chaud, une génération ≈ 18 s.
-    keep = str(_cfg("LLM_AGENT_KEEPALIVE", "30m"))
+    keep = _keepalive()
     body = json.dumps({"model": model, "prompt": prompt, "stream": False,
                        "format": "json", "keep_alive": keep,
                        "options": {"temperature": 0.2}}).encode()

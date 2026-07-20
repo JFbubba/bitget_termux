@@ -12351,6 +12351,82 @@ def test_firm_shadow_enregistree_dans_voice_measure():
     assert "firm_shadow" in vsm.VOICES            # l'ombre firm est bien suivie/mesurée
 
 
+def test_trading_firm_voix_muette_est_exclue_pas_neutre():
+    """§105 — une voix qui ne répond PAS doit être EXCLUE (lean None), jamais compter
+    comme un vote neutre 0.0 : sinon le silence d'un LLM tire l'agrégat vers zéro.
+    Symétrique du traitement des analystes (_analyst renvoie None si bias absent)."""
+    import trading_firm as tf
+    orig = tf._call
+    tf._call = lambda p, k, t: "illisible { cassée"          # aucune voix ne répond
+    try:
+        r = tf._risk("neutral", {"action": "Hold"}, {}, "", "")
+        assert r["lean"] is None, "voix risque muette ne doit PAS voter 0.0"
+        b = tf._researcher("bull", {}, "")
+        assert b["lean"] is None, "chercheur muet ne doit PAS voter 0.0"
+    finally:
+        tf._call = orig
+
+
+def test_trading_firm_assemble_ignore_les_leans_absents():
+    """Un lean None n'entre pas dans la moyenne de repli (il ne dilue pas le signal)."""
+    import trading_firm as tf
+    reports = {"technical": {"bias": 0.8, "confidence": 0.5, "note": ""},
+               "sentiment": {"bias": 0.8, "confidence": 0.5, "note": ""},
+               "news": None, "fundamental": None}
+    verdict = {"rating": None, "direction": None, "conviction": None, "sizing_usdt": None,
+               "horizon": "court", "net_of_fees_ok": None, "thesis": ""}
+    muet = {"argument": "", "lean": None}
+    rd = {"aggressive": dict(muet), "neutral": dict(muet), "conservative": dict(muet)}
+    d = tf._assemble("BTCUSDT", {"last": 100.0}, reports, dict(muet), dict(muet),
+                     {"rating": None, "rationale": ""}, {"action": "Hold", "reasoning": ""},
+                     rd, verdict)
+    # seuls les 2 biais analystes (0.8) comptent -> direction franche, pas diluée vers 0
+    assert d["direction"] > 0.5, f"leans muets ont dilué la direction : {d['direction']}"
+
+
+def test_trading_firm_debat_risque_off_par_defaut_et_sans_appel_llm():
+    """§105 — le débat de risque LOCAL est gaté (défaut OFF) : MESURÉ sans information
+    (3 voix identiques, similarité médiane 1.00 sur le cache réel). OFF -> zéro appel LLM
+    local et 3 voix exclues (lean None), donc aucun écho triple-compté dans l'agrégat."""
+    import os
+    import trading_firm as tf
+    old = os.environ.get("FIRM_RISK_DEBATE")
+    os.environ.pop("FIRM_RISK_DEBATE", None)
+    appels = []
+    orig = tf._call
+    tf._call = lambda p, k, t: appels.append(k) or '{"argument": "x", "lean": 1}'
+    try:
+        assert tf._risk_debate_enabled() is False              # défaut OFF (mesuré)
+        rd = tf._risk_round({"action": "Hold"}, {})
+        assert appels == [], "OFF doit n'émettre AUCUN appel LLM local"
+        assert set(rd) == {"aggressive", "conservative", "neutral"}
+        assert all(rd[p]["lean"] is None for p in rd)          # exclues, pas neutres
+        os.environ["FIRM_RISK_DEBATE"] = "1"                   # réarmable en un levier
+        assert tf._risk_debate_enabled() is True
+        rd = tf._risk_round({"action": "Hold"}, {})
+        assert len(appels) == 3 and all(r["lean"] == 1 for r in rd.values())
+    finally:
+        tf._call = orig
+        os.environ.pop("FIRM_RISK_DEBATE", None)
+        if old is not None:
+            os.environ["FIRM_RISK_DEBATE"] = old
+
+
+def test_llm_keepalive_pilotable_par_env():
+    """Le keep_alive local doit être pilotable par .env comme les autres leviers : sinon un
+    modèle lourd campe en RAM (mesuré : 4,6 Go, 30 min) sur le VPS qui trade."""
+    import os
+    import llm_agent
+    old = os.environ.get("LLM_AGENT_KEEPALIVE")
+    os.environ["LLM_AGENT_KEEPALIVE"] = "90s"
+    try:
+        assert llm_agent._keepalive() == "90s"
+    finally:
+        os.environ.pop("LLM_AGENT_KEEPALIVE", None)
+        if old is not None:
+            os.environ["LLM_AGENT_KEEPALIVE"] = old
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
