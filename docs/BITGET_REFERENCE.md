@@ -268,3 +268,24 @@ level** de la croisée (liquidation ≥ 1,0). Consommation du BGB marge = preuve
   (lock/conditionnel) → **inadapté** au besoin de liquidité redéployable du bot. **[VEILLE]**.
 - Rendements : stablecoins ~10 % APY, BTC/ETH 5-8 %, **XAUT flexible jusqu'à 15 % APR** (promo VIP — le
   bot détient du XAUT ; à vérifier l'accès). `/earning`.
+
+### 8d. Trading Data APIs (16/06/2026, la frontière signal) [mesure — prior bruité]
+- `apidata/Fund-Net-Flow` (whale net flow spot, 1 req/s) · `apidata/Long-Short` (ratio L/S futures, 1/s)
+  · `apidata/Margin-Ls-Ratio` (L/S marge levier). Le bot en câble déjà une partie (`bitget_market_extras`
+  long/short ×3, `bitget_flows` fund/whale-flow = **labo non branché**). `/api-doc/common/apidata/...`.
+- **Distinction NET-NOUVELLE utile** : **Account Ratio** (= % de COMPTES long vs short = *retail*, non
+  pondéré) vs **Position Ratio** (pondéré volume = positionnement des *whales*). Leur **DIVERGENCE**
+  (retail long / whales short) = signal classique smart-money-vs-retail. **[À MESURER — mais prior fort =
+  BRUIT** : la deep-research 102 agents a conclu aucun edge directionnel net-de-frais ; ne pas sur-investir.]
+- `/api/v3/account/delta-info` (ratio delta, seuils, net position/coin, mode delta-neutre) = **v3/UTA →
+  400 sur notre compte classique** (inaccessible).
+
+### 8e. Convert dust → BGB (pratique — alimente le levier-frais) [candidat]
+- **`POST /api/v2/convert/bgb-convert`** : convertit la POUSSIÈRE (chaque token < 10 USDT, 1300+ tokens)
+  en **BGB**, en 1 clic. **Limites** : 1×/24 h, **max 50 USDT/jour**, **frais 2 %**, non réversible.
+  `/api-doc/common/bgb-convert`, `/support/articles/8120063495449`.
+- **✅ PERTINENCE BOT** : le spot a ~23 tokens de poussière (~1 $) inutilisables. Les convertir en BGB
+  **alimenterait le réservoir BGB** = le carburant de la remise −20 % (spot 8 bps + marge). Boucle
+  auto-entretenue **dust → BGB → remise de frais**. **[CANDIDAT liquidity_manager / petit outil]** :
+  marginal (2 % de frais, montants ~1 $) mais nettoie la poussière ET recharge le levier-frais depuis
+  du capital autrement mort. À armer seulement si le réservoir BGB baisse (sinon inutile).
