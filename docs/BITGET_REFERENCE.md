@@ -161,7 +161,28 @@ pas à adopter aujourd'hui.
   **risque n°1 double-position**, TPSL, hedge-mode) en marché live **sans argent réel**, hors murs.
 - **Méthodologie de funding changée ~10/07/2026** : échantillon du premium index **1/min → 1/5 s**
   (×12) + inclut le cycle de règlement précédent ; caps/intervalles inchangés. `/support/articles/12560603887880`.
-  **[À MESURER]** : recalibrer `funding_fade` et l'edge de carry (moins de « retard » minute exploitable).
+  **[MESURÉ 20/07/2026 — AUCUNE RUPTURE DÉTECTABLE, aucune correction à faire]**
+  Relevé avant/après sur 14 symboles (`data_history/FUNDING_*.json`) : variance du taux réglé
+  **réduite sur 12/14** (médiane ×0,35), autocorrélation lag-1 de +0,52 à +0,38. **Signature
+  séduisante — et fausse.** Deux contrôles la tuent :
+  • **PLACEBO** — une rupture FICTIVE au 10/06 rend une signature *identique* (médiane ×0,352,
+    réduite sur 12/14, contre ×0,376 et 12/14 à la vraie date) ; l'autocorrélation à la vraie date
+    (+0,355) tombe en plein dans la plage des placebos (+0,29 à +0,49). Aucune spécificité.
+  • **VOL DU PRIX** — sur la même fenêtre, la variance des rendements 1H est divisée par deux
+    (médiane ×0,51, 4/5 symboles) : **le marché s'est calmé**, le funding a suivi.
+  **RAISON STRUCTURELLE, et c'est le vrai enseignement** : `funding_history` stocke les taux
+  **RÉGLÉS** (un par intervalle de 4 h/8 h). Le changement porte sur l'**échantillonnage du premium
+  index À L'INTÉRIEUR de l'intervalle**. Notre série observe la SORTIE du moyennage, jamais
+  l'échantillonnage — elle ne peut pas résoudre ce changement *par construction*. Ce n'est pas un
+  manque de données (aucune quantité n'y changerait rien), c'est le mauvais instrument.
+  **Conséquence** : ne PAS scinder les backtests de carry au 10/07 — ce serait jeter 3 mois
+  d'historique pour corriger une rupture indémontrable. **Aucune exposition live** de toute façon :
+  `funding_fade` n'existe que dans `strategy_lab.py` (labo) et la voix `classics` qui le porterait
+  est COUPÉE (t≈−11) ; `alt_carry` raisonne en **percentile** sur fenêtre glissante ~90 j, donc
+  s'adapte au régime par conception — c'est exactement le bon design ici.
+  **CONTRÔLE RÉUTILISABLE** : tout test de rupture doit passer un PLACEBO (mêmes statistiques à des
+  dates arbitraires) ET un contrôle d'exposition (une variable tierce a-t-elle bougé pareil ?).
+  Sans eux, une chute de variance se lit comme une rupture alors que c'est du régime.
 - **Marge de maintenance en mode union** (notre mode) : MM = **max**( valeur_position × (MMR_tier +
   **0,06 % frais de liquidation**) ; **5 % × passif absolu** ) ; liquidation partielle jusqu'à ramener
   la MMR à ~70 % ; conversion auto des coins (haircut le plus haut d'abord). `/support/articles/12560603812664`.
