@@ -10835,6 +10835,128 @@ def test_kelly_recommended_usdt_bounded():
     assert amt2 == 0.0
 
 
+# ---------- Kelly §111 : calculateur de mise (deep-research 21/07) ----------
+
+def test_kelly_general_thorp_partial_loss():
+    import kelly
+    # a=1 redonne EXACTEMENT la forme binaire W − (1−W)/R (Thorp (bp−q)/b)
+    assert abs(kelly.kelly_general(0.6, 2.0, a=1.0)["f_full"] - 0.4) < 1e-9
+    # perte partielle a : f* = p/a − (1−p)/b (Thorp m/ab)
+    assert abs(kelly.kelly_general(0.6, 2.0, a=0.5)["f_full"] - (0.6 / 0.5 - 0.4 / 2.0)) < 1e-9
+    # entrées invalides -> pas de f
+    assert kelly.kelly_general(0.6, 0.0)["f_full"] is None
+
+
+def test_kelly_bayes_break_even_prior():
+    import kelly
+    # sans données : posterior = prior = break-even -> mise 0 (pas de pari sans preuve)
+    assert kelly.kelly_bayes(0, 0, R=1.56, prior_strength=100)["f0"] == 0.0
+    # petit n : shrink massif vs plug-in, mais > 0 si les données dépassent le break-even
+    plug = 6 / 11 - (5 / 11) / 1.56
+    kb = kelly.kelly_bayes(6, 5, R=1.56, prior_strength=100)
+    assert 0.0 < kb["f0"] < plug
+    # grand n : converge vers le plug-in (le prior s'efface)
+    assert abs(kelly.kelly_bayes(6000, 5000, R=1.56, prior_strength=100)["f0"] - plug) < 0.01
+    # sous le break-even -> 0 même avec beaucoup de données (W=0.3 < p0=0.5 à R=1)
+    assert kelly.kelly_bayes(300, 700, R=1.0, prior_strength=100)["f0"] == 0.0
+    # R invalide -> 0 (fail-safe)
+    assert kelly.kelly_bayes(6, 5, R=None)["f0"] == 0.0
+
+
+def test_kelly_dd_fraction_mandate():
+    import math
+    import kelly
+    # mandat MDD 20 %, confiance 10 % : c = 2/(1+ln(0.1)/ln(0.8)) ≈ 0.1767 (Thorp eq. 7.13)
+    c = kelly.dd_fraction(mdd=0.20, conf=0.10)
+    assert abs(c - 2.0 / (1.0 + math.log(0.1) / math.log(0.8))) < 1e-9
+    assert 0.17 < c < 0.18
+    # exiger plus de confiance resserre ; jamais > 1 ; paramètres invalides -> neutre 1.0
+    assert kelly.dd_fraction(0.20, 0.01) < c
+    assert kelly.dd_fraction(0.5, 0.5) <= 1.0
+    assert kelly.dd_fraction(0.0, 0.10) == 1.0
+
+
+def test_kelly_empirical_matches_binary_closed_form():
+    import kelly
+    # distribution binaire p=0.6/b=2/a=1 -> argmax E log(1+f·r) = forme fermée 0.4
+    rs = [2.0] * 6 + [-1.0] * 4
+    assert abs(kelly.kelly_empirical(rs, cap=1.0) - 0.4) < 0.01
+    # espérance négative -> 0 ; vide -> 0 ; borne de ruine respectée (jamais f ≥ 1/|min r|)
+    assert kelly.kelly_empirical([-0.5, -1.0], cap=1.0) == 0.0
+    assert kelly.kelly_empirical([], cap=1.0) == 0.0
+    assert kelly.kelly_empirical([3.0, 3.0, -2.0], cap=1.0) < 0.5
+
+
+def test_futures_risk_capped_notional_accepts_injected_pct():
+    import futures_executor as fe
+    # risk_pct injecté 0.5 % : budget 5 $ sur equity 1000, SL à 2 % -> notional capé 250
+    capped, binds = fe.risk_capped_notional(1000.0, 100.0, 98.0, 1000.0, risk_pct=0.5)
+    assert binds is True and abs(capped - 250.0) < 0.01
+    # ne mord pas quand le notionnel plein reste sous le budget
+    capped2, binds2 = fe.risk_capped_notional(100.0, 100.0, 98.0, 1000.0, risk_pct=0.5)
+    assert binds2 is False and capped2 == 100.0
+
+
+def test_futures_auto_kelly_risk_decision_sequence():
+    import futures_auto as fa
+    # ERR-002 : la SÉQUENCE de décision entière — invariant : jamais ≤ 0 côté 'open'
+    assert fa._kelly_risk_decision(None, 1.0) == ("open", None)      # fail-open : garde fixe seule
+    assert fa._kelly_risk_decision(0.0, 1.0)[0] == "skip"            # mise 0 -> refus AVANT l'exécuteur
+    assert fa._kelly_risk_decision(-0.2, 1.0)[0] == "skip"
+    assert fa._kelly_risk_decision(0.44, 1.0) == ("open", 0.44)      # Kelly mord sous la garde
+    assert fa._kelly_risk_decision(2.5, 1.0) == ("open", 1.0)        # la garde fixe borne le haut
+    # défaut 1 revue : garde OFF (≤0/None) -> Kelly SEUL — jamais min(kpct, 0)=0 qui désactiverait tout
+    assert fa._kelly_risk_decision(0.44, 0.0) == ("open", 0.44)
+    assert fa._kelly_risk_decision(0.44, None) == ("open", 0.44)
+
+
+def test_payoff_profile_groups_fills_by_order():
+    import futures_report as fr
+    # 3 fills du MÊME ordre gagnant (+1 chacun) + 1 ordre perdant −2 (défaut 3 revue §111)
+    rows = [{"cTime": 1000000, "orderId": "A", "profit": 1.0},
+            {"cTime": 1001000, "orderId": "A", "profit": 1.0},
+            {"cTime": 1002000, "orderId": "A", "profit": 1.0},
+            {"cTime": 1003000, "orderId": "B", "profit": -2.0}]
+    brut = fr.payoff_profile(rows)                       # legacy fills : 4 observations
+    grp = fr.payoff_profile(rows, group_by_order=True)   # §111 : 2 ordres (A: +3, B: −2)
+    assert brut["n"] == 4 and grp["n"] == 2
+    assert grp["win_rate"] == 0.5 and abs(grp["payoff"] - 1.5) < 1e-9
+
+
+def test_risk_capped_notional_env_first_reader():
+    import os
+    import futures_executor as fe
+    # défaut 2 revue §111 : le chemin fail-open (risk_pct=None) honore AUSSI le .env
+    old = os.environ.pop("FUTURES_RISK_PCT_PER_TRADE", None)
+    try:
+        os.environ["FUTURES_RISK_PCT_PER_TRADE"] = "0.5"
+        capped, binds = fe.risk_capped_notional(1000.0, 100.0, 98.0, 1000.0)  # budget 5 $ (0.5 %)
+        assert binds is True and abs(capped - 250.0) < 0.01
+    finally:
+        os.environ.pop("FUTURES_RISK_PCT_PER_TRADE", None)
+        if old is not None:
+            os.environ["FUTURES_RISK_PCT_PER_TRADE"] = old
+
+
+def test_futures_auto_kelly_lever_and_guard():
+    import os
+    import futures_auto as fa
+    # levier env-first strict (0 explicite = OFF, pas « truthy »)
+    old = os.environ.pop("KELLY_SIZING", None)
+    try:
+        os.environ["KELLY_SIZING"] = "1"
+        assert fa._kelly_sizing_on() is True
+        os.environ["KELLY_SIZING"] = "0"
+        assert fa._kelly_sizing_on() is False
+    finally:
+        os.environ.pop("KELLY_SIZING", None)
+        if old is not None:
+            os.environ["KELLY_SIZING"] = old
+    # la garde fixe reste une borne haute finie > 0 (base du min() réducteur-seulement)
+    g = fa._risk_guard_pct()
+    assert isinstance(g, float) and g > 0
+
+
 def test_counterfactual_directional_and_pairs():
     import counterfactual_prune as cp
     # W et R directionnels : 2 gagnants (+0.2) et 2 perdants (−0.1) au-dessus du seuil

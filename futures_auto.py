@@ -29,7 +29,8 @@ import json
 import time
 from pathlib import Path
 
-from config_utils import cfg as _cfg
+from config_utils import cfg as _cfg, env_num as _env_num, load_env as _load_env
+_load_env()   # .env dès l'import : leviers env-first déterministes même à froid (§111)
 from numeric_utils import safe_float
 
 SYMBOL = "BTCUSDT"
@@ -416,6 +417,43 @@ def _open_notional():
     return base
 
 
+def _kelly_sizing_on():
+    """Levier du CALCULATEUR DE MISE Kelly (§111) — env prioritaire, sinon config, défaut OFF."""
+    import os
+    v = (os.getenv("KELLY_SIZING") or "").strip().lower()
+    if v in ("1", "true", "on", "yes"):
+        return True
+    if v in ("0", "false", "off", "no"):
+        return False
+    return bool(_cfg("KELLY_SIZING", False))
+
+
+def _risk_guard_pct():
+    """Garde fixe risque/trade — MÊME lecteur que risk_capped_notional (env_num, revue §111
+    défaut 2) : borne haute du min() Kelly. ≤ 0 = garde OFF (géré par _kelly_risk_decision)."""
+    try:
+        return float(_env_num("FUTURES_RISK_PCT_PER_TRADE", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _kelly_risk_decision(kpct, guard_pct):
+    """PUR (§111) : décision de mise Kelly — la SÉQUENCE entière est testée (ERR-002).
+    Retourne ('skip', raison) ou ('open', risk_pct_effectif|None), avec l'INVARIANT :
+    jamais ≤ 0 côté 'open' (0 = « garde désactivée » pour risk_capped_notional). Défaut 1
+    de la revue : garde fixe OFF (≤ 0) -> Kelly SEUL gouverne — jamais min(kpct, 0) = 0.
+      kpct None -> fail-open (garde fixe seule) ; kpct ≤ 0 -> skip (pas d'ouverture)."""
+    if kpct is None:
+        return "open", None
+    if kpct <= 0:
+        return "skip", "mise Kelly nulle (posterior ≤ break-even, ou fraction négligeable)"
+    try:
+        g = float(guard_pct)
+    except (TypeError, ValueError):
+        g = 0.0
+    return "open", (min(float(kpct), g) if g > 0 else float(kpct))
+
+
 def _tp_partiel_on():
     import os
     v = (os.getenv("FUTURES_TP_PARTIAL") or "").strip().lower()
@@ -726,6 +764,25 @@ def _run_cycle(now=None):
                            "raison": d["raison"] + f" [{sym}] — SL introuvable (prix illisible), "
                                      "ouverture refusée (invariant SL exchange)"}
         return out
+    # §111 : KELLY = CALCULATEUR DE MISE réel (opt-in KELLY_SIZING) — fraction d'equity à
+    # RISQUER dérivée des FILLS RÉELS (bayésien centré break-even) × fraction drawdown
+    # (mandat MDD, Thorp 7.13) ÷ budget corrélé (max_pos : le livre crypto = UN beta).
+    # RÉDUCTEUR-SEULEMENT : min() avec la garde fixe. Mise 0 -> PAS d'ouverture, et JAMAIS
+    # risk_pct=0 à l'exécuteur (0 y signifie « garde désactivée »). Stats KO -> fail-open.
+    risk_pct_eff = None
+    if _kelly_sizing_on():
+        try:
+            import kelly as ke
+            kpct, kdet = ke.futures_risk_pct(n_slots=max_pos)
+        except Exception:
+            kpct, kdet = None, {"note": "calculateur Kelly indisponible (fail-open)"}
+        out["kelly"] = kdet
+        action, val = _kelly_risk_decision(kpct, _risk_guard_pct())
+        if action == "skip":
+            out["decision"] = {**d, "action": "rien", "symbol": sym,
+                               "raison": d["raison"] + f" [{sym}] — Kelly §111 : {val} — pas d'ouverture"}
+            return out
+        risk_pct_eff = val
     res = fe.gated_open("auto_dir", d["side"],
                         _open_notional(),                  # gate de risque systémique appliqué ICI seulement
                         float(_cfg("FUTURES_AUTO_LEVERAGE", 2.0)),
@@ -733,7 +790,8 @@ def _run_cycle(now=None):
                         entry=prix, stop_loss=sl, take_profit=tp,
                         confirm=True, now=now, symbol=sym,
                         equity_curve=fe.equity_curve(),   # halte MDD du mandat (garde 6)
-                        top_of_book=tob)                  # §98 : cap de liquidité (thin alts) + fraîcheur
+                        top_of_book=tob,                  # §98 : cap de liquidité (thin alts) + fraîcheur
+                        risk_pct=risk_pct_eff)            # §111 : min(garde fixe, Kelly) — None = garde fixe
     if res.get("skipped"):                                # verrou tenu / livre illisible -> pas d'alerte d'échec
         out["decision"] = {**out["decision"], "action": "rien",
                            "raison": (res.get("reasons") or ["ouverture suspendue"])[0]}

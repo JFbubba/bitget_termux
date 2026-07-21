@@ -147,6 +147,13 @@ FUTURES_RISK_PCT_PER_TRADE=1.0 # garde risque/trade (Kovner, §garde-risque) : R
                                # pour que la perte au SL (|entry−SL|/entry × notional) ≤ 1 % de l'equity du
                                # livre. Garde ADDITIONNELLE SOUS les murs 50/250 (ne les desserre jamais),
                                # fail-open, ouvertures seulement. 0 = OFF. Défaut ON (non-perturbant au sizing courant).
+KELLY_SIZING=1                 # §111 (ARMÉ 21/07) : Kelly = CALCULATEUR DE MISE de la boucle directionnelle.
+                               # Risque/trade = Kelly bayésien sur FILLS RÉELS (prior centré break-even,
+                               # KELLY_PRIOR_STRENGTH=100 pseudo-trades) × fraction drawdown dérivée du mandat
+                               # MDD 20 % (Thorp 7.13, KELLY_DD_CONF=0.10 -> c≈0.18) ÷ budget corrélé
+                               # (÷ FUTURES_AUTO_MAX_POSITIONS : le livre crypto = UN beta). RÉDUCTEUR-SEULEMENT :
+                               # min() avec la garde 1 % ; posterior ≤ break-even -> mise 0 = PAS d'ouverture ;
+                               # stats indisponibles -> fail-open (garde fixe seule). Murs 50/250 intacts.
 GEOMETRIC_RISK_SIZING=0        # gate de RISQUE SYSTÉMIQUE (B-2/ERR-013 achevé) : RÉDUIT le notionnel en
                                # co-mouvement systémique anormal (systemic_z>0 = risk-off), facteur ∈[0.5,1]
                                # réducteur-seulement, fail-open, SOUS les murs. Défaut OFF (mesure-d'abord :

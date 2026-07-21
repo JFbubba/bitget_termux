@@ -45,7 +45,8 @@ FUTURES_PENDING_FILE = "futures_pending.json"   # réservations in-flight (gitig
 PENDING_TTL_S = 90.0                          # durée de vie d'une réservation (borne la sur-prudence)
 
 
-from config_utils import cfg as _cfg
+from config_utils import cfg as _cfg, env_num as _env_num, load_env as _load_env
+_load_env()   # .env dès l'import : lectures env-first déterministes même à froid (revue §111)
 
 
 def _limit(name, fallback):
@@ -625,7 +626,9 @@ def risk_capped_notional(notional, entry, stop_loss, equity, risk_pct=None):
     l'aveugle (daily_loss_breach). Retourne (notional_capé, binds:bool). OUVERTURES only."""
     from numeric_utils import safe_float
     try:
-        risk_pct = float(_cfg("FUTURES_RISK_PCT_PER_TRADE", 1.0) if risk_pct is None else risk_pct)
+        # UN SEUL lecteur du knob (revue §111, défaut 2) : env-first, comme le chemin Kelly —
+        # un resserrage via .env vaut AUSSI pour le chemin fail-open (risk_pct=None).
+        risk_pct = float(_env_num("FUTURES_RISK_PCT_PER_TRADE", 1.0) if risk_pct is None else risk_pct)
     except (TypeError, ValueError):
         return notional, False
     if not math.isfinite(risk_pct) or risk_pct <= 0:              # garde désactivée
@@ -1739,7 +1742,7 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
             equity_curve=None, gross_open_usdt=0.0, seen_oids=None, hour_utc=None,
             macro_events=None, journal=True, daily_loss=None, spec=None, price=None,
             marge_mode=None, size_btc=None, pos_mode=None, symbol=None,
-            top_of_book=None, **gate_overrides):
+            top_of_book=None, risk_pct=None, **gate_overrides):
     """Ordre futures RÉEL SI confirm=True ET les 8 gardes passent ET le stop de perte
     journalier n'est pas franchi. Sinon DRY (construit, journalise, n'exécute rien).
     Retourne un dict de résultat. gate_overrides (live/autonomous/futures_live/kill/
@@ -1760,10 +1763,13 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
     # pour que la perte au stop-loss ne dépasse pas FUTURES_RISK_PCT_PER_TRADE % de l'equity du
     # livre. OUVERTURES seulement, AVANT guards() (les murs voient le notionnel déjà réduit).
     # Fail-open : entry/SL/equity manquants -> inchangé (le stop journalier bloque déjà l'aveugle).
+    # `risk_pct` injectable (§111) : l'appelant (futures_auto) passe min(garde fixe, Kelly) —
+    # RÉDUCTEUR-seulement. None -> lecture config inchangée. Un Kelly à 0 ne DOIT jamais
+    # arriver ici (0 = « garde désactivée » pour risk_capped_notional) : l'appelant s'abstient.
     risk_capped_from = None
     if not reduce:
         capped_r, binds_r = risk_capped_notional(notional_usdt, entry, stop_loss,
-                                                  _equity_now(equity_curve))
+                                                  _equity_now(equity_curve), risk_pct=risk_pct)
         if binds_r:
             risk_capped_from, notional_usdt = float(notional_usdt), capped_r
     ok, reasons = guards(agent, notional_usdt, leverage, equity_curve=equity_curve,
@@ -1777,6 +1783,11 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
         order["liquidity_capped_from"] = round(notional_capped_from, 2)
     if risk_capped_from is not None:              # trace : le cap de risque par trade a mordu
         order["risk_capped_from"] = round(risk_capped_from, 2)
+    if risk_pct is not None:                      # trace : % de risque effectif injecté (§111 Kelly)
+        try:
+            order["risk_pct_applied"] = round(float(risk_pct), 4)
+        except (TypeError, ValueError):
+            pass
     mode = order.get("execution_mode")
     preview = (f"futures {order['side']}{' reduce' if order['reduce'] else ''} "
                f"{order['notional_usdt']}USDT x{order['leverage']} "

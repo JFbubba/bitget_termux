@@ -49,15 +49,20 @@ def resume_fills(rows, depuis_ts=None):
             "net_usdt": round(pnl - frais, 6)}
 
 
-def payoff_profile(rows, depuis_ts=None):
+def payoff_profile(rows, depuis_ts=None, group_by_order=False):
     """PUR (idée #3) : FORME de l'edge, pas seulement le PnL. Sépare gains/pertes
     réalisés (champ `profit` par fill) et classe l'edge — car scaler les caps (§45) sur
     un edge FRAGILE (gros taux de gain, gains minuscules, une grosse perte efface tout)
     est dangereux. Retourne win_rate, gain/perte moyens, payoff (gain moy / |perte moy|),
     espérance, un t-stat, et un verdict. `shape` : robuste / insuffisant (espérance +
-    mais non significative) / fragile / asymétrique+ / perdant / n/a."""
-    gains, pertes = [], []
-    for r in rows or []:
+    mais non significative) / fragile / asymétrique+ / perdant / n/a.
+
+    `group_by_order` (§111, revue défaut 3) : n comptait des FILLS — un ordre rempli en
+    plusieurs fois gonflait n et biaisait le posterior Kelly (observations corrélées
+    traitées en Bernoulli indépendants). True -> profits AGRÉGÉS par orderId (limite
+    actée : TP1 + clôture restent 2 observations, ce sont 2 ordres distincts)."""
+    bruts = []                                   # (clé d'ordre, profit) après filtre ts
+    for i, r in enumerate(rows or []):
         if not isinstance(r, dict):
             continue
         ts = safe_float(r.get("cTime"))
@@ -66,7 +71,16 @@ def payoff_profile(rows, depuis_ts=None):
         p = safe_float(r.get("profit"))
         if p is None or p == 0:
             continue
-        (gains if p > 0 else pertes).append(p)
+        bruts.append((str(r.get("orderId") or r.get("tradeId") or f"fill{i}"), p))
+    if group_by_order:
+        agg = {}
+        for k, p in bruts:
+            agg[k] = agg.get(k, 0.0) + p
+        profits = [p for p in agg.values() if p != 0]
+    else:
+        profits = [p for _, p in bruts]
+    gains = [p for p in profits if p > 0]
+    pertes = [p for p in profits if p < 0]
     n = len(gains) + len(pertes)
     if n == 0:
         return {"n": 0, "shape": "n/a", "verdict": "pas de trade réalisé"}

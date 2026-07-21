@@ -3964,3 +3964,58 @@ séquence 16:05 = quotidienne ; anti-double-achat ; transition).
 au bon moment = bug invisible aux tests unitaires. Contrôle : pour chaque garde temporelle
 (fenêtre/throttle), vérifier que l'ordonnanceur RÉEL (cron/timer) tire au moins une fois
 dans la plage où la garde peut dire oui.
+
+## §111 — Kelly passe d'indicateur à CALCULATEUR DE MISE (deep-research vérifiée, 21/07/2026)
+
+Décision propriétaire : « utiliser Kelly en réel, pas comme indicateur mais comme
+calculateur de mises pour passer les ordres ». Deep-research 104 agents (claims vérifiés
+3 votes adversariaux sur sources primaires : Thorp 2006/2007, MacLean-Thorp-Ziemba QF 2010,
+Baker-McHale 2013, Chu-Wu-Swartz JQAS 2018, Chopra-Ziemba 1993). Verdicts retenus :
+
+1. **Forme** : f = W − (1−W)/R n'est exacte que si la mise entière est perdue (a=1). Général
+   (Thorp m/ab) : f* = p/a − (1−p)/b. Notre f se lit en FRACTION D'EQUITY À RISQUER (échelle
+   R-multiples), convertie en notionnel par la distance de SL — exactement la mécanique de
+   `risk_capped_notional`. -> `kelly.kelly_general` + câblage par `risk_pct`.
+2. **Estimation** : le plug-in échantillon sous-performe OOS ; l'erreur sur la MOYENNE domine
+   (20:2:1) ; supposer l'edge vrai < l'edge mesuré, a fortiori PAPER (data mining). -> stats
+   LIVE (fills réels, `futures_report.payoff_profile`) et non paper ; **Kelly bayésien**
+   (`kelly.kelly_bayes`) : prior Beta centré sur le BREAK-EVEN p0=1/(1+R) (adaptation du
+   Beta(50,50) « marché efficient » de Chu-Wu-Swartz aux cotes asymétriques), moyenne
+   postérieure -> shrink piloté par n (n=0 -> mise 0 ; n grand -> plug-in).
+3. **Fraction** : le ×0,5 ad hoc remplacé par c dérivé du MANDAT MDD (Thorp eq. 7.13 :
+   P(toucher 1−MDD du capital initial) = x^(2/c−1)) : c = 2/(1+ln(conf)/ln(1−MDD)) ≈ 0,177
+   à MDD 20 %/conf 10 % (`kelly.dd_fraction`). Limites documentées : capital initial ≠
+   pic-à-creux, approximation continue — kill-switch et halte MDD restent les murs.
+4. **Corrélation** : le livre crypto = UN beta -> budget Kelly UNIQUE ÷ n_slots
+   (FUTURES_AUTO_MAX_POSITIONS) ; 3 fractions indépendantes sur-parieraient ~3×.
+5. **Placement** : sur-parier > f* est strictement dominé (g(2f*)=r) -> Kelly = calculateur
+   BORNÉ par tout le reste : min(garde fixe FUTURES_RISK_PCT_PER_TRADE, Kelly), murs 50/250
+   et caps intacts. **Mise 0 (posterior ≤ break-even) -> PAS d'ouverture** (jamais
+   risk_pct=0 vers l'exécuteur : 0 y signifie « garde désactivée »).
+6. **Edge négatif -> f=0 confirmé** canonique (le forçage existant était juste).
+
+Câblage : `kelly.futures_risk_pct(n_slots)` -> `futures_auto` (opt-in `KELLY_SIZING`,
+env-first, fail-open sur stats KO) -> `fe.gated_open(..., risk_pct=min(garde, kelly))` ->
+`execute(risk_pct=...)` -> `risk_capped_notional`. Surfaces spot/marge : `recommended_usdt`
+passe au pipeline bayésien-live (repli paper plug-in marqué). Le carry (jambes couvertes,
+pas de SL) échappe naturellement (stop_loss=None -> garde fail-open). État à l'armement :
+n=11 fills, posterior 0,406 > break-even 0,391 -> risque/trade 0,44 % d'equity (< garde 1 %
+qui reste la borne) ; le calculateur coupera SEUL les ouvertures si le posterior repasse
+sous le break-even. Kelly empirique E[log(1+f·r)] (`kelly.kelly_empirical`) disponible pour
+les distributions non binaires (la voie « moments » a été RÉFUTÉE 0-3 — ne pas l'utiliser).
+
+Questions ouvertes (rapport) : arbitrage formel Kelly×vol-targeting (double comptage de
+variance ?), n minimal d'activation (SPRT/DSR), MDD pic-à-creux exact (Grossman-Zhou).
+
+Revue adversariale (avant commit) — 4 défauts CONFIRMÉS, tous corrigés : (1) garde fixe
+OFF (≤0) + Kelly ON donnait min(kpct, 0)=0 vers l'exécuteur = TOUT désactivé (0 y signifie
+« garde désactivée ») -> `_kelly_risk_decision` PUR, invariant « jamais ≤ 0 côté open »,
+séquence testée (ERR-002) ; (2) deux lecteurs divergents de FUTURES_RISK_PCT_PER_TRADE
+(env-first vs config-only) -> lecteur UNIQUE env_num partout + load_env à l'import des
+3 modules ; (3) n comptait des FILLS, pas des trades -> payoff_profile(group_by_order=True)
+agrège par orderId (limite actée : TP1 + clôture = 2 observations, 2 ordres distincts) ;
+(4) série tout-gagnants -> payoff None -> Kelly se DÉBRANCHAIT pile quand le posterior
+était au plus haut -> R=1 conservateur, Kelly reste branché. Limites actées en plus :
+les surfaces spot/marge (recommended_usdt sans injection) consomment désormais les stats
+des fills FUTURES (seules stats réelles disponibles — CLI manuels, montants re-bornés par
+leurs caps §67) ; fetch_fills fenêtré ~100 fills/symbole (cache 600 s).
