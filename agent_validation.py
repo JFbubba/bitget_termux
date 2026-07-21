@@ -389,8 +389,10 @@ def cpcv_diagnostic(donnees=None, pas=24, horizon=8, warmup=80, agents=None,
             }
     if not par_agent:
         return {}
+    from config_utils import env_flag as _ef
     return {"agents": par_agent, "n_groups": int(n_groups), "k_test": int(k_test),
-            "max_paths": int(max_paths), "horizon": int(horizon), "non_gating": True}
+            "max_paths": int(max_paths), "horizon": int(horizon),
+            "gate_armee": bool(_ef("CPCV_GATE", False))}
 
 
 def replay(signal_fn, candles, horizon, warmup=80, step=None):

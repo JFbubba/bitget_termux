@@ -13887,10 +13887,16 @@ def test_lab_scenarios_purs_et_verdict_pessimiste():
     c_p = ls.cout_aller_retour_bps("pessimiste")
     c_o = ls.cout_aller_retour_bps("optimiste")
     assert c_p > c_n > c_o > 0
+    assert ls.cout_aller_retour_bps("stress_crise") > c_p    # la queue coûte plus que le stress
+    assert ls.cout_aller_retour_bps("maker") < c_n           # post-only rempli < taker mesuré
     v = ls.verdict_promotion(brut_bps=40.0)    # net pessimiste = 40 − 2×(9+6) = +10
     assert v["promeut"] is True and v["nets_bps"]["pessimiste"] == 10.0
+    assert set(v["nets_bps"]) == set(ls.SCENARIOS) and "stress_info" in v
     v2 = ls.verdict_promotion(brut_bps=20.0)   # neutre +4 mais pessimiste −10 -> refus
     assert v2["promeut"] is False and v2["nets_bps"]["neutre"] == 4.0
+    # portage : le funding compte par jour tenu (pessimiste = 2×3 bps/j)
+    assert ls.net_bps(40.0, "pessimiste", jours_portage=2.0) == 10.0 - 2 * 6.0
+    assert ls.funding_bps_jour("optimiste") == 0.0
     assert len(set(ls.SEEDS_ROBUSTESSE)) == 3
 
 
@@ -13934,7 +13940,7 @@ def test_cpcv_chemins_purge_et_dispersion():
         return float(rng.normal())                       # indépendant du futur
     diag = av.cpcv_diagnostic(donnees=donnees, pas=6,
                               agents={"parfait": sig_parfait, "bruit": sig_bruit})
-    assert diag.get("non_gating") is True and diag.get("max_paths") == 45
+    assert "gate_armee" in diag and diag.get("max_paths") == 45
     p = diag["agents"]["parfait"]
     assert p["n_chemins"] >= 5 and p["n_symbols"] == 2
     assert p["ic_median"] > 0.3 and p["frac_neg"] == 0.0 and p["ic_p10"] > 0.0
@@ -13945,22 +13951,32 @@ def test_cpcv_chemins_purge_et_dispersion():
 
 
 def test_cpcv_diagnostic_non_gating():
-    """Le champ `cpcv` du rapport de validation est JOURNALISÉ mais NON-GATING : les
-    paliers d'edge_ladder et le front de promotions sont IDENTIQUES avec/sans lui, et
-    build_output ne diffère que par la clé `cpcv` (aucune décision existante modifiée)."""
+    """PORTE DÉSARMÉE (CPCV_GATE=0, le défaut) : le champ `cpcv` du rapport est
+    JOURNALISÉ mais transparent — paliers et front de promotions IDENTIQUES avec/sans
+    lui, et build_output ne diffère que par la clé `cpcv`. (Le comportement ARMÉ est
+    épinglé par test_cpcv_gate_armee_bride_sur_preuve.)"""
+    import os
     import brain_validation as bv
     import edge_ladder as el
     ranking = [{"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4},
                {"agent": "b", "dsr": 0.55, "n": 40, "oos_sharpe": -0.1}]
     live = {"agents": [{"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}]}
     cpcv = {"agents": {"a": {"n_chemins": 45, "ic_median": -0.9, "ic_p10": -0.99,
-                             "frac_neg": 1.0}}, "non_gating": True}
+                             "frac_neg": 1.0}}, "gate_armee": False}
     rep_sans = {"ranking": ranking, "live": live}
     rep_avec = {"ranking": ranking, "live": live, "cpcv": cpcv}
-    # même un CPCV catastrophique (frac_neg=1.0) ne change RIEN aux paliers ni au front
-    assert el.all_tiers(rep_sans) == el.all_tiers(rep_avec) == {"a": "LIVE", "b": "PROBATION"}
-    t0 = el.all_tiers(rep_sans); t1 = el.all_tiers(rep_avec)
-    assert bv.promotions_live(t0, t1) == ([], [])        # aucun front créé par cpcv
+    avant = os.environ.get("CPCV_GATE")
+    os.environ["CPCV_GATE"] = "0"                        # épingle l'état DÉSARMÉ
+    try:
+        # même un CPCV catastrophique (frac_neg=1.0) ne change RIEN aux paliers ni au front
+        assert el.all_tiers(rep_sans) == el.all_tiers(rep_avec) == {"a": "LIVE", "b": "PROBATION"}
+        t0 = el.all_tiers(rep_sans); t1 = el.all_tiers(rep_avec)
+        assert bv.promotions_live(t0, t1) == ([], [])    # aucun front créé par cpcv
+    finally:
+        if avant is None:
+            os.environ.pop("CPCV_GATE", None)
+        else:
+            os.environ["CPCV_GATE"] = avant
     # build_output : seule la clé `cpcv` diffère ; défaut = {} (absent -> rapport intact)
     ranked = {"agents": ranking, "deflation": {}, "n_symbols": 2}
     o1 = bv.build_output("BTCUSDT", ranked, live, now=1000)
@@ -14018,6 +14034,41 @@ def test_holdout_registry_contamination_et_fail_safe():
     # fail-safe : dossier impossible -> False, jamais d'exception ; statut -> {}
     assert hr.consigner("x", version="v", chemin="/dev/null/impossible/l.json") is False
     assert hr.statut(chemin="/dev/null/impossible/l.json") == {}
+
+
+def test_cpcv_gate_armee_bride_sur_preuve():
+    """CPCV_GATE ARMÉE : un CPCV FRAGILE (ic_p10 ≤ 0 OU frac_neg > 10 %) retient la
+    promotion LIVE -> PROBATION (réducteur-seulement, jamais promoteur) ; CPCV sain ->
+    LIVE ; diagnostic absent ou < CPCV_MIN_PATHS chemins -> FAIL-OPEN (on bride sur
+    preuve, pas sur absence de mesure) ; porte désarmée -> transparente."""
+    import os
+    import edge_ladder as el
+    ranking = [{"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4}]
+    live = {"agents": [{"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}]}
+
+    def rep(cpcv_a=None):
+        r = {"ranking": ranking, "live": live}
+        if cpcv_a is not None:
+            r["cpcv"] = {"agents": {"a": cpcv_a}}
+        return r
+
+    fragile = {"n_chemins": 45, "ic_median": 0.02, "ic_p10": -0.01, "frac_neg": 0.20}
+    sain = {"n_chemins": 45, "ic_median": 0.05, "ic_p10": 0.01, "frac_neg": 0.05}
+    peu_de_chemins = {"n_chemins": 10, "ic_median": -0.5, "ic_p10": -0.9, "frac_neg": 1.0}
+    avant = os.environ.get("CPCV_GATE")
+    try:
+        os.environ["CPCV_GATE"] = "1"
+        assert el.all_tiers(rep(fragile)) == {"a": "PROBATION"}   # bride sur preuve
+        assert el.all_tiers(rep(sain)) == {"a": "LIVE"}
+        assert el.all_tiers(rep(peu_de_chemins)) == {"a": "LIVE"}  # fail-open : mesure insuffisante
+        assert el.all_tiers(rep(None)) == {"a": "LIVE"}            # fail-open : pas de diagnostic
+        os.environ["CPCV_GATE"] = "0"
+        assert el.all_tiers(rep(fragile)) == {"a": "LIVE"}         # désarmée -> transparente
+    finally:
+        if avant is None:
+            os.environ.pop("CPCV_GATE", None)
+        else:
+            os.environ["CPCV_GATE"] = avant
 
 
 def _run_all():

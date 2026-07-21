@@ -13,6 +13,13 @@ Paliers :
   • PAPER     : DSR ≥ 0.10                                 -> neutre, paper
   • NEGATIVE  : sinon                                      -> bridé (prior faible)
 
+Porte CPCV (armable, CPCV_GATE — .env OR config, défaut OFF) : LIVE exige EN PLUS que la
+distribution d'IC OOS multi-chemins (champ `cpcv` du rapport, cpcv_diagnostic §54) ne soit
+pas FRAGILE — un walk-forward mono-chemin peut « valider » un artefact de chemin (démonstration
+backlog : p10 ≈ −0.000 sur 45 chemins là où le WF simple validait). Fail-open sur absence de
+mesure (même philosophie que _annuel_ok) ; RÉDUCTEUR-SEULEMENT : ne promeut jamais, ne fait
+que retenir une promotion.
+
 Cohérent avec `mandate.futures_live_allowed` (même critère LIVE). Les priors de poids
 sont ADVISORY : ils n'écrasent pas l'apprentissage EARCP, ils le bornent/orientent —
 branchés dans swarm_brain._apply_edge_priors (adoucis prior**alpha, débrayables).
@@ -28,6 +35,7 @@ _PRIOR = {"LIVE": 1.5, "PROBATION": 1.0, "PAPER": 0.6, "NEGATIVE": 0.3}
 
 
 from config_utils import cfg as _cfg
+from config_utils import env_flag as _env_flag
 
 
 def _load(report=None):
@@ -70,6 +78,36 @@ def _replay_passes(row, dsr_min=None, min_n=None):
     return dsr >= dsr_min and n >= min_n and oos > 0
 
 
+def _cpcv_row(rep, agent):
+    """Ligne CPCV d'un agent dans le champ `cpcv` du rapport, ou None. PUR."""
+    return ((((rep or {}).get("cpcv", {}) or {}).get("agents", {}) or {}).get(str(agent)))
+
+
+def _cpcv_ok(cpcv_row):
+    """Porte CPCV multi-chemins. Désarmée (CPCV_GATE off, défaut) -> transparente.
+    Armée : bride le LIVE si la distribution d'IC OOS est FRAGILE (ic_p10 ≤ 0 OU
+    frac_neg > CPCV_MAX_FRAC_NEG). FAIL-OPEN : diagnostic absent, champs manquants ou
+    < CPCV_MIN_PATHS chemins -> transparente (on bride sur preuve, pas sur absence
+    de mesure — même philosophie que _annuel_ok)."""
+    if not _env_flag("CPCV_GATE", False):
+        return True
+    if not isinstance(cpcv_row, dict):
+        return True
+    try:
+        n = int(cpcv_row.get("n_chemins", 0) or 0)
+    except (TypeError, ValueError):
+        return True
+    if n < int(_cfg("CPCV_MIN_PATHS", 30)):
+        return True
+    p10, fneg = cpcv_row.get("ic_p10"), cpcv_row.get("frac_neg")
+    if p10 is None or fneg is None:
+        return True
+    try:
+        return float(p10) > 0.0 and float(fneg) <= float(_cfg("CPCV_MAX_FRAC_NEG", 0.10))
+    except (TypeError, ValueError):
+        return True
+
+
 def _annuel_ok(row):
     """Robustesse ANNUELLE (§54). PUR. Un agent dont l'IC sur UN AN d'historique est
     NÉGATIF est un artefact de régime possible : pas de LIVE. FAIL-OPEN : sans
@@ -81,13 +119,15 @@ def _annuel_ok(row):
     return float(an["ic"]) > 0.0
 
 
-def tier_of(row, live_row=None, dsr_min=None, min_n=None):
+def tier_of(row, live_row=None, dsr_min=None, min_n=None, cpcv_row=None):
     """Palier d'un agent. PUR. LIVE exige l'edge REPLAY (DSR/n/OOS) ET la confirmation
     sur les VOTES REELS (live) ET la robustesse ANNUELLE (§54 : pas de promotion
-    d'un artefact de régime) ; replay seul -> PROBATION (prometteur, reste paper)."""
+    d'un artefact de régime) ET la porte CPCV si armée (pas de promotion d'un artefact
+    de CHEMIN) ; replay seul -> PROBATION (prometteur, reste paper)."""
     if _replay_passes(row, dsr_min, min_n):
-        return ("LIVE" if (_live_confirms(live_row) and _annuel_ok(row))
-                else "PROBATION")                    # live/annuel pas (encore) confirmés
+        return ("LIVE" if (_live_confirms(live_row) and _annuel_ok(row)
+                           and _cpcv_ok(cpcv_row))
+                else "PROBATION")            # live/annuel/cpcv pas (encore) confirmés
     dsr = float((row or {}).get("dsr", 0) or 0)
     n = int((row or {}).get("n", 0) or 0)
     if dsr >= 0.50 and n >= 30:
@@ -97,12 +137,13 @@ def tier_of(row, live_row=None, dsr_min=None, min_n=None):
     return "NEGATIVE"
 
 
-def live_pending(row, live_row=None, dsr_min=None, min_n=None):
+def live_pending(row, live_row=None, dsr_min=None, min_n=None, cpcv_row=None):
     """L'agent bat-il le REPLAY mais PAS (encore) la confirmation live ? PUR.
     True = « à une confirmation live près du palier LIVE » : purement informatif (observabilité),
     ne donne AUCUN droit réel. Sert à voir qui approche du réel sans qu'aucun verrou ne bouge."""
     return bool(_replay_passes(row, dsr_min, min_n)
-                and not (_live_confirms(live_row) and _annuel_ok(row)))
+                and not (_live_confirms(live_row) and _annuel_ok(row)
+                         and _cpcv_ok(cpcv_row)))
 
 
 def agent_tier(agent, report=None):
@@ -110,14 +151,15 @@ def agent_tier(agent, report=None):
     rep = _load(report)
     for row in rep.get("ranking", []):
         if str(row.get("agent")) == str(agent):
-            return tier_of(row, _live_row(rep, agent))
+            return tier_of(row, _live_row(rep, agent), cpcv_row=_cpcv_row(rep, agent))
     return "NEGATIVE"
 
 
 def all_tiers(report=None):
     """{agent: palier} pour tous les agents du rapport. PUR."""
     rep = _load(report)
-    return {row.get("agent"): tier_of(row, _live_row(rep, row.get("agent")))
+    return {row.get("agent"): tier_of(row, _live_row(rep, row.get("agent")),
+                                      cpcv_row=_cpcv_row(rep, row.get("agent")))
             for row in rep.get("ranking", [])}
 
 
@@ -143,7 +185,7 @@ def weight_priors(report=None):
     out = {}
     for row in rep.get("ranking", []):
         a = str(row.get("agent"))
-        out[a] = _PRIOR[tier_of(row, _live_row(rep, a))]
+        out[a] = _PRIOR[tier_of(row, _live_row(rep, a), cpcv_row=_cpcv_row(rep, a))]
     min_n = int(_cfg("MANDATE_LIVE_MIN_SAMPLES", 60))
     min_t = float(_cfg("MANDATE_LIVE_MIN_IC_T", 2.0))
     for r in (rep.get("live", {}) or {}).get("agents", []):
@@ -173,7 +215,9 @@ def build_report(report=None):
     for row in ranking:
         agent = row.get("agent")
         lr = _live_row(rep, agent)
-        rows.append((agent, tier_of(row, lr), live_pending(row, lr)))
+        cr = _cpcv_row(rep, agent)
+        rows.append((agent, tier_of(row, lr, cpcv_row=cr),
+                     live_pending(row, lr, cpcv_row=cr)))
     order = {t: i for i, t in enumerate(TIERS)}
     rows.sort(key=lambda r: order.get(r[1], 9))
     lines = ["=== ÉCHELLE D'EDGE (par agent) ==="]

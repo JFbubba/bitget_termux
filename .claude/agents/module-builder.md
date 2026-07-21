@@ -26,9 +26,10 @@ FAIL-SAFE (module indispo/lent/incohérent → ignoré, JAMAIS de crash ni de bl
 `docs/VERDICTS.md` + `scratchpad/LABOS.md`. Tout labo de mesure naît avec : seed déterministe,
 étiquette d'ORIGINE sur chaque résultat (synthetic | backtest | validation | paper | live — jamais
 mélangés silencieusement), critères de rejet définis AVANT le run, et si possible un contrôle négatif.
-Les coûts se mesurent sur les 3 SCÉNARIOS partagés de `lab_scenarios.py` (neutre / pessimiste /
-optimiste) — un edge ne PROMEUT que s'il survit au PESSIMISTE, l'optimiste borne le potentiel sans
-jamais valider. Un seed RNG n'a pas d'humeur (l'« optimisme » est un scénario de coûts, pas un
+Les coûts se mesurent sur les SCÉNARIOS partagés de `lab_scenarios.py` (optimiste / maker /
+neutre / pessimiste / stress_crise, + funding de portage par jour tenu) — un edge ne PROMEUT que
+s'il survit au PESSIMISTE, l'optimiste borne le potentiel sans jamais valider, le stress_crise
+informe la queue sans juger. Un seed RNG n'a pas d'humeur (l'« optimisme » est un scénario de coûts, pas un
 seed) ; les composantes stochastiques (NN/QML) se mesurent sur les `SEEDS_ROBUSTESSE` (la
 stabilité PAR seed est la mesure).
 

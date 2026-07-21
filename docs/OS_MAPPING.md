@@ -35,7 +35,7 @@ la plateforme — l'application du prompt est additive, jamais une réécriture.
 | §22 Rapports traçables (commit/dataset/seed) | EXISTANT+ | Journaux + sessions de parité (commit inclus) ; étiquette d'origine (doctrine 21/07) |
 | §23-24 Commandes + démo sans clé | EXISTANT | CLIs `--status` lecture seule, `update_vps.sh`, `gates.sh` ; tests hors-ligne synthétiques |
 | §25 Protocole par phases | APPLIQUÉ | Ce mapping = l'audit anti-doublon ; les deltas construits sont listés ci-dessus |
-| Scénarios de coûts (perturbation frais/slippage) | CONSTRUIT 21/07 | `lab_scenarios.py` — neutre/pessimiste/optimiste + SEEDS_ROBUSTESSE ; PROMOTION seulement si le net PESSIMISTE survit |
+| Scénarios de coûts (perturbation frais/slippage/funding) | CONSTRUIT 21/07 | `lab_scenarios.py` — optimiste/maker/neutre/pessimiste/stress_crise + funding de portage + SEEDS_ROBUSTESSE ; PROMOTION seulement si le net PESSIMISTE survit |
 
 Règle de maintenance : toute reprise future du prompt « OS » (ou d'un bundle similaire)
 se triage CONTRE cette carte — on n'installe que ce qui n'y est pas déjà.
