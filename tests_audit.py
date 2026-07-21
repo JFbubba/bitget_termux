@@ -4220,6 +4220,48 @@ def test_exit_lab_purs():
     assert xl.stats_issues([])["wr_pct"] is None
 
 
+def test_exit_lab_paires_reelles():
+    import exit_lab as xl
+    ouvre = lambda ts, sym, side, entry, sl: {
+        "action": "FUTURES_REAL", "ts": ts,
+        "order": {"symbol": sym, "side": side, "reduce": False,
+                  "entry": entry, "stop_loss": sl}}
+    ferme = lambda ts, sym, side: {
+        "action": "FUTURES_REAL", "ts": ts,
+        "order": {"symbol": sym, "side": side, "reduce": True}}
+    events = [
+        ferme(500, "BTCUSDT", "short"),                   # reduce orphelin -> ignoré
+        ouvre(1000, "BTCUSDT", "short", 100.0, 102.0),
+        ouvre(2000, "BTCUSDT", "short", 110.0, 112.0),    # ré-ouverture : écrase la 1re
+        {"action": "FUTURES_REFUSED", "ts": 2500, "order": {}},  # bruit -> ignoré
+        ferme(3000, "BTCUSDT", "short"),
+        ouvre(4000, "ETHUSDT", "long", 2000.0, 1950.0),   # jamais fermée -> ignorée
+        ouvre(5000, "SOLUSDT", "long", None, 70.0),       # entry manquante -> ignorée
+        ferme(6000, "SOLUSDT", "long"),
+    ]
+    paires = xl.paires_reelles(events)
+    assert paires == [("BTCUSDT", "short", 110.0, 112.0, 2000, 3000)]
+    # fenêtre de bougies : secondes ET millisecondes acceptées
+    assert xl._ts_sec(1783184400) == 1783184400
+    assert xl._ts_sec(1783184400000) == 1783184400
+    t0 = 1783184400
+    rows = [[t0 - 3700, 0, 1, 1, 0, 0],            # finit avant l'entrée -> exclue
+            [t0 - 3500, 0, 1, 1, 0, 0],            # couvre l'entrée -> incluse
+            [(t0 + 1800) * 1000, 0, 1, 1, 0, 0],   # millisecondes -> normalisée, incluse
+            [t0 + 3550, 0, 1, 1, 0, 0],            # avant la fin -> incluse
+            [t0 + 7200, 0, 1, 1, 0, 0]]            # ouvre après la fin -> exclue
+    fen = xl.fenetre_bougies(rows, t0, t0 + 3600)
+    assert [r[0] for r in fen] == [t0 - 3500, (t0 + 1800) * 1000, t0 + 3550]
+    # analyser_reels avec bougies injectées : short 110, plus-bas 105.6, plus-haut 111.1
+    fenetres = {("BTCUSDT", 2000): [[2000, 110, 111.1, 105.6, 106, 0]]}
+    res = xl.analyser_reels(events=events, fenetres=fenetres)
+    assert res["n"] == 1
+    assert abs(res["mfe_med_pct"] - 4.0) < 1e-6 and abs(res["mae_med_pct"] - 1.0) < 1e-6
+    assert abs(res["mfe_r_med"] - 2.2) < 1e-6            # MFE 4% / distance de stop 2/110
+    # paire sans bougies -> exclue, honnêteté du n
+    assert xl.analyser_reels(events=events, fenetres={})["n"] == 0
+
+
 def test_live_ic_audit_pur():
     import live_ic_audit as la
     # signal parfait : vote = signe du rendement à venir -> IC fortement positif

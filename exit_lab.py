@@ -76,6 +76,20 @@ def paires_reelles(events):
     return paires
 
 
+def _ts_sec(brut):
+    """Timestamp de bougie en SECONDES quelle que soit la source :
+    ms.candles émet des secondes, candles_history des millisecondes. PUR."""
+    t = safe_float(brut) or 0.0
+    return t / 1000.0 if t > 1e12 else t
+
+
+def fenetre_bougies(rows, ts_debut, ts_fin):
+    """PUR. Bougies dont l'intervalle [ts, ts+1h] recouvre [ts_debut, ts_fin],
+    unités normalisées via _ts_sec."""
+    return [r for r in rows or []
+            if ts_debut - 3600 <= _ts_sec(r[0]) <= ts_fin]
+
+
 def _candles_fenetre(symbol, ts_debut, ts_fin):
     """Bougies 1h couvrant [ts_debut, ts_fin] (fraîches d'abord, repli historique)."""
     try:
@@ -83,14 +97,13 @@ def _candles_fenetre(symbol, ts_debut, ts_fin):
         rows = ms.candles(symbol, "1h", 400) or []
     except Exception:
         rows = []
-    if not rows or rows[0][0] / 1000.0 > ts_debut:
+    if not rows or _ts_sec(rows[0][0]) > ts_debut:
         try:
             import candles_history as ch
             rows = ch.load(symbol, "1h") or rows
         except Exception:
             pass
-    return [r for r in rows
-            if ts_debut * 1000 <= r[0] <= ts_fin * 1000 + 3_600_000]
+    return fenetre_bougies(rows, ts_debut, ts_fin)
 
 
 def analyser_reels(events=None, fenetres=None):
