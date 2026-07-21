@@ -54,18 +54,22 @@ def _fuse_annuel(rows, annuel):
 
 def _annuel_safe():
     """Robustesse ANNUELLE (§54) best-effort ABSOLU : consulte le holdout profond via
-    `agent_validation.replay_annuel()` SANS ARGUMENT — c'est LA consultation qui DOIT
-    se consigner au registre (holdout_registry, hygiène anti-contamination) : ne PAS
-    lui injecter un panel pré-chargé, sinon la consignation n'a jamais lieu. Coût :
-    même ordre de grandeur que `cpcv_diagnostic` (même panel profond, mêmes agents
-    purs rejoués) — accepté sur la cadence 6h du timer de validation (pas de partage
-    de calcul simple possible sans dupliquer la logique de replay entre les deux
-    fonctions ni casser la consignation ci-dessus). Indisponible/lent/incohérent ->
-    {} : le champ 'annuel' est alors absent de chaque ligne, la porte §54 reste
-    FAIL-OPEN, JAMAIS de crash de la validation."""
+    `agent_validation.replay_annuel()` SANS panel injecté — c'est LA consultation qui
+    DOIT se consigner au registre (holdout_registry, hygiène anti-contamination) : ne
+    PAS lui injecter un panel pré-chargé, sinon la consignation n'a jamais lieu.
+    `consultation="gate_auto"` (§ sémantique corrigée 21/07) : ce module est le SEUL
+    appelant AUTOMATISÉ (timer 6h `bitget-validation.timer`) — sa consultation planifiée
+    ne doit PAS compter comme une consultation « recherche » qui dépense le holdout,
+    sans quoi `contamine` serait vrai en permanence dès le 2e tir sur la même version
+    et perdrait toute valeur diagnostique. Coût : même ordre de grandeur que
+    `cpcv_diagnostic` (même panel profond, mêmes agents purs rejoués) — accepté sur la
+    cadence 6h du timer de validation (pas de partage de calcul simple possible sans
+    dupliquer la logique de replay entre les deux fonctions ni casser la consignation
+    ci-dessus). Indisponible/lent/incohérent -> {} : le champ 'annuel' est alors absent
+    de chaque ligne, la porte §54 reste FAIL-OPEN, JAMAIS de crash de la validation."""
     try:
         import agent_validation as av
-        res = av.replay_annuel()
+        res = av.replay_annuel(consultation="gate_auto")
         return res if isinstance(res, dict) else {}
     except Exception:
         return {}

@@ -13988,10 +13988,15 @@ def test_cpcv_diagnostic_non_gating():
 
 def test_holdout_registry_contamination_et_fail_safe():
     """Registre d'usage du holdout (holdout_registry) : chemin INJECTÉ (ERR-019 — un
-    test n'écrit jamais dans le journal de production), 2 consultations de la MÊME
-    version -> contamine=True (1 seule -> False), borne 500 entrées, écriture
-    best-effort qui ne lève JAMAIS, et replay_annuel sur données INJECTÉES ne
-    consigne RIEN (ce n'est pas le holdout)."""
+    test n'écrit jamais dans le journal de production), 2 consultations RECHERCHE de
+    la MÊME version -> contamine=True (1 seule -> False), borne 500 entrées, écriture
+    best-effort qui ne lève JAMAIS, replay_annuel sur données INJECTÉES ne consigne
+    RIEN (ce n'est pas le holdout), et la distinction de MODE (§ corrigée 21/07) :
+    des consultations "gate_auto" répétées (le timer 6h automatisé) NE contaminent
+    JAMAIS le drapeau — seule une 2e consultation "recherche" de la MÊME version
+    dépense le holdout ; le compte total et le compte par mode sont exposés ; les
+    entrées SANS champ mode (registre pré-existant) comptent comme "recherche"
+    (rétro-compatibilité conservatrice)."""
     import json as _json
     import os
     import tempfile
@@ -13999,16 +14004,19 @@ def test_holdout_registry_contamination_et_fail_safe():
     import holdout_registry as hr
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "ledger.json")
-        # 1 consultation -> pas contaminé ; 2e de la MÊME version -> contaminé
+        # 1 consultation (mode par défaut = "recherche") -> pas contaminé ;
+        # 2e de la MÊME version -> contaminé.
         assert hr.consigner("replay_annuel", version="abc1234", periode="6y_1h",
                             chemin=p) is True
         st = hr.statut(chemin=p)
         assert st[("replay_annuel", "abc1234")]["consultations"] == 1
+        assert st[("replay_annuel", "abc1234")]["par_mode"] == {"recherche": 1}
         assert st[("replay_annuel", "abc1234")]["contamine"] is False
         hr.consigner("replay_annuel", version="abc1234", periode="6y_1h", chemin=p)
         hr.consigner("replay_annuel", version="def5678", periode="6y_1h", chemin=p)
         st = hr.statut(chemin=p)
         assert st[("replay_annuel", "abc1234")]["contamine"] is True   # holdout dépensé
+        assert st[("replay_annuel", "abc1234")]["consultations"] == 2
         assert st[("replay_annuel", "def5678")]["contamine"] is False  # version neuve
         # borne : 505 entrées préexistantes + 1 -> tronqué aux 500 dernières
         gros = [{"ts": i, "quoi": "x", "version": "v", "periode": "", "note": ""}
@@ -14017,6 +14025,46 @@ def test_holdout_registry_contamination_et_fail_safe():
             _json.dump(gros, f)
         hr.consigner("x", version="v", chemin=p)
         assert len(_json.loads(open(p, encoding="utf-8").read())) == 500
+
+        # --- distinction de MODE (§ corrigée 21/07) ---
+        p3 = os.path.join(d, "ledger_mode.json")
+        # 4 tirs "gate_auto" (ex. 4 tirs/j du timer 6h) sur la MÊME version -> jamais
+        # contaminé : ce n'est pas une consultation de recherche.
+        for _ in range(4):
+            hr.consigner("replay_annuel", version="gg1", periode="6y_1h",
+                        mode="gate_auto", chemin=p3)
+        st = hr.statut(chemin=p3)
+        assert st[("replay_annuel", "gg1")]["consultations"] == 4
+        assert st[("replay_annuel", "gg1")]["par_mode"] == {"gate_auto": 4}
+        assert st[("replay_annuel", "gg1")]["contamine"] is False
+        # 1 consultation "recherche" ajoutée à la MÊME version -> toujours pas
+        # contaminé (une seule recherche) ; le compte total/par-mode reste exact.
+        hr.consigner("replay_annuel", version="gg1", periode="6y_1h",
+                    mode="recherche", chemin=p3)
+        st = hr.statut(chemin=p3)
+        assert st[("replay_annuel", "gg1")]["consultations"] == 5
+        assert st[("replay_annuel", "gg1")]["par_mode"] == {"gate_auto": 4, "recherche": 1}
+        assert st[("replay_annuel", "gg1")]["contamine"] is False
+        # 2e consultation "recherche" de la MÊME version -> contaminé, MALGRÉ les
+        # tirs gate_auto qui ne comptent pas dans le seuil.
+        hr.consigner("replay_annuel", version="gg1", periode="6y_1h",
+                    mode="recherche", chemin=p3)
+        st = hr.statut(chemin=p3)
+        assert st[("replay_annuel", "gg1")]["contamine"] is True
+        assert st[("replay_annuel", "gg1")]["par_mode"]["recherche"] == 2
+        # rétro-compatibilité : entrées SANS champ "mode" (registre pré-existant)
+        # comptent comme "recherche" -> 2 telles entrées -> contaminé.
+        p4 = os.path.join(d, "ledger_retro.json")
+        anciennes = [{"ts": 1, "quoi": "replay_annuel", "version": "old1",
+                     "periode": "6y_1h", "note": ""},
+                    {"ts": 2, "quoi": "replay_annuel", "version": "old1",
+                     "periode": "6y_1h", "note": ""}]
+        with open(p4, "w", encoding="utf-8") as f:
+            _json.dump(anciennes, f)
+        st = hr.statut(chemin=p4)
+        assert st[("replay_annuel", "old1")]["par_mode"] == {"recherche": 2}
+        assert st[("replay_annuel", "old1")]["contamine"] is True
+
         # injection par ENV (HOLDOUT_LEDGER) + replay_annuel injecté = pas le holdout
         p2 = os.path.join(d, "ledger_env.json")
         old = os.environ.get("HOLDOUT_LEDGER")
@@ -14034,6 +14082,49 @@ def test_holdout_registry_contamination_et_fail_safe():
     # fail-safe : dossier impossible -> False, jamais d'exception ; statut -> {}
     assert hr.consigner("x", version="v", chemin="/dev/null/impossible/l.json") is False
     assert hr.statut(chemin="/dev/null/impossible/l.json") == {}
+
+
+def test_replay_annuel_consultation_mode_forwardee_a_holdout_registry():
+    """§ sémantique de mode corrigée 21/07 : `agent_validation.replay_annuel()` (sans
+    panel injecté -> vraie consultation du holdout) transmet son paramètre
+    `consultation` à `holdout_registry.consigner(mode=...)` — défaut "recherche",
+    et `brain_validation._annuel_safe()` (le SEUL appelant automatisé) passe
+    explicitement "gate_auto". `agent_validation._panel_profond` est monkeypatché
+    à vide pour ne JAMAIS toucher le vrai panel/holdout ni consigner dans le
+    registre de production (ERR-019) : la fonction consigne puis retourne {}
+    immédiatement (panel vide -> fail-open) sans coût de calcul."""
+    import agent_validation as av
+    import brain_validation as bv
+    import holdout_registry as hr
+
+    appels = []
+
+    def _consigner_espion(quoi, version=None, periode="", note="", chemin=None,
+                          mode="recherche"):
+        appels.append(mode)
+        return True
+
+    orig_consigner = hr.consigner
+    orig_panel = av._panel_profond
+    hr.consigner = _consigner_espion
+    av._panel_profond = lambda: {}          # panel vide -> sort avant tout calcul
+    try:
+        # défaut : mode "recherche"
+        assert av.replay_annuel() == {}
+        assert appels[-1] == "recherche"
+        # mode explicite propagé tel quel
+        assert av.replay_annuel(consultation="gate_auto") == {}
+        assert appels[-1] == "gate_auto"
+        # l'appelant automatisé (brain_validation._annuel_safe) passe "gate_auto"
+        assert bv._annuel_safe() == {}
+        assert appels[-1] == "gate_auto"
+    finally:
+        hr.consigner = orig_consigner
+        av._panel_profond = orig_panel
+    # données INJECTÉES -> aucun appel à consigner du tout (pas le holdout, ERR-019)
+    n_avant = len(appels)
+    assert av.replay_annuel(donnees={}, consultation="gate_auto") == {}
+    assert len(appels) == n_avant
 
 
 def test_cpcv_gate_armee_bride_sur_preuve():

@@ -234,7 +234,8 @@ def _panel_profond():
         return {}
 
 
-def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
+def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None,
+                  consultation="recherche"):
     """IC ANNUEL des agents PURS sur l'historique profond (candles_history, §54).
     PUR si `donnees` est injecté ({symbol: bougies}). L'audit du 03/07 a montré que
     des fenêtres récentes, même « indépendantes », peuvent partager le MÊME régime
@@ -242,17 +243,24 @@ def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
     sur l'année) — le rejeu annuel est le 3e juge, câblé dans la porte d'edge :
     pas de promotion LIVE d'un artefact de régime. Retourne
     {agent: {ic, ic_t, n}} ; {} si pas de données (fail-open : la porte annuelle
-    ne s'applique que si la mesure existe)."""
+    ne s'applique que si la mesure existe).
+    `consultation` : mode transmis à `holdout_registry.consigner` (§ sémantique
+    corrigée 21/07) — "recherche" (défaut CONSERVATEUR, toute consultation qui peut
+    informer une décision) ou "gate_auto" (le SEUL appelant automatisé, le timer 6h
+    de `brain_validation.py`, passe explicitement "gate_auto" pour ne pas contaminer
+    le drapeau à chaque tir planifié)."""
     import math
     if donnees is None:
         # LA consultation du holdout profond 6 ans -> consignée au registre d'usage
-        # (hygiène anti-contamination : le holdout ne s'ouvre qu'une fois par version).
-        # Best-effort ABSOLU : le registre ne casse JAMAIS la validation. Données
-        # INJECTÉES (tests/labos) = pas le holdout -> pas de consignation (ERR-019).
+        # (hygiène anti-contamination : le holdout ne s'ouvre qu'une fois par version
+        # EN RECHERCHE). Best-effort ABSOLU : le registre ne casse JAMAIS la
+        # validation. Données INJECTÉES (tests/labos) = pas le holdout -> pas de
+        # consignation (ERR-019).
         try:
             import holdout_registry
             holdout_registry.consigner("replay_annuel", periode="6y_1h",
-                                       note="porte profonde §54")
+                                       note="porte profonde §54",
+                                       mode=consultation)
         except Exception:
             pass
         donnees = _panel_profond()
