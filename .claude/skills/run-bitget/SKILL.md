@@ -1,52 +1,60 @@
 ---
 name: run-bitget
-description: Lance et pilote l'app de facon SURE (dashboard lecture seule + CLIs lecture seule), sans jamais declencher d'achat reel. A utiliser pour lancer/voir tourner le bot, verifier l'etat, ou tester un changement dans l'app reelle.
+description: Lance et pilote l'app de façon SÛRE (dashboard lecture seule + CLIs lecture seule), sans jamais déclencher d'ordre réel. À utiliser pour lancer/voir tourner le bot, vérifier l'état, ou tester un changement dans l'app réelle.
 ---
 
-# /run-bitget — lancer l'app sans toucher au reel
+# /run-bitget — lancer l'app sans toucher au réel
 
-⚠️ **Argent reel sur cette machine.** L'accumulation autonome est armee (`.env`
-`ACCUM_AUTONOMOUS_LIVE=1`, `MANDATE_LIVE_ENABLED=True`, `bgc` present). NE JAMAIS lancer
-ce qui passe par le chemin d'achat reel juste pour « voir l'etat ».
+⚠️ **Argent réel sur cette machine, sur DEUX chemins** : accumulation spot armée
+(`.env` `ACCUM_AUTONOMOUS_LIVE=1`, `MANDATE_LIVE_ENABLED=True`, `bgc` présent) ET
+futures borné §45 (boucle directionnelle + carry). NE JAMAIS lancer ce qui passe par
+un chemin d'exécution réel juste pour « voir l'état ».
 
-## A NE PAS faire
-- ❌ `python accumulation_engine.py BTCUSDT` -> `main()` -> `run()` -> **achat reel**
-  quand arme. (Le garde-fou `.claude/hooks/guard.py` le bloque aussi.)
-- ❌ `python spot_executor.py ... --confirm` -> achat reel.
+## À NE PAS faire
+- ❌ `python accumulation_engine.py BTCUSDT` -> `main()` -> `run()` -> **achat réel**
+  quand armé. (Le garde-fou `.claude/hooks/guard.py` le bloque aussi.)
+- ❌ `python futures_auto.py` ou `python carry_auto.py` SANS `--status` -> **CYCLE qui
+  peut trader en réel**. La consultation, c'est `--status`.
+- ❌ `python spot_executor.py ... --confirm` ou `python futures_executor.py ... --confirm`
+  -> ordre réel (les deux sont DRY par défaut, `--confirm` exécute).
 - ❌ `bgc ...` avec un verbe d'ordre / transfert / retrait.
 
 ## A. Dashboard (lecture seule) — l'app principale
-Deja servi sur `http://127.0.0.1:8787` (sinon : `python dashboard/server.py`).
+Déjà servi sur `http://127.0.0.1:8787` (sinon : `python dashboard/server.py`).
 ```bash
-curl -s http://127.0.0.1:8787/healthz                              # -> ok
-curl -s 'http://127.0.0.1:8787/api/state?symbol=BTCUSDT&tf=5m'     # JSON complet
+curl -s http://127.0.0.1:8787/healthz                                    # -> ok
+curl -s -m 90 'http://127.0.0.1:8787/api/state?symbol=BTCUSDT&tf=5m'     # JSON complet
 ```
-Blocs cles : `mode`, `brain` (bias/conviction), `mandate`, `edge_ladder`,
-`accumulation` (via `analyze()` lecture seule), `orderflow`, `health`.
+⏱ `/api/state` met ~20–30 s à froid (appels réseau) : toujours `-m 90`, pas 30.
+Blocs clés : `mode`, `brain` (bias/conviction), `mandate`, `edge_ladder`,
+`accumulation` (via `analyze()` lecture seule), `orderflow`, `health`, `futures_live`,
+`verrous`, `positions`.
 
-## B. CLIs lecture seule (toutes finissent VERDICT: SAFE)
+## B. CLIs lecture seule (toutes sortent 0 + VERDICT: SAFE)
 ```bash
-python universe.py        # univers d'analyse
-python mandate.py         # politique + etat des verrous
+python universe.py        # univers d'analyse (dynamique top-N)
+python mandate.py         # politique + état des verrous
 python edge_ladder.py     # paliers par agent
-python system_health.py   # sante (execution reelle = DISABLED attendu)
+python system_health.py   # santé (pipeline pré-ordres : exécution DISABLED attendu)
 python stats_report.py    # stats paper TP/SL
-python swarm_brain.py BTCUSDT   # consensus des 13 agents (plus lent, reseau)
+python futures_report.py  # futures §45 : boucle, position, equity/stop, PnL bot
+python swarm_brain.py BTCUSDT   # consensus du banc 14 agents + voix opt-in (plus lent, réseau)
 ```
 
 ## C. Accumulation en LECTURE SEULE (jamais d'achat)
 ```bash
 python -c "import accumulation_engine as ae, json; print(json.dumps(ae.analyze('BTCUSDT'), default=str, indent=2))"
 ```
-`analyze()` calcule opportunite/premium sans jamais acheter (c'est ce que le dashboard
-utilise, server.py:239).
+`analyze()` calcule opportunité/premium sans jamais acheter — c'est ce que le dashboard
+utilise (`dashboard/server.py`, commentaire « analyze = lecture seule »).
 
 ## D. (Optionnel) Prouver que la garde tient — DRY, sans --confirm
 ```bash
-python spot_executor.py --usdt 5     # imprime l'ordre + gardes, n'execute RIEN (dry:true)
+python spot_executor.py --usdt 5     # imprime l'ordre + gardes, n'exécute RIEN (dry)
 ```
 **Ne jamais ajouter `--confirm`.**
 
-## Succes attendu
-`/healthz`=ok ; `/api/state` JSON valide (`mode` = "PAPER futures · ...") ; chaque CLI
-sort 0 + `VERDICT: SAFE` ; `accumulation_real_ledger.json` inchange (aucun ordre).
+## Succès attendu
+`/healthz`=ok ; `/api/state` JSON valide (`mode` = "RÉEL spot 2–5$/j · RÉEL futures
+borné §45") ; chaque CLI sort 0 + `VERDICT: SAFE` ; `accumulation_real_ledger.json`
+inchangé (md5 avant/après identique — aucun ordre déclenché par la consultation).
