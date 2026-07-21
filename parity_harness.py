@@ -25,9 +25,10 @@ et weights (chemin de politique) pour distinguer les deux causes.
 
 CLI :
   python parity_harness.py [SYMBOL]          # capture + rejeu immédiat → verdict
+  python parity_harness.py --univers         # TOUTES les paires de l'univers §63 (cron)
   python parity_harness.py --capture SYMBOL  # capture seule (session JSON)
   python parity_harness.py --rejeu FICHIER   # rejoue une session → verdict
-  python parity_harness.py --status          # dernier verdict (lecture seule)
+  python parity_harness.py --status          # derniers verdicts PAR PAIRE (lecture seule)
 Code de sortie : 0 = PARITÉ, 1 = DIVERGENCE, 2 = erreur/session invalide.
 """
 
@@ -234,14 +235,45 @@ def capture(symbol="BTCUSDT", dossier=None):
     d = _dossier(dossier)
     chemin = d / f"parity_{symbol}_{session['ts']}.json"
     chemin.write_text(json.dumps(session, ensure_ascii=False))
-    try:  # rotation : borne disque (sessions ~100 Ko), les plus récentes gagnent
-        garder = int(os.getenv("PARITY_KEEP", "30"))
-        fichiers = sorted(d.glob("parity_*.json"), key=lambda p: p.stat().st_mtime)
+    try:  # rotation PAR SYMBOLE : borne disque (sessions ~100 Ko), les récentes gagnent
+        garder = int(os.getenv("PARITY_KEEP", "10"))
+        fichiers = sorted(d.glob(f"parity_{symbol}_*.json"), key=lambda p: p.stat().st_mtime)
         for vieux in fichiers[:-garder]:
             vieux.unlink()
     except OSError:
         pass
     return chemin
+
+
+def _univers():
+    """Paires à couvrir : `universe.symbols()` — la MÊME source que le cerveau et la
+    boucle directionnelle (brain_cycle.py, futures_auto.py) : univers dynamique
+    Bitget∩CoinGecko si DYNAMIC_UNIVERSE est armé, sinon les ancres config. La
+    parité couvre donc exactement ce que le bot UTILISE. Repli : BTCUSDT."""
+    try:
+        import universe
+        syms = [s.upper() for s in (universe.symbols() or [])]
+        if syms:
+            return syms
+    except Exception:
+        pass
+    return ["BTCUSDT"]
+
+
+def parcours(symbols=None, dossier=None):
+    """Capture + rejeu sur PLUSIEURS paires (défaut : l'univers §63 — la parité ne
+    se limite pas à BTCUSDT). Fail-safe : une paire en erreur n'arrête pas les
+    autres. Rend {symbol: verdict}."""
+    resultats = {}
+    for sym in (symbols or _univers()):
+        try:
+            chemin = capture(sym, dossier=dossier)
+            resultats[sym.upper()] = rejeu(chemin)
+        except Exception as exc:
+            resultats[sym.upper()] = {"parite": False, "divergences": [],
+                                      "frontieres_manquantes": [],
+                                      "erreur": f"{type(exc).__name__}: {exc}"}
+    return resultats
 
 
 def rejeu(chemin):
@@ -289,20 +321,32 @@ def _imprimer_verdict(verdict, session_chemin=None):
 
 
 def _status(dossier=None):
+    """Derniers verdicts PAR PAIRE (session la plus récente de chaque symbole)."""
     d = _dossier(dossier)
     fichiers = sorted(d.glob("parity_*.json"), key=lambda p: p.stat().st_mtime)
     if not fichiers:
         print("aucune session de parité enregistrée")
         return 2
-    session = json.loads(fichiers[-1].read_text())
-    rejeux = session.get("rejeux") or []
-    print(f"dernière session : {fichiers[-1].name} (symbol {session.get('symbol')}, "
-          f"commit {session.get('commit') or '?'}, {len(rejeux)} rejeu(x))")
-    if not rejeux:
-        print("jamais rejouée")
-        return 2
-    _imprimer_verdict(rejeux[-1])
-    return 0 if rejeux[-1]["parite"] else 1
+    derniers = {}
+    for p in fichiers:
+        try:
+            s = json.loads(p.read_text())
+            derniers[s.get("symbol") or p.name] = (p, s)
+        except (OSError, ValueError):
+            continue
+    code = 0
+    for sym, (p, s) in sorted(derniers.items()):
+        rejeux = s.get("rejeux") or []
+        if not rejeux:
+            print(f"{sym}: jamais rejouée · {p.name}")
+            code = max(code, 2)
+            continue
+        v = rejeux[-1]
+        etat = "PARITÉ OK" if v["parite"] else f"DIVERGENCE ({len(v['divergences'])} champs)"
+        print(f"{sym}: {etat} · {len(rejeux)} rejeu(x) · commit {s.get('commit') or '?'} · {p.name}")
+        if not v["parite"]:
+            code = max(code, 1)
+    return code
 
 
 def main(argv):
@@ -310,6 +354,22 @@ def main(argv):
     try:
         if args and args[0] == "--status":
             return _status()
+        if args and args[0] == "--univers":
+            res = parcours()
+            print(f"univers du bot : {len(res)} paires via universe.symbols() "
+                  "(même source que brain_cycle/futures_auto)")
+            for sym, v in sorted(res.items()):
+                if v.get("erreur"):
+                    print(f"{sym}: ERREUR {v['erreur']}")
+                elif v["parite"]:
+                    print(f"{sym}: PARITÉ OK")
+                else:
+                    print(f"{sym}: DIVERGENCE ({len(v['divergences'])} champs)")
+                    for dv in v["divergences"][:5]:
+                        print(f"   · {dv['champ']} : {dv['capture']!r} → {dv['rejeu']!r}")
+            ok = sum(1 for v in res.values() if v.get("parite"))
+            print(f"bilan : {ok}/{len(res)} paires en parité")
+            return 0 if ok == len(res) else 1
         if args and args[0] == "--rejeu":
             if len(args) < 2:
                 print("usage : python parity_harness.py --rejeu FICHIER")

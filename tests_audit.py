@@ -13862,6 +13862,164 @@ def test_parity_harness_frontiere_manquante_en_repli():
             setattr(mod, attr, orig)
 
 
+def test_parity_harness_parcours_multi_paires():
+    """La parité ne se limite pas à BTCUSDT : parcours() couvre une LISTE de paires
+    (injectée ici, l'univers §63 en prod) — un verdict par paire, parité sur chacune."""
+    import tempfile
+    import parity_harness as ph
+    saves = _parity_env_hors_ligne()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            res = ph.parcours(["ETHUSDT", "SOLUSDT"], dossier=d)
+            assert set(res) == {"ETHUSDT", "SOLUSDT"}
+            assert all(v.get("parite") is True for v in res.values()), res
+    finally:
+        for mod, attr, orig in saves:
+            setattr(mod, attr, orig)
+
+
+def test_lab_scenarios_purs_et_verdict_pessimiste():
+    """lab_scenarios : coûts déterministes ordonnés (pessimiste > neutre > optimiste),
+    verdict qui ne PROMEUT que si le net PESSIMISTE est positif (l'optimiste ne valide
+    jamais), seeds de robustesse figés (un seed n'a pas d'humeur)."""
+    import lab_scenarios as ls
+    c_n = ls.cout_aller_retour_bps("neutre")
+    c_p = ls.cout_aller_retour_bps("pessimiste")
+    c_o = ls.cout_aller_retour_bps("optimiste")
+    assert c_p > c_n > c_o > 0
+    v = ls.verdict_promotion(brut_bps=40.0)    # net pessimiste = 40 − 2×(9+6) = +10
+    assert v["promeut"] is True and v["nets_bps"]["pessimiste"] == 10.0
+    v2 = ls.verdict_promotion(brut_bps=20.0)   # neutre +4 mais pessimiste −10 -> refus
+    assert v2["promeut"] is False and v2["nets_bps"]["neutre"] == 4.0
+    assert len(set(ls.SEEDS_ROBUSTESSE)) == 3
+
+
+def test_cpcv_chemins_purge_et_dispersion():
+    """CPCV porté du labo geometric_v2 (agent_validation.cpcv_paths) : nombre de
+    chemins C(N,k) exact, purge EFFECTIVE (aucun point de train à ≤ purge d'un point
+    de test), borne max_paths déterministe, et dispersion cohérente du diagnostic
+    (signal parfait -> médiane haute et 0 chemin négatif ; bruit pur -> médiane ~0)."""
+    import math
+    import numpy as np
+    import agent_validation as av
+    # --- fonction PURE : C(10,2)=45 chemins, purge+embargo vérifiés point à point ---
+    grid = np.arange(400, dtype=float) * 4.0            # stride 4 (comme un pas de replay)
+    chemins = list(av.cpcv_paths(400, grid, n_groups=10, k_test=2, purge=8,
+                                 min_train=1, min_test=1))
+    assert len(chemins) == 45, f"C(10,2)=45 attendu, obtenu {len(chemins)}"
+    assert len({c for c, _t, _e in chemins}) == 45      # combinaisons toutes distinctes
+    for _combo, tr, te in chemins:
+        assert not (tr & te).any(), "index de test présent dans le train (fuite)"
+        # purge effective : la distance (en unités grid) train<->test dépasse purge
+        d_min = float(np.abs(grid[tr][:, None] - grid[te][None, :]).min())
+        assert d_min > 8, f"purge inopérante (distance min {d_min} ≤ 8)"
+    # borne perf : C(10,3)=120 > 45 -> sous-échantillonnage DÉTERMINISTE à 45
+    b1 = [c for c, _t, _e in av.cpcv_paths(400, grid, n_groups=10, k_test=3,
+                                           min_train=1, min_test=1)]
+    b2 = [c for c, _t, _e in av.cpcv_paths(400, grid, n_groups=10, k_test=3,
+                                           min_train=1, min_test=1)]
+    assert len(b1) == 45 and b1 == b2, "borne max_paths non déterministe"
+    # --- diagnostic sur panel INJECTÉ (PUR, seed figé) : signal parfait vs bruit ---
+    rng = np.random.default_rng(7)                       # seed déterministe (LABOS)
+    def _serie(seed):
+        r, prix, out = np.random.default_rng(seed), 100.0, []
+        for i in range(700):
+            prix = prix * (1 + r.normal(0, 0.004)) * (1 + 0.002 * math.sin(i / 3))
+            out.append([i * 3600000, prix, prix * 1.001, prix * 0.999, prix, 100])
+        return out
+    donnees = {"X": _serie(12), "Y": _serie(21)}         # panel multi-symboles (§54)
+    def sig_parfait(c):                                  # anticipe la sinusoïde (ts -> i)
+        return math.sin((c[-1][0] // 3600000 + 4) / 3)
+    def sig_bruit(c):
+        return float(rng.normal())                       # indépendant du futur
+    diag = av.cpcv_diagnostic(donnees=donnees, pas=6,
+                              agents={"parfait": sig_parfait, "bruit": sig_bruit})
+    assert diag.get("non_gating") is True and diag.get("max_paths") == 45
+    p = diag["agents"]["parfait"]
+    assert p["n_chemins"] >= 5 and p["n_symbols"] == 2
+    assert p["ic_median"] > 0.3 and p["frac_neg"] == 0.0 and p["ic_p10"] > 0.0
+    b = diag["agents"]["bruit"]
+    assert abs(b["ic_median"]) < 0.2, "le bruit ne doit pas produire d'IC médian fort"
+    assert p["ic_median"] > b["ic_median"]               # dispersion cohérente
+    assert av.cpcv_diagnostic(donnees={}) == {}          # fail-open sans données
+
+
+def test_cpcv_diagnostic_non_gating():
+    """Le champ `cpcv` du rapport de validation est JOURNALISÉ mais NON-GATING : les
+    paliers d'edge_ladder et le front de promotions sont IDENTIQUES avec/sans lui, et
+    build_output ne diffère que par la clé `cpcv` (aucune décision existante modifiée)."""
+    import brain_validation as bv
+    import edge_ladder as el
+    ranking = [{"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4},
+               {"agent": "b", "dsr": 0.55, "n": 40, "oos_sharpe": -0.1}]
+    live = {"agents": [{"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}]}
+    cpcv = {"agents": {"a": {"n_chemins": 45, "ic_median": -0.9, "ic_p10": -0.99,
+                             "frac_neg": 1.0}}, "non_gating": True}
+    rep_sans = {"ranking": ranking, "live": live}
+    rep_avec = {"ranking": ranking, "live": live, "cpcv": cpcv}
+    # même un CPCV catastrophique (frac_neg=1.0) ne change RIEN aux paliers ni au front
+    assert el.all_tiers(rep_sans) == el.all_tiers(rep_avec) == {"a": "LIVE", "b": "PROBATION"}
+    t0 = el.all_tiers(rep_sans); t1 = el.all_tiers(rep_avec)
+    assert bv.promotions_live(t0, t1) == ([], [])        # aucun front créé par cpcv
+    # build_output : seule la clé `cpcv` diffère ; défaut = {} (absent -> rapport intact)
+    ranked = {"agents": ranking, "deflation": {}, "n_symbols": 2}
+    o1 = bv.build_output("BTCUSDT", ranked, live, now=1000)
+    o2 = bv.build_output("BTCUSDT", ranked, live, now=1000, cpcv=cpcv)
+    assert o1["cpcv"] == {} and o2["cpcv"] == cpcv
+    assert {k: v for k, v in o1.items() if k != "cpcv"} == \
+           {k: v for k, v in o2.items() if k != "cpcv"}
+
+
+def test_holdout_registry_contamination_et_fail_safe():
+    """Registre d'usage du holdout (holdout_registry) : chemin INJECTÉ (ERR-019 — un
+    test n'écrit jamais dans le journal de production), 2 consultations de la MÊME
+    version -> contamine=True (1 seule -> False), borne 500 entrées, écriture
+    best-effort qui ne lève JAMAIS, et replay_annuel sur données INJECTÉES ne
+    consigne RIEN (ce n'est pas le holdout)."""
+    import json as _json
+    import os
+    import tempfile
+    import agent_validation as av
+    import holdout_registry as hr
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "ledger.json")
+        # 1 consultation -> pas contaminé ; 2e de la MÊME version -> contaminé
+        assert hr.consigner("replay_annuel", version="abc1234", periode="6y_1h",
+                            chemin=p) is True
+        st = hr.statut(chemin=p)
+        assert st[("replay_annuel", "abc1234")]["consultations"] == 1
+        assert st[("replay_annuel", "abc1234")]["contamine"] is False
+        hr.consigner("replay_annuel", version="abc1234", periode="6y_1h", chemin=p)
+        hr.consigner("replay_annuel", version="def5678", periode="6y_1h", chemin=p)
+        st = hr.statut(chemin=p)
+        assert st[("replay_annuel", "abc1234")]["contamine"] is True   # holdout dépensé
+        assert st[("replay_annuel", "def5678")]["contamine"] is False  # version neuve
+        # borne : 505 entrées préexistantes + 1 -> tronqué aux 500 dernières
+        gros = [{"ts": i, "quoi": "x", "version": "v", "periode": "", "note": ""}
+                for i in range(505)]
+        with open(p, "w", encoding="utf-8") as f:
+            _json.dump(gros, f)
+        hr.consigner("x", version="v", chemin=p)
+        assert len(_json.loads(open(p, encoding="utf-8").read())) == 500
+        # injection par ENV (HOLDOUT_LEDGER) + replay_annuel injecté = pas le holdout
+        p2 = os.path.join(d, "ledger_env.json")
+        old = os.environ.get("HOLDOUT_LEDGER")
+        os.environ["HOLDOUT_LEDGER"] = p2
+        try:
+            assert av.replay_annuel(donnees={}) == {}    # données injectées (ERR-019)
+            assert not os.path.exists(p2), "replay_annuel injecté ne doit RIEN consigner"
+            hr.consigner("replay_annuel", version="v9", periode="6y_1h")
+            assert os.path.exists(p2), "l'env HOLDOUT_LEDGER doit être honoré"
+        finally:
+            if old is None:
+                os.environ.pop("HOLDOUT_LEDGER", None)
+            else:
+                os.environ["HOLDOUT_LEDGER"] = old
+    # fail-safe : dossier impossible -> False, jamais d'exception ; statut -> {}
+    assert hr.consigner("x", version="v", chemin="/dev/null/impossible/l.json") is False
+    assert hr.statut(chemin="/dev/null/impossible/l.json") == {}
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

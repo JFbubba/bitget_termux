@@ -31,7 +31,7 @@ def _stale(now=None):
         return True                                  # pas de rapport -> lancer
 
 
-def build_output(symbol, ranked, live, timing=None, now=None, mode="mono"):
+def build_output(symbol, ranked, live, timing=None, now=None, mode="mono", cpcv=None):
     """Assemble le rapport de validation (PUR, testable). 'ranked' = ranking replay,
     de PRÉFÉRENCE la coupe TRANSVERSALE (mode="xs", rank_pure_agents_xs : n EFFECTIF
     corrigé de la corrélation transversale — RESEARCH_NOTES §40 : sur un seul symbole
@@ -45,7 +45,11 @@ def build_output(symbol, ranked, live, timing=None, now=None, mode="mono"):
     'timing' = edge TEMPOREL market-timing (chemin 3, RESEARCH_NOTES §39) : la coupe
     transversale zero-note PAR CONSTRUCTION les agents marche-large (macro, sentiment,
     flows) ; cette section mesure si leur vote moyen predit le rendement du MARCHE dans
-    le temps. Time-gated (s'accumule avec les semaines de votes), ADVISORY."""
+    le temps. Time-gated (s'accumule avec les semaines de votes), ADVISORY.
+    'cpcv' = diagnostic CPCV multi-chemins (agent_validation.cpcv_diagnostic, panel
+    profond §54) : distribution d'IC OOS (p10/médiane/frac≤0) sur ≤45 chemins purgés.
+    NON-GATING : JOURNALISÉ seulement — aucune décision de palier/promotion ne le lit
+    (edge_ladder ignore ce champ) ; l'armer en porte serait un commit isolé."""
     import agent_validation as av
     return {
         "generated_at": int(time.time() if now is None else now),
@@ -61,6 +65,7 @@ def build_output(symbol, ranked, live, timing=None, now=None, mode="mono"):
                           "n_cycles": (timing or {}).get("n_cycles", 0),
                           "n_echantillons": (timing or {}).get("n_echantillons", 0),
                           "horizon_cycles": (timing or {}).get("horizon_cycles", 0)},
+        "cpcv": cpcv or {},
     }
 
 
@@ -140,7 +145,13 @@ def main():
             timing = av.evaluate_market_timing(log)                # chemin 3 : market-timing (§39)
         except Exception:
             pass
-        out = build_output(symbol, ranked, live, timing, mode=mode)
+        # diagnostic CPCV multi-chemins (panel profond §54) — NON-GATING : journalisé
+        # dans le rapport, ne modifie AUCUNE décision. Best-effort : indispo -> {}.
+        try:
+            cpcv = av.cpcv_diagnostic()
+        except Exception:
+            cpcv = {}
+        out = build_output(symbol, ranked, live, timing, mode=mode, cpcv=cpcv)
         # front montant de l'échelle : lire l'ANCIEN rapport avant de l'écraser
         try:
             ancien = json.loads(REPORT_FILE.read_text(encoding="utf-8"))

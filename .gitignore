@@ -144,3 +144,6 @@ trading_real_ledger.json.tmp
 .grok_vision/
 grok_chart_*.png
 parity_sessions/
+
+# Registre d'usage du holdout profond (holdout_registry.py) : journal local, jamais committé
+holdout_usage.json

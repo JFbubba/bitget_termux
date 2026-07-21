@@ -221,6 +221,19 @@ PURE_AGENTS = {"simons": _sig_simons, "savant": _sig_savant,
                "geometric": _sig_geometric, "divergent": _sig_divergent}
 
 
+def _panel_profond():
+    """Panel PROFOND multi-symboles de la validation §54 : le MÊME pour replay_annuel
+    et cpcv_diagnostic (candles_history 1h, 6 ans, univers cœur — pas seulement BTC).
+    Best-effort : {} si l'historique est indisponible (fail-open en aval)."""
+    try:
+        import candles_history as ch
+        donnees = {s: ch.load(s, "1h") for s in
+                   ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")}
+        return {s: c for s, c in donnees.items() if len(c) > 500}
+    except Exception:
+        return {}
+
+
 def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
     """IC ANNUEL des agents PURS sur l'historique profond (candles_history, §54).
     PUR si `donnees` est injecté ({symbol: bougies}). L'audit du 03/07 a montré que
@@ -232,13 +245,17 @@ def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
     ne s'applique que si la mesure existe)."""
     import math
     if donnees is None:
+        # LA consultation du holdout profond 6 ans -> consignée au registre d'usage
+        # (hygiène anti-contamination : le holdout ne s'ouvre qu'une fois par version).
+        # Best-effort ABSOLU : le registre ne casse JAMAIS la validation. Données
+        # INJECTÉES (tests/labos) = pas le holdout -> pas de consignation (ERR-019).
         try:
-            import candles_history as ch
-            donnees = {s: ch.load(s, "1h") for s in
-                       ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")}
-            donnees = {s: c for s, c in donnees.items() if len(c) > 500}
+            import holdout_registry
+            holdout_registry.consigner("replay_annuel", periode="6y_1h",
+                                       note="porte profonde §54")
         except Exception:
-            return {}
+            pass
+        donnees = _panel_profond()
     if not donnees:
         return {}
     agents = agents or PURE_AGENTS
@@ -260,6 +277,120 @@ def replay_annuel(donnees=None, pas=24, horizon=8, warmup=80, agents=None):
             m = evaluate(votes, fwd)
             out[nom] = {"ic": m.get("ic"), "ic_t": m.get("ic_t"), "n": m.get("n")}
     return out
+
+
+# ---------- CPCV : Combinatorial Purged Cross-Validation (López de Prado) ----------
+# Porté du labo geometric_v2 (scratchpad/geometric_v2_lab/cpcv_demo.py) comme check de
+# promotion DURCI : au lieu d'UN chemin walk-forward, C(N,k) combinaisons purgées de
+# groupes-test -> une DISTRIBUTION d'IC OOS. Un edge fragile s'effondre sur la
+# dispersion (p10 ≤ 0), là où un point unique peut flatter un régime.
+
+def cpcv_paths(n_points, grid_idx, n_groups=10, k_test=2, purge=8,
+               min_train=50, min_test=50, max_paths=45):
+    """Chemins CPCV : génère (combo, train_mask, test_mask) pour chaque combinaison de
+    k_test groupes-test parmi n_groups (groupes CONTIGUS en temps), avec PURGE+EMBARGO
+    de `purge` (en unités de grid_idx, ex. barres) autour de chaque bloc test — aucun
+    point de train à moins de `purge` d'un point de test. PUR (numpy seul, générateur
+    déterministe). Borne perf VPS (2 cœurs) : au plus `max_paths` chemins (défaut 45
+    = C(10,2)) ; au-delà, sous-échantillonnage RÉGULIER déterministe des combinaisons.
+    Les chemins trop petits (train < min_train ou test < min_test) sont sautés."""
+    import itertools
+    n_points = int(n_points)
+    grid_idx = np.asarray(grid_idx, dtype=float)
+    if n_points < max(2, int(n_groups)) or len(grid_idx) != n_points:
+        return
+    bounds = np.linspace(0, n_points, n_groups + 1).astype(int)
+    groups = [np.arange(bounds[i], bounds[i + 1]) for i in range(n_groups)]
+    combos = list(itertools.combinations(range(n_groups), int(k_test)))
+    if len(combos) > int(max_paths):                 # borne dure : budget CPU du timer
+        keep = np.unique(np.linspace(0, len(combos) - 1, int(max_paths)).round().astype(int))
+        combos = [combos[i] for i in keep]
+    for combo in combos:
+        blocs = [groups[g] for g in combo if len(groups[g])]
+        if not blocs:
+            continue
+        test_idx = np.concatenate(blocs)
+        test_mask = np.zeros(n_points, bool); test_mask[test_idx] = True
+        # purge : retirer du train tout point dont l'étiquette chevauche un bloc test
+        purge_mask = np.zeros(n_points, bool)
+        for g in combo:
+            if not len(groups[g]):
+                continue
+            lo = grid_idx[groups[g][0]] - purge
+            hi = grid_idx[groups[g][-1]] + purge
+            purge_mask |= (grid_idx >= lo) & (grid_idx <= hi)
+        train_mask = ~purge_mask
+        if train_mask.sum() >= min_train and test_mask.sum() >= min_test:
+            yield combo, train_mask, test_mask
+
+
+def cpcv_diagnostic(donnees=None, pas=24, horizon=8, warmup=80, agents=None,
+                    n_groups=10, k_test=2, max_paths=45):
+    """DISTRIBUTION d'IC OOS des agents PURS par CPCV multi-chemins, sur le MÊME panel
+    profond multi-symboles que replay_annuel (§54 — pas seulement BTCUSDT). Pour chaque
+    agent : mêmes combinaisons de groupes-test sur tous les symboles (groupes = tranches
+    contiguës de la timeline de CHAQUE symbole), points de test POOLÉS trans-symboles
+    par chemin, puis Rank IC par chemin -> p10 / médiane / fraction de chemins ≤ 0.
+    NON-GATING (hygiène d'armement) : purement JOURNALISÉ dans le rapport de validation
+    (brain_validation, champ "cpcv") — ne modifie AUCUNE décision de palier/promotion ;
+    l'armer en porte serait un commit isolé. PUR si `donnees` injecté ; fail-open
+    ({} sans données ou échantillon trop mince). Coût borné comme replay_annuel
+    (~400 échantillons/symbole) + max_paths chemins (défaut 45 = C(10,2))."""
+    import math
+    if donnees is None:
+        donnees = _panel_profond()
+    if not donnees:
+        return {}
+    agents = agents or PURE_AGENTS
+    par_agent = {}
+    for nom, fn in agents.items():
+        series = {}                                  # symbole -> (votes, fwd, grid)
+        for s, c in donnees.items():
+            # même auto-plafond que replay_annuel (~400 échantillons/symbole) : budget
+            # du timer de validation (§54). Déterministe (fonction de len(c)).
+            pas_eff = max(int(pas), (len(c) - warmup) // 400)
+            votes, fwd, grid = [], [], []
+            for t_ in range(warmup, len(c) - horizon, pas_eff):
+                try:
+                    v = float(fn(c[max(0, t_ - 200):t_ + 1]) or 0.0)
+                    f = math.log(float(c[t_ + horizon][4]) / float(c[t_][4]))
+                except Exception:
+                    continue
+                votes.append(v); fwd.append(f); grid.append(t_)
+            if len(votes) >= n_groups * 2:           # ≥ 2 points/groupe en moyenne
+                series[s] = (np.asarray(votes, float), np.asarray(fwd, float),
+                             np.asarray(grid, float))
+        if not series:
+            continue
+        # par chemin (= combinaison de groupes), pool des points de test de TOUS les
+        # symboles — la clé combo aligne les chemins entre symboles.
+        par_chemin = {}
+        for s, (v, f, g) in series.items():
+            for combo, _tr, te in cpcv_paths(len(v), g, n_groups, k_test,
+                                             purge=horizon, min_train=1, min_test=5,
+                                             max_paths=max_paths):
+                par_chemin.setdefault(combo, []).append((v[te], f[te]))
+        ics = []
+        for combo in sorted(par_chemin):
+            vv = np.concatenate([m[0] for m in par_chemin[combo]])
+            ff = np.concatenate([m[1] for m in par_chemin[combo]])
+            if len(vv) >= 10:
+                ics.append(rank_ic(vv, ff))
+        if len(ics) >= 5:                            # distribution trop mince -> muet
+            a = np.asarray(ics, float)
+            par_agent[nom] = {
+                "n_chemins": int(len(a)),
+                "ic_median": round(float(np.median(a)), 4),
+                "ic_p10": round(float(np.percentile(a, 10)), 4),
+                "ic_p90": round(float(np.percentile(a, 90)), 4),
+                "frac_neg": round(float((a <= 0.0).mean()), 3),
+                "n_points": int(sum(len(v) for v, _f, _g in series.values())),
+                "n_symbols": int(len(series)),
+            }
+    if not par_agent:
+        return {}
+    return {"agents": par_agent, "n_groups": int(n_groups), "k_test": int(k_test),
+            "max_paths": int(max_paths), "horizon": int(horizon), "non_gating": True}
 
 
 def replay(signal_fn, candles, horizon, warmup=80, step=None):
