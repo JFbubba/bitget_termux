@@ -14549,6 +14549,139 @@ def test_guards_porte_edge_fermee_exempte_les_reductions():
     assert ok
 
 
+def test_dashboard_validation_gates_structure_synthetique():
+    """§21/07 — panneau « Validation & Parité » (dashboard, LECTURE SEULE). Sources toutes
+    INJECTÉES (ERR-019 : rapport synthétique, dossier de parité tmp, registre holdout tmp) —
+    aucune écriture en production. Vérifie la structure EXACTE des 5 sous-clés attendues.
+    Env GEOMETRIC_RISK_SIZING sauvé/restauré (verrou réel de CETTE machine — armé sur ce VPS ;
+    hermétique au run réel, comme test_notional_systemic_gate_off_by_default_reduces_when_armed_b2)."""
+    import importlib.util
+    import json
+    import os
+    import pathlib
+    import tempfile
+    import time
+    spec = importlib.util.spec_from_file_location("dash_vg1", pathlib.Path("dashboard/server.py"))
+    ds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+    saved_flag = os.environ.get("GEOMETRIC_RISK_SIZING")
+
+    rapport = {
+        "ranking": [
+            {"agent": "alpha", "dsr": 0.95, "n": 200, "annuel": {"ic": 0.05}},
+            {"agent": "beta", "dsr": 0.20, "n": 50, "annuel": {"ic": -0.01}},
+            {"agent": "gamma", "dsr": 0.05, "n": 10},           # pas de mesure annuelle -> None
+        ],
+        "cpcv": {"gate_armee": True, "agents": {
+            "alpha": {"ic_p10": 0.01, "frac_neg": 0.05, "n_chemins": 40},   # solide
+            "beta": {"ic_p10": -0.02, "frac_neg": 0.50, "n_chemins": 45},   # FRAGILE
+        }},
+    }
+    with tempfile.TemporaryDirectory() as td:
+        d = pathlib.Path(td)
+        # dossier de parité tmp (ERR-019) : 2 paires, 1 en divergence, 1 en parité
+        sess_btc = {"schema": 1, "symbol": "BTCUSDT", "ts": int(time.time()), "commit": "abc",
+                    "decision": {}, "magasin": {}, "non_rejouables": [], "collisions": [],
+                    "rejeux": [{"ts": int(time.time()), "parite": False,
+                               "divergences": [{"champ": "x", "capture": 1, "rejeu": 2}],
+                               "frontieres_manquantes": []}]}
+        (d / "parity_BTCUSDT_1.json").write_text(json.dumps(sess_btc), encoding="utf-8")
+        sess_eth = dict(sess_btc, symbol="ETHUSDT",
+                        rejeux=[{"ts": int(time.time()), "parite": True, "divergences": [],
+                                "frontieres_manquantes": []}])
+        (d / "parity_ETHUSDT_2.json").write_text(json.dumps(sess_eth), encoding="utf-8")
+        # registre holdout tmp (ERR-019) : 2 consultations "recherche" -> contaminé
+        registre = d / "holdout.json"
+        registre.write_text(json.dumps([
+            {"ts": 1, "quoi": "replay_annuel", "version": "abc123", "mode": "recherche"},
+            {"ts": 2, "quoi": "replay_annuel", "version": "abc123", "mode": "recherche"},
+            {"ts": 3, "quoi": "replay_annuel", "version": "abc123", "mode": "gate_auto"},
+        ]), encoding="utf-8")
+
+        try:
+            os.environ["GEOMETRIC_RISK_SIZING"] = "0"          # OFF explicite (déterministe)
+            out = ds.build_validation_gates(
+                report=rapport, holdout_chemin=str(registre), parity_dossier=str(d),
+                geom_fn=lambda: {"scale": 0.7, "systemic_z": 1.2, "regime": "stress"})
+        finally:
+            (os.environ.pop("GEOMETRIC_RISK_SIZING", None) if saved_flag is None
+             else os.environ.__setitem__("GEOMETRIC_RISK_SIZING", saved_flag))
+
+    assert out["annuel"] == {"alpha": 0.05, "beta": -0.01, "gamma": None}
+
+    assert out["cpcv"]["gate_armee"] is True
+    assert out["cpcv"]["agents"]["alpha"] == {"ic_p10": 0.01, "frac_neg": 0.05, "n_chemins": 40}
+    assert out["cpcv"]["agents"]["beta"]["frac_neg"] == 0.50
+
+    ho = out["holdout"]
+    assert len(ho) == 1 and ho[0]["quoi"] == "replay_annuel" and ho[0]["version"] == "abc123"
+    assert ho[0]["consultations"] == 3 and ho[0]["par_mode"] == {"recherche": 2, "gate_auto": 1}
+    assert ho[0]["contamine"] is True                  # >1 consultation "recherche"
+
+    par = out["parite"]
+    assert par["total"] == 2 and par["ok"] == 1         # 1 des 2 paires en parité
+    paires = {p["symbol"]: p for p in par["paires"]}
+    assert paires["BTCUSDT"]["parite"] is False and paires["BTCUSDT"]["n_divergences"] == 1
+    assert paires["ETHUSDT"]["parite"] is True and paires["ETHUSDT"]["n_divergences"] == 0
+
+    gs = out["geometric_sizing"]
+    assert gs == {"arme": False, "scale": 0.7, "systemic_z": 1.2, "regime": "stress"}
+
+
+def test_dashboard_validation_gates_sources_absentes_fail_safe():
+    """Fail-safe ABSOLU : rapport vide, registre/dossier de parité INEXISTANTS, et le calcul
+    géométrique en ÉCHEC (exception) -> chaque sous-clé retombe {}/[]/None, JAMAIS
+    d'exception propagée vers l'appelant (le state du dashboard doit rester servi). Tous les
+    chemins pointent DANS un tmp (ERR-019) — jamais une écriture hors du bac à sable du test
+    (`parity_harness._dossier` crée le dossier s'il est absent : ne JAMAIS lui donner un
+    chemin hors tmp, sous peine de créer un dossier en production). Env GEOMETRIC_RISK_SIZING
+    sauvé/restauré (verrou réel de cette machine, hermétique au run réel)."""
+    import importlib.util
+    import os
+    import pathlib
+    import tempfile
+    spec = importlib.util.spec_from_file_location("dash_vg2", pathlib.Path("dashboard/server.py"))
+    ds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+
+    def _boom():
+        raise RuntimeError("réseau muet")
+
+    saved_flag = os.environ.get("GEOMETRIC_RISK_SIZING")
+    try:
+        os.environ["GEOMETRIC_RISK_SIZING"] = "0"          # OFF explicite (déterministe)
+        with tempfile.TemporaryDirectory() as td:
+            tdp = pathlib.Path(td)
+            out = ds.build_validation_gates(
+                report={}, holdout_chemin=str(tdp / "holdout_usage.json"),
+                parity_dossier=str(tdp / "parity_sessions_absent"), geom_fn=_boom)
+
+        assert out["annuel"] == {}
+        assert out["cpcv"] == {"gate_armee": False, "agents": {}}
+        assert out["holdout"] == []
+        assert out["parite"] == {"paires": [], "ok": 0, "total": 0}
+        assert out["geometric_sizing"] == {"arme": False, "scale": None,
+                                           "systemic_z": None, "regime": None}
+
+        # `report=None` (chemin RÉEL du disque) avec REPO_ROOT pointé vers un dossier tmp SANS
+        # validation_report.json (ERR-019 : jamais le fichier de production) -> même fail-safe.
+        orig_root = ds.REPO_ROOT
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tdp = pathlib.Path(td)
+                ds.REPO_ROOT = tdp
+                out2 = ds.build_validation_gates(holdout_chemin=str(tdp / "nope.json"),
+                                                 parity_dossier=str(tdp / "parity_vide"),
+                                                 geom_fn=_boom)
+        finally:
+            ds.REPO_ROOT = orig_root
+        assert out2["annuel"] == {} and out2["cpcv"] == {"gate_armee": False, "agents": {}}
+        assert out2["holdout"] == [] and out2["parite"] == {"paires": [], "ok": 0, "total": 0}
+    finally:
+        (os.environ.pop("GEOMETRIC_RISK_SIZING", None) if saved_flag is None
+         else os.environ.__setitem__("GEOMETRIC_RISK_SIZING", saved_flag))
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

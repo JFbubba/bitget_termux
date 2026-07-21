@@ -235,6 +235,94 @@ def edge_summary(rep):
             "n_symbols": rep.get("n_symbols"), "top": top}
 
 
+def build_validation_gates(report=None, holdout_chemin=None, parity_dossier=None, geom_fn=None):
+    """§21/07 — Validation & Parité (fonction pure/testable, LECTURE SEULE, observationnel) :
+    robustesse ANNUELLE et porte CPCV par agent (edge_ladder §54/§112, source
+    `validation_report.json`), usage du holdout PROFOND (holdout_registry, hygiène
+    anti-contamination López de Prado), dernier verdict de parité PAR PAIRE (parity_harness,
+    harnais live→recherche §11.5), et le descripteur de risque systémique qui borne
+    GEOMETRIC_RISK_SIZING (geometric_agent B-2/ERR-013 — mesuré QU'IL SOIT ARMÉ OU NON :
+    mesure-d'abord). Sources toutes INJECTABLES (ERR-019, tests sans toucher la production) :
+    `report` (dict déjà chargé -> saute la lecture disque), `holdout_chemin`
+    (holdout_registry.statut(chemin=...)), `parity_dossier` (parity_harness._dossier(...)),
+    `geom_fn` (callable de remplacement pour geometric_agent.systemic_risk_scale). Best-effort
+    intégral : AUCUNE exception ne remonte, une source absente rend une sous-clé {} (jamais
+    de chiffre inventé). N'agit jamais : aucune écriture, aucun ordre."""
+    out = {"annuel": {}, "cpcv": {}, "holdout": [], "parite": {}, "geometric_sizing": {}}
+    if report is None:
+        report = _safe(lambda: json.loads(
+            (REPO_ROOT / "validation_report.json").read_text(encoding="utf-8")), {})
+    rep = report or {}
+
+    out["annuel"] = _safe(lambda: {
+        str(row.get("agent")): ((row.get("annuel") or {}).get("ic")
+                                if isinstance(row.get("annuel"), dict) else None)
+        for row in (rep.get("ranking") or []) if row.get("agent") is not None}, {})
+
+    def _cpcv():
+        cp = rep.get("cpcv") or {}
+        agents = {}
+        for a, row in (cp.get("agents") or {}).items():
+            row = row or {}
+            agents[str(a)] = {"ic_p10": row.get("ic_p10"), "frac_neg": row.get("frac_neg"),
+                              "n_chemins": row.get("n_chemins")}
+        return {"gate_armee": bool(cp.get("gate_armee")), "agents": agents}
+    out["cpcv"] = _safe(_cpcv, {})
+
+    def _holdout():
+        import holdout_registry as hr
+        st = hr.statut(holdout_chemin) or {}
+        rows = [{"quoi": quoi, "version": version, "consultations": d.get("consultations"),
+                 "par_mode": d.get("par_mode") or {}, "contamine": bool(d.get("contamine")),
+                 "dernier_ts": d.get("dernier_ts")}
+                for (quoi, version), d in st.items()]
+        rows.sort(key=lambda r: -(r.get("dernier_ts") or 0))
+        return rows[:5]
+    out["holdout"] = _safe(_holdout, [])
+
+    def _parite():
+        # réutilise parity_harness._dossier() (localisation du dossier des sessions, y compris
+        # PARITY_DIR/injection ERR-019) plutôt que de dupliquer la config du chemin ; le
+        # glob+tri par mtime réplique _status() (qui, elle, IMPRIME sur stdout — rien à
+        # réutiliser d'utile ici, juste les données).
+        import parity_harness as ph
+        d = ph._dossier(parity_dossier)
+        fichiers = sorted(d.glob("parity_*.json"), key=lambda p: p.stat().st_mtime)
+        derniers = {}
+        for p in fichiers:
+            try:
+                s = json.loads(p.read_text(encoding="utf-8"))
+                derniers[s.get("symbol") or p.name] = s
+            except Exception:
+                continue
+        paires, ok = [], 0
+        for sym, s in sorted(derniers.items()):
+            rejeux = s.get("rejeux") or []
+            if not rejeux:
+                paires.append({"symbol": sym, "parite": None, "ts": None, "n_divergences": None})
+                continue
+            v = rejeux[-1]
+            if v.get("parite"):
+                ok += 1
+            paires.append({"symbol": sym, "parite": bool(v.get("parite")),
+                           "ts": v.get("ts"), "n_divergences": len(v.get("divergences") or [])})
+        return {"paires": paires, "ok": ok, "total": len(paires)}
+    out["parite"] = _safe(_parite, {})
+
+    def _geom():
+        from config_utils import env_flag as _ef
+        arme = _ef("GEOMETRIC_RISK_SIZING", False)
+        fn = geom_fn or (lambda: __import__("geometric_agent").systemic_risk_scale())
+        # cache LONG dédié (600 s) : systemic_risk_scale() peut retomber sur un calcul réseau
+        # (portfolio_structure) — indépendant du TTL 300 s de validation_gates. Clé stable :
+        # un `geom_fn` injecté (test) porte son propre résultat, aucun état réel n'est lu.
+        r = _cached("geom_sizing_scale", 600, lambda: _safe(fn, {})) or {}
+        return {"arme": arme, "scale": r.get("scale"), "systemic_z": r.get("systemic_z"),
+                "regime": r.get("regime")}
+    out["geometric_sizing"] = _safe(_geom, {})
+    return out
+
+
 def radar_univers(entries, symbols, now=None, fenetre_s=21600, max_pts=48,
                   frais_s=900, deadband=0.1):
     """Radar de consensus de l'univers (PUR, testable) — la matière du panneau
@@ -1088,6 +1176,7 @@ def build_state(symbol=None, tf="5m"):
         ("edge_gate", 60, lambda: _safe(_edge_gate, {})),
         ("risk", 300, lambda: _safe(_risk, {})),
         ("adl", 120, lambda: _safe(_adl, {})),
+        ("validation_gates", 300, lambda: _safe(build_validation_gates, {})),
         ("tsurf", 20, lambda: _safe(lambda: __import__("trading_status").snapshot(), [])),
         ("portfolio", 120, lambda: _safe(
             lambda: __import__("real_positions").all_account_balance(), {})),
@@ -1173,6 +1262,10 @@ def build_state(symbol=None, tf="5m"):
     state["edge_gate"] = _cached("edge_gate", 60, lambda: _safe(_edge_gate, {}))
     state["risk"] = _cached("risk", 300, lambda: _safe(_risk, {}))
     state["adl"] = _cached("adl", 120, lambda: _safe(_adl, {}))
+    # Validation & Parité (21/07, LECTURE SEULE) : annuel/CPCV par agent (edge_ladder §54/§112),
+    # usage du holdout profond (holdout_registry), dernier verdict de parité par paire
+    # (parity_harness §11.5), gate de risque systémique (geometric_agent B-2/ERR-013).
+    state["validation_gates"] = _cached("validation_gates", 300, lambda: _safe(build_validation_gates, {}))
     # Labos de recherche (scratchpad, non committés) : probe forecast / mql5 tester / strategy tester.
     state["labos"] = _cached("labos", 30, lambda: _safe(_labos, {}))
 

@@ -599,6 +599,17 @@
       <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">contango = normal/carry payé · backwardation = stress spot ; repli sur le relevé cron 07:40 si Deribit muet</div>
     </div>
     <div class="panel">
+      <h2>Validation &amp; Parité <span class="dim" style="letter-spacing:0">— annuel/CPCV par agent (§54/§112) · holdout profond (anti-contamination) · parité live→recherche (§11.5) · sizing géométrique (B-2) · observationnel, lecture seule</span></h2>
+      <div class="row"><span class="k">parité live→recherche</span><span id="vg-parite" class="dim">—</span></div>
+      <div id="vg-parite-list" class="dim" style="font-size:10px;line-height:1.6;margin:2px 0 8px">—</div>
+      <div class="row"><span class="k">holdout profond</span><span id="vg-holdout-badge" class="dim">—</span></div>
+      <div id="vg-holdout" class="dim" style="font-size:10px;line-height:1.6;margin:2px 0 8px">—</div>
+      <div class="ic-h"><span>AGENT</span><span class="r">IC annuel</span><span class="r">CPCV p10</span><span class="r">frac_neg</span></div>
+      <div id="vg-agents"><div class="dim" style="padding:6px 0">—</div></div>
+      <div class="row" style="margin-top:6px"><span class="k">sizing géométrique (B-2)</span><span id="vg-geom" class="dim">—</span></div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">rien n'agit ici : porte CPCV (fail-open si désarmée), robustesse annuelle §54, holdout ne bloque rien (purement diagnostique), geometric_sizing réducteur-seulement sous les murs</div>
+    </div>
+    <div class="panel">
       <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
       <div class="row"><span class="k">probe forecast (Darts)</span><span id="lb-fc">—</span></div>
       <div class="row"><span class="k">testeur code base mql5</span><span id="lb-mql5">—</span></div>
@@ -1401,6 +1412,93 @@ function renderFuture(f){
   $("fu-scen").innerHTML=Object.keys(sc).map(n=>{const s=sc[n];return `<div><b>${n}</b> : ${s.median>=0?"+":""}${s.median.toFixed(0)}% méd · [${s.p5.toFixed(0)}%…+${s.p95.toFixed(0)}%] · P↑ ${Math.round(s.prob_up*100)}%</div>`;}).join("")||"—";
 }
 
+// --- Validation & Parité (21/07, LECTURE SEULE) : annuel/CPCV par agent (§54/§112),
+//     holdout profond (anti-contamination), parité live→recherche (§11.5), sizing
+//     géométrique (B-2). Panneau compact, découplé, dégrade proprement : source
+//     absente -> sous-état VIDE (jamais de chiffre inventé), jamais de contrôle actif.
+function renderValidationGates(vg){
+  vg=vg||{};
+  const pe=$("vg-parite"),pld=$("vg-parite-list");
+  const par=vg.parite||{};
+  if(pe){
+    if(!par.total){pe.textContent="aucune session";pe.className="dim";}
+    else{
+      const bad=par.total-par.ok;
+      pe.textContent=par.ok+"/"+par.total+" paires en parité"+(bad?(" · "+bad+" ✗"):"");
+      pe.className=bad?"red":"green";
+    }
+  }
+  if(pld){
+    const pl=par.paires||[];
+    if(!pl.length){pld.textContent="aucune session de parité enregistrée (parity_harness --univers)";}
+    else{
+      pld.innerHTML=pl.map(p=>{
+        const sym=esc(p.symbol||"—");
+        if(p.parite==null)return '<span class="dim">'+sym+' : jamais rejouée</span>';
+        const cls=p.parite?"green":"red";
+        const txt=p.parite?"PARITÉ OK":("DIVERGENCE ✗ ("+(p.n_divergences??"—")+" champs)");
+        return '<span class="'+cls+'">'+sym+' : '+txt+'</span>';
+      }).join("<br>");
+    }
+  }
+  const hb=$("vg-holdout-badge"),hd=$("vg-holdout");
+  const ho=vg.holdout||[];
+  if(hb){
+    if(!ho.length){hb.textContent="aucun usage consigné";hb.className="dim";}
+    else{
+      const cont=ho.some(h=>h.contamine);
+      hb.textContent=cont?"⚠ CONTAMINÉ (>1 consultation recherche)":"ok";
+      hb.className=cont?"red":"green";
+    }
+  }
+  if(hd){
+    if(!ho.length){hd.textContent="—";}
+    else{
+      hd.innerHTML=ho.map(h=>{
+        const cls=h.contamine?"red":"dim";
+        return '<span class="'+cls+'">'+esc(h.quoi||"—")+' @'+esc(h.version||"?")+' : '
+          +(h.consultations??"—")+' consultation(s)'+(h.contamine?" ⚠":"")+'</span>';
+      }).join("<br>");
+    }
+  }
+  const ag=$("vg-agents");
+  const annuel=vg.annuel||{},cpcv=vg.cpcv||{},gate=!!cpcv.gate_armee,agentsC=cpcv.agents||{};
+  const noms=Array.from(new Set([].concat(Object.keys(annuel),Object.keys(agentsC)))).sort();
+  if(ag){
+    if(!noms.length){ag.innerHTML='<div class="dim" style="padding:6px 0">—</div>';}
+    else{
+      ag.innerHTML=noms.map(n=>{
+        const ic=annuel[n];
+        const c=agentsC[n]||{};
+        const icTxt=(ic==null)?"—":((ic>=0?"+":"")+(+ic).toFixed(3));
+        const icCls=(ic==null)?"dim":(ic>0?"green":"red");
+        const p10=c.ic_p10,fneg=c.frac_neg;
+        const fragile=gate&&((p10!=null&&p10<=0)||(fneg!=null&&fneg>0.10));
+        const p10Txt=(p10==null)?"—":((p10>=0?"+":"")+(+p10).toFixed(3));
+        const fnegTxt=(fneg==null)?"—":((+fneg*100).toFixed(1)+"%");
+        const cCls=fragile?"red":"dim";
+        return '<div class="ic-r"><span class="sym">'+esc(n)+'</span>'
+          +'<span class="r '+icCls+'">'+icTxt+'</span>'
+          +'<span class="r '+cCls+'">'+p10Txt+'</span>'
+          +'<span class="r '+cCls+'">'+fnegTxt+'</span></div>';
+      }).join("");
+    }
+  }
+  const ge=$("vg-geom");
+  if(ge){
+    const gs=vg.geometric_sizing||{};
+    if(gs.arme==null){ge.textContent="—";ge.className="dim";}
+    else if(!gs.arme){ge.textContent="OFF (défaut — mesure-d'abord)"+(gs.systemic_z!=null?(" · z observé "+(+gs.systemic_z).toFixed(2)):"");ge.className="dim";}
+    else{
+      const sc=gs.scale;
+      ge.textContent="ARMÉ · scale "+(sc!=null?(+sc).toFixed(2):"—")
+        +(gs.systemic_z!=null?(" · z "+(+gs.systemic_z).toFixed(2)):"")
+        +(gs.regime?(" · "+gs.regime):"");
+      ge.className=(sc!=null&&sc<1)?"amber":"green";
+    }
+  }
+}
+
 let _lat=0;
 // fusionne un delta/full (SSE ou poll) dans window._ST, puis re-rend. Source commune.
 function applyDelta(resp){
@@ -1681,6 +1779,7 @@ function renderState(){
     try{ renderRealPositions(st.real_positions||{}); }catch(e){}
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
     try{ renderKelly(st.kelly||{}, st.kelly_dir||{}); }catch(e){}
+    try{ renderValidationGates(st.validation_gates||{}); }catch(e){}
     try{ renderMethodes(st.methodes||{}, st.overlay_ic||{}); }catch(e){}
     try{ renderGarde96(st.learning||{}); }catch(e){}
     try{ renderCollecte(st.collecte||{}); }catch(e){}
