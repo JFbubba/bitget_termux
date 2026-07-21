@@ -14,7 +14,7 @@ de raisonner sur des hypothèses/mémoire et s'appuyer sur les sources **autorit
 > reste l'API réelle** (clé Trade-only, lecture) — un endpoint documenté n'est actionnable qu'une
 > fois **testé avec notre clé**. Le SDK mirroré (`github.com/tiagosiebler/bitget-api`) reste utile.
 >
-> Dernière mise à jour : **18/07/2026** (soir — §6 ajoutée).
+> Dernière mise à jour : **21/07/2026** (§10 contrat bas niveau / plomberie d'exécution ajoutée).
 
 ---
 
@@ -358,3 +358,61 @@ est une stratégie **EXÉCUTION/RISQUE** (pas un edge directionnel). Bonnes prat
 **Copy/Elite positioning** (§6c) : confirmé — leaderboard + positions live des elite traders → consensus
 long/short agrégé (notional × nb traders × volume). Feed de sentiment **[À MESURER — prior bruité** comme
 les autres signaux directionnels ; accès API Elite ou scraper tiers].
+
+## 10. Contrat d'API bas niveau — plomberie d'exécution & WS (21/07/2026, delta)
+
+> Faits issus de la doc officielle `/api-doc/common/...` (recherche consolidée versée le 21/07).
+> Statut = **source doc** : toute valeur se REVÉRIFIE contre l'API live avant branchement (règle §6).
+> Objectif : le contrat exact que tout code d'exécution/collecteur doit respecter.
+
+### 10a. Signature & horloge
+
+- `ACCESS-SIGN = Base64(HMAC_SHA256(secret, preHash))` avec `preHash = timestamp + METHOD +
+  requestPath + ("?"+queryString si non vide) + body` ; timestamp en **millisecondes**, identique au
+  header `ACCESS-TIMESTAMP`. Headers requis : KEY / SIGN / TIMESTAMP / PASSPHRASE (+ Content-Type).
+- **La requête EXPIRE 30 s après son timestamp** → une dérive d'horloge est une panne d'exécution.
+  NTP obligatoire ; comparer à `Get-Server-Time` au doute. ⚠️ **Piège diagnostic** : un timestamp
+  périmé remonte comme une erreur de SIGNATURE (40009/40010), pas comme une erreur d'horloge.
+- Clés : la **passphrase n'est PAS modifiable** (oubliée = recréer la clé) ; 10 clés max/UID ;
+  rotation périodique conseillée (~90 j) — à traiter comme un acte réversible journalisé (§92).
+
+### 10b. Idempotence `clientOid` — la vraie sémantique
+
+- Regex `^[0-9A-Za-z_:#\-+\s]{1,32}$`. **L'unicité n'est vérifiée QUE sur les ordres EN COURS
+  (pending)** : un clientOid d'ordre terminé est réutilisable → la protection anti-doublon ne tient
+  que pendant la vie de l'ordre. Cohérent avec le choix maker/repli (§exec-frais) d'un clientOid
+  NEUF au repli — ne jamais recycler celui d'un ordre à l'état terminal ambigu.
+- En **batch** (max 20 ordres, 1 req/s/UID), un doublon remonte `clientOrderId duplicate` dans la
+  `failureList` — la requête globale, elle, « réussit » : toujours dépouiller la failureList.
+- **Accusé ≠ ordre en moteur** : `code 00000` + orderId = « requête REÇUE » ; l'ordre peut ne pas
+  être encore dans le matching engine. Confirmation = canal WS privé `orders` ou les fills — c'est
+  le durcissement §109 « accepté ≠ rempli » (§2c), généralisé un cran plus tôt dans la chaîne.
+
+### 10c. WebSocket — contrat de survie
+
+- Complément du §3 : le serveur **force la déconnexion toutes les 24 h** → la reconnexion
+  automatique (+ résouscription des canaux) n'est pas un cas d'erreur, c'est le régime NORMAL.
+  Login WS ≤ 5 s après l'ouverture. Ping = la STRING `ping` (pas un frame JSON), toutes les 30 s ;
+  2 min sans ping → coupure serveur.
+- **Carnet incrémental (`books`)** : invariant `seq`/`pseq` — le `seq` du message N doit égaler le
+  `pseq` du message N+1 ; trou de séquence → resynchroniser par snapshot REST. **Checksum CRC32 sur
+  les 25 premiers niveaux**, format `bid1[px:qty]:ask1[px:qty]:bid2…`, calculé sur les valeurs
+  BRUTES non tronquées (`0.5000` ≠ `0.5`). Implication bot : `book_collector` consomme `books15`
+  (snapshots — aucun invariant à tenir) ; le jour d'un passage à l'incrémental, seq/pseq + checksum
+  + resync deviennent OBLIGATOIRES, sinon carnet silencieusement faux.
+- `buyLimitPriceRatio`/`sellLimitPriceRatio` (≈0,02–0,05 selon la paire, dans `Get-Symbols`) =
+  borne OFFICIELLE d'aberration de prix → garde de sanité gratuite sur tout prix calculé avant envoi.
+
+### 10d. Codes d'erreur courants (table de diagnostic)
+
+| Code | Sens | Note bot |
+|---|---|---|
+| `00000` | succès | accusé de réception, PAS une preuve d'exécution (§10b) |
+| `40009` / `40010` | erreur de signature | inclut le timestamp périmé (>30 s) — vérifier l'horloge D'ABORD |
+| `40011` / `40012` | passphrase vide / apikey ou password incorrect | |
+| `40014` | permissions insuffisantes | attendu sur tout endpoint de retrait (clé Trade-only) |
+| `40017` | paramètre invalide | précision/tick — relire Get-Symbols/Contracts à chaud, jamais en dur |
+| `43012` | solde insuffisant | |
+| `45110` | sous le minimum 5 USDT | filtre de faisabilité (`min_notional_usdt`) en amont |
+| `43115` | paire en maintenance/ouverture | recoupe `symbolStatus != normal` (§6a) |
+| `40099` | environnement demo/live incorrect | header `paptrading` vs type de clé (§6a) |

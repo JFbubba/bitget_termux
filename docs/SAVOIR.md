@@ -250,6 +250,53 @@ différentes, des horizons différents, ou des méthodes différentes — pas de
 (3) Contrôle systématique avant de croire un comité : mesurer la similarité texte-à-texte
 entre les voix ; deux voix adversaires qui se ressemblent à ≥0,8 invalident l'étage.
 
+## 11. Ingénierie d'exécution : les invariants d'un moteur production (Nautilus Trader — ajouté le 21/07/2026)
+
+**Acquis (lu, et recoupé avec nos propres incidents).** Les moteurs d'exécution de qualité
+production (référence : Nautilus Trader — parité recherche→live, cœur déterministe, design
+crash-only) convergent sur quatre invariants :
+
+1. **L'exchange est la SOURCE DE VÉRITÉ.** Au démarrage on RÉCONCILIE : l'état local est
+   régénéré/aligné depuis la venue (mass status), jamais l'inverse. Un ordre orphelin se résout
+   par une requête CIBLÉE à la venue AVANT d'être marqué rejeté/annulé.
+2. **Machine à états d'ordre avec états AMBIGUS explicites.** SUBMITTED → ACCEPTED →
+   PARTIALLY_FILLED → FILLED/CANCELED/REJECTED, plus les états in-flight (PENDING_UPDATE,
+   PENDING_CANCEL). Un submit jamais acquitté reste « in-flight » : on interroge la venue
+   (seuil ~5 s, N tentatives) et on ne résout REJECTED qu'ensuite — jamais par supposition.
+   Corollaire anti-double-annulation : EXCLURE PENDING_CANCEL des filtres d'annulation.
+3. **Journal write-ahead / event sourcing.** Chaque événement qui change l'état est persisté
+   AVANT son handler → recovery et replay possibles après crash.
+4. **Résilience mécanique.** Retry à backoff exponentiel + JITTER, circuit breaker, timeouts —
+   du code, pas de la discipline.
+
+**Implication pour ce bot.** Nos incidents ont déjà fait converger le code vers (1) et (2) par
+la douleur : ERR-008 double-position, §109 « accepté ≠ rempli », réconciliation
+`accum_reconcile`, « `sl` affiché = intention, pas exchange ». Le fait nouveau est que c'est un
+PATTERN standard et complet, pas une série de rustines : toute nouvelle surface d'exécution
+(§67) doit NAÎTRE avec ces 4 invariants au lieu de les apprendre par incident. Chaînon manquant
+identifié chez nous : la confirmation temps réel par le canal WS PRIVÉ `orders`
+(BITGET_REFERENCE §8f) à la place du polling.
+
+## 12. Cadre fiscal belge des plus-values crypto (2026) — factuel, PAS un conseil (ajouté le 21/07/2026)
+
+**Acquis.** Depuis le **1er janvier 2026**, la Belgique taxe les plus-values d'actifs financiers
+(crypto incluse) à **10 %** dans le régime de gestion « en bon père de famille ». Mais la
+qualification peut être REQUALIFIÉE : **revenus divers à 33 %** (gestion spéculative), voire
+**revenus professionnels jusqu'à ~50 %** — et les critères qui accélèrent la requalification
+sont précisément le profil de ce bot : **automatisation, levier, fréquence**. Le droit belge ne
+fixe pas de seuils chiffrés ; la qualification est une question de fait (comptable,
+éventuellement ruling SDA). MiCA, lui, laisse le trading pour compte propre d'un particulier
+HORS périmètre CASP : pas d'agrément requis pour ce bot.
+
+**Implication opérationnelle.** (1) Hypothèse de travail prudente : tant que le bot trade
+automatiquement, avec levier et fréquence, raisonner en régime **33 %** et **provisionner les
+gains nets en conséquence** — le PnL « net de frais » du bot n'est PAS le PnL net du
+propriétaire. (2) Le registre exportable des trades (déjà en place : registres + backups
+chiffrés quotidiens) est la matière première de toute déclaration ou défense — le conserver
+intègre. (3) Avant toute montée significative de volume/notional : consulter un comptable
+belge ; un ruling SDA peut figer la qualification. Ces trois points sont FACTUELS et ne
+constituent pas un conseil fiscal.
+
 ## Traçabilité
 
 Constitué le 03/07/2026 (§56 des RESEARCH_NOTES). Sources primaires citées par
