@@ -24,7 +24,8 @@ watchdog 5 min (carte de fraîcheur « rien d'aveugle » §61), notify 15 min,
 validation 6 h (porte PROFONDE 6 ans §54), sauvegarde chiffrée Telegram 03:40,
 revue hebdo dimanche 18:00 (recommandations chiffrées automatiques §60).
 Boucles via CRONTAB (pas systemd — ne PAS doubler avec deploy/install_learning_timers.sh) :
-accumulation 12:00, neural-train 04:20, learning-health toutes les 6 h,
+accumulation 16:05–19:05 (tirs horaires DANS la fenêtre §53, 1 achat/j — §110),
+neural-train 04:20, learning-health toutes les 6 h,
 strategy-lab dimanche 05:00 (§68/§70).
 
 ## ⚠️ RÈGLES D'ENGAGEMENT (révisées le 02/07/2026 — décision propriétaire, §45)

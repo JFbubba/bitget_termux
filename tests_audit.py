@@ -4639,6 +4639,31 @@ def test_accum_fenetre_achat_horaire():
     assert ae.fenetre_achat_ok(now=1 * 86400 + 9 * H, last_buy_ts=hier_17h, debut=8, fin=10) is True
 
 
+def test_accum_ordonnancement_fenetre_110():
+    # §110 : le chemin réel exige should_buy ET fenetre_achat_ok. Un tir cron UNIQUE
+    # hors fenêtre (12:00) fait acheter UN JOUR SUR DEUX via le fail-open 30 h, à
+    # l'heure que §53 voulait éviter — le cron DOIT tirer dans la fenêtre 16-20h.
+    import accumulation_engine as ae
+    H = 3600
+
+    def achat_ok(now, last):
+        return ae.should_buy(last, now) and ae.fenetre_achat_ok(now, last)
+
+    # cadence 12:00 (l'ancien cron) : J+1 saute (24 h < fail-open 30 h, hors fenêtre),
+    # J+2 achète par fail-open -> demi-cadence, hors fenêtre. C'est le bug constaté
+    # au registre réel (achats des 04/06/08/10/12/14/18/20-07, tous à 12:00:0x).
+    last = 0 * 86400 + 12 * H + 4          # achat J0 12:00:04
+    assert achat_ok(1 * 86400 + 12 * H + 1, last) is False   # J+1 12:00 -> saut
+    assert achat_ok(2 * 86400 + 12 * H + 1, last) is True    # J+2 12:00 -> fail-open
+    # cadence 16:05 (cron dans la fenêtre §53) : achat CHAQUE jour, dans la fenêtre.
+    last = 0 * 86400 + 16 * H + 5 * 60 + 4  # achat J0 16:05:04
+    assert achat_ok(1 * 86400 + 16 * H + 5 * 60 + 1, last) is True   # J+1 16:05 -> achat
+    assert achat_ok(0 * 86400 + 17 * H + 5 * 60, last) is False      # J0 17:05 -> jamais 2/jour
+    # transition : dernier achat 12:00:04, premier tir 16:05 le LENDEMAIN (~28 h) ->
+    # achète dans la fenêtre sans attendre le fail-open : aucun jour de DCA perdu.
+    assert achat_ok(1 * 86400 + 16 * H + 5 * 60, 0 * 86400 + 12 * H + 4) is True
+
+
 def test_candles_history_purs():
     import candles_history as ch
     # normalisation mix : heures/jours en MAJUSCULE, minutes inchangées

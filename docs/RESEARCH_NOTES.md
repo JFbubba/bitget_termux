@@ -3935,3 +3935,32 @@ fills — corrigé dans la foulée par un plafond au restant demandé) :
 pleine 4 h (un `filled_taker=0.0` l'ouvrirait au retry court — à décider sur mesure) ;
 sémantique `baseVolume`=rempli à corroborer au prochain IOC réel (consignée BITGET_REFERENCE
 §2c ; le filet = contre-vérif fills). Murs 50/250, ×5, stop −5 %, kill-switch : intouchés.
+
+## §110 — le DCA « quotidien » achetait un jour sur deux : le cron tirait hors fenêtre (21/07/2026)
+
+**Constat (mesure, registre réel)** : les 8 derniers achats datent des 04/06/08/10/12/14/18/20-07,
+tous à 12:00:03–06 — demi-cadence, et à 12h UTC, l'heure historiquement la PLUS chère que la
+fenêtre §53 (16–20h UTC, ~10 bps moins chère sur 1 an) devait précisément éviter. Le run du
+21/07 12:00 a calculé 2,21 $ et rendu « intervalle non écoulé » (libellé trompeur : c'est la
+FENÊTRE qui refusait).
+
+**Cause racine** (`accumulation_engine._run_real`) : le chemin réel exige `should_buy` ET
+`fenetre_achat_ok`. Le slack anti-dérive de `should_buy` (5 min) était déjà en place et sain.
+Mais `fenetre_achat_ok` vise 16–20h avec fail-open à 30 h de retard, alors que le cron ne
+tirait qu'UNE fois, à 12:00 : J+1 12:00 → 24 h < 30 h ET hors fenêtre → saut ; J+2 12:00 →
+48 h > 30 h → fail-open → achat hors fenêtre. §53 supposait « on achète au premier cycle »
+— un ordonnancement à plusieurs cycles/jour — jamais posé.
+
+**Décision (levier d'exploitation §92, réversible)** : le cron accumulation passe de
+`0 12 * * *` à `5 16,17,18,19 * * *` — 4 tirs DANS la fenêtre ; le premier qui passe achète,
+`should_buy` (≥ 23 h 55) bloque les suivants (jamais 2 achats/jour), les tirs restants sont
+des réessais gratuits en cas d'échec réseau ; le fail-open 30 h reste le filet des pannes
+longues. Transition sans jour perdu (28 h de retard au premier tir 16:05 → achat en fenêtre).
+Aucun cap touché : sizing §44, murs spot_executor, gardes premium/kill-switch inchangés.
+Test : `test_accum_ordonnancement_fenetre_110` (séquence 12:00 = demi-cadence prouvée ;
+séquence 16:05 = quotidienne ; anti-double-achat ; transition).
+
+**Leçon d'agent** : une fonction PURE correcte + un ordonnancement qui ne l'appelle jamais
+au bon moment = bug invisible aux tests unitaires. Contrôle : pour chaque garde temporelle
+(fenêtre/throttle), vérifier que l'ordonnanceur RÉEL (cron/timer) tire au moins une fois
+dans la plage où la garde peut dire oui.
