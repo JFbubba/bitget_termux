@@ -3897,3 +3897,41 @@ donc d'un registre qui l'oublie en 34 h.
 
 ⚠️ Ne PAS purger le registre pour « faire de la place » : c'est le journal d'argent, il dit ce qui
 s'est passé (cf. les deux `FUTURES_REAL_FAILED` du 20/07 délibérément conservés).
+
+## §109 — IOC accepté ≠ IOC rempli : trois durcissements du chemin d'exécution (21/07/2026)
+
+**Incident réel (21/07 02:05, BANKUSDT)** : consensus short −0,35 → ouverture 7,69 $ (cap de
+liquidité depuis 25 $) ; post-only maker 0 rempli (alt illiquide, conforme à la mesure) ; repli
+taker **limit IOC ACCEPTÉ par Bitget (orderId rendu) mais REMPLI À ZÉRO** (annulé sec, carnet
+absent au prix plafonné ±0,10 %). L'ancien code classait « orderId extrait ⇒ executed » →
+**faux `FUTURES_REAL` au registre d'ARGENT**, TP partiel posé sur une position INEXISTANTE
+(« No position to close », taille 43 dérivée du notional configuré au lieu du fill), throttle
+4 h armé pour rien (boucle à plat toute la nuit).
+
+**Trois durcissements** (TDD strict : 11 tests RED d'abord, 685/685 verts ; revue adversariale
+4 rôles = SAFE, son point majeur — double-compte maker dans la fenêtre d'horloge −5 s des
+fills — corrigé dans la foulée par un plafond au restant demandé) :
+
+1. **`futures_executor._submit_taker`** : orderId extrait + `force=ioc` → relecture de l'état
+   TERMINAL (`_order_fill_state`) : rempli > 0 → `executed` + `filled_taker` (taille RÉELLE) ;
+   `canceled` → contre-vérifié par les fills (2 essais) puis **zéro CONFIRMÉ** (`executed=False`,
+   `filled: 0.0`, raison nette) ; état illisible → réconciliation par les fills sinon `ambiguous`.
+   Market (réductions) inchangé. L'issue journalisée porte désormais **`filled`** (0.0 = zéro
+   confirmé, None = inconnu) et **`ambiguous`** (= a peut-être ouvert). Les chemins maker
+   incertains (`maker_incertain`, `maker_non_confirme`) sont marqués `ambiguous` — ce qui
+   RENFORCE au passage la réservation du mur 250 (gated_open la gardait déjà sur ambigu, mais
+   ces deux chemins la rollbackaient à tort).
+2. **TP1 sur le fill réel** (`futures_auto._poser_tp_partiel`) : tranche = FRAC × taille REMPLIE
+   (`fe.filled_size(res)`, agrégateur PUR maker+taker) — plus jamais le notional configuré ;
+   fill inconnu/nul → AUCUN TP1 (le préréglé RR plein reste le filet).
+3. **Throttle à deux fenêtres** (`futures_auto.throttle_ok` + `derniere_tentative_auto`) :
+   une tentative au fill **zéro CONFIRMÉ** (FAILED, `filled=0.0`, non ambiguë) n'arme que
+   `FUTURES_AUTO_RETRY_INTERVAL_H` (défaut 0,5 h, config-only) au lieu de geler la boucle 4 h
+   à plat ; TOUT cas incertain (événement ancien sans champ, ambigu, SUBMIT sans issue,
+   fill > 0, ts float) garde la fenêtre pleine — jamais de retry court qui empilerait un
+   2ᵉ ordre sur un ordre peut-être vivant.
+
+**Restes assumés (sur-prudence, non corrigés)** : rejet explicite (code d'erreur) → fenêtre
+pleine 4 h (un `filled_taker=0.0` l'ouvrirait au retry court — à décider sur mesure) ;
+sémantique `baseVolume`=rempli à corroborer au prochain IOC réel (consignée BITGET_REFERENCE
+§2c ; le filet = contre-vérif fills). Murs 50/250, ×5, stop −5 %, kill-switch : intouchés.

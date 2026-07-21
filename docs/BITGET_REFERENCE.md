@@ -116,6 +116,18 @@ A/R (2 jambes spot). **Reco RÉALISÉE** : centraliser le *fetch* du taux plutô
 > fund-flow/whale-net-flow. Restent candidats **non câblés** : `v3/market/spot-net-flow`, carnet complet
 > (>50 niv.), reversal/flash-close (exécution — via modules bornés uniquement).
 
+### 2c. Sémantique `/api/v2/mix/order/detail` (relevés RÉELS — chemin d'exécution)
+
+- La clé d'état est **`state`** (`filled` / `canceled` / `live` / `partially_filled`) et
+  **`baseVolume` = quantité REMPLIE en base** (PAS la taille demandée — `size` porte la demande).
+  Relevé réel du 09/07/2026 (poll maker de `futures_executor._order_fill_state`) ; le durcissement
+  « IOC accepté ≠ IOC rempli » du 21/07 (§109 RESEARCH_NOTES) repose dessus pour distinguer un IOC
+  annulé sec (`canceled` + `baseVolume` 0) d'un rempli. **À corroborer au prochain IOC réel** : si
+  `baseVolume` valait la demande, le faux-positif reviendrait (le filet = contre-vérif par les fills).
+- Un **limit IOC accepté** (orderId rendu par `place-order`) peut être **rempli à ZÉRO** (annulé
+  sec si le carnet n'est pas là au prix plafonné) — constaté en réel le 21/07 02:05 (BANKUSDT).
+  Un orderId n'est PAS une preuve de position.
+
 ## 3. WebSocket
 
 - Endpoint public : `wss://ws.bitget.com/v2/ws/public` (le bot l'utilise via `book_collector.py` :

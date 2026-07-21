@@ -179,6 +179,9 @@ FUTURES_AUTO_LEVERAGE = 2.0           # levier demandé (mur ×5)
 FUTURES_AUTO_SEUIL_ENTREE = 0.35      # |consensus| minimal pour OUVRIR (conviction rare)
 FUTURES_AUTO_SEUIL_SORTIE = 0.15      # |consensus| sous lequel on FERME (conviction morte)
 FUTURES_AUTO_MIN_INTERVAL_H = 4.0     # au plus un ordre auto toutes les N heures
+FUTURES_AUTO_RETRY_INTERVAL_H = 0.5   # cooldown COURT après une tentative au fill ZÉRO
+                                      # CONFIRMÉ (IOC annulé sec) — la fenêtre pleine ne
+                                      # s'arme que sur fill réel/incertain (durci 21/07)
 FUTURES_AUTO_MAX_POSITIONS = 1        # RÉDUIT 3->1 le 20/07 (démarrage prudent porte §45 rouverte ; remonter par paliers si exécution propre) — positions directionnelles simultanées max (multi-symboles §47,
                                       # une par symbole ; aligné sur MAX_OPEN_POSITIONS)
 FUTURES_MARGE_ALERTE_DIST_PCT = 15.0

@@ -1431,6 +1431,9 @@ def test_maker_ambiguous_absent_falls_back_taker():
             return "" if n == 1 else _json.dumps({"data": {"orderId": "7"}})   # maker perdu, taker OK
         if "futures_get_orders" in s and "--clientOid" in s:
             return _json.dumps({"data": {"entrustedList": []}})                 # absent
+        if "futures_get_orders" in s and "--orderId" in s:
+            # relecture d'état de l'IOC de repli (durci 21/07) : le mock dit REMPLI
+            return _json.dumps({"data": {"orderId": "7", "state": "filled", "baseVolume": "0.0001"}})
         return ""
     order = {"symbol": "BTCUSDT", "side": "long", "notional_usdt": 10.0, "clientOid": "cidA"}
     spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
@@ -7747,14 +7750,20 @@ def test_futures_executor_dry_and_real_path():
     calls = []
     def _runner_ok(cmd):
         calls.append(cmd)
+        if len(cmd) > 1 and cmd[1] == "futures_get_orders":
+            # durci 21/07 : l'exécuteur RELIT l'état de l'IOC (accepté ≠ rempli) -> le mock
+            # doit DIRE que l'ordre a rempli, sinon rien ne prouve la position
+            return '{"data": {"orderId": "123", "state": "filled", "baseVolume": "0.0001"}}'
         return '{"data": {"orderId": "123"}}'
     r3 = fe.execute("geometric", "long", 8, 2, confirm=True, journal=False,
                     runner=_runner_ok, daily_loss=False, spec=_FUT_SPEC, price=60000.0,
                     marge_mode="isolated", **full)
     assert r3["executed"] is True
-    # séquence : bascule hedge à plat (mode cible 03/07), puis levier, puis l'ordre
+    # séquence : bascule hedge à plat (mode cible 03/07), puis levier, puis l'ordre,
+    # puis la relecture d'état de l'IOC (durci 21/07)
     assert calls[0][1] == "futures_update_config" and "hedge_mode" in calls[0]
-    assert calls[1][1] == "futures_set_leverage" and calls[-1][1] == "futures_place_order"
+    assert calls[1][1] == "futures_set_leverage" and calls[-2][1] == "futures_place_order"
+    assert calls[-1][1] == "futures_get_orders"
     bo = r3["bitget_order"]
     # format HEDGE : side = côté de la POSITION (buy=long), tradeSide open, pas de reduceOnly
     assert bo["side"] == "buy" and bo["tradeSide"] == "open" and "reduceOnly" not in bo
@@ -7859,12 +7868,13 @@ def test_futures_executor_maker_et_repli():
         assert res["exec_style"] == "maker_non_confirme"
         assert c["place"] == 1 and c["cancel"] == 3        # 3 tentatives d'annulation, JAMAIS re-placé
 
-        # 5) POST-ONLY REJETÉ (aucun orderId extrait) -> taker DIRECT
-        r, c = make_runner(lambda n, cx: '{"data":{}}',
+        # 5) POST-ONLY REJETÉ (aucun orderId extrait) -> taker DIRECT ; l'unique lecture
+        # d'ordres est la relecture d'état de l'IOC de repli (durci 21/07), jamais un poll maker
+        r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}',
                            place_fn=lambda n: '{"code":"40774","msg":"post only would cross"}' if n == 1 else None)
         res = fe._place_maker(order(), r, _FUT_SPEC, MARK, "isolated", "hedge_mode", tob)
-        assert res["exec_style"] == "taker_apres_rejet_maker"
-        assert c["place"] == 2 and c["get_orders"] == 0 and c["cancel"] == 0
+        assert res["exec_style"] == "taker_apres_rejet_maker" and res["executed"]
+        assert c["place"] == 2 and c["get_orders"] == 1 and c["cancel"] == 0
 
         # 6) SHORT -> prix à l'ASK, side sell
         r, c = make_runner(lambda n, cx: '{"data":{"state":"filled","baseVolume":"0.0002"}}')
@@ -8814,38 +8824,31 @@ def test_alt_carry_compensation_jambe_nue():
 
 def test_futures_tp_partiel():
     """§82 : après ouverture, TP1 partiel = limite GTC reduce-only à FUTURES_TP1_R ×
-    distance de stop pour FRAC de la taille — seulement si la tranche passe les minima
-    (« quand c'est possible ») ; OFF par gate ; jamais bloquant."""
+    distance de stop pour FRAC de la taille REMPLIE (durci 21/07 : dimensionné sur le fill
+    réel — cf. test_tp_partiel_dimensionne_sur_le_fill_reel ; les minima du contrat sont
+    jugés par place_partial_tp) ; OFF par gate ; jamais bloquant."""
     import os
     import futures_auto as fa
     import futures_executor as fe
     poses = []
-    orig = (fe.place_partial_tp, fe._contract_spec, fe.size_for)
+    orig = fe.place_partial_tp
     fe.place_partial_tp = lambda sym, side, size, price, runner=None: poses.append(
         {"sym": sym, "side": side, "size": size, "price": price}) or {"ok": True, "executed": True}
-    fe._contract_spec = lambda s: {"min_size": 0.01, "step": 0.01, "min_usdt": 5.0, "vol_place": 2}
-    fe.size_for = lambda notional, price, spec: 0.02 if notional >= 10 else None
     old_env = {k: os.environ.pop(k, None) for k in
-               ("FUTURES_TP_PARTIAL", "FUTURES_TP_PARTIAL_FRAC", "FUTURES_TP1_R",
-                "FUTURES_AUTO_NOTIONAL_USDT")}
+               ("FUTURES_TP_PARTIAL", "FUTURES_TP_PARTIAL_FRAC", "FUTURES_TP1_R")}
     try:
         os.environ["FUTURES_TP_PARTIAL"] = "1"
-        os.environ["FUTURES_AUTO_NOTIONAL_USDT"] = "45"
-        # long : entrée 100, SL 98 (dist 2) -> TP1 à 102 (1R) pour la moitié
-        r = fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0)
-        assert r and poses[-1]["price"] == 102.0 and poses[-1]["size"] == 0.02
+        # long : entrée 100, SL 98 (dist 2) -> TP1 à 102 (1R) pour la moitié du fill
+        r = fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0, filled_size=0.04)
+        assert r and poses[-1]["price"] == 102.0 and abs(poses[-1]["size"] - 0.02) < 1e-12
         # short : entrée 100, SL 103 -> TP1 à 97
-        fa._poser_tp_partiel(fe, "ETHUSDT", "short", 100.0, 103.0)
+        fa._poser_tp_partiel(fe, "ETHUSDT", "short", 100.0, 103.0, filled_size=0.04)
         assert poses[-1]["price"] == 97.0
-        # tranche sous les minima -> rien (le préréglé plein reste seul)
-        fe.size_for = lambda notional, price, spec: None
-        assert fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0) is None
         # gate OFF -> rien
         os.environ["FUTURES_TP_PARTIAL"] = "0"
-        fe.size_for = lambda notional, price, spec: 0.02
-        assert fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0) is None
+        assert fa._poser_tp_partiel(fe, "ETHUSDT", "long", 100.0, 98.0, filled_size=0.04) is None
     finally:
-        fe.place_partial_tp, fe._contract_spec, fe.size_for = orig
+        fe.place_partial_tp = orig
         for k, v in old_env.items():
             os.environ.pop(k, None)
             if v is not None:
@@ -13153,6 +13156,297 @@ def test_llm_keepalive_pilotable_par_env():
         os.environ.pop("LLM_AGENT_KEEPALIVE", None)
         if old is not None:
             os.environ["LLM_AGENT_KEEPALIVE"] = old
+
+
+# ---------- Durcissements 21/07 — IOC accepté ≠ IOC rempli (cas réel BANKUSDT 02:05) ----------
+# Un limit IOC ACCEPTÉ (orderId extrait) peut s'annuler sec à ZÉRO rempli : l'ancien code le
+# classait executed=True -> faux FUTURES_REAL dans le registre d'ARGENT, TP1 posé sur une
+# position INEXISTANTE (« No position to close »), throttle 4 h armé pour rien.
+
+def test_submit_taker_ioc_accepte_mais_rempli_zero_non_execute():
+    """IOC accepté (orderId extrait) mais état terminal canceled + 0 rempli -> executed=False,
+    filled_taker=0.0 (fill zéro CONFIRMÉ, pas ambigu — le throttle pourra retenter court)."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 5, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "146328"}})
+        if "futures_get_orders" in s:
+            return _json.dumps({"data": {"entrustedList": [
+                {"orderId": "146328", "state": "canceled", "baseVolume": "0"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 7.69, 2.0, client_oid="c1",
+                                   symbol="BANKUSDT")
+    res = fe._submit_taker(order, runner, spec, 0.28479, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is False and not res.get("ambiguous")
+    assert res.get("filled_taker") == 0.0
+
+
+def test_submit_taker_ioc_accepte_et_rempli_execute_avec_taille():
+    """IOC accepté + état terminal filled (baseVolume > 0) -> executed=True et la taille
+    REMPLIE est exposée (filled_taker) pour dimensionner le TP1 sur le fill réel."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 5, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "146328"}})
+        if "futures_get_orders" in s:
+            return _json.dumps({"data": {"entrustedList": [
+                {"orderId": "146328", "state": "filled", "baseVolume": "27.0"}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 7.69, 2.0, client_oid="c1",
+                                   symbol="BANKUSDT")
+    res = fe._submit_taker(order, runner, spec, 0.28479, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is True
+    assert abs(res.get("filled_taker") - 27.0) < 1e-9
+
+
+def test_submit_taker_ioc_etat_illisible_reconcilie_par_fills():
+    """IOC accepté mais /detail illisible -> réconciliation par les fills (même geste que
+    orderId:null) : fill trouvé -> executed=True ; rien -> executed=False + ambiguous=True
+    (fenêtre PLEINE du throttle, prudence)."""
+    import os, json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 5, "min_usdt": 0.1}
+    def runner_avec_fill(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "146328"}})
+        if "futures_get_orders" in s:
+            return ""                                                   # /detail illisible
+        if "futures_get_fills" in s:
+            return _json.dumps({"data": {"fillList": [
+                {"symbol": "BANKUSDT", "side": "sell", "tradeSide": "open",
+                 "baseVolume": "27.0", "price": "0.28451", "cTime": "1000500"}]}})
+        return ""
+    def runner_sans_fill(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "146328"}})
+        if "futures_get_fills" in s:
+            return _json.dumps({"data": {"fillList": []}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 7.69, 2.0, client_oid="c1",
+                                   symbol="BANKUSDT")
+    old = {k: os.environ.get(k) for k in ("FUTURES_FILL_CONFIRM_TRIES", "FUTURES_FILL_CONFIRM_DELAY_S")}
+    try:
+        os.environ["FUTURES_FILL_CONFIRM_TRIES"] = "1"; os.environ["FUTURES_FILL_CONFIRM_DELAY_S"] = "0"
+        res = fe._submit_taker(order, runner_avec_fill, spec, 0.28479, "crossed", "hedge_mode", now=1000.0)
+        assert res["executed"] is True and res.get("fill") and abs(res["fill"]["size_btc"] - 27.0) < 1e-9
+        res = fe._submit_taker(order, runner_sans_fill, spec, 0.28479, "crossed", "hedge_mode", now=1000.0)
+        assert res["executed"] is False and res.get("ambiguous") is True
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_submit_taker_market_reduction_orderid_suffit():
+    """RÉDUCTION market acceptée (orderId extrait) -> comportement INCHANGÉ : executed=True
+    sans lecture /detail (un market rempli ou rejette, il ne s'annule pas à zéro)."""
+    import json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    calls = []
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd); calls.append(s)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "999"}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "short", 13.26, 2.0, client_oid="c1",
+                                   symbol="HYPEUSDT", reduce=True, size_btc=0.22)
+    res = fe._submit_taker(order, runner, spec, 60.292, "crossed", "hedge_mode", now=1000.0)
+    assert res["executed"] is True
+    assert not any("futures_get_orders" in c for c in calls)
+
+
+def test_filled_size_agrege_maker_et_taker():
+    """PUR : filled_size() agrège fill.size_btc + filled + filled_maker + filled_taker ;
+    AUCUNE trace de fill -> None (inconnu ≠ zéro)."""
+    import futures_executor as fe
+    assert abs(fe.filled_size({"fill": {"size_btc": 0.3}}) - 0.3) < 1e-9
+    assert abs(fe.filled_size({"filled_maker": 10.0, "filled_taker": 17.0}) - 27.0) < 1e-9
+    assert abs(fe.filled_size({"filled": 5.0}) - 5.0) < 1e-9
+    assert fe.filled_size({"filled_taker": 0.0}) == 0.0
+    assert fe.filled_size({"executed": False}) is None
+    assert fe.filled_size(None) is None
+
+
+def test_execute_journalise_filled_et_ambiguous_dans_l_issue():
+    """L'issue journalisée (FUTURES_REAL / FUTURES_REAL_FAILED) porte filled (taille remplie
+    agrégée ; 0.0 = fill zéro CONFIRMÉ) et ambiguous — le contrat que lit le throttle."""
+    import futures_executor as fe
+    events = []
+    orig = (fe._journal, fe._place_real)
+    try:
+        fe._journal = lambda e: events.append(e)
+        fe._place_real = lambda order, **k: {"ok": True, "executed": False,
+                                             "bitget_order": {}, "exec_style": "limit_ioc",
+                                             "filled_taker": 0.0,
+                                             "reasons": ["IOC rempli à zéro"]}
+        spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1}
+        gates = dict(live=True, autonomous=True, futures_live=True, kill=False, edge_override=1)
+        fe.execute("auto_dir", "long", 10, 2, confirm=True, daily_loss=False, spec=spec, price=100.0,
+                   marge_mode="crossed", pos_mode="hedge_mode", now=1000.0, **gates)
+        issue = [e for e in events if e.get("action") == "FUTURES_REAL_FAILED"]
+        assert issue and issue[-1].get("filled") == 0.0 and not issue[-1].get("ambiguous")
+        events.clear()
+        fe._place_real = lambda order, **k: {"ok": True, "executed": True, "bitget_order": {},
+                                             "exec_style": "maker_puis_taker",
+                                             "filled_maker": 10.0, "filled_taker": 17.0}
+        fe.execute("auto_dir", "long", 10, 2, confirm=True, daily_loss=False, spec=spec, price=100.0,
+                   marge_mode="crossed", pos_mode="hedge_mode", now=1000.0, **gates)
+        issue = [e for e in events if e.get("action") == "FUTURES_REAL"]
+        assert issue and abs(issue[-1].get("filled") - 27.0) < 1e-9
+    finally:
+        (fe._journal, fe._place_real) = orig
+
+
+def test_derniere_tentative_auto_rend_l_evenement_complet():
+    """PUR : rend l'ÉVÉNEMENT (pas juste le ts) de la dernière tentative auto_dir, pour que
+    le throttle voie filled/ambiguous ; dernier_ordre_auto_ts reste le wrapper compatible."""
+    import futures_auto as fa
+    ev = [{"action": "FUTURES_REAL", "ts": 5.0, "order": {"agent": "auto_dir"}},
+          {"action": "FUTURES_REAL_FAILED", "ts": 9.0, "filled": 0.0, "order": {"agent": "auto_dir"}},
+          {"action": "FUTURES_REAL", "ts": 12.0, "order": {"agent": "carry"}}]
+    e = fa.derniere_tentative_auto(ev)
+    assert e["ts"] == 9.0 and e["filled"] == 0.0
+    assert fa.dernier_ordre_auto_ts(ev) == 9.0
+    assert fa.derniere_tentative_auto([]) is None
+
+
+def test_throttle_fenetre_courte_sur_fill_zero_confirme():
+    """DURCI 21/07 : une tentative SANS AUCUN fill (FAILED, filled=0.0 explicite, non ambiguë)
+    n'arme que le cooldown court FUTURES_AUTO_RETRY_INTERVAL_H au lieu de la fenêtre pleine —
+    la boucle ne reste plus flat 4 h après un IOC annulé sec. Tout cas INCERTAIN (ancien
+    événement sans champ filled, ambigu, SUBMIT sans issue, fill > 0, simple ts float) garde
+    la fenêtre pleine."""
+    import futures_auto as fa
+    e_zero = {"action": "FUTURES_REAL_FAILED", "ts": 1000.0, "filled": 0.0,
+              "order": {"agent": "auto_dir"}}
+    assert fa.throttle_ok(e_zero, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is True
+    assert fa.throttle_ok(e_zero, now=1000.0 + 0.4 * 3600, min_h=4, retry_h=0.5) is False
+    e_ambigu = dict(e_zero, ambiguous=True)
+    assert fa.throttle_ok(e_ambigu, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is False
+    e_ancien = {"action": "FUTURES_REAL_FAILED", "ts": 1000.0, "order": {"agent": "auto_dir"}}
+    assert fa.throttle_ok(e_ancien, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is False
+    e_real = {"action": "FUTURES_REAL", "ts": 1000.0, "filled": 27.0}
+    assert fa.throttle_ok(e_real, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is False
+    e_submit = {"action": "FUTURES_REAL_SUBMIT", "ts": 1000.0}
+    assert fa.throttle_ok(e_submit, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is False
+    assert fa.throttle_ok(1000.0, now=1000.0 + 0.6 * 3600, min_h=4, retry_h=0.5) is False
+    assert fa.throttle_ok(1000.0, now=1000.0 + 4.1 * 3600, min_h=4, retry_h=0.5) is True
+
+
+def test_place_maker_non_confirme_est_ambigu_pour_le_throttle():
+    """Annulation maker NON confirmée (ordre peut-être encore VIVANT) -> le résultat porte
+    ambiguous=True : le throttle garde la fenêtre PLEINE (pas de retry court qui empilerait
+    un 2e ordre sur un maker vivant) et gated_open garde la réservation du mur cumulé."""
+    import os, json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            return _json.dumps({"data": {"clientOid": "c1", "orderId": "77"}})
+        return ""                                    # état d'ordre illisible, annulation muette
+    order = fe.build_futures_order("auto_dir", "long", 24.0, 2.0, client_oid="c1",
+                                   symbol="HYPEUSDT")
+    old = {k: os.environ.get(k) for k in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S")}
+    try:
+        os.environ["FUTURES_MAKER_WAIT_S"] = "0"; os.environ["FUTURES_MAKER_POLL_S"] = "0.2"
+        res = fe._place_maker(order, runner, spec, 67.05, "crossed", "hedge_mode",
+                              {"bid": 67.0, "ask": 67.1})
+        assert res["exec_style"] == "maker_non_confirme"
+        assert res["executed"] is False and res.get("ambiguous") is True
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_maker_puis_taker_ne_double_compte_pas_le_fill_maker():
+    """Revue 21/07 (majeur) : la réconciliation par les fills (marge d'horloge −5 s de
+    _confirm_futures_fill) peut englober le fill MAKER tout juste rempli dans la part du
+    restant TAKER ; sans plafond, filled = maker + fills ≈ 2× le réel au registre d'ARGENT
+    (TP1 surdimensionné). La part taker attribuée via les fills est PLAFONNÉE au restant."""
+    import time as _time, json as _json
+    import futures_executor as fe
+    spec = {"min_size": 0.0001, "step": 0.0001, "vol_place": 4, "price_place": 1, "min_usdt": 0.1}
+    def runner(cmd):
+        s = " ".join(str(x) for x in cmd)
+        if "futures_place_order" in s:
+            runner.n = getattr(runner, "n", 0) + 1
+            return _json.dumps({"data": {"orderId": "OID%d" % runner.n}})
+        if "futures_get_orders" in s and "OID1" in s:    # le maker : partiel puis canceled
+            runner.g = getattr(runner, "g", 0) + 1
+            return (_json.dumps({"data": {"state": "partially_filled", "baseVolume": "0.0001"}})
+                    if runner.g == 1 else
+                    _json.dumps({"data": {"state": "canceled", "baseVolume": "0.0001"}}))
+        if "futures_get_orders" in s:                    # /detail du taker ILLISIBLE -> fills
+            return ""
+        if "futures_get_fills" in s:                     # les fills englobent AUSSI le fill maker
+            return _json.dumps({"data": {"fillList": [   # cTime GÉNÉRÉ à la requête : reste
+                {"symbol": "BTCUSDT", "side": "buy", "tradeSide": "open",   # dans la fenêtre since_ts
+                 "baseVolume": "0.0002", "price": "60000",
+                 "cTime": str(int(_time.time() * 1000))}]}})
+        return ""
+    order = fe.build_futures_order("auto_dir", "long", 12.0, 2.0, client_oid="cm",
+                                   symbol="BTCUSDT")
+    # _cfg est config-only (env-aveugle) -> monkeypatch comme test_futures_executor_maker_et_repli
+    _orig_cfg = fe._cfg
+    fe._cfg = lambda n, d=None: (0 if n in ("FUTURES_MAKER_WAIT_S", "FUTURES_MAKER_POLL_S",
+                                            "FUTURES_FILL_CONFIRM_DELAY_S")
+                                 else 1 if n == "FUTURES_FILL_CONFIRM_TRIES"
+                                 else _orig_cfg(n, d))
+    try:
+        res = fe._place_maker(order, runner, spec, 60000.0, "crossed", "hedge_mode",
+                              {"bid": 60000.0, "ask": 60000.1})
+        assert res["exec_style"] == "maker_puis_taker" and res["executed"]
+        # demande totale 0.0002 : maker 0.0001 + taker plafonné au restant 0.0001 — jamais 0.0003
+        assert abs(fe.filled_size(res) - 0.0002) < 1e-12
+    finally:
+        fe._cfg = _orig_cfg
+
+
+def test_tp_partiel_dimensionne_sur_le_fill_reel():
+    """DURCI 21/07 : la tranche TP1 = FRAC × taille REMPLIE (filled_size), plus jamais le
+    notional CONFIGURÉ (cette nuit : TP1 de 43 contrats pour 27 demandés / 0 rempli).
+    Fill inconnu (None) ou nul -> AUCUN TP1 : le préréglé RR plein reste le filet."""
+    import os
+    import futures_auto as fa
+    import futures_executor as fe
+    poses = []
+    orig = fe.place_partial_tp
+    fe.place_partial_tp = lambda sym, side, size, price, runner=None: poses.append(
+        {"sym": sym, "side": side, "size": size, "price": price}) or {"ok": True, "executed": True}
+    old_env = {k: os.environ.pop(k, None) for k in
+               ("FUTURES_TP_PARTIAL", "FUTURES_TP_PARTIAL_FRAC", "FUTURES_TP1_R")}
+    try:
+        os.environ["FUTURES_TP_PARTIAL"] = "1"
+        # short BANK réel : entrée 0.28479, SL 0.30152 (dist 0.01673) -> TP1 à 0.26806 ;
+        # 27 remplis × 0.5 = 13.5 (jamais 43)
+        r = fa._poser_tp_partiel(fe, "BANKUSDT", "short", 0.28479, 0.30152, filled_size=27.0)
+        assert r and abs(poses[-1]["size"] - 13.5) < 1e-9
+        assert abs(poses[-1]["price"] - 0.26806) < 1e-9
+        n = len(poses)
+        assert fa._poser_tp_partiel(fe, "BANKUSDT", "short", 0.28479, 0.30152,
+                                    filled_size=None) is None
+        assert fa._poser_tp_partiel(fe, "BANKUSDT", "short", 0.28479, 0.30152,
+                                    filled_size=0.0) is None
+        assert len(poses) == n
+    finally:
+        fe.place_partial_tp = orig
+        for k, v in old_env.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
 
 
 def _run_all():

@@ -1468,9 +1468,42 @@ def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit
     t0 = time.time() if now is None else now
     out = _run(["futures", "futures_place_order", "--orders", json.dumps([bo])], runner=runner)
     order_id = _order_id_from(out)
-    fill, ambiguous = None, False
+    fill, ambiguous, filled_taker, reasons = None, False, None, None
     if order_id is not None:
-        success = True
+        if str(bo.get("force")) == "ioc":
+            # DURCI 21/07 : un IOC ACCEPTÉ n'est PAS un IOC REMPLI — il peut s'annuler sec à
+            # ZÉRO rempli (cas réel BANKUSDT 02:05 : orderId rendu, rien rempli, faux
+            # FUTURES_REAL au registre + TP1 posé sur une position inexistante). On relit
+            # l'état TERMINAL de l'ordre : rempli > 0 -> executed (taille exposée pour le
+            # TP1) ; canceled -> contre-vérifié par les fills puis ZÉRO CONFIRMÉ (échec NET,
+            # retry court du throttle) ; état illisible/non terminal -> réconciliation par
+            # les fills, et sans fill on reste AMBIGU (fenêtre pleine, prudence).
+            st = _order_fill_state(str(order.get("symbol") or SYMBOL).upper(), order_id,
+                                   runner=runner)
+            q = st[1] if st else None
+            confirmer = (_confirm_futures_close_fill if order.get("reduce")
+                         else _confirm_futures_open_fill)
+            if q is not None and q > 0:
+                success, filled_taker = True, q
+            elif st is not None and st[0] == "canceled":
+                # zéro APPARENT : une ligne de fill reste l'autorité — un /detail sans champ
+                # volume ne suffit pas à déclarer zéro (2 essais : ~1 s pour fermer la
+                # fenêtre d'un fill en retard, revue 21/07).
+                fill = confirmer(order, runner=runner, since_ts=t0, tries=2)
+                if fill and (fill.get("size_btc") or 0) > 0:
+                    success = True
+                else:
+                    success, filled_taker = False, 0.0
+                    reasons = ["IOC accepté mais rempli à ZÉRO (annulé sec — carnet absent "
+                               "au prix plafonné) ; rien d'ouvert"]
+            else:
+                fill = confirmer(order, runner=runner, since_ts=t0)
+                if fill and (fill.get("size_btc") or 0) > 0:
+                    success = True
+                else:
+                    success, ambiguous = False, True
+        else:
+            success = True        # market (réductions) : rempli ou rejeté, jamais annulé à zéro
     else:
         parsed = _parse_hub_json(out)
         raw_code = parsed.get("code") if isinstance(parsed, dict) else None
@@ -1491,9 +1524,14 @@ def _submit_taker(order, runner, spec, price, marge_mode, pos_mode, style="limit
            "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
     if fill:
         res["fill"] = fill
+    if filled_taker is not None:
+        res["filled_taker"] = filled_taker
     if ambiguous:
         res["ambiguous"] = True
-        res["reasons"] = ["réponse ambiguë (orderId:null), fill non confirmé — position à vérifier"]
+        reasons = ["réponse ambiguë (orderId:null ou état IOC illisible), fill non confirmé "
+                   "— position à vérifier"]
+    if reasons:
+        res["reasons"] = reasons
     return res
 
 
@@ -1554,16 +1592,22 @@ def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
         else:                                            # rec is None : réponse ambiguë + lecture KO/douteuse
             return {"ok": True, "executed": False, "bitget_order": bo,   # -> fail-closed, PAS de taker
                     "exec_style": "maker_incertain", "filled": 0.0,
+                    "ambiguous": True,                   # a peut-être atterri -> fenêtre pleine du throttle
                     "response": (out or "")[:2000], "clientOid": order.get("clientOid"),
                     "reasons": ["réponse de placement maker illisible ET réconciliation par "
                                 "clientOid indisponible — repli taker SUPPRIMÉ (anti-doublon)"]}
 
-    def _res(exec_style, executed, filled_q, reasons=None):
+    def _res(exec_style, executed, filled_q, reasons=None, ambiguous=False):
         r = {"ok": True, "executed": bool(executed), "bitget_order": bo,
              "exec_style": exec_style, "filled": filled_q,
              "response": (out or "")[:2000], "clientOid": order.get("clientOid")}
         if reasons:
             r["reasons"] = reasons
+        if ambiguous and not executed:
+            # ordre peut-être encore VIVANT/atterri : le throttle doit garder la fenêtre
+            # PLEINE (jamais de retry court qui empilerait un 2e ordre) et gated_open garde
+            # la réservation du mur cumulé.
+            r["ambiguous"] = True
         return r
 
     # poll du remplissage jusqu'au délai (au moins une lecture)
@@ -1594,7 +1638,7 @@ def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
     if term_state is None or term_filled is None:
         # annulation NON confirmée : l'ordre maker peut être ENCORE VIVANT -> AUCUN repli taker
         # (anti-doublon). Il remplira en maker ; position signalée ouverte si déjà remplie.
-        return _res("maker_non_confirme", filled > 0, filled,
+        return _res("maker_non_confirme", filled > 0, filled, ambiguous=True,
                     reasons=["annulation non confirmée (ordre possiblement encore actif) : "
                              "repli taker SUPPRIMÉ (anti-doublon)"])
     if term_state == "filled":
@@ -1609,6 +1653,15 @@ def _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book):
     reste["reduce"] = False
     reste["clientOid"] = (str(order.get("clientOid") or "o") + "t")[-64:]   # clientOid DISTINCT
     taker = _submit_taker(reste, runner, spec, price, marge_mode, pos_mode)
+    f = taker.get("fill")
+    if isinstance(f, dict):
+        q = safe_float(f.get("size_btc"))
+        if q is not None and q > restant:
+            # anti double-compte (revue 21/07) : la réconciliation par les fills (marge
+            # d'horloge −5 s de _confirm_futures_fill) peut englober le fill MAKER tout
+            # juste rempli — la part attribuée au restant TAKER est plafonnée au restant
+            # demandé (le registre d'ARGENT ne doit jamais sur-compter).
+            taker["fill"] = dict(f, size_btc=round(restant, 8))
     taker["exec_style"] = "maker_puis_taker"
     taker["filled_maker"] = term_filled
     taker["executed"] = bool(taker.get("executed")) or term_filled > 0     # position réelle si maker rempli
@@ -1657,6 +1710,28 @@ def _place_real(order, runner=None, spec=None, price=None, marge_mode=None, pos_
             and (not allowed or symbole in allowed)):
         return _place_maker(order, runner, spec, price, marge_mode, pos_mode, top_of_book)
     return _submit_taker(order, runner, spec, price, marge_mode, pos_mode)
+
+
+def filled_size(res):
+    """PUR. Taille BASE réellement REMPLIE d'un résultat d'exécution, tous chemins confondus
+    (maker : `filled` ; repli : `filled_maker` + `filled_taker` ; réconciliation par les
+    fills : `fill.size_btc`). None si le résultat ne porte AUCUNE trace de fill (échec avant
+    placement, réponse illisible) — inconnu ≠ zéro : l'appelant reste prudent (pas de TP1,
+    fenêtre pleine du throttle)."""
+    from numeric_utils import safe_float
+    if not isinstance(res, dict):
+        return None
+    total, known = 0.0, False
+    f = res.get("fill")
+    if isinstance(f, dict):
+        q = safe_float(f.get("size_btc"))
+        if q is not None:
+            total, known = total + max(0.0, q), True
+    for k in ("filled", "filled_maker", "filled_taker"):
+        q = safe_float(res.get(k))
+        if q is not None:
+            total, known = total + max(0.0, q), True
+    return total if known else None
 
 
 def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
@@ -1749,6 +1824,8 @@ def execute(agent, side, notional_usdt, leverage, entry=None, stop_loss=None,
                   "real_order_sent": bool(res.get("executed")),
                   "exec_style": res.get("exec_style"),      # maker | maker_puis_taker | taker_apres_rejet_maker
                   "filled_maker": res.get("filled_maker"),  # base remplie en maker avant repli (si repli)
+                  "filled": filled_size(res),               # taille TOTALE remplie ; 0.0 = zéro CONFIRMÉ ; None = inconnue
+                  "ambiguous": res.get("ambiguous"),        # True = a peut-être ouvert -> fenêtre pleine du throttle
                   "reasons": res.get("reasons"), "response": res.get("response")})
     return {**res, "preview": preview, "clientOid": oid}
 

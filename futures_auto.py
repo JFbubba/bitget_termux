@@ -193,20 +193,29 @@ def proprietaire_position(events):
     return None
 
 
-def dernier_ordre_auto_ts(events, agent="auto_dir",
-                          actions=("FUTURES_REAL", "FUTURES_REAL_FAILED", "FUTURES_REAL_SUBMIT")):
-    """PUR. ts de la dernière TENTATIVE d'ordre réel de la boucle (throttle). Les
-    ÉCHECS comptent aussi : sinon un ordre qui échoue serait retenté à chaque cycle
+def derniere_tentative_auto(events, agent="auto_dir",
+                            actions=("FUTURES_REAL", "FUTURES_REAL_FAILED", "FUTURES_REAL_SUBMIT")):
+    """PUR. ÉVÉNEMENT complet de la dernière TENTATIVE d'ordre réel de la boucle (throttle).
+    Les ÉCHECS comptent aussi : sinon un ordre qui échoue serait retenté à chaque cycle
     de 5 min (martèlement de l'exchange + spam d'alertes) au lieu d'attendre
     l'intervalle. Le marqueur FUTURES_REAL_SUBMIT (journalisé AVANT le placement) compte
     aussi : un crash-mid-placement perd l'issue REAL/FAILED, mais le SUBMIT survit -> le
-    throttle reste armé (fin du throttle aveugle). None si aucune tentative."""
+    throttle reste armé (fin du throttle aveugle). L'événement ENTIER est rendu (pas le
+    seul ts) pour que throttle_ok lise filled/ambiguous (durci 21/07 : fenêtre courte sur
+    fill zéro CONFIRMÉ). None si aucune tentative."""
     for e in reversed(events or []):
         if not isinstance(e, dict) or e.get("action") not in actions:
             continue
         if ((e.get("order") or {}).get("agent")) == agent:
-            return safe_float(e.get("ts"))
+            return e
     return None
+
+
+def dernier_ordre_auto_ts(events, agent="auto_dir",
+                          actions=("FUTURES_REAL", "FUTURES_REAL_FAILED", "FUTURES_REAL_SUBMIT")):
+    """PUR. ts de la dernière tentative — wrapper compatible de derniere_tentative_auto."""
+    e = derniere_tentative_auto(events, agent=agent, actions=actions)
+    return safe_float(e.get("ts")) if e else None
 
 
 def report_funding(now, side, taux_funding, marge_min=None):
@@ -253,13 +262,32 @@ def blackout_macro(now=None, evenements=None):
     return None
 
 
-def throttle_ok(last_ts, now=None, min_h=None):
-    """PUR. Au plus un ordre auto toutes min_h heures."""
+def throttle_ok(last, now=None, min_h=None, retry_h=None):
+    """PUR. Au plus un ordre auto toutes min_h heures. `last` : ts (float, compat) ou
+    ÉVÉNEMENT de dernière tentative (dict, via derniere_tentative_auto). DURCI 21/07 :
+    une tentative dont le fill ZÉRO est CONFIRMÉ (FUTURES_REAL_FAILED, filled=0.0
+    explicite, non ambiguë — l'IOC annulé sec de BANKUSDT 02:05) n'arme que le cooldown
+    court FUTURES_AUTO_RETRY_INTERVAL_H au lieu de geler la boucle 4 h à plat. Tout cas
+    INCERTAIN (événement ancien sans champ filled, ambigu = a peut-être ouvert, SUBMIT
+    sans issue, fill > 0) garde la fenêtre pleine — jamais de retry court qui empilerait
+    un 2e ordre sur un ordre peut-être vivant."""
     min_h = float(_cfg("FUTURES_AUTO_MIN_INTERVAL_H", 4.0) if min_h is None else min_h)
-    if last_ts is None:
+    if last is None:
+        return True
+    fenetre_h = min_h
+    if isinstance(last, dict):
+        ts = safe_float(last.get("ts"))
+        if (last.get("action") == "FUTURES_REAL_FAILED"
+                and safe_float(last.get("filled")) == 0.0
+                and not last.get("ambiguous")):
+            fenetre_h = float(_cfg("FUTURES_AUTO_RETRY_INTERVAL_H", 0.5)
+                              if retry_h is None else retry_h)
+    else:
+        ts = safe_float(last)
+    if ts is None:
         return True
     now = time.time() if now is None else now
-    return (now - float(last_ts)) >= min_h * 3600.0
+    return (now - ts) >= fenetre_h * 3600.0
 
 
 # ---------- lectures d'état (best-effort, lecture seule) ----------
@@ -398,14 +426,21 @@ def _tp_partiel_on():
     return bool(_cfg("FUTURES_TP_PARTIAL", False))
 
 
-def _poser_tp_partiel(fe, sym, side, prix, sl, now=None):
+def _poser_tp_partiel(fe, sym, side, prix, sl, now=None, filled_size=None):
     """TP PARTIEL (§82) : après une OUVERTURE réussie, pose un ordre limite GTC de
-    RÉDUCTION pour FUTURES_TP_PARTIAL_FRAC de la taille au premier objectif
-    (FUTURES_TP1_R × distance de stop). « Quand c'est possible » : seulement si la
-    tranche passe les minima du contrat — sinon rien, le préréglé RR plein reste seul.
-    Best-effort : un échec ne casse JAMAIS le cycle (le préréglé est le filet)."""
+    RÉDUCTION pour FUTURES_TP_PARTIAL_FRAC de la taille REMPLIE au premier objectif
+    (FUTURES_TP1_R × distance de stop). DURCI 21/07 : la tranche se dimensionne sur le
+    FILL RÉEL (filled_size, via fe.filled_size(res)) — jamais sur le notional configuré :
+    caps liquidité/risque et fills partiels font diverger les deux (TP1 fantôme de 43
+    contrats pour 27 demandés / 0 rempli, BANKUSDT 02:05). Fill inconnu ou nul -> RIEN
+    (le préréglé RR plein reste le filet). Les minima du contrat sont jugés par
+    place_partial_tp (« quand c'est possible »). Best-effort : un échec ne casse JAMAIS
+    le cycle."""
     try:
         if not _tp_partiel_on() or not prix or not sl:
+            return None
+        rempli = safe_float(filled_size)
+        if not rempli or rempli <= 0:
             return None
         import os
         frac = float(os.getenv("FUTURES_TP_PARTIAL_FRAC") or _cfg("FUTURES_TP_PARTIAL_FRAC", 0.5))
@@ -414,9 +449,8 @@ def _poser_tp_partiel(fe, sym, side, prix, sl, now=None):
         if dist <= 0:
             return None
         tp1 = float(prix) + dist * r1 if str(side) == "long" else float(prix) - dist * r1
-        taille = fe.size_for(_notional_cfg() * max(0.0, min(1.0, frac)), prix,
-                             fe._contract_spec(sym))
-        if not taille:
+        taille = rempli * max(0.0, min(1.0, frac))
+        if taille <= 0:
             return None
         return fe.place_partial_tp(sym, side, taille, tp1)
     except Exception:
@@ -671,7 +705,7 @@ def _run_cycle(now=None):
         out["decision"] = {**d, "action": "rien", "symbol": sym,
                            "raison": d["raison"] + f" [{sym}] — {raison_fd}"}
         return out
-    if not throttle_ok(dernier_ordre_auto_ts(events), now=now):
+    if not throttle_ok(derniere_tentative_auto(events), now=now):
         out["decision"] = {**d, "action": "rien", "symbol": sym,
                            "raison": d["raison"] + f" [{sym}] — throttle ordre (intervalle non écoulé)"}
         return out
@@ -705,7 +739,8 @@ def _run_cycle(now=None):
                            "raison": (res.get("reasons") or ["ouverture suspendue"])[0]}
         return out
     if res.get("executed"):
-        out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now))
+        out["tp_partiel"] = bool(_poser_tp_partiel(fe, sym, d["side"], prix, sl, now=now,
+                                                   filled_size=fe.filled_size(res)))
     return _finaliser(out, out["decision"], res)
 
 
@@ -767,7 +802,7 @@ def status(now=None):
         out["consensus"] = consensus_frais(entries, now=now, symbol=SYMBOL)
         out["decision"] = {"action": "rien",
                            "raison": "aucun consensus ≥ seuil sur l'univers (côtés libres)"}
-    out["throttle_pret"] = throttle_ok(dernier_ordre_auto_ts(events), now=now)
+    out["throttle_pret"] = throttle_ok(derniere_tentative_auto(events), now=now)
     return out
 
 
