@@ -18,6 +18,8 @@ systematic-debugging : comprendre AVANT de corriger, prouver la cause racine, ne
 
 ## <rapport>
 - Explique PRÉCISÉMENT pourquoi la panne survient, cause racine + cas limites cachés de cette zone.
+  Classe chaque cause avancée : DÉMONTRÉE / CONTRIBUTIVE / simple CORRÉLATION — ne conclus que sur
+  du démontré.
 - Évalue le risque ARGENT : double-position ? contournement d'un mur ? kill-switch défaillant ?
   perte non bornée ? Si un mur/le stop/le kill-switch est en cause → priorité absolue.
 </rapport>

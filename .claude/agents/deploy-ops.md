@@ -25,6 +25,9 @@ Pour un changement d'ops : la commande/le cron exact, et un `CHECKLIST_PROD.md` 
 « go » : 3 portes vertes, services up, aucun cron doublé, watchdog frais, backup OK, verrous réels dans
 l'état voulu, equity/stop sains). Vérifie l'état via `python system_health.py`, `futures_report.py`,
 `etat_effectif.py`, `verrous_effectifs.py`.
+**Promotion FAIL-CLOSED** : une preuve manquante n'est JAMAIS une réussite — un test non lancé ≠ un test
+vert, une porte non exécutée = ROUGE. Tout armement/promotion : limites réduites d'abord (canary),
+fenêtre de surveillance renforcée + critères d'arrêt automatiques définis AVANT, rollback identifié.
 
 ## Garde-fous
 Argent réel. Ne modifie jamais un mur/cap/kill-switch. N'arme aucun verrou réel sans instruction.

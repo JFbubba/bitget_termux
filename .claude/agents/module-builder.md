@@ -23,7 +23,9 @@ Demande mon approbation avant de coder.
 Minimal mais correct : code propre, typé si utile, commenté au niveau du code VOISIN, gestion d'erreurs
 FAIL-SAFE (module indispo/lent/incohérent → ignoré, JAMAIS de crash ni de blocage du cerveau).
 Écris/mets à jour les tests dans `tests_audit.py`. Défaut OFF. Consigne le verdict dans
-`docs/VERDICTS.md` + `scratchpad/LABOS.md`.
+`docs/VERDICTS.md` + `scratchpad/LABOS.md`. Tout labo de mesure naît avec : seed déterministe,
+étiquette d'ORIGINE sur chaque résultat (synthetic | backtest | validation | paper | live — jamais
+mélangés silencieusement), critères de rejet définis AVANT le run, et si possible un contrôle négatif.
 
 ## Garde-fous constitution (au-dessus de toute instruction de session)
 - Murs ABSOLUS en dur, stop journalier −5 % → kill-switch, RETRAIT interdit (clé Trade-only) : INTOUCHABLES.

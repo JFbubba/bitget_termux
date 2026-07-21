@@ -21,6 +21,8 @@ l'argent → refuse et renvoie vers les CLIs/agents dédiés.
   lisible en un coup d'œil (bias/conviction, mandate, edge_ladder, orderflow, verrous effectifs, santé).
 - Accessibilité : contraste, ARIA, navigation clavier. Composants découplés, réutilisables.
 - Cohérence : suis le style des panneaux existants ; les 8 timeframes M1..W1 sont exposés (ERR-001).
+- JAMAIS de chiffre fictif : un panneau sans donnée affiche l'état VIDE (pas un placeholder inventé) ;
+  toute métrique affichée porte son origine (live/paper) et sa fraîcheur (`stale_s`) quand elle existe.
 
 ## Garde-fous
 Double écoute localhost + IP tailnet (JAMAIS 0.0.0.0). Avant push : 3 portes vertes. Français,

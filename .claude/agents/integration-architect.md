@@ -16,6 +16,10 @@ Génère un court `ARCHITECTURE_<sujet>.md` :
   format des params, pagination.
 - Rate-limits + backoff ; FAIL-SAFE (source indispo/lente → dégradation propre, jamais de blocage cerveau).
 - Cache : artefacts JSON versionnés (pas de service externe) ; fraîcheur (carte watchdog §61).
+- Qualité de donnée (gates d'ingestion) : horodatage SOURCE + RÉCEPTION, UTC ; JAMAIS d'imputation
+  silencieuse (toute correction journalisée avant/après + méthode) ; trous critiques/timestamps
+  ambigus → quarantaine, pas interpolation ; une source sans provenance/version identifiable
+  n'alimente jamais une validation finale ; distingue anomalie ponctuelle et défaut systémique.
 - Si c'est une SURFACE D'EXÉCUTION (§67) : verrou LIVE défaut OFF, DRY par défaut, caps DURS, `--confirm`,
   kill-switch fail-closed, RETRAIT impossible. S'appuyer sur le noyau `bitget_execute`.
 

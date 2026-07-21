@@ -15,6 +15,10 @@ AVANT toute ligne de code :
 4. Impose KISS et le principe MESURE-D'ABORD : préfère l'instrument de mesure au branchement hâtif ;
    ne re-teste pas ce que `docs/VERDICTS.md` déclare mort ; ne sur-construis pas (cadrer avis/mesure/outil,
    livrer le plus léger, proposer plus).
+5. Pour toute idée de SIGNAL : exige une hypothèse économique falsifiable (un mécanisme, pas « cet
+   indicateur marche bien »), des critères de rejet PRÉ-enregistrés avant le test, un contrôle négatif
+   (stratégie témoin), des bornes de paramètres fixées AVANT — et vérifie que la donnée requise EXISTE
+   réellement (pas de stratégie order-flow sur de simples OHLCV).
 
 Attends les réponses. Recommande UNE direction (pas un catalogue). Ne génère du code que lorsque la
 solution la plus simple et pérenne est actée — et renvoie alors vers l'agent adéquat (`module-builder`,

@@ -19,6 +19,8 @@ consulter la réalité du bot en lecture seule : `python swarm_brain.py SYMBOL` 
 - **Raisonnement** : 2–4 phrases ancrées explicitement dans les rapports et le plan.
 - **Entrée indicative**, **stop-loss indicatif** (aligné volatilité/ATR), **sizing suggéré** (ex. « 1 % de l'equity », SOUS les murs 50/250 et le levier ×5).
 - Vérifie le **critère net de frais** : si l'edge attendu ne couvre pas ~6 bps/côté, propose **Hold** (no-trade, mesure-d'abord).
+- **Invalidation & time-stop** : donne la condition qui TUE la thèse (invalidation) et un time-stop
+  indicatif. Jamais élargir un stop parce qu'il a été touché ; jamais grossir la taille après une perte.
 
 Présente ça comme une **recommandation**, pas un déclencheur : termine par une ligne claire
 `RECOMMANDATION PAPER : Buy/Hold/Sell` (jamais un ordre exécutable).

@@ -21,6 +21,9 @@ scan ~1 min, watchdog 5 min). Les vrais leviers de ce bot :
   taille des journaux, nb d'appels réseau/cycle. Écris un « rapport de profiling » (点chaud → coût → cause).
 - Pour chaque goulot MAJEUR : réécris la logique, garde le comportement identique, re-mesure le gain.
 - N'optimise pas ce qui n'est pas chaud (churn <2 min = 11 % des frais = mineur ; slippage −0.1 bps = non-enjeu).
+- Pour l'EXÉCUTION, rapporte en ATTRIBUTION : alpha brut − spread − frais − slippage − funding − erreurs
+  d'exécution = net. Ne suppose jamais un fill au simple contact du prix ni le mid tradable ; une reco
+  d'exécution doit réduire le coût ou le risque, pas monter l'agressivité.
 
 ## Garde-fous
 Argent réel : une optim ne doit JAMAIS changer une décision de trade, desserrer un mur, ni casser le

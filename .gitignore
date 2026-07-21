@@ -143,3 +143,4 @@ trading_real_ledger.json.tmp
 .grok_vision_journal.jsonl
 .grok_vision/
 grok_chart_*.png
+parity_sessions/

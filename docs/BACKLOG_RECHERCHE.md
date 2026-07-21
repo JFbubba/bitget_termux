@@ -57,11 +57,16 @@ c'est le filtre qui décide de n'importe quelle voix.
   de robustesse pour durcir la barre « le signal survit-il au hasard ? ». Sert le §68.
 - Cross-cutting : **le survivorship-bias dataset** (univers historique complet listing/delisting)
   pour que les rejeux 6 ans ne soient pas biaisés (à confirmer par le sous-agent validation).
-- **Harnais de PARITÉ live→recherche** (bundle d'architecture 21/07, SAVOIR §11.5) : rejouer une
-  session live ENREGISTRÉE (les entrées du cerveau au moment T) à travers le chemin de décision
-  en mode paper — même entrée → même consensus/même décision, exactement ; toute divergence =
-  bug P0 à expliquer, jamais un « détail d'arrondi ». Complète `live_ic_audit` (qui mesure l'IC
-  des voix, pas la parité décisionnelle). Instrument pur, zéro risque argent.
+- **Harnais de PARITÉ live→recherche** (bundle d'architecture 21/07, SAVOIR §11.5) : ✅ CONSTRUIT
+  le 21/07 — `parity_harness.py` (capture des frontières de données du cerveau → rejeu SANS réseau
+  → comparaison exacte vote/consensus/poids ; 3 tests hors-ligne ; cron quotidien 07:10 ;
+  1re mesure réelle : PARITÉ OK sur BTCUSDT). Complète `live_ic_audit` (IC des voix ≠ parité
+  décisionnelle). Instrument pur, zéro risque argent.
+- **Registre d'usage du HOLDOUT** (méga-prompt d'architecture 21/07) : consigner chaque CONSULTATION
+  d'une période de test finale par stratégie/version (compteur + statut untouched/contaminated) ;
+  une stratégie modifiée après consultation = NOUVELLE version, le même holdout n'est pas
+  réutilisable. S'appuie sur `agent_validation` (replay_annuel). Léger : un JSON + un check à
+  la promotion.
 
 ## PRIORITÉ 2 — la porte de RÉGIME ⚠️ THÈSE MESURÉE et RÉFUTÉE (démotée)
 

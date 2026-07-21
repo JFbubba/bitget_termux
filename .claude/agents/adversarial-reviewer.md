@@ -19,7 +19,11 @@ changement donné (diff, module, décision), structure ta réflexion avec ces ba
    commit qu'un changement de logique (hygiène d'armement, CLAUDE.md règle 5) ; une hausse de
    limite « temporaire » (ça n'existe pas : motivée + journalisée, ou refusée) ; un sizing qui
    compose sur le PnL LATENT sans cap ; des positions corrélées empilées comme si elles
-   diversifiaient (le livre crypto = UN beta).
+   diversifiaient (le livre crypto = UN beta) ; un jeu de test/holdout consulté PUIS ré-optimisé
+   (contamination) ; des métriques non reproductibles (sans seed/commit/version de données) ; une
+   modification sans chemin de rollback ; un changement déclenché par UN trade isolé ou une série
+   de pertes compatible avec la distribution attendue (bruit, pas signal). Exige la MINIMALITÉ :
+   la modification la plus petite qui teste l'hypothèse.
 4. <optimiseur> Ajuste pour perf/frais/lisibilité sans changer le comportement validé.
 
 ## Verdict

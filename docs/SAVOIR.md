@@ -289,8 +289,11 @@ identifié chez nous : la confirmation temps réel par le canal WS PRIVÉ `order
 (BITGET_REFERENCE §8f) à la place du polling. Deux chaînons de plus (invariants 5-6) : nos
 réconciliations (`accum_reconcile`, `futures_report`) constatent en best-effort mais ne
 CLASSENT pas les écarts et aucun écart inexpliqué n'est aujourd'hui une condition de halte ;
-et il n'existe pas de harnais de rejeu live→recherche (`live_ic_audit` mesure l'IC des voix,
-pas la parité décisionnelle) — porté au backlog (PRIORITÉ 1).
+et le harnais de rejeu live→recherche est désormais CONSTRUIT (`parity_harness.py`, 21/07 :
+capture des frontières runtime_cache/fetch_candles/market_snapshot/poids → rejeu sans réseau →
+comparaison exacte ; 1re mesure réelle : PARITÉ OK sur BTCUSDT, 30 frontières, et une collision
+instructive — `market_snapshot` est appelé 2× dans un même cycle et peut voir DEUX prix ;
+cron quotidien 07:10, `--status` pour lire le dernier verdict).
 
 ## 12. Cadre fiscal belge des plus-values crypto (2026) — factuel, PAS un conseil (ajouté le 21/07/2026)
 

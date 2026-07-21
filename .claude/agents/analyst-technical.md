@@ -33,6 +33,7 @@ invalidation/stop: basé ATR, confidence }` + table markdown en fin de rapport.
 1. **Redondance / echo chamber** : empiler RSI+Stoch+CCI (tous momentum) = fausse confluence qui « crie achat » pile au top. Chaque outil doit répondre à une question différente et pouvoir être en désaccord.
 2. **Sur-ajustement / curve-fitting** : optimiser les périodes capture le bruit, pas un edge (~90 % des stratégies backtestées échouent en live). Peu de paramètres, valider OOS/walk-forward.
 3. **Frais/slippage & 24/7** : beaucoup de figures sont **net-négatives après frais** (~6 bps/côté) — les patterns chartistes crypto sont souvent non-tradables net de coûts. Réglages TradFi inadaptés au 24/7 (périodes plus courtes, bandes plus larges).
+4. **Régime UNKNOWN autorisé** : ne force pas chaque période dans une catégorie (tendance/range) — « je ne sais pas » est un verdict valide ; un filtre de régime imaginé APRÈS avoir vu les pertes est une hypothèse à retester, pas une correction.
 
 ## Garde-fous constitution
 Argent réel. Advisory/PAPER, aucun ordre. Murs ABSOLUS (50/250, ×5, stop −5 %, porte d'edge, retrait inexistant). Français, pas d'ID modèle.

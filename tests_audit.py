@@ -13763,6 +13763,105 @@ def test_dashboard_prochain_tir_dca():
     assert mod.prochain_tir_dca(jour + 17 * H, jour + 16 * H + 310) == jour + J + 16 * H + 300
 
 
+def _parity_env_hors_ligne():
+    """Frontières synthétiques DÉTERMINISTES (aucun réseau) pour le harnais de
+    parité. Rend les (module, attr, original) à restaurer par l'appelant."""
+    import bitget_market_data
+    import runtime_cache
+    import technicals
+    saves = [(runtime_cache, "get", runtime_cache.get),
+             (technicals, "fetch_candles", technicals.fetch_candles),
+             (bitget_market_data, "market_snapshot", bitget_market_data.market_snapshot)]
+
+    def rc_get(key, ttl, producer, fallback=None, **kw):
+        if key == "fear_greed":
+            return {"value": 30, "classification": "Fear"}
+        return fallback
+
+    def bougies(symbol, granularity="15m", limit=200, product_type=None):
+        out = []
+        for i in range(int(limit)):
+            base = 100.0 + 10.0 * ((i * 7919) % 97) / 97.0   # pseudo-aléa déterministe
+            out.append({"ts": 1_700_000_000_000 + i * 900_000, "open": base,
+                        "high": base * 1.01, "low": base * 0.99,
+                        "close": base * (1.0 + 0.001 * ((i % 5) - 2)),
+                        "volume": 50.0 + (i % 13)})
+        return out
+
+    def snapshot(symbol):
+        return {"mid_price": 105.0, "book_imbalance": 0.12, "cvd": 3.0}
+
+    runtime_cache.get = rc_get
+    technicals.fetch_candles = bougies
+    bitget_market_data.market_snapshot = snapshot
+    return saves
+
+
+def test_parity_harness_capture_rejeu_hors_ligne():
+    """Harnais de parité (SAVOIR §11.5) : capture hors-ligne sur frontières
+    synthétiques puis rejeu depuis la SEULE session -> parité exacte (0 divergence),
+    sessions écrites dans un dossier injecté, jamais en production (ERR-019)."""
+    import tempfile
+    import parity_harness as ph
+    saves = _parity_env_hors_ligne()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            chemin = ph.capture("BTCUSDT", dossier=d)
+            assert str(chemin).startswith(d), "session hors du dossier injecté (ERR-019)"
+            verdict = ph.rejeu(chemin)
+            assert verdict["parite"] is True, f"divergences: {verdict['divergences'][:3]}"
+            assert verdict["divergences"] == []
+    finally:
+        for mod, attr, orig in saves:
+            setattr(mod, attr, orig)
+
+
+def test_parity_harness_divergence_detectee():
+    """Falsifier la décision ENREGISTRÉE -> le rejeu RECALCULE depuis les données
+    (pas d'écho du verdict stocké) et la comparaison expose champ + valeurs."""
+    import json as _json
+    import tempfile
+    import parity_harness as ph
+    saves = _parity_env_hors_ligne()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            chemin = ph.capture("BTCUSDT", dossier=d)
+            session = _json.loads(chemin.read_text())
+            session["decision"]["votes"]["technicals"]["vote"] = 9.9   # impossible ([-1..1])
+            session["decision"]["consensus"] = 9.9
+            chemin.write_text(_json.dumps(session))
+            verdict = ph.rejeu(chemin)
+            assert verdict["parite"] is False
+            champs = {dv["champ"] for dv in verdict["divergences"]}
+            assert "votes.technicals.vote" in champs and "consensus" in champs
+    finally:
+        for mod, attr, orig in saves:
+            setattr(mod, attr, orig)
+
+
+def test_parity_harness_frontiere_manquante_en_repli():
+    """Un enregistrement supprimé de la session -> le rejeu ne rappelle JAMAIS un
+    producteur : la frontière sert le repli et est comptée (fail-safe, pas de crash)."""
+    import json as _json
+    import tempfile
+    import parity_harness as ph
+    saves = _parity_env_hors_ligne()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            chemin = ph.capture("BTCUSDT", dossier=d)
+            session = _json.loads(chemin.read_text())
+            cles = [c for c in session["magasin"] if c.startswith('["snapshot"')]
+            assert cles, "la capture doit contenir la frontière snapshot (_price §8)"
+            for c in cles:
+                del session["magasin"][c]
+            chemin.write_text(_json.dumps(session))
+            verdict = ph.rejeu(chemin)                     # ne doit pas lever
+            assert verdict["frontieres_manquantes"], "repli non compté"
+    finally:
+        for mod, attr, orig in saves:
+            setattr(mod, attr, orig)
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

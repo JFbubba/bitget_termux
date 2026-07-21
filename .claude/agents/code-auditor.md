@@ -22,6 +22,12 @@ Liste, avec fichier:ligne :
 - Points chauds de perf / risques de scalabilité (fichiers trop gros : `tests_audit.py`, `server.py`).
 - Fragilités spécifiques : verrous `.env` vs `config.py` (piège connu), modules dormants (ERR-013),
   gestion d'erreurs non fail-safe sur le chemin-argent.
+- Pour tout code de BACKTEST/labo de mesure, déroule la checklist « backtest auditor » : temporalité
+  (look-ahead, close utilisée avant d'être connue, indicateur centré, resampling/sync multi-TF,
+  warmup, réinitialisation d'état), exécution simulée (fill sur la barre même du signal, ordre limite
+  rempli au simple contact sans logique de file, séquence intrabar stop/target ambiguë), comptabilité
+  (frais, funding, arrondis), reproductibilité (seed, commit, version des données). UN SEUL défaut
+  critique de temporalité ou de comptabilité suffit à invalider le résultat mesuré.
 
 ## 3. Plan
 Propose un refactoring étape par étape, PRIORISÉ, chaque étape à comportement inchangé et testable.
