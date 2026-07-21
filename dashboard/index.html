@@ -226,6 +226,8 @@
 <script src="vendor/lightweight-charts.standalone.production.js"></script>
 </head>
 <body class="hide-paper">
+<!-- chemin froid : le serveur sert l'ancien état instantanément (stale_s) pendant la reconstruction -->
+<div id="stale-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99;background:var(--amber);color:#111;font-weight:600;font-size:12px;line-height:1.7;padding:2px 12px;text-align:center"></div>
 <div class="wrap">
 
   <div class="top">
@@ -1154,15 +1156,31 @@ function _rpFill(id,nid,rows){
     `<div class="rp-r"><span><span class="a ${r.cls||""}">${r.main}</span><br><span class="m">${r.meta}</span></span>`
     +`<span class="val a ${r.vcls||""}">${r.val}</span></div>`).join("");
 }
-// --- critère de Kelly (advisory) : W/R mesurés -> fraction bornée + taille recommandée ---
-function renderKelly(k){
-  const el=$("kelly");if(!el)return;k=k||{};
-  if(k.W==null){el.innerHTML='<span class="dim">Kelly indisponible</span>';return;}
+// --- Kelly : §111 calculateur de mise (boucle directionnelle) + advisory W/R (surfaces) ---
+function renderKelly(k,kd){
+  const el=$("kelly");if(!el)return;k=k||{};kd=kd||{};
+  let l1="";
+  if(Object.keys(kd).length){
+    const badge=kd.arme?'<span class="green">ARMÉ</span>':'<span class="dim">OFF</span>';
+    let core;
+    if(kd.risk_pct==null){
+      core='<span style="color:var(--amber)">stats live indisponibles → garde fixe seule (fail-open)</span>';
+    }else if(kd.risk_pct<=0){
+      core=`<span class="red">posterior ${kd.p_post!=null?(100*kd.p_post).toFixed(1)+"%":"—"} ≤ break-even ${kd.p0!=null?(100*kd.p0).toFixed(1)+"%":"—"} (n ${kd.n_ordres??"—"} ordres) → mise 0 = PAS d'ouverture</span>`;
+    }else{
+      core=`risque Kelly <b class="green">${(+kd.risk_pct).toFixed(2)} %</b>/trade `
+        +`(posterior ${(100*(kd.p_post??0)).toFixed(1)} % &gt; break-even ${(100*(kd.p0??0)).toFixed(1)} %, n ${kd.n_ordres??"—"} · c_dd ${kd.dd_fraction??"—"} ÷ ${kd.n_slots} slots)`
+        +(kd.garde_pct!=null?` · garde ${kd.garde_pct} % → retenu <b>${(+kd.risk_effectif_pct).toFixed(2)} %</b>`:"");
+    }
+    l1=`<b>Kelly §111</b> (mise/trade directionnel) ${badge} · ${core}<br>`;
+  }
+  if(k.W==null){el.innerHTML=l1||'<span class="dim">Kelly indisponible</span>';return;}
   const pos=k.edge_positive;
   const col=pos?"green":"red";
   const reco=k.recommended_usdt||{};
   const recoStr=Object.keys(reco).map(s=>`${s} $${(+reco[s]).toFixed(2)}`).join(" · ");
-  el.innerHTML=`<b>Kelly</b> · W ${(100*k.W).toFixed(1)}% · R ${(+k.R).toFixed(2)} · `
+  el.innerHTML=l1
+    +`<span class="dim">advisory surfaces</span> · W ${(100*k.W).toFixed(1)}% · R ${(+k.R).toFixed(2)} · `
     +`f complet <span class="${col}">${k.f_full}</span> -> f appliqué (×${k.fraction}, cap ${k.cap}) `
     +`<b class="${col}">${k.f}</b> · capital ≈ $${k.capital_usdt} · taille reco : ${recoStr}`
     +(pos?"":` · <span class="red">edge NÉGATIF -> mise 0 (ne pas miser tant qu'un edge positif n'est pas démontré)</span>`);
@@ -1386,11 +1404,17 @@ function renderFuture(f){
 let _lat=0;
 // fusionne un delta/full (SSE ou poll) dans window._ST, puis re-rend. Source commune.
 function applyDelta(resp){
+  // bandeau « données d'il y a X » : présent tant que le serveur sert l'ancien état
+  // (reconstruction de fond en cours) ; retiré au premier payload frais.
+  const sb=$("stale-banner");
+  if(sb){ if(resp.stale_s!=null){ const m=Math.floor(resp.stale_s/60);
+      sb.textContent="⏳ données d'il y a "+(m?m+" min":resp.stale_s+" s")+" — reconstruction en arrière-plan, rafraîchissement automatique…";
+      sb.style.display="block"; } else sb.style.display="none"; }
   if(resp.full){ window._ST=resp.state||{}; }
   else { const _S=window._ST||{}; Object.assign(_S,resp.changed||{});
          (resp.removed||[]).forEach(k=>delete _S[k]); window._ST=_S; }
   if(resp.v!=null)_stateV=resp.v;
-  renderState();
+  if(resp.full||Object.keys(resp.changed||{}).length||(resp.removed||[]).length)renderState();
 }
 // POLL de REPLI (utilisé seulement si SSE indisponible) : requête incrémentale ponctuelle.
 async function tick(){
@@ -1656,7 +1680,7 @@ function renderState(){
     try{ window._SMC=st.smc||{}; drawSMC(window._SMC); }catch(e){}
     try{ renderRealPositions(st.real_positions||{}); }catch(e){}
     try{ renderTradingSurfaces(st.trading_surfaces||[]); }catch(e){}
-    try{ renderKelly(st.kelly||{}); }catch(e){}
+    try{ renderKelly(st.kelly||{}, st.kelly_dir||{}); }catch(e){}
     try{ renderMethodes(st.methodes||{}, st.overlay_ic||{}); }catch(e){}
     try{ renderGarde96(st.learning||{}); }catch(e){}
     try{ renderCollecte(st.collecte||{}); }catch(e){}

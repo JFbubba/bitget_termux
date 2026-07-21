@@ -26,6 +26,8 @@ brain_log.json
 brain_weights.json
 conversation_state.json
 .runtime_cache.json
+.dashboard_snapshot.json
+.dashboard_snapshot.tmp
 .geom_systemic_store.json
 .backlog_review_state.json
 .bitget_watch_state.json

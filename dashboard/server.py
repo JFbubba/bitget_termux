@@ -20,6 +20,7 @@ Voir dashboard/DEPLOY.md pour le déploiement VPS (SSH tunnel / nginx + ufw).
 """
 
 import csv
+import gzip
 import json
 import os
 import sys
@@ -101,6 +102,64 @@ def _prewarm(specs, workers=8):
     with ThreadPoolExecutor(max_workers=min(workers, len(stale))) as ex:
         for k, ttl, thunk in stale:
             ex.submit(_cached, k, ttl, thunk)
+
+
+# --- chemin froid : dernier état COMPLET (mémoire + snapshot disque) servi INSTANTANÉMENT ---
+# Le SWR ne protège que tant que les caches par clé sont sous leur borne dure (≤1 h) et le
+# garde-chaud s'endort 10 min après le dernier client : au retour du propriétaire, la première
+# peinture payait jusqu'à ~40 s de producteurs réseau. Ici : si le dernier build est vieux, on
+# sert l'ANCIEN état tout de suite (bandeau d'âge côté client) et on reconstruit en FOND
+# (single-flight) — le frais arrive ensuite par le flux SSE/poll via le chemin normal.
+_LAST_STATE = {}                # scope "SYMBOL:tf" -> (ts, state) du dernier build COMPLET
+_BUILT_SCOPES = set()           # scopes construits par CE processus (≠ rechargés du disque) :
+                                # après un redémarrage, les caches par clé sont VIDES — même un
+                                # snapshot récent (<90 s) doit être servi en stale pendant la chauffe
+_REBUILD_INFLIGHT = set()       # scopes en reconstruction de fond (single-flight)
+_SNAPSHOT_PATH = Path(os.getenv("DASH_SNAPSHOT_PATH", str(REPO_ROOT / ".dashboard_snapshot.json")))
+_SNAPSHOT_EVERY_S = 60.0        # persistance throttlée (le garde-chaud reconstruit toutes les ~20 s)
+_SNAPSHOT_LAST_W = [0.0]
+_STALE_SERVE_S = 90.0           # dernier build plus vieux -> servir l'ancien + rebuild de fond
+_STALE_DISK_MAX_S = 6 * 3600.0  # au-delà, un snapshot disque est trop vieux pour être montré (argent réel)
+
+
+def _snapshot_save():
+    """Persiste les derniers états construits (atomique tmp+rename, throttlé) : après un
+    redémarrage (déploiement) le dashboard repeint immédiatement avec l'état d'avant,
+    marqué de son âge, au lieu de faire payer le chemin froid. Best-effort."""
+    now = time.time()
+    if now - _SNAPSHOT_LAST_W[0] < _SNAPSHOT_EVERY_S:
+        return
+    _SNAPSHOT_LAST_W[0] = now
+    try:
+        with _CACHE_LOCK:
+            data = {scope: {"ts": ts, "state": st} for scope, (ts, st) in _LAST_STATE.items()}
+        tmp = _SNAPSHOT_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(_SNAPSHOT_PATH)
+    except Exception:
+        pass
+
+
+def _snapshot_load(scope):
+    """(ts, state) du snapshot disque pour ce scope, ou None (absent, illisible, trop vieux)."""
+    try:
+        rec = (json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8")) or {}).get(scope)
+        ts = float((rec or {}).get("ts") or 0)
+        if rec and time.time() - ts < _STALE_DISK_MAX_S:
+            return ts, rec["state"]
+    except Exception:
+        pass
+    return None
+
+
+def _maybe_gzip(body, accept_encoding, ctype):
+    """(corps, Content-Encoding ou None) : compresse les corps ≥1 Ko si le client accepte
+    gzip (index 152 Ko -> ~30 Ko, état 66 Ko -> ~10 Ko à travers le tunnel SSH). PUR.
+    Jamais sur un flux SSE (streaming incompatible)."""
+    if (len(body) >= 1024 and "gzip" in (accept_encoding or "")
+            and not (ctype or "").startswith("text/event-stream")):
+        return gzip.compress(body, 6), "gzip"
+    return body, None
 
 
 def _safe(producer, default=None):
@@ -1215,6 +1274,36 @@ def build_state(symbol=None, tf="5m"):
         {s.get("surface"): s.get("per_op") for s in (state.get("trading_surfaces") or [])
          if s.get("surface") in ("spot", "margin")} or None,
         capital=(_cap or None), W=_W, R=_wr.get("tp_sl_ratio")), {}))
+
+    # §111 — Kelly CALCULATEUR DE MISE de la boucle directionnelle (ARMÉ le 21/07) : posterior
+    # bayésien break-even sur ORDRES RÉELS × fraction MDD (Thorp 7.13) ÷ budget corrélé, puis
+    # min() avec la garde fixe. Ici en LECTURE (même calcul que futures_auto, aucun ordre) —
+    # rend visibles les trois régimes : mise>0 / mise 0 = PAS d'ouverture / fail-open.
+    def _kelly_dir():
+        import kelly as K                      # importe load_env (lecteur env unique §111)
+        from config_utils import cfg as _c
+
+        def _knob(name, default, conv):
+            v = (os.getenv(name) or "").strip()
+            try:
+                return conv(v) if v else conv(_c(name, default))
+            except (TypeError, ValueError):
+                return default
+        v = (os.getenv("KELLY_SIZING") or "").strip().lower()
+        arme = v in ("1", "true", "yes", "on") if v else bool(_c("KELLY_SIZING", False))
+        n_slots = max(1, _knob("FUTURES_AUTO_MAX_POSITIONS", 3, int))
+        garde = _knob("FUTURES_RISK_PCT_PER_TRADE", 1.0, float)
+        pct, det = K.futures_risk_pct(n_slots=n_slots)
+        eff = None
+        if pct is not None:
+            eff = 0.0 if pct <= 0 else (min(pct, garde) if garde > 0 else pct)
+        kb = (det or {}).get("bayes") or {}
+        return {"arme": arme, "risk_pct": pct, "garde_pct": garde or None,
+                "risk_effectif_pct": eff, "n_slots": n_slots,
+                "dd_fraction": (det or {}).get("dd_fraction"),
+                "p_post": kb.get("p_post"), "p0": kb.get("p0"), "n_ordres": kb.get("n"),
+                "note": kb.get("note") or (det or {}).get("note")}
+    state["kelly_dir"] = _cached("kelly_dir", 120, lambda: _safe(_kelly_dir, {}))
     state["bord"] = _cached("bord", 60, lambda: _safe(_journal_de_bord, []))
     state["rdv"] = _cached("rdv", 120, lambda: _safe(_rendez_vous, []))
 
@@ -1245,6 +1334,10 @@ def build_state(symbol=None, tf="5m"):
     fut_armed = (state.get("futures_live") or {}).get("armed")
     state["mode"] = (("RÉEL spot 2–5$/j" if armed else "paper accumulation")
                      + " · " + ("RÉEL futures borné §45" if fut_armed else "PAPER futures"))
+    with _CACHE_LOCK:
+        _LAST_STATE[f"{symbol}:{tf}"] = (time.time(), state)
+        _BUILT_SCOPES.add(f"{symbol}:{tf}")
+    _snapshot_save()
     return state
 
 
@@ -1269,9 +1362,33 @@ def build_delta(symbol, tf, since):
                                           (client neuf, changement de symbole, redémarrage serveur) ;
       • DELTA {v, full:false, changed}   sinon — uniquement les clés de version > `since`.
     Stateless & multi-clients : les versions vivent côté serveur par symbole:tf, le client
-    ne porte qu'un curseur entier `since`."""
-    state = build_state(symbol, tf)
+    ne porte qu'un curseur entier `since`.
+    CHEMIN FROID : si le dernier build du scope est vieux (> _STALE_SERVE_S), l'ancien état
+    (mémoire, sinon snapshot disque) part IMMÉDIATEMENT marqué `stale_s`, et la reconstruction
+    se fait en FOND (single-flight) — jamais ~40 s de producteurs réseau devant le client."""
     scope = f"{symbol}:{tf}"
+    now = time.time()
+    with _CACHE_LOCK:
+        last = _LAST_STATE.get(scope)
+    if last is None:
+        disk = _snapshot_load(scope)
+        if disk:
+            with _CACHE_LOCK:
+                last = _LAST_STATE.setdefault(scope, disk)
+    if last and (now - last[0] > _STALE_SERVE_S or scope not in _BUILT_SCOPES):
+        with _CACHE_LOCK:
+            spawn = scope not in _REBUILD_INFLIGHT
+        if spawn:
+            # le verrou single-flight est pris DANS _build_scope_guarded (partagé avec le
+            # garde-chaud : jamais deux builds concurrents du même scope pendant la chauffe)
+            threading.Thread(target=_build_scope_guarded, args=(symbol, tf),
+                             daemon=True, name=f"rebuild:{scope}").start()
+        age = int(now - last[0])
+        if since is None:
+            return {"v": 0, "full": True, "state": last[1], "stale_s": age}
+        # client déjà peint : simple battement d'âge (pas de re-FULL de 66 Ko toutes les 2 s)
+        return {"v": 0, "full": False, "changed": {}, "removed": [], "stale_s": age}
+    state = build_state(symbol, tf)
     with _VER_LOCK:
         vers = _VERSIONS.setdefault(scope, {})
         for k, v in state.items():
@@ -1291,6 +1408,24 @@ def build_delta(symbol, tf, since):
         return {"v": cur, "full": False, "changed": changed, "removed": removed}
 
 
+def _build_scope_guarded(symbol, tf):
+    """Construit l'état d'un scope sous verrou SINGLE-FLIGHT partagé (garde-chaud +
+    rebuilds du chemin stale) : jamais deux builds concurrents du même scope — pendant
+    la chauffe post-redémarrage, deux builds en parallèle doublaient la durée (~85 s
+    au lieu de ~40 s, mesuré). False si un build est déjà en cours."""
+    scope = f"{symbol}:{tf}"
+    with _CACHE_LOCK:
+        if scope in _REBUILD_INFLIGHT:
+            return False
+        _REBUILD_INFLIGHT.add(scope)
+    try:
+        build_state(symbol, tf)
+        return True
+    finally:
+        with _CACHE_LOCK:
+            _REBUILD_INFLIGHT.discard(scope)
+
+
 def _garde_chaud():
     """Rafraîchisseur de fond : tant qu'un client a été vu il y a < 10 min (ou depuis
     le démarrage), reconstruit l'état toutes les ~20 s — les caches SWR restent
@@ -1299,7 +1434,7 @@ def _garde_chaud():
     while True:
         try:
             if time.time() - _LAST_REQ["ts"] < 600:
-                build_state(_LAST_REQ["symbol"] or DEFAULT_SYMBOL, _LAST_REQ["tf"] or "5m")
+                _build_scope_guarded(_LAST_REQ["symbol"] or DEFAULT_SYMBOL, _LAST_REQ["tf"] or "5m")
         except Exception:
             pass
         time.sleep(20)
@@ -1308,8 +1443,11 @@ def _garde_chaud():
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
         try:
+            body, enc = _maybe_gzip(body, self.headers.get("Accept-Encoding"), ctype)
             self.send_response(code)
             self.send_header("Content-Type", ctype)
+            if enc:
+                self.send_header("Content-Encoding", enc)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

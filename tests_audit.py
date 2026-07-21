@@ -314,6 +314,84 @@ def test_dashboard_edge_summary():
     assert vide["tiers"] == {} and vide["pending"] == [] and vide["top"] == []
     assert mod.edge_summary(None)["priors"] == {}
 
+
+def test_dashboard_snapshot_persist_et_lecture():
+    # chemin froid : round-trip du snapshot disque (atomique, throttlé) + refus du trop-vieux.
+    # Chemin INJECTÉ (ERR-019) : le test n'écrit jamais le snapshot de production.
+    import importlib.util
+    import json
+    import pathlib
+    import tempfile
+    import time
+    spec = importlib.util.spec_from_file_location("dash_server3", pathlib.Path("dashboard/server.py"))
+    ds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+    with tempfile.TemporaryDirectory() as td:
+        ds._SNAPSHOT_PATH = pathlib.Path(td) / "snap.json"
+        ds._SNAPSHOT_LAST_W[0] = 0.0
+        ds._LAST_STATE.clear()
+        ds._LAST_STATE["BTCUSDT:5m"] = (time.time() - 10, {"x": 1})
+        ds._snapshot_save()
+        assert ds._SNAPSHOT_PATH.exists()
+        got = ds._snapshot_load("BTCUSDT:5m")
+        assert got is not None and got[1] == {"x": 1}
+        assert ds._snapshot_load("AUTRESCOPE:5m") is None      # scope absent -> None
+        # throttle : une 2e sauvegarde immédiate ne réécrit pas le fichier
+        ds._LAST_STATE["BTCUSDT:5m"] = (time.time(), {"x": 2})
+        ds._snapshot_save()
+        assert ds._snapshot_load("BTCUSDT:5m")[1] == {"x": 1}
+        # snapshot au-delà de la borne d'âge (argent réel) -> refusé
+        data = json.loads(ds._SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        data["BTCUSDT:5m"]["ts"] = time.time() - ds._STALE_DISK_MAX_S - 5
+        ds._SNAPSHOT_PATH.write_text(json.dumps(data), encoding="utf-8")
+        assert ds._snapshot_load("BTCUSDT:5m") is None
+
+
+def test_dashboard_build_delta_sert_stale_sans_bloquer():
+    # chemin froid : dernier build vieux -> l'ANCIEN état part immédiatement (full + stale_s)
+    # sans JAMAIS payer build_state en synchrone ; client déjà peint -> battement vide.
+    import importlib.util
+    import pathlib
+    import time
+    spec = importlib.util.spec_from_file_location("dash_server4", pathlib.Path("dashboard/server.py"))
+    ds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+    scope = "ETHUSDT:5m"
+    ds._LAST_STATE[scope] = (time.time() - 9999, {"a": 1})
+    ds._REBUILD_INFLIGHT.add(scope)                    # single-flight déjà pris -> aucun thread lancé
+    appels = []
+    ds.build_state = lambda *a, **k: appels.append(1) or {}
+    r = ds.build_delta("ETHUSDT", "5m", None)
+    assert r["full"] is True and r["state"] == {"a": 1} and r["stale_s"] > 0
+    r2 = ds.build_delta("ETHUSDT", "5m", 7)
+    assert r2["full"] is False and r2["changed"] == {} and r2["stale_s"] > 0
+    assert appels == []                                # jamais de reconstruction synchrone en stale
+    # redémarrage avec snapshot RÉCENT (<90 s) : jamais construit par CE processus (caches
+    # par clé vides) -> servi en stale quand même, pendant que la chauffe se fait en fond
+    scope2 = "SOLUSDT:5m"
+    ds._LAST_STATE[scope2] = (time.time() - 5, {"b": 2})
+    ds._REBUILD_INFLIGHT.add(scope2)
+    r3 = ds.build_delta("SOLUSDT", "5m", None)
+    assert r3["full"] is True and r3["state"] == {"b": 2} and "stale_s" in r3
+    assert appels == []
+
+
+def test_dashboard_maybe_gzip():
+    # compression : gros corps + client compatible -> gzip round-trip ; petit corps,
+    # client sans gzip, et flux SSE -> INTACTS.
+    import gzip as _gz
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_server5", pathlib.Path("dashboard/server.py"))
+    ds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+    gros = b"x" * 5000
+    corps, enc = ds._maybe_gzip(gros, "gzip, deflate", "application/json")
+    assert enc == "gzip" and len(corps) < len(gros) and _gz.decompress(corps) == gros
+    assert ds._maybe_gzip(gros, "", "application/json") == (gros, None)
+    assert ds._maybe_gzip(b"petit", "gzip", "text/html")[1] is None
+    assert ds._maybe_gzip(gros, "gzip", "text/event-stream")[1] is None
+
 def test_macro_risk_regime():
     import macro_context as mc
     on = mc.compute_risk_regime(vix=15.0, yield_2s10s=0.5, dxy_change_pct=-1.0)
