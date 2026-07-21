@@ -49,11 +49,38 @@ from concurrent.futures import ThreadPoolExecutor
 _CACHE_LOCK = threading.Lock()
 
 
+_LAST_REQ = {"symbol": None, "tf": "5m", "ts": 0.0}   # dernier (symbol, tf) vu — cf. _garde_chaud
+_SWR_INFLIGHT = set()      # clés en cours de rafraîchissement de fond (single-flight)
+_SWR_MAX_INFLIGHT = 6      # au-delà : servir l'ancien SANS lancer de thread (réessai au prochain appel)
+_SWR_HARD_MAX = 3600.0     # borne dure absolue de fraîcheur servie en SWR
+
+
+def _swr_refresh(key, producer):
+    """Rafraîchit UNE clé en arrière-plan (thread daemon). Ne lève jamais vers le serveur."""
+    try:
+        value = producer()
+        with _CACHE_LOCK:
+            _CACHE[key] = (time.time(), value)
+    finally:
+        with _CACHE_LOCK:
+            _SWR_INFLIGHT.discard(key)
+
+
 def _cached(key, ttl, producer):
+    """Cache stale-while-revalidate : frais -> servi ; périmé mais sous la borne dure
+    (min(max(5×ttl, 120 s), 1 h)) -> l'ANCIEN est servi IMMÉDIATEMENT et un thread de
+    fond single-flight recalcule (le chemin de requête ne paie plus les producteurs
+    réseau à l'expiration d'un TTL) ; absent ou trop vieux -> calcul synchrone."""
     now = time.time()
     with _CACHE_LOCK:
         hit = _CACHE.get(key)
         if hit and now - hit[0] < ttl:
+            return hit[1]
+        if hit and now - hit[0] < min(max(5.0 * ttl, 120.0), _SWR_HARD_MAX):
+            if key not in _SWR_INFLIGHT and len(_SWR_INFLIGHT) < _SWR_MAX_INFLIGHT:
+                _SWR_INFLIGHT.add(key)
+                threading.Thread(target=_swr_refresh, args=(key, producer),
+                                 daemon=True, name=f"swr:{key}").start()
             return hit[1]
     value = producer()                       # HORS verrou : les producteurs sont lents (réseau)
     with _CACHE_LOCK:
@@ -91,6 +118,19 @@ def _num(value, default=None):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def prochain_tir_dca(now, dernier_achat_ts):
+    """PURE (§110). Prochain tir DCA : tirs horaires à :05 dans la fenêtre
+    16:05-19:05 UTC, 1 achat/jour — si l'achat du jour est fait ou la fenêtre
+    passée, le prochain tir est demain 16:05. Timestamps UTC en secondes."""
+    jour = int(now // 86400) * 86400
+    base = jour + 86400 if dernier_achat_ts >= jour else jour
+    for h in (16, 17, 18, 19):
+        t = base + h * 3600 + 300
+        if t > now:
+            return t
+    return jour + 86400 + 16 * 3600 + 300
 
 
 def enrich_positions(positions, prices):
@@ -646,19 +686,12 @@ def build_state(symbol=None, tf="5m"):
         now = _t.time()
         rv = []
         rv.append({"txt": "règlement funding", "ts": (int(now) // 28800 + 1) * 28800})
-        try:                                       # fenêtre DCA (16-20h UTC, 1/jour)
+        try:                                       # tirs DCA §110 : 16:05-19:05 UTC, 1 achat/j
             import spot_executor as se
             buys = se._load_real().get("buys") or []
             dernier = buys[-1]["ts"] if buys else 0
-            possible = dernier + 24 * 3600
-            jour = int(max(now, possible) // 86400) * 86400
-            cible = jour + 16 * 3600
-            while cible < max(now, possible):
-                cible += 86400 if cible + 4 * 3600 < max(now, possible) else (
-                    0 if cible + 4 * 3600 > max(now, possible) else 86400)
-                if cible >= max(now, possible) or cible + 4 * 3600 > max(now, possible):
-                    break
-            rv.append({"txt": "fenêtre DCA (16-20h)", "ts": int(max(cible, possible))})
+            rv.append({"txt": "tir DCA (fenêtre 16:05-19:05)",
+                       "ts": int(prochain_tir_dca(now, dernier))})
         except Exception:
             pass
         try:                                       # throttle directionnel
@@ -939,6 +972,23 @@ def build_state(symbol=None, tf="5m"):
         import adl_rank as ar
         return ar.report()
 
+    def _terms():
+        """Structure par terme Deribit (descripteur de RÉGIME keyless, cron 07:40) :
+        GET public via term_structure.snapshot() ; si le réseau est muet (points
+        vides), REPLI sur le dernier relevé du cron (term_structure_history.jsonl)."""
+        import term_structure as ts
+        snap = ts.snapshot() or {}
+        if not snap.get("points"):
+            try:
+                lignes = [l for l in (REPO_ROOT / "term_structure_history.jsonl")
+                          .read_text(encoding="utf-8").splitlines() if l.strip()]
+                if lignes:
+                    snap = json.loads(lignes[-1])
+                    snap["source"] = "relevé du cron 07:40 (réseau muet)"
+            except Exception:
+                pass
+        return snap
+
     # PRÉ-CHAUFFE EN PARALLÈLE tous les producteurs INDÉPENDANTS (appels réseau/signés) :
     # la latence de build passe de leur SOMME (~22 s à froid) à leur MAX (~3-4 s). Les
     # producteurs DÉPENDANTS (projection/future/neural/kelly, qui lisent brain/smc/…) restent
@@ -968,6 +1018,7 @@ def build_state(symbol=None, tf="5m"):
         ("flows", 3600, lambda: _safe(_flows, {})),
         ("voliv", 1800, lambda: _safe(_vol_iv, {})),
         ("carry", 1800, lambda: _safe(_carry, {})),
+        ("terms", 1800, lambda: _safe(_terms, {})),
         ("futlive", 60, lambda: _safe(_futures_live, {})),
         (f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {})),
         (f"smc:{symbol}:{tf}", 60, lambda: _safe(_smc, {})),
@@ -993,7 +1044,7 @@ def build_state(symbol=None, tf="5m"):
     # le cerveau réinterroge 13 agents (réseau) : cache plus long pour le polling.
     brain = _cached(f"br:{symbol}", 45, lambda: _safe(_brain, {}))
     liq = _cached(f"lq:{symbol}", 45, lambda: _safe(_liq, {}))
-    health = _safe(_health, {})
+    health = _cached("health", 20, lambda: _safe(_health, {}))
     symbols = _cached("symbols", 300, lambda: _safe(_symbols, [symbol]))
     # positions PAPER en cours + prix live (1 requête tickers), enrichies à chaque appel
     positions_raw = _cached("positions", 15, lambda: _safe(_positions, []))
@@ -1002,7 +1053,8 @@ def build_state(symbol=None, tf="5m"):
 
     state = assemble_state(symbol, symbols, stats, orderflow, macro, health, market, candles, book, brain, liq, positions)
     state["tf"] = tf
-    state["projection"] = _safe(lambda: _projection(candles, brain, liq), {})
+    state["projection"] = _cached(f"proj:{symbol}:{tf}", 20,
+                                  lambda: _safe(lambda: _projection(candles, brain, liq), {}))
     # futurtester : projection coûteuse (Monte Carlo) -> cache long, best-effort
     state["future"] = _cached(f"fut:{symbol}", 300, lambda: _safe(lambda: _future(brain), {}))
     # accumulation réelle + mandat + échelle d'edge (lecture seule, cachés)
@@ -1022,6 +1074,8 @@ def build_state(symbol=None, tf="5m"):
     state["flows"] = _cached("flows", 3600, lambda: _safe(_flows, {}))
     state["vol_iv"] = _cached("voliv", 1800, lambda: _safe(_vol_iv, {}))
     state["carry"] = _cached("carry", 1800, lambda: _safe(_carry, {}))
+    # Structure par terme Deribit (régime contango/backwardation/stress — rien à l'argent)
+    state["term_structure"] = _cached("terms", 1800, lambda: _safe(_terms, {}))
     # futures réel §45 : préview de décision + réconciliation (lecture seule)
     state["futures_live"] = _cached("futlive", 60, lambda: _safe(_futures_live, {}))
     state["viz"] = _cached(f"viz:{symbol}", 90, lambda: _safe(lambda: _viz(symbol), {}))
@@ -1237,6 +1291,20 @@ def build_delta(symbol, tf, since):
         return {"v": cur, "full": False, "changed": changed, "removed": removed}
 
 
+def _garde_chaud():
+    """Rafraîchisseur de fond : tant qu'un client a été vu il y a < 10 min (ou depuis
+    le démarrage), reconstruit l'état toutes les ~20 s — les caches SWR restent
+    chauds et le chemin de requête ne paie plus jamais un producteur réseau.
+    Best-effort, LECTURE SEULE (exactement les mêmes producteurs que /api/state)."""
+    while True:
+        try:
+            if time.time() - _LAST_REQ["ts"] < 600:
+                build_state(_LAST_REQ["symbol"] or DEFAULT_SYMBOL, _LAST_REQ["tf"] or "5m")
+        except Exception:
+            pass
+        time.sleep(20)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
         try:
@@ -1269,6 +1337,7 @@ class Handler(BaseHTTPRequestHandler):
                 since = int(since_raw) if since_raw not in (None, "") else None
             except (TypeError, ValueError):
                 since = None
+            _LAST_REQ.update(symbol=symbol, tf=tf, ts=time.time())
             body = json.dumps(build_delta(symbol, tf, since)).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body)
         elif parsed.path == "/api/stream":
@@ -1288,6 +1357,7 @@ class Handler(BaseHTTPRequestHandler):
                 interval = float(os.getenv("DASH_SSE_INTERVAL", "2"))
                 since = None
                 while True:
+                    _LAST_REQ.update(symbol=symbol, tf=tf, ts=time.time())
                     payload = build_delta(symbol, tf, since)
                     since = payload["v"]
                     self.wfile.write(("data: " + json.dumps(payload) + "\n\n").encode("utf-8"))
@@ -1373,6 +1443,10 @@ def main():
         pass
     print(f"=== DASHBOARD (lecture seule) sur http://{HOST}:{PORT} ===")
     print("Mode: PAPER / DRY-RUN. Aucun ordre. VERDICT: SAFE")
+    # Rafraîchisseur de fond : premier chauffage dès le boot (ts = maintenant), puis
+    # actif tant qu'un client est vu (< 10 min). Le premier visiteur arrive sur du chaud.
+    _LAST_REQ["ts"] = time.time()
+    threading.Thread(target=_garde_chaud, daemon=True, name="garde-chaud").start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     # §93 : écoute AUSSI sur l'IP Tailscale si présente (accès smartphone via le
     # tailnet privé WireGuard — l'IP 100.64/10 n'est PAS routable depuis Internet ;
@@ -1384,7 +1458,6 @@ def main():
                                text=True, timeout=5).stdout.strip().splitlines()
         ts_ip = ts_ip[0].strip() if ts_ip else ""
         if ts_ip.startswith("100.") and ts_ip != HOST:
-            import threading
             extra = ThreadingHTTPServer((ts_ip, PORT), Handler)
             threading.Thread(target=extra.serve_forever, daemon=True).start()
             print(f"Dashboard aussi sur le tailnet : http://{ts_ip}:{PORT}")

@@ -590,6 +590,13 @@
       <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">carry delta-neutre + ≤×5 → rang bas attendu ; alerte seulement si un rang monte à 4-5 (jambe nue à fort levier)</div>
     </div>
     <div class="panel">
+      <h2>Structure par terme <span class="dim" style="letter-spacing:0">— courbe futures Deribit BTC (keyless) · descripteur de RÉGIME, rien branché à l'argent</span></h2>
+      <div class="row"><span class="k">régime · stress</span><span id="ts-regime">—</span></div>
+      <div class="row"><span class="k">basis médian · pente</span><span id="ts-basis">—</span></div>
+      <div id="ts-points" class="dim" style="font-size:10.5px;line-height:1.7">—</div>
+      <div class="dim" style="font-size:9px;margin-top:6px;letter-spacing:0">contango = normal/carry payé · backwardation = stress spot ; repli sur le relevé cron 07:40 si Deribit muet</div>
+    </div>
+    <div class="panel">
       <h2>Recherche &amp; Labos <span class="dim" style="letter-spacing:0">— probe forecast · testeur mql5 · strategy tester (scratchpad)</span></h2>
       <div class="row"><span class="k">probe forecast (Darts)</span><span id="lb-fc">—</span></div>
       <div class="row"><span class="k">testeur code base mql5</span><span id="lb-mql5">—</span></div>
@@ -1552,6 +1559,18 @@ function renderState(){
     if($("adl-list")){
       const ps=ad.positions||[];
       $("adl-list").innerHTML=ps.length?ps.map(p=>esc(p.symbol||"—")+" "+esc(p.side||"")+" : rang "+p.rank+"/5").join("<br>"):(ad.note?esc(ad.note):"—");
+    }
+    // --- Structure par terme (term_structure, lecture seule) : régime de la courbe Deribit ---
+    const tstr=st.term_structure||{};
+    if($("ts-regime")){
+      if(!tstr.regime){$("ts-regime").textContent="—";$("ts-regime").className="dim";}
+      else{$("ts-regime").textContent=tstr.regime+(tstr.stress?" · STRESS":"")+(tstr.source?" (repli cron)":"");
+           $("ts-regime").className=tstr.stress?"red":(tstr.regime==="contango"?"green":"amber");}
+    }
+    if($("ts-basis"))$("ts-basis").textContent=(tstr.basis_median_pct!=null)?((+tstr.basis_median_pct).toFixed(2)+" % ann. · pente "+(tstr.pente_pct!=null?(+tstr.pente_pct).toFixed(2)+" %":"—")):"—";
+    if($("ts-points")){
+      const tp=tstr.points||[];
+      $("ts-points").innerHTML=tp.length?tp.map(p=>esc(p.instrument||"—")+" : "+(+p.basis_pct).toFixed(2)+" %").join("<br>"):"—";
     }
     // --- Veille Bitget : fil des N derniers changements de faits autoritatifs ---
     const bw=st.bitget_watch||{},bwe=bw.events||[],bwd=$("bwatch");

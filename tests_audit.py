@@ -13516,6 +13516,53 @@ def test_tp_partiel_dimensionne_sur_le_fill_reel():
                 os.environ[k] = v
 
 
+def test_dashboard_cache_swr():
+    # Cache SWR §dashboard-latence : frais -> servi sans recalcul ; périmé (sous la
+    # borne dure) -> l'ANCIEN est servi immédiatement puis rafraîchi en FOND (le
+    # chemin de requête ne paie plus un producteur réseau) ; absent -> synchrone.
+    import importlib.util
+    import pathlib
+    import time as _t
+    spec = importlib.util.spec_from_file_location("dash_swr", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    n = {"c": 0}
+
+    def prod():
+        n["c"] += 1
+        return n["c"]
+
+    assert mod._cached("t_swr", 0.05, prod) == 1                    # absent -> synchrone
+    assert mod._cached("t_swr", 0.05, prod) == 1 and n["c"] == 1    # frais -> pas de recalcul
+    _t.sleep(0.06)                                                  # périmé, sous la borne dure
+    assert mod._cached("t_swr", 0.05, prod) == 1                    # SWR : l'ancien, tout de suite
+    for _ in range(200):                                            # le fond rafraîchit
+        _t.sleep(0.01)
+        if n["c"] >= 2:
+            break
+    assert n["c"] >= 2, "le rafraîchissement de fond n'a pas eu lieu"
+    assert mod._cached("t_swr", 5, prod) == 2                       # valeur rafraîchie en cache
+
+
+def test_dashboard_prochain_tir_dca():
+    # §110 : tirs horaires :05 dans la fenêtre 16:05-19:05 UTC, 1 achat/jour.
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location("dash_dca", pathlib.Path("dashboard/server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    J, H = 86400, 3600
+    jour = 20000 * J                       # minuit UTC d'un jour arbitraire
+    # avant la fenêtre, pas d'achat aujourd'hui -> 16:05 aujourd'hui
+    assert mod.prochain_tir_dca(jour + 10 * H, 0) == jour + 16 * H + 300
+    # dans la fenêtre, pas d'achat -> prochain tir horaire :05
+    assert mod.prochain_tir_dca(jour + 16 * H + 400, 0) == jour + 17 * H + 300
+    # après la fenêtre -> demain 16:05
+    assert mod.prochain_tir_dca(jour + 20 * H, 0) == jour + J + 16 * H + 300
+    # achat déjà fait aujourd'hui -> demain 16:05 (1 achat/j)
+    assert mod.prochain_tir_dca(jour + 17 * H, jour + 16 * H + 310) == jour + J + 16 * H + 300
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
