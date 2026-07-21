@@ -152,27 +152,19 @@ def _load_report(path=None):
 
 
 def _passes_edge(agent, report, dsr_min, min_n):
-    """L'agent bat-il la porte d'edge ? Exige l'edge REPLAY (DSR ≥ seuil ET echantillon
-    suffisant dans 'ranking') ET une confirmation sur les VOTES REELS ('live' : echantillon
-    suffisant ET IC significatif). PUR, INDEPENDANT du verrou reel -> testable seul.
-    Conservateur : pas de preuve live -> False (on ne risque pas du reel sur un edge non
-    confirme par les votes reellement emis)."""
-    rep = report or {}
-    ranking_ok = False
-    for row in rep.get("ranking", []):
-        if str(row.get("agent")) == str(agent):
-            ranking_ok = (float(row.get("dsr", 0) or 0) >= float(dsr_min)
-                          and int(row.get("n", 0) or 0) >= int(min_n))
-            break
-    if not ranking_ok:
+    """L'agent bat-il la porte d'edge ? DÉLÈGUE à `edge_ladder.is_live` — la SOURCE
+    UNIQUE de la chaîne LIVE complète : replay (DSR ≥ seuil ET échantillon ET OOS > 0)
+    ET confirmation sur les VOTES RÉELS ET robustesse ANNUELLE (§54) ET porte CPCV si
+    armée (§112). Jusqu'au 21/07 cette fonction RÉPLIQUAIT un sous-ensemble (DSR/n +
+    live, sans OOS/annuel/CPCV) — divergence « invariant documenté ≠ invariant codé »
+    relevée en revue finale, résorbée ici. PUR (report injecté, jamais de retombée
+    disque sur un rapport vide). Fail-CLOSED : edge_ladder indisponible -> False
+    (on ne risque pas du réel sans la chaîne complète)."""
+    try:
+        import edge_ladder
+        return bool(edge_ladder.is_live(agent, report or {}, dsr_min=dsr_min, min_n=min_n))
+    except Exception:
         return False
-    live_min_n = int(_cfg("MANDATE_LIVE_MIN_SAMPLES", 60))
-    live_min_t = float(_cfg("MANDATE_LIVE_MIN_IC_T", 2.0))
-    for r in (rep.get("live", {}) or {}).get("agents", []):
-        if str(r.get("agent")) == str(agent):
-            return (int(r.get("n", 0) or 0) >= live_min_n
-                    and float(r.get("ic_t", 0) or 0) >= live_min_t)
-    return False
 
 
 def futures_live_allowed(agent, report=None, dsr_min=None, min_samples=None):

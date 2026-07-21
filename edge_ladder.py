@@ -199,6 +199,20 @@ def weight_priors(report=None):
     return out
 
 
+def is_live(agent, report=None, dsr_min=None, min_n=None):
+    """L'agent est-il au palier LIVE — chaîne COMPLÈTE : replay (DSR ≥ seuil ET n ≥ min
+    ET OOS > 0) ET confirmation live ET robustesse annuelle (§54) ET porte CPCV si
+    armée (§112) ? PUR. API de la porte d'edge pour `mandate._passes_edge` (source
+    UNIQUE de vérité — mandate ne réplique plus un sous-ensemble de la chaîne).
+    Agent absent du rapport -> False (porte de promotion, fail-closed)."""
+    rep = _load(report)
+    for row in rep.get("ranking", []):
+        if str(row.get("agent")) == str(agent):
+            return tier_of(row, _live_row(rep, agent), dsr_min=dsr_min,
+                           min_n=min_n, cpcv_row=_cpcv_row(rep, agent)) == "LIVE"
+    return False
+
+
 def live_agents(report=None):
     """Agents au palier LIVE -> seuls éligibles au RÉEL. PUR."""
     return [a for a, t in all_tiers(report).items() if t == "LIVE"]

@@ -7468,11 +7468,12 @@ def test_mandate_drawdown_halt():
 
 def test_mandate_futures_edge_gate():
     import mandate as m
-    # La porte exige l'edge REPLAY (ranking : DSR ET échantillon) ET la confirmation sur
-    # les VOTES RÉELS (live : échantillon ET IC significatif). Seul 'geometric' a les deux.
-    rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200},
-                       {"agent": "savant", "dsr": 0.50, "n": 200},
-                       {"agent": "simons", "dsr": 0.95, "n": 40}],   # DSR ok mais n trop faible
+    # Depuis le 21/07, la porte mandate DÉLÈGUE à edge_ladder.is_live : chaîne COMPLÈTE
+    # replay (DSR ET échantillon ET OOS>0) ET votes réels ET annuel §54 ET CPCV §112.
+    # Seul 'geometric' a tout (les champs annuel/cpcv absents = fail-open, comme en prod).
+    rep = {"ranking": [{"agent": "geometric", "dsr": 0.95, "n": 200, "oos_sharpe": 0.3},
+                       {"agent": "savant", "dsr": 0.50, "n": 200, "oos_sharpe": 0.3},
+                       {"agent": "simons", "dsr": 0.95, "n": 40, "oos_sharpe": 0.3}],
            "live": {"agents": [{"agent": "geometric", "n": 80, "ic_t": 2.5},
                                {"agent": "savant", "n": 80, "ic_t": 2.5},
                                {"agent": "simons", "n": 80, "ic_t": 2.5}], "n_entries": 120}}
@@ -7500,6 +7501,31 @@ def test_mandate_futures_edge_gate():
     rep_thin_live = {"ranking": rep["ranking"],
                      "live": {"agents": [{"agent": "geometric", "n": 20, "ic_t": 2.5}]}}
     assert m._passes_edge("geometric", rep_thin_live, 0.90, 120) is False   # échantillon live trop mince
+    # ---- chaîne COMPLÈTE (alignement 21/07 : mandate = edge_ladder.is_live) ----
+    import copy
+    import os
+    rep_sans_oos = copy.deepcopy(rep)
+    del rep_sans_oos["ranking"][0]["oos_sharpe"]          # OOS manquant -> 0.0 -> replay non battu
+    assert m._passes_edge("geometric", rep_sans_oos, 0.90, 120) is False
+    rep_annuel_neg = copy.deepcopy(rep)
+    rep_annuel_neg["ranking"][0]["annuel"] = {"ic": -0.01}   # artefact de régime §54 -> retenu
+    assert m._passes_edge("geometric", rep_annuel_neg, 0.90, 120) is False
+    avant = os.environ.get("CPCV_GATE")
+    try:
+        os.environ["CPCV_GATE"] = "1"
+        rep_cpcv_fragile = copy.deepcopy(rep)
+        rep_cpcv_fragile["cpcv"] = {"agents": {"geometric": {
+            "n_chemins": 45, "ic_p10": -0.01, "frac_neg": 0.2}}}   # fragile multi-chemins §112
+        assert m._passes_edge("geometric", rep_cpcv_fragile, 0.90, 120) is False
+        rep_cpcv_saine = copy.deepcopy(rep)
+        rep_cpcv_saine["cpcv"] = {"agents": {"geometric": {
+            "n_chemins": 45, "ic_p10": 0.01, "frac_neg": 0.05}}}
+        assert m._passes_edge("geometric", rep_cpcv_saine, 0.90, 120) is True
+    finally:
+        if avant is None:
+            os.environ.pop("CPCV_GATE", None)
+        else:
+            os.environ["CPCV_GATE"] = avant
 
 
 def test_mandate_numeraire_session_macro():
