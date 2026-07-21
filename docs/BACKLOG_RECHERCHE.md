@@ -151,6 +151,16 @@ horizon où il est conçu pour payer, pas contre le rendement signé court où l
 - **Momentum CROSS-SECTIONAL (#8, Liu-Tsyvinski-Wu)** — ÉLEVÉ : rang de performance entre coins de
   l'univers (pas time-series). Le vrai gisement de momentum positif crypto. Voix/tilt §72, à mesurer
   en priorité parmi les signaux (nécessite l'univers multi-coins, pas juste BTC/ETH).
+- **Structure de SESSION / Kill Zones / Power of Three (AMD)** (document fourre-tout 21/07 — le
+  SEUL délta du bundle) : hypothèse temporelle jamais mesurée ici — range asiatique (20h-00h NY) →
+  « manipulation » à l'ouverture de Londres (sweep de l'Asian low/high, 02h-05h NY) → distribution NY.
+  À tester comme MACHINE À ÉTATS ENTIÈRE et dans l'ordre (ERR-002/ERR-014 : accumulation→sweep→
+  CHoCH-avec-corps→FVG, jamais un ET de conditions instantanées), net de frais (lab_scenarios,
+  barre = pessimiste), critères de rejet PRÉ-enregistrés, benchmark B&H et contrôle négatif
+  (fenêtres horaires aléatoires). Précaution : crypto 24/7 ≠ sessions actions (SAVOIR : VWAP à
+  reset de session peu pertinent) — l'effet, s'il existe, doit survivre au décalage été/hiver EST.
+  Le reste du bundle (10 algos pandas, SMC/ICT, order-flow absorption ccxt, prompts d'agents
+  génériques, rapport Aladdin) : DÉJÀ couvert ou déjà rejeté par verdict — voir mémoire.
 - **SuperTrend** (trailing ATR) — comme **trailing-stop / sizing** (distance à la bande), pas un
   vote directionnel (son IC time-series = réversion redondante, cf. ci-dessus).
 - **Ultimate RSI** [LuxAlgo] (RSI reconçu pour la tendance via rolling range) — momentum, à

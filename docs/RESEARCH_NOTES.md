@@ -4041,3 +4041,19 @@ absence de mesure, même philosophie que la porte annuelle ; désarmée = transp
 État à l'armement : AUCUN agent candidat LIVE (échelle : savant PAPER, les autres
 NEGATIVE) — la porte n'affecte personne aujourd'hui, elle attend le premier candidat.
 Le champ `cpcv.gate_armee` du rapport de validation reflète l'état réel de la porte.
+
+## §113 — GEOMETRIC_RISK_SIZING armé + porte d'edge refermée (21/07/2026 soir)
+
+Deux actes §92 de la même session « suis tes recommandations », notifiés Telegram :
+
+1. **GEOMETRIC_RISK_SIZING=1** (environnement local). Le réducteur systémique
+   (geometric_agent.systemic_risk_scale, B-2/ERR-013 achevé) module désormais le notional
+   des OUVERTURES directionnelles : facteur ∈[0.5,1], réducteur-seulement, fail-open,
+   sous les murs. Mesure au moment de l'armement : systemic_z = 6.07 (régime SYSTÉMIQUE,
+   n_hist=83) → facteur 0.5 immédiat. Le descripteur avait été construit puis laissé en
+   observation (mesure-d'abord) ; la mesure existe, il passe à l'acte. Réversible (=0).
+
+2. **FUTURES_EDGE_GATE_OVERRIDE 1 → 0** (commit isolé 667e4f1). Le directionnel réel
+   attend désormais un agent au palier LIVE (replay + live + annuel §54 + CPCV §112).
+   Fermé position FLAT, espérance mesurée t=0.70 (n=12) indistinguable de zéro. Le carry
+   et la gestion des positions restent actifs. Rouvrir = décision propriétaire (=1).

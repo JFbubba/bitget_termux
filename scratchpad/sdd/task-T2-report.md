@@ -172,3 +172,88 @@ réexécutés et passent.
   reconsidérer un partage de calcul plus profond (probablement en factorisant la boucle
   de fenêtrage votes/fwd hors des deux fonctions) — non fait ici pour rester dans le
   périmètre « minimal mais correct ».
+
+## Correctifs post-revue adversariale (21/07, soir)
+
+Quatre correctifs appliqués en deux commits, timer `bitget-validation.timer` suspendu
+avant l'édition de `brain_validation.py`/`agent_validation.py` et relancé après le
+dernier commit (application d'ERR-022, voir ci-dessous).
+
+### Correctif 1 — affirmation fausse « aucun IC annuel négatif aujourd'hui »
+
+`docs/VERDICTS.md`, `scratchpad/LABOS.md` et le présent rapport affirmaient qu'aucun IC
+annuel n'était négatif aujourd'hui. **Faux** : `validation_report.json` porte
+`geometric {'ic': -0.003}` → `edge_ladder._annuel_ok(row_geometric)` retourne `False`
+dès maintenant (vérifié directement : `float(-0.003) > 0.0` est faux). Corrigé dans les
+3 emplacements : la porte annuelle est DÉJÀ ACTIVE contre `geometric` (elle retiendrait
+LIVE pour lui s'il franchissait un jour le replay DSR/n/OOS) ; elle est muette pour les
+3 autres (simons/savant/divergent, ic tous positifs) uniquement parce qu'AUCUN des 4
+agents purs ne passe encore le replay (DSR<0,90 pour les quatre dans le rapport de
+production actuel) — ce n'est pas l'absence d'IC annuel négatif qui la rend silencieuse.
+
+### Correctif 2 — journal ERR-022 (timer actif pendant l'édition)
+
+`docs/AGENT_ERRORS.md` : nouvelle entrée. Note de numérotation : la tâche demandait
+« ERR-020 », mais `ERR-020` et `ERR-021` étaient déjà pris par deux incidents distincts
+du 20/07 (constatés en listant les entrées existantes AVANT d'écrire — cf. ERR-003/
+ERR-015, ne jamais supposer sans vérifier) ; la règle du journal (« ne jamais effacer/
+réutiliser une entrée ») impose de poursuivre la numérotation séquentielle → livrée en
+**ERR-022**. Contenu : le timer `bitget-validation.timer` a tiré à 21:01 pendant
+l'édition de `brain_validation.py`, exécutant un état intermédiaire du working tree non
+commité (rapport fusionné + consignation holdout horodatés avant le commit) —
+inoffensif cette fois, scénario d'échec documenté (fichier à moitié édité → rapport
+corrompu lu par `edge_ladder`/`mandate`). Contrôle : suspendre le timer avant d'éditer
+un fichier qu'il consomme, vérifier après coup l'horodatage des artefacts produits
+pendant la fenêtre d'édition. Appliqué dans cette même session (timer suspendu avant
+d'éditer `brain_validation.py`/`agent_validation.py`, relancé après le commit B).
+
+### Correctif 3 — sémantique du drapeau `contamine` (commit séparé)
+
+`holdout_registry.consigner(..., mode="recherche")` (défaut CONSERVATEUR) ;
+`agent_validation.replay_annuel(..., consultation="recherche")` transmis à
+`consigner` ; `brain_validation._annuel_safe()` (seul appelant automatisé) passe
+`consultation="gate_auto"`. `statut()` : `contamine=True` seulement si >1 consultation
+de la MÊME version en mode "recherche" ; `par_mode` (compte par mode) + `consultations`
+(compte total) exposés ; entrées sans champ `mode` (registre pré-existant) comptent
+comme "recherche" (rétro-compatible, conservateur). Sans ce correctif, le tir planifié
+toutes les 6h aurait rendu `contamine=True` en PERMANENCE dès le 2e tir sur la même
+version, vidant le drapeau de toute valeur diagnostique.
+
+### Correctif 4 — `_fuse_annuel` ignore un ic non numérique (fail-open)
+
+`brain_validation._fuse_annuel` ne fusionne `row["annuel"]` que si
+`isinstance(info.get("ic"), (int, float))` ET pas un `bool` (un `bool` est une
+sous-classe d'`int` en Python — exclu explicitement). Un ic non numérique (chaîne,
+`None`, `bool`, régression amont) n'est jamais propagé vers le `float()` de
+`edge_ladder._annuel_ok`, qui resterait sinon exposé à un `TypeError`/`ValueError`
+selon le type reçu.
+
+### Tests couvrants exécutés
+
+- `python3 -c "import tests_audit as t; t.test_holdout_registry_contamination_et_fail_safe(); t.test_replay_annuel_consultation_mode_forwardee_a_holdout_registry(); t.test_annuel_fusion_ranking_et_porte_edge_ladder(); t.test_annuel_echec_replay_annuel_pas_de_crash()"`
+  → `OK 1` / `OK 2` / `OK 3 (annuel wiring toujours vert)` / `OK 4` (les 4 exécutés
+  isolément, avant intégration à la suite).
+- `bash gates.sh` avant le commit A (correctifs 1+2+4) : `712/712 tests OK` ·
+  `VERDICT: SAFE` · `SAFE PUSH CHECK OK` · `=== 3 PORTES VERTES ===`.
+- `bash gates.sh` avant le commit B (correctif 3, +1 nouveau test
+  `test_replay_annuel_consultation_mode_forwardee_a_holdout_registry`) :
+  `713/713 tests OK` · `VERDICT: SAFE` · `SAFE PUSH CHECK OK` · `=== 3 PORTES VERTES ===`.
+- `graphify update .` exécuté après le commit B (6882 nœuds, 11336 arêtes, 584
+  communautés).
+
+### Commits (2, non poussés)
+
+- Commit A (`409f44e`) : correctifs 1+2+4 — docs/VERDICTS.md, scratchpad/LABOS.md,
+  scratchpad/sdd/task-T2-report.md (correctif 1) ; docs/AGENT_ERRORS.md (ERR-022,
+  correctif 2) ; brain_validation.py `_fuse_annuel` (correctif 4).
+- Commit B (`99d46de`) : correctif 3 — holdout_registry.py, agent_validation.py
+  (`replay_annuel`), brain_validation.py (`_annuel_safe`), tests_audit.py (2 tests).
+
+### Ne PAS touché (conforme aux bornes du correctif)
+
+`edge_ladder.py`, `parity_harness.py`, `lab_scenarios.py`, `config.py`, aucun mur/garde/
+kill-switch. `docs/BACKLOG_RECHERCHE.md`/`docs/RESEARCH_NOTES.md` (modifications
+pré-existantes non commitées d'une session antérieure) toujours non touchées/non
+stagées. Le timer `bitget-validation.timer` a été suspendu avant l'édition de
+`brain_validation.py`/`agent_validation.py` (correctifs 1/3/4) et relancé après le
+commit B — vérifié actif (`systemctl is-active` → `active`).
