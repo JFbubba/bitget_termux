@@ -249,6 +249,7 @@ FILES_TO_SCAN = [
     "assistant/agent.py",
     "assistant/memory.py",
     "assistant/vision.py",
+    "ws_orders.py",
 ]
 
 

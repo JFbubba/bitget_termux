@@ -14387,7 +14387,8 @@ def test_ws_orders_status_agregats_sur_journal_synthetique_injecte():
         s_absent = wo.status(path=p)
         assert s_absent == {"nb_evenements": 0, "nb_avec_latence": 0,
                              "latence_mediane_ms": None, "latence_p95_ms": None,
-                             "dernier_evenement": None}
+                             "dernier_evenement": None,
+                             "nb_ws_error": 0, "dernier_ws_error": None}
 
         latences = [10, 20, 30, 40, 100]                    # médiane=30, p95(idx=round(.95*4)=4)->100
         for i, lat in enumerate(latences):
@@ -14402,6 +14403,7 @@ def test_ws_orders_status_agregats_sur_journal_synthetique_injecte():
         assert s["latence_mediane_ms"] == 30
         assert s["latence_p95_ms"] == 100
         assert s["dernier_evenement"]["order_id"] == "o_sans_latence"
+        assert s["nb_ws_error"] == 0 and s["dernier_ws_error"] is None    # aucun ack d'échec ici
 
 
 def test_ws_orders_backoff_croissant_et_borne():
@@ -14422,6 +14424,87 @@ def test_ws_orders_backoff_croissant_et_borne():
     # attempt négatif ne casse pas (clampé à 0) ; jitter hors [0,1] clampé aussi
     assert wo.backoff_delay(-5, rng=lambda: 0.0) == wo.BACKOFF_BASE_S
     assert wo.backoff_delay(0, rng=lambda: 5.0) <= wo.BACKOFF_BASE_S * 1.5
+
+
+def test_ws_orders_ws_error_ack_journalise_sans_secret_et_compte_status():
+    """Correctif échec login/subscribe SILENCIEUX : un ack `event:"error"` (signature
+    invalide, horloge dérivée, passphrase fausse, subscribe refusé) OU un ack
+    `event:"login"` à code de refus (40009/40010/40011/40012…) est un ÉCHEC — jamais
+    absorbé silencieusement par `parse_order_event`. `ws_error_event` en produit une
+    ligne PURE {type_evenement:"ws_error", ts_reception, code, msg}, SANS AUCUN SECRET
+    même si l'ack d'origine porte apiKey/passphrase/sign (jamais renvoyés) ni le message
+    de login lui-même. Un succès (login code 0/00000, ou tout autre message) rend None.
+    Journalisée, elle est COMPTÉE À PART par --status (nb_ws_error + dernier code/msg),
+    sans polluer nb_evenements (réservé aux évènements d'ORDRE réels)."""
+    import json as _json
+    import tempfile
+    from pathlib import Path
+    import ws_orders as wo
+
+    # event:"error" -> échec, ligne PURE code/msg seulement
+    err = wo.ws_error_event({"event": "error", "code": "30011", "msg": "invalid sign"},
+                             ts_reception=123)
+    assert err == {"type_evenement": "ws_error", "ts_reception": 123,
+                   "code": "30011", "msg": "invalid sign"}
+
+    # event:"login" à code de refus -> échec aussi (pas seulement event:"error")
+    login_refuse = wo.ws_error_event({"event": "login", "code": "40011",
+                                       "msg": "passphrase error"}, ts_reception=456)
+    assert login_refuse == {"type_evenement": "ws_error", "ts_reception": 456,
+                             "code": "40011", "msg": "passphrase error"}
+
+    # succès (login 0/00000) ou tout autre message -> None, jamais un faux ws_error
+    assert wo.ws_error_event({"event": "login", "code": "0"}, ts_reception=1) is None
+    assert wo.ws_error_event({"event": "login", "code": "00000"}, ts_reception=1) is None
+    assert wo.ws_error_event({"event": "subscribe"}, ts_reception=1) is None
+    assert wo.ws_error_event({"arg": {"channel": "orders"}, "data": []}, ts_reception=1) is None
+    assert wo.ws_error_event("pas un dict", ts_reception=1) is None
+    assert wo.ws_error_event(None, ts_reception=1) is None
+
+    # JAMAIS de secret : même si l'ack contient (par construction du protocole) des champs
+    # de login, ws_error_event ne retient QUE code/msg -> rien d'autre ne peut fuiter
+    fuite = wo.ws_error_event({"event": "error", "code": "40009", "msg": "sign expired",
+                               "apiKey": "SECRETKEY", "sign": "SECRETSIGN",
+                               "passphrase": "SECRETPASS"}, ts_reception=1)
+    assert set(fuite.keys()) == {"type_evenement", "ts_reception", "code", "msg"}
+    dump = _json.dumps(fuite)
+    assert "SECRETKEY" not in dump and "SECRETSIGN" not in dump and "SECRETPASS" not in dump
+
+    # journalisées -> comptées À PART dans --status (chemin injecté, ERR-019)
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "ws_orders_err_test.jsonl"
+        wo.append_event(err, path=p)
+        wo.append_event(login_refuse, path=p)
+        s = wo.status(path=p)
+        assert s["nb_evenements"] == 0             # aucun évènement d'ORDRE, que des échecs
+        assert s["nb_ws_error"] == 2
+        assert s["dernier_ws_error"]["code"] == "40011"
+        assert s["dernier_ws_error"]["msg"] == "passphrase error"
+
+        # mélangé à un vrai évènement d'ordre -> chacun compté dans SA colonne, jamais mélangé
+        ordre = {"type_evenement": "update", "latence_ms": 50, "order_id": "O1"}
+        wo.append_event(ordre, path=p)
+        s2 = wo.status(path=p)
+        assert s2["nb_evenements"] == 1 and s2["nb_ws_error"] == 2
+        assert s2["dernier_evenement"]["order_id"] == "O1"
+
+
+def test_ws_orders_pas_de_verdict_safe_reserve_a_security_agent():
+    """Correctif chaîne réservée : « VERDICT: SAFE » est le verdict de security_agent
+    SEUL (gates.sh le grep) — ws_orders.py (module de simple observation) ne doit plus
+    l'imprimer nulle part."""
+    from pathlib import Path
+    import ws_orders as wo
+    src = Path(wo.__file__).read_text(encoding="utf-8")
+    assert "VERDICT: SAFE" not in src
+
+
+def test_ws_orders_couvert_par_security_agent_scan():
+    """Correctif défense en profondeur : ws_orders.py fait désormais partie de
+    security_agent.FILES_TO_SCAN (renforcement du scan), et son scan mots-clés est
+    vide (module SAFE, lecture seule, aucun ordre)."""
+    assert "ws_orders.py" in security_agent.FILES_TO_SCAN
+    assert security_agent.scan_file_for_keywords("ws_orders.py") == []
 
 
 def _run_all():

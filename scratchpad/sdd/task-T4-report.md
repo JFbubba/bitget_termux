@@ -184,3 +184,178 @@ OK** (713 avant + 7 nouveaux).
   `install_units.sh` ne le ramasserait alors plus automatiquement s'il était renommé sans
   mise à jour du script — actuellement les deux se combinent pour garantir qu'aucune
   installation n'est accidentelle).
+
+---
+
+# T4 — correctifs post-revue (21/07/2026)
+
+## Statut
+
+DONE. 3 correctifs appliqués (1 important + 2 mineurs), 723/723 tests, 3 portes vertes
+(`gates.sh`), commit unique (non poussé — voir le hash rendu à l'appelant).
+
+## Correctif 1 (Important) — échec login/subscribe SILENCIEUX
+
+Constat de la revue : `on_message` (ws_orders.py, boucle `run()`) ne traitait que
+`event=="login"` réussi (code 0/00000). Un ack `event:"error"` (signature invalide,
+horloge dérivée, passphrase fausse, subscribe refusé — BITGET_REFERENCE §10d) tombait
+dans `parse_order_event`, qui l'ignore par construction ([] — c'est son contrat, testé
+par `test_ws_orders_parse_ignore_acks_et_autres_canaux`, contrat INCHANGÉ) : aucune trace,
+le daemon pouvait tourner en zombie indéfiniment avec 0 événement, indistinguable d'un
+schéma de champs faux (le risque que la mesure `--status` (nb_avec_latence < nb_evenements)
+est censée détecter).
+
+Correctifs apportés :
+
+- **Nouvelle fonction PURE `ws_error_event(data, ts_reception=None)`** (ws_orders.py,
+  à côté de `parse_order_event`) : détecte un ack d'ÉCHEC — `event:"error"` (toujours un
+  échec) OU `event:"login"` avec un code ≠ 0/00000 (login refusé, qui n'arrivait pas
+  forcément via `event:"error"` selon la doc consultée) — et produit une ligne de journal
+  `{type_evenement:"ws_error", ts_reception, code, msg}`. `None` si `data` n'est PAS un
+  ack d'échec (succès, ou tout autre message). **Aucun secret** : seuls `code`/`msg` de
+  l'ack sont retenus, jamais l'objet `args` d'origine (qui porterait apiKey/passphrase/sign
+  en cas de login) ni le message de login lui-même — vérifié par test (une ligne fabriquée
+  avec des champs `apiKey`/`sign`/`passphrase` en plus ne les fait PAS fuiter dans la ligne
+  produite).
+- **`on_message`** : un ack `event` in `("error", "login")` passe désormais par
+  `ws_error_event` AVANT `parse_order_event`. Si c'est un échec : la ligne `ws_error` est
+  journalisée (`append_event`) + imprimée (`print`), puis **la connexion est fermée**
+  (`ws.close()`) — elle sera comptée vers `MAX_RETRIES` par la boucle de reconnexion. Si ce
+  n'est pas un échec (login réussi), `login_ok=True` (nouvelle variable de closure,
+  `nonlocal`) et le `subscribe_message()` est envoyé comme avant.
+- **Boucle de reconnexion (`run()`)** : la constante `STABLE_CONN_S` (reset du compteur de
+  tentatives après 60 s de connexion « stable », quel que soit le login) est **retirée** —
+  elle masquait exactement le bug visé (une connexion peut rester ouverte longtemps tout en
+  échouant en boucle au login/subscribe). Remplacée par : `attempt` se remet à 0
+  **uniquement si `login_ok` est vrai** durant la connexion qui vient de se terminer
+  (sinon `attempt += 1`). `login_ok` est réinitialisé à `False` à chaque nouvelle tentative
+  de connexion.
+- **`compute_status`/`status`/`--status`** : nouveaux champs `nb_ws_error` (compte des
+  lignes `type_evenement=="ws_error"`, séparé de `nb_evenements` qui reste réservé aux
+  évènements d'ORDRE réels — sinon la mesure de complétude de schéma existante,
+  `nb_avec_latence` vs `nb_evenements`, serait polluée) et `dernier_ws_error` (dernière
+  ligne d'échec, code+msg). `--status` les imprime (« Erreurs ws (ws_error) »,
+  « Dernière erreur ws »).
+
+Test ajouté : `test_ws_orders_ws_error_ack_journalise_sans_secret_et_compte_status` —
+`ws_error_event` sur `event:"error"` et sur `event:"login"` à code de refus (deux lignes
+`{type_evenement, ts_reception, code, msg}` exactes) ; `None` sur succès/ack neutre/`raw`
+non-dict ; **aucun secret** ne fuit même si l'ack de test porte apiKey/sign/passphrase ;
+journalisé puis relu via `status(path=...)` (chemin injecté, ERR-019) : `nb_ws_error==2`,
+dernier code/msg corrects, `nb_evenements==0` (aucun évènement d'ordre) ; mélangé à un
+véritable évènement d'ordre : chaque compteur reste dans SA colonne (`nb_evenements==1`,
+`nb_ws_error==2`, sans mélange). Le test pré-existant
+`test_ws_orders_status_agregats_sur_journal_synthetique_injecte` a été ajusté (2 nouvelles
+clés attendues dans le dict agrégats, valeurs neutres `0`/`None` sur un journal sans
+erreur) — seul changement à un test existant, mécanique (conséquence directe de l'ajout
+de champs à `compute_status`), aucune assertion pré-existante affaiblie.
+
+## Correctif 2 (Mineur) — chaîne réservée « VERDICT: SAFE »
+
+`ws_orders.py` imprimait « VERDICT: SAFE » à 3 endroits (épuisement des tentatives de
+reconnexion, `--status`, `--once`) — chaîne réservée au verdict de `security_agent.py`
+(que `gates.sh` grep pour la porte 2/3). Retirée des 3 endroits, remplacée par une fin de
+ligne neutre : « lecture seule, aucun ordre ». Test ajouté :
+`test_ws_orders_pas_de_verdict_safe_reserve_a_security_agent` (source du module ne
+contient plus la chaîne).
+
+## Correctif 3 (Mineur) — défense en profondeur (`security_agent.FILES_TO_SCAN`)
+
+`ws_orders.py` n'était pas scanné par `security_agent.FILES_TO_SCAN` (noté comme réserve
+dans la 1re version de ce rapport). Ajouté en fin de liste (même format que les entrées
+existantes, une chaîne de nom de fichier). Vérifié : `security_agent.scan_file_for_keywords
+("ws_orders.py") == []` (aucun mot-clé dangereux dans le source, y compris après les
+correctifs 1/2) et `python security_agent.py` rend toujours `VERDICT: SAFE` (ws_orders.py
+apparaît « OK » dans le scan). Test ajouté : `test_ws_orders_couvert_par_security_agent_scan`
+(sur le même modèle que `test_fee_rates_source_readonly`).
+
+## Tests couvrants (noms, commande, sortie)
+
+Commande d'isolement (les 10 tests ws_orders, avant la suite complète) :
+
+```
+python3 -c "
+import tests_audit as ta
+tests = [
+    'test_ws_orders_login_message_reutilise_signature_sans_secret',
+    'test_ws_orders_parse_evenement_synthetique_latence_et_fill',
+    'test_ws_orders_parse_champs_manquants_ligne_partielle_jamais_crash',
+    'test_ws_orders_parse_ignore_acks_et_autres_canaux',
+    'test_ws_orders_replay_parse_sans_reseau',
+    'test_ws_orders_status_agregats_sur_journal_synthetique_injecte',
+    'test_ws_orders_backoff_croissant_et_borne',
+    'test_ws_orders_ws_error_ack_journalise_sans_secret_et_compte_status',
+    'test_ws_orders_pas_de_verdict_safe_reserve_a_security_agent',
+    'test_ws_orders_couvert_par_security_agent_scan',
+]
+for name in tests:
+    getattr(ta, name)(); print('OK', name)
+"
+```
+
+Sortie : les 10 lignes `OK test_ws_orders_...` (aucun échec).
+
+Puis suite complète :
+
+```
+python tests_audit.py 2>&1 | tail -20
+```
+
+Sortie (extrait) : les 10 tests `ws_orders` en `PASS`, puis `723/723 tests OK`.
+
+Puis les 3 portes :
+
+```
+bash gates.sh
+```
+
+Sortie :
+```
+— porte 1/3 : tests_audit —
+723/723 tests OK
+— porte 2/3 : security_agent —
+VERDICT: SAFE
+— porte 3/3 : safe_push_check —
+SAFE PUSH CHECK OK
+=== 3 PORTES VERTES ===
+```
+
+## Fichiers touchés (chemins absolus)
+
+- `/root/bitget_termux_repo/ws_orders.py` — correctifs 1 et 2 (fonction `ws_error_event`,
+  `on_message`/boucle de reconnexion durcies, docstrings mis à jour, 3 occurrences
+  « VERDICT: SAFE » retirées, constante `STABLE_CONN_S` retirée — remplacée par le
+  critère `login_ok`)
+- `/root/bitget_termux_repo/security_agent.py` — correctif 3 (`ws_orders.py` ajouté à
+  `FILES_TO_SCAN`, une ligne)
+- `/root/bitget_termux_repo/tests_audit.py` — 2 tests ajoutés
+  (`test_ws_orders_ws_error_ack_journalise_sans_secret_et_compte_status`,
+  `test_ws_orders_pas_de_verdict_safe_reserve_a_security_agent`,
+  `test_ws_orders_couvert_par_security_agent_scan` — 3 en réalité) + 1 test existant
+  ajusté (2 nouvelles clés attendues dans les agrégats `--status`)
+- `/root/bitget_termux_repo/scratchpad/sdd/task-T4-report.md` — cette section
+
+Rien d'autre touché : aucun des fichiers explicitement exclus
+(`brain_validation.py`/`agent_validation.py`/`holdout_registry.py`/`edge_ladder.py`/
+`config.py`/`parity_harness.py`/`lab_scenarios.py`) n'a été modifié. Les modifications
+étrangères présentes dans l'arbre de travail au moment de la correction
+(`docs/BACKLOG_RECHERCHE.md`, `docs/RESEARCH_NOTES.md`, `scratchpad/sdd/task-T2-report.md`,
+`scratchpad/sdd/task-T2-brief.md`, `scratchpad/firm_7b_results.json`,
+`scratchpad/test_wyckoff_standalone.py` — une AUTRE tâche en cours) sont restées
+**volontairement exclues** du commit (git add ciblé, uniquement les 4 fichiers ci-dessus).
+
+## Réserves
+
+- Le critère de remise à 0 du compteur de tentatives est désormais « un login a réussi
+  durant CETTE connexion » — si le login réussit systématiquement mais que le SUBSCRIBE
+  échoue systématiquement ensuite (ex. mauvais `instType`/canal), `attempt` continuerait
+  de se remettre à 0 à chaque cycle (pas d'épuisement `MAX_RETRIES`). Ce n'est plus
+  SILENCIEUX pour autant : chaque échec de subscribe est désormais journalisé (`ws_error`)
+  et imprimé, donc visible immédiatement via `--status` — mais ce n'est pas un DEUXIÈME
+  compteur d'épuisement dédié au subscribe. Non traité ici (hors périmètre des 3
+  correctifs demandés) ; à signaler si mesuré en usage réel.
+- Le schéma exact des acks d'échec Bitget (`event:"error"` vs `event:"login"` à code de
+  refus) reste, comme le schéma des évènements d'ordre (réserve déjà notée ci-dessus),
+  une hypothèse construite à partir de BITGET_REFERENCE §10d (table de codes) et non
+  observée en direct sur le canal (le service n'est toujours pas déployé) — `ws_error_event`
+  couvre les deux formes plausibles pour ne dépendre d'aucune des deux exclusivement.

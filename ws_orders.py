@@ -29,11 +29,20 @@ ping/pong (chaîne "ping", 30 s — §3/§10c), re-login après la déconnexion 
 24 h (§10c, régime NORMAL, pas une panne). Épuisement des tentatives -> sortie
 propre (le superviseur systemd, Restart=always, relance ; ce module n'installe
 PAS son unité — décision de déploiement au contrôleur). Jamais de boucle chaude.
+Un ack d'ÉCHEC (`event:"error"` — signature/horloge/passphrase/subscribe refusé —
+ou `event:"login"` à code de refus) n'est JAMAIS silencieux : journalisé (voir
+`ws_error_event`, code+msg SEULEMENT, jamais de secret) + imprimé, connexion
+FERMÉE, et compté vers `MAX_RETRIES` — la remise à 0 du compteur de tentatives
+n'a lieu qu'après un LOGIN RÉUSSI durant la connexion, jamais après une simple
+durée de connexion stable (un login qui échoue en boucle sur une socket qui
+reste ouverte ne doit jamais se faire passer pour une reprise saine).
 
 Journal append-only borné (JSONL, rotation via `journal_append`) :
 {ts_event_exchange, ts_reception, latence_ms, type_evenement, symbol, order_id,
-statut, side, taille, prix, fill}. PAS de clé, PAS de secret — seuls les montants
-d'ordres (déjà visibles au propriétaire via l'API) sont journalisés.
+statut, side, taille, prix, fill} pour un évènement d'ordre ; {ts_reception,
+type_evenement:"ws_error", code, msg} pour un ack d'échec (compté à part dans
+`--status`). PAS de clé, PAS de secret — seuls les montants d'ordres (déjà
+visibles au propriétaire via l'API) et les code/msg d'erreur sont journalisés.
 
 CLI :
   python ws_orders.py --daemon      # boucle infinie (service systemd, jamais lancé ici)
@@ -71,10 +80,11 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_FACTOR = 2.0
 BACKOFF_CAP_S = 60.0
 MAX_RETRIES = 8                      # épuisement -> sortie propre (jamais de boucle chaude)
-STABLE_CONN_S = 60.0                 # connexion vécue >= ce seuil -> on considère la reprise
-                                      # SAINE et on remet le compteur de tentatives à 0 (sinon
-                                      # une déco/reco normale toutes les 24h userait les
-                                      # tentatives d'un service par ailleurs stable)
+                                      # remise à 0 du compteur de tentatives : uniquement après
+                                      # un LOGIN RÉUSSI durant la connexion (pas après une simple
+                                      # connexion restée ouverte un moment — un login/subscribe
+                                      # refusé en boucle ne doit jamais se faire passer pour une
+                                      # reprise saine, correctif ws_error ci-dessous)
 
 
 # ---------- fonctions PURES (signature/messages/parsing/backoff/agrégats) ----------
@@ -170,6 +180,37 @@ def parse_order_event(raw, ts_reception=None):
     return out
 
 
+def ws_error_event(data, ts_reception=None):
+    """Ack d'ÉCHEC du canal privé (`event:"error"` — signature invalide, horloge dérivée,
+    passphrase fausse, subscribe refusé… — OU `event:"login"` avec un code de refus, ex.
+    40009/40010/40011/40012, BITGET_REFERENCE §10d) -> ligne de journal PURE
+    {type_evenement:"ws_error", ts_reception, code, msg}. `None` si `data` n'est PAS un
+    ack d'échec (succès de login/subscribe, ou tout autre message). JAMAIS de secret :
+    SEULS `code`/`msg` de l'ack sont retenus — jamais l'objet 'args' d'origine (qui
+    porterait apiKey/passphrase/sign en cas de login) ni le message de login lui-même.
+    PUR (ts_reception injectable, aucun I/O)."""
+    if not isinstance(data, dict):
+        return None
+    event = data.get("event")
+    if event == "error":
+        is_failure = True
+    elif event == "login":
+        is_failure = str(data.get("code", "")) not in ("0", "00000")
+    else:
+        is_failure = False
+    if not is_failure:
+        return None
+    ts_reception = int(ts_reception if ts_reception is not None else time.time() * 1000)
+    code = data.get("code")
+    msg = data.get("msg")
+    return {
+        "type_evenement": "ws_error",
+        "ts_reception": ts_reception,
+        "code": str(code) if code is not None else None,
+        "msg": str(msg)[:200] if msg is not None else None,
+    }
+
+
 def backoff_delay(attempt, base=BACKOFF_BASE_S, factor=BACKOFF_FACTOR, cap=BACKOFF_CAP_S, rng=None):
     """Délai (s) avant la reconnexion n°`attempt` (0-indexée). Backoff EXPONENTIEL
     borné par `cap`, plus un JITTER dans [0, 50% du délai borné] (SAVOIR §11.4,
@@ -184,10 +225,17 @@ def backoff_delay(attempt, base=BACKOFF_BASE_S, factor=BACKOFF_FACTOR, cap=BACKO
 
 def compute_status(records):
     """Agrégats PURS depuis une liste de lignes de journal déjà chargées (dicts).
-    AUCUN I/O. Nb d'évènements, latence médiane/p95 (ms, sur les latences connues
-    seulement), dernier évènement."""
-    lat = sorted(r["latence_ms"] for r in records
-                 if isinstance(r, dict) and isinstance(r.get("latence_ms"), (int, float))
+    AUCUN I/O. Nb d'évènements d'ORDRE, latence médiane/p95 (ms, sur les latences connues
+    seulement), dernier évènement d'ordre — ET, SÉPARÉMENT (correctif ws_error), le nombre
+    d'acks d'échec ws (`type_evenement`=="ws_error") et le dernier (code/msg), pour que
+    `--status` rende visible un login/subscribe qui échoue en boucle (sinon indistinguable
+    d'un simple silence de schéma)."""
+    order_records = [r for r in records
+                     if isinstance(r, dict) and r.get("type_evenement") != "ws_error"]
+    error_records = [r for r in records
+                      if isinstance(r, dict) and r.get("type_evenement") == "ws_error"]
+    lat = sorted(r["latence_ms"] for r in order_records
+                 if isinstance(r.get("latence_ms"), (int, float))
                  and not isinstance(r.get("latence_ms"), bool))
     n = len(lat)
 
@@ -198,11 +246,13 @@ def compute_status(records):
         return lat[idx]
 
     return {
-        "nb_evenements": len(records),
+        "nb_evenements": len(order_records),
         "nb_avec_latence": n,
         "latence_mediane_ms": _pct(0.5),
         "latence_p95_ms": _pct(0.95),
-        "dernier_evenement": records[-1] if records else None,
+        "dernier_evenement": order_records[-1] if order_records else None,
+        "nb_ws_error": len(error_records),
+        "dernier_ws_error": error_records[-1] if error_records else None,
     }
 
 
@@ -257,6 +307,9 @@ def run(duration_s=None, path=None):
     api_key, secret, passphrase = keys
     import threading
     start = time.time()
+    login_ok = False   # True si un login a RÉUSSI PENDANT la connexion en cours ; remis à
+                        # False à chaque nouvelle tentative — seul critère de remise à 0 de
+                        # `attempt` (jamais une simple durée de connexion, cf. constante retirée)
 
     def on_open(ws):
         try:
@@ -265,18 +318,32 @@ def run(duration_s=None, path=None):
             pass
 
     def on_message(ws, msg):
+        nonlocal login_ok
         if msg in ("ping", "pong"):
             return
         try:
             data = json.loads(msg)
         except Exception:
             return
-        if isinstance(data, dict) and data.get("event") == "login":
-            if str(data.get("code", "")) in ("0", "00000"):
+        if isinstance(data, dict) and data.get("event") in ("error", "login"):
+            err = ws_error_event(data, ts_reception=int(time.time() * 1000))
+            if err is not None:
+                # échec (signature/horloge/passphrase/subscribe refusé) -> JAMAIS silencieux :
+                # journalisé (code+msg SEULEMENT, jamais de secret) + imprimé, puis la
+                # connexion est FERMÉE -> la boucle de reconnexion la comptera vers MAX_RETRIES.
+                append_event(err, path=path)
+                print(f"ws_orders: ws_error code={err['code']} msg={err['msg']}")
                 try:
-                    ws.send(subscribe_message())
+                    ws.close()
                 except Exception:
                     pass
+                return
+            # event=="login" sans échec -> login RÉUSSI
+            login_ok = True
+            try:
+                ws.send(subscribe_message())
+            except Exception:
+                pass
             return
         for entry in parse_order_event(data, ts_reception=int(time.time() * 1000)):
             append_event(entry, path=path)
@@ -303,7 +370,7 @@ def run(duration_s=None, path=None):
     while True:
         if duration_s is not None and time.time() - start >= duration_s:
             return
-        conn_start = time.time()
+        login_ok = False
         ws = websocket.WebSocketApp(WS_URL_PRIVATE, on_open=on_open, on_message=on_message)
         threading.Thread(target=worker, args=(ws,), daemon=True).start()
         try:
@@ -312,13 +379,13 @@ def run(duration_s=None, path=None):
             pass
         if duration_s is not None and time.time() - start >= duration_s:
             return
-        if time.time() - conn_start >= STABLE_CONN_S:
-            attempt = 0                          # connexion vécue assez longtemps -> repart neuf
+        if login_ok:
+            attempt = 0                          # login RÉUSSI durant cette connexion -> repart neuf
         else:
-            attempt += 1
+            attempt += 1                         # connexion jamais authentifiée -> compte vers l'épuisement
         if attempt > MAX_RETRIES:
             print(f"ws_orders: {MAX_RETRIES} tentatives de reconnexion épuisées -> "
-                  "sortie propre (le superviseur systemd relance). VERDICT: SAFE")
+                  "sortie propre (le superviseur systemd relance). lecture seule, aucun ordre")
             return
         time.sleep(backoff_delay(attempt))
 
@@ -334,14 +401,16 @@ def main():
         print(f"Latence médiane (ms)   : {s['latence_mediane_ms']}")
         print(f"Latence p95 (ms)       : {s['latence_p95_ms']}")
         print(f"Dernier évènement      : {s['dernier_evenement']}")
-        print("VERDICT: SAFE")
+        print(f"Erreurs ws (ws_error)  : {s['nb_ws_error']}")
+        print(f"Dernière erreur ws     : {s['dernier_ws_error']}")
+        print("lecture seule, aucun ordre")
         return
     if "--once" in argv:
         idx = argv.index("--once")
         n = safe_float(argv[idx + 1] if idx + 1 < len(argv) else None, 30.0)
         print(f"=== ws_orders --once {n}s (observation, aucun ordre) ===")
         run(duration_s=n)
-        print("Terminé. VERDICT: SAFE")
+        print("Terminé. lecture seule, aucun ordre")
         return
     if "--daemon" in argv:
         print("=== ws_orders --daemon (WS privé `orders`, observation, aucun ordre) ===")
