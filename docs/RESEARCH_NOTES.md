@@ -4019,3 +4019,25 @@ agrège par orderId (limite actée : TP1 + clôture = 2 observations, 2 ordres d
 les surfaces spot/marge (recommended_usdt sans injection) consomment désormais les stats
 des fills FUTURES (seules stats réelles disponibles — CLI manuels, montants re-bornés par
 leurs caps §67) ; fetch_fills fenêtré ~100 fills/symbole (cache 600 s).
+
+## §112 — porte CPCV armée : le LIVE exige la robustesse MULTI-CHEMINS (21/07/2026)
+
+Décision propriétaire (« arme la CPCV en porte de promotion »), exécutée selon l'hygiène
+d'armement : la LOGIQUE (commit précédent, défaut OFF) et l'ARMEMENT (environnement local,
+CPCV_GATE=1, hors dépôt) sont séparés ; notification Telegram envoyée ; réversible à
+l'instant (CPCV_GATE=0).
+
+Ce que la porte change : le palier LIVE de l'échelle d'edge (`edge_ladder.tier_of`) exige
+désormais, EN PLUS du replay (DSR/n/OOS), de la confirmation live (n/ic_t) et de la
+robustesse annuelle (§54), que la distribution d'IC hors-échantillon sur les chemins CPCV
+(`cpcv_diagnostic`, panel profond, ≤45 chemins purgés+embargo) ne soit pas FRAGILE :
+`ic_p10 > 0` ET `frac_neg ≤ 0.10` (seuils `CPCV_MIN_PATHS`/`CPCV_MAX_FRAC_NEG`).
+Justification mesurée (backlog PRIORITÉ 1) : le walk-forward MONO-chemin « validait » un
+incrément que la CPCV révélait s'annuler sur ~11 % des chemins — un artefact de CHEMIN.
+
+Propriétés : RÉDUCTEUR-SEULEMENT (ne promeut jamais, retient une promotion) ; FAIL-OPEN
+sur absence de mesure (diagnostic absent, <30 chemins) — on bride sur preuve, pas sur
+absence de mesure, même philosophie que la porte annuelle ; désarmée = transparente.
+État à l'armement : AUCUN agent candidat LIVE (échelle : savant PAPER, les autres
+NEGATIVE) — la porte n'affecte personne aujourd'hui, elle attend le premier candidat.
+Le champ `cpcv.gate_armee` du rapport de validation reflète l'état réel de la porte.
