@@ -35,7 +35,11 @@ DCA_ST_WEIGHT = 0.30         # poids de la survente court-terme dans le score (0
 DCA_ST_WINDOW = 24           # fenêtre (barres) de la moyenne mobile courte
 
 
-from config_utils import cfg as _cfg
+from config_utils import cfg as _cfg, load_env as _load_env
+# .env chargé DÈS l'import : sans ça, un verrou env-first lu AVANT le premier import de
+# config (qui appelle load_env) rend False à froid puis True ensuite (état dépendant de
+# l'ordre d'import — c'est ce qui a fait croire §72 OFF alors que le cron le voyait ON).
+_load_env()
 
 
 # ---------- indicateurs purs ----------
@@ -303,11 +307,14 @@ def analyze(symbol="BTCUSDT"):
     fg = _fear_greed()
     opp = opportunity_score(closes, fg)
     amt = dca_amount(opp["score"])
+    # deux échelles (§44) : amount_usd = recommandation PAPER (10..50 $) ; l'achat réel
+    # suit real_dca_amount (2..5 $). La note affiche les deux — une seule prêtait à confusion.
+    real_amt = real_dca_amount(opp["score"])
     fv = _fair(symbol)               # prix de référence cross-exchange (meilleur prix)
     return {"symbol": symbol.upper(), "score": opp["score"], "parts": opp.get("parts", {}),
             "rsi": opp.get("rsi"), "fear_greed": fg, "price": opp.get("price"),
             "amount_usd": amt, "premium_pct": fv.get("premium_pct"), "fair": fv.get("fair"),
-            "note": f"opportunité {opp['score']:.2f} -> DCA {amt}$"}
+            "note": f"opportunité {opp['score']:.2f} -> DCA paper {amt}$ · réel ~{real_amt}$ (§44)"}
 
 
 def _live_armed():
