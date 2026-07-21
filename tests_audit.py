@@ -14507,6 +14507,22 @@ def test_ws_orders_couvert_par_security_agent_scan():
     assert security_agent.scan_file_for_keywords("ws_orders.py") == []
 
 
+def test_guards_porte_edge_fermee_exempte_les_reductions():
+    """Revue finale 21/07 : porte d'edge FERMÉE (futures_live=False, override=0), une
+    RÉDUCTION doit passer (fermer n'aggrave jamais le risque — même principe que
+    l'exemption kill-switch, étape 1) ; une OUVERTURE reste refusée. Sans l'exemption,
+    refermer l'override position OUVERTE bloquait futures_auto/carry_auto/stop_guardian."""
+    import futures_executor as fe
+    base = dict(live=True, autonomous=True, futures_live=False, kill=False,
+                edge_override=0, gross_open_usdt=0)
+    ok, reasons = fe.guards("auto_dir", 20, 2, reduce=False, **base)    # ouverture -> REFUS
+    assert not ok and any("porte d'edge" in r for r in reasons)
+    ok, reasons = fe.guards("auto_dir", 20, 2, reduce=True, **base)     # fermeture -> PASSE
+    assert ok, f"une réduction ne doit pas être bloquée par la porte d'edge : {reasons}"
+    ok, _ = fe.guards("carry", 20, 2, reduce=True, **base)              # débouclage carry -> PASSE
+    assert ok
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

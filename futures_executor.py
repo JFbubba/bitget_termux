@@ -436,7 +436,12 @@ def guards(agent, notional_usdt, leverage, *, equity_curve=None, gross_open_usdt
         # FUTURES_EDGE_GATE_OVERRIDE=1 resté dans .env rouvrirait alors EN SILENCE une boucle
         # directionnelle à edge RÉFUTÉ sur argent réel. Reprise = éditer config.py (décision).
         edge_override = int(_cfg("FUTURES_EDGE_GATE_OVERRIDE", 0) or 0)
-    if not futures_live and not edge_override:
+    # Comme le kill-switch (étape 1), la porte d'edge n'empêche JAMAIS une RÉDUCTION :
+    # fermer n'aggrave pas le risque. Sans cette exemption (trouvé en revue finale du
+    # 21/07), refermer l'override avec une position OUVERTE bloquait les trois chemins
+    # de sortie (futures_auto, carry_auto, stop_guardian.flatten) — il ne restait que
+    # le SL exchange, absent pour le carry.
+    if not futures_live and not edge_override and not reduce:
         reasons.append(f"agent '{agent}' non éligible LIVE (porte d'edge non franchie)")
 
     # 4. levier ≤ mur dur (fail-closed : non numérique -> rejeté, jamais d'exception)
