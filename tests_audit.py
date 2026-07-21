@@ -14071,6 +14071,91 @@ def test_cpcv_gate_armee_bride_sur_preuve():
             os.environ["CPCV_GATE"] = avant
 
 
+def test_annuel_fusion_ranking_et_porte_edge_ladder():
+    """§54 réel : agent_validation.replay_annuel SYNTHÉTIQUE injecté (monkeypatch —
+    AUCUN réseau, AUCUNE consultation du vrai holdout, ERR-019) -> brain_validation
+    ._annuel_safe() récupère le dict {agent: {ic,...}}, build_output le FUSIONNE dans
+    les lignes 'ranking' (row['annuel']['ic']), et edge_ladder._annuel_ok bride bien
+    un ic annuel négatif (LIVE -> PROBATION) tout en laissant passer un ic positif
+    (LIVE inchangé) ; un agent absent du retour reste fail-open (LIVE inchangé)."""
+    import agent_validation as av
+    import brain_validation as bv
+    import edge_ladder as el
+
+    ranking = [{"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4},
+               {"agent": "b", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4},
+               {"agent": "c", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4}]
+    live = {"agents": [{"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05},
+                       {"agent": "b", "n": 100, "ic_t": 3.0, "ic": 0.05},
+                       {"agent": "c", "n": 100, "ic_t": 3.0, "ic": 0.05}]}
+    ranked = {"agents": ranking, "deflation": {}, "n_symbols": 2}
+
+    def _synthetique(*a, **k):
+        return {"a": {"ic": -0.02, "ic_t": -1.0, "n": 80},
+                "b": {"ic": 0.03, "ic_t": 2.0, "n": 80}}      # 'c' absent -> fail-open
+
+    orig = av.replay_annuel
+    av.replay_annuel = _synthetique
+    try:
+        annuel = bv._annuel_safe()
+    finally:
+        av.replay_annuel = orig
+    assert annuel == {"a": {"ic": -0.02, "ic_t": -1.0, "n": 80},
+                      "b": {"ic": 0.03, "ic_t": 2.0, "n": 80}}
+
+    out = bv.build_output("BTCUSDT", ranked, live, now=1000, annuel=annuel)
+    rows = {r["agent"]: r for r in out["ranking"]}
+    assert rows["a"]["annuel"] == {"ic": -0.02}
+    assert rows["b"]["annuel"] == {"ic": 0.03}
+    assert "annuel" not in rows["c"]                          # absent du retour -> pas fusionné
+    # ranked['agents'] original NON muté : build_output ne pollue pas l'entrée de l'appelant.
+    assert all("annuel" not in r for r in ranking)
+    tiers = el.all_tiers(out)
+    assert tiers == {"a": "PROBATION", "b": "LIVE", "c": "LIVE"}
+
+
+def test_annuel_echec_replay_annuel_pas_de_crash():
+    """Échec de replay_annuel (exception, ex. historique corrompu/indisponible) ->
+    _annuel_safe() best-effort ABSOLU retourne {} (jamais de crash), le rapport
+    fusionné reste SANS champ 'annuel' sur aucune ligne, et la porte §54 (fail-open)
+    laisse passer un agent qui bat le replay comme AVANT ce câblage."""
+    import agent_validation as av
+    import brain_validation as bv
+    import edge_ladder as el
+
+    ranking = [{"agent": "a", "dsr": 0.95, "n": 200, "oos_sharpe": 0.4}]
+    live = {"agents": [{"agent": "a", "n": 100, "ic_t": 3.0, "ic": 0.05}]}
+    ranked = {"agents": ranking, "deflation": {}, "n_symbols": 1}
+
+    def _boom(*a, **k):
+        raise RuntimeError("historique indisponible")
+
+    orig = av.replay_annuel
+    av.replay_annuel = _boom
+    try:
+        annuel = bv._annuel_safe()
+    finally:
+        av.replay_annuel = orig
+    assert annuel == {}
+
+    out = bv.build_output("BTCUSDT", ranked, live, now=1000, annuel=annuel)
+    assert "annuel" not in out["ranking"][0]
+    assert el.all_tiers(out) == {"a": "LIVE"}                 # fail-open : comportement inchangé
+    # signature RÉTRO-COMPATIBLE : appel sans le paramètre 'annuel' (ancien code) inchangé.
+    out_sans_param = bv.build_output("BTCUSDT", ranked, live, now=1000)
+    assert out_sans_param["ranking"] == out["ranking"]
+
+    # retour INCOHÉRENT (pas un dict, ex. régression amont) -> ignoré aussi (pas seulement
+    # l'exception) : _annuel_safe et _fuse_annuel restent fail-safe sur un type inattendu.
+    av.replay_annuel = lambda *a, **k: ["pas", "un", "dict"]
+    try:
+        assert bv._annuel_safe() == {}
+    finally:
+        av.replay_annuel = orig
+    assert bv.build_output("BTCUSDT", ranked, live, now=1000,
+                           annuel=["pas", "un", "dict"])["ranking"] == out["ranking"]
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

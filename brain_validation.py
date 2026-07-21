@@ -31,7 +31,45 @@ def _stale(now=None):
         return True                                  # pas de rapport -> lancer
 
 
-def build_output(symbol, ranked, live, timing=None, now=None, mode="mono", cpcv=None):
+def _fuse_annuel(rows, annuel):
+    """Fusionne l'IC annuel (agent_validation.replay_annuel, §54) dans les lignes
+    'ranking' : row['annuel'] = {'ic': <ic>} pour les agents PRÉSENTS dans `annuel`
+    (dict {agent: {ic, ic_t, n}}). PUR : ne mute PAS les dicts d'entrée (copie
+    superficielle par ligne) — `ranked['agents']` reste intact pour l'appelant.
+    Agent absent de `annuel` ou ic manquant -> ligne inchangée (edge_ladder._annuel_ok
+    reste FAIL-OPEN dessus, même philosophie que l'absence totale du champ)."""
+    annuel = annuel if isinstance(annuel, dict) else {}
+    out = []
+    for row in rows or []:
+        row = dict(row)
+        info = annuel.get(str(row.get("agent")))
+        if isinstance(info, dict) and info.get("ic") is not None:
+            row["annuel"] = {"ic": info["ic"]}
+        out.append(row)
+    return out
+
+
+def _annuel_safe():
+    """Robustesse ANNUELLE (§54) best-effort ABSOLU : consulte le holdout profond via
+    `agent_validation.replay_annuel()` SANS ARGUMENT — c'est LA consultation qui DOIT
+    se consigner au registre (holdout_registry, hygiène anti-contamination) : ne PAS
+    lui injecter un panel pré-chargé, sinon la consignation n'a jamais lieu. Coût :
+    même ordre de grandeur que `cpcv_diagnostic` (même panel profond, mêmes agents
+    purs rejoués) — accepté sur la cadence 6h du timer de validation (pas de partage
+    de calcul simple possible sans dupliquer la logique de replay entre les deux
+    fonctions ni casser la consignation ci-dessus). Indisponible/lent/incohérent ->
+    {} : le champ 'annuel' est alors absent de chaque ligne, la porte §54 reste
+    FAIL-OPEN, JAMAIS de crash de la validation."""
+    try:
+        import agent_validation as av
+        res = av.replay_annuel()
+        return res if isinstance(res, dict) else {}
+    except Exception:
+        return {}
+
+
+def build_output(symbol, ranked, live, timing=None, now=None, mode="mono", cpcv=None,
+                  annuel=None):
     """Assemble le rapport de validation (PUR, testable). 'ranked' = ranking replay,
     de PRÉFÉRENCE la coupe TRANSVERSALE (mode="xs", rank_pure_agents_xs : n EFFECTIF
     corrigé de la corrélation transversale — RESEARCH_NOTES §40 : sur un seul symbole
@@ -49,14 +87,19 @@ def build_output(symbol, ranked, live, timing=None, now=None, mode="mono", cpcv=
     'cpcv' = diagnostic CPCV multi-chemins (agent_validation.cpcv_diagnostic, panel
     profond §54) : distribution d'IC OOS (p10/médiane/frac≤0) sur ≤45 chemins purgés.
     NON-GATING : JOURNALISÉ seulement — aucune décision de palier/promotion ne le lit
-    (edge_ladder ignore ce champ) ; l'armer en porte serait un commit isolé."""
+    (edge_ladder ignore ce champ) ; l'armer en porte serait un commit isolé.
+    'annuel' = {agent: {ic, ic_t, n}} (agent_validation.replay_annuel, §54, DÉJÀ
+    calculé best-effort par l'appelant — voir `_annuel_safe`) : FUSIONNÉ dans chaque
+    ligne de 'ranking' (row['annuel']['ic']) — c'est LA porte que lit
+    `edge_ladder._annuel_ok` pour bloquer la promotion LIVE d'un artefact de régime.
+    Absent/vide -> ranking inchangé (fail-open, comportement identique à avant §54)."""
     import agent_validation as av
     return {
         "generated_at": int(time.time() if now is None else now),
         "symbol": symbol,
         "ranking_mode": mode,
         "n_symbols": int(ranked.get("n_symbols", 1) or 1),
-        "ranking": ranked.get("agents", []),
+        "ranking": _fuse_annuel(ranked.get("agents", []), annuel),
         "deflation": ranked.get("deflation", {}),
         "weight_priors_advisory": av.suggest_weight_priors(ranked),
         "live": {"agents": (live or {}).get("agents", []),
@@ -151,7 +194,12 @@ def main():
             cpcv = av.cpcv_diagnostic()
         except Exception:
             cpcv = {}
-        out = build_output(symbol, ranked, live, timing, mode=mode, cpcv=cpcv)
+        # robustesse ANNUELLE (§54) : consultation best-effort du holdout profond,
+        # SANS argument (consignation registre voulue — voir _annuel_safe). GATING :
+        # fusionné dans 'ranking', c'est la porte réelle lue par edge_ladder._annuel_ok.
+        annuel = _annuel_safe()
+        out = build_output(symbol, ranked, live, timing, mode=mode, cpcv=cpcv,
+                           annuel=annuel)
         # front montant de l'échelle : lire l'ANCIEN rapport avant de l'écraser
         try:
             ancien = json.loads(REPORT_FILE.read_text(encoding="utf-8"))
@@ -167,9 +215,10 @@ def main():
         passed = [a["agent"] for a in ranked.get("agents", []) if a.get("dsr", 0) >= 0.9]
         live_n = out["live"]["n_entries"]
         mt_n = out["market_timing"]["n_echantillons"]
+        annuel_n = len(annuel or {})
         print(f"brain_validation : rapport écrit (replay {mode} sur "
               f"{out['n_symbols']} symbole(s) + live {live_n} votes + "
-              f"timing {mt_n} échantillons). "
+              f"timing {mt_n} échantillons + annuel {annuel_n} agent(s) §54). "
               f"Agents battant le seuil déflaté (replay) : "
               f"{passed or 'aucun (données trop minces)'}. ADVISORY. VERDICT: SAFE")
     except Exception as exc:
