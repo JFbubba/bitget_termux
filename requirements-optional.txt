@@ -14,6 +14,8 @@ ccxt
 # book_collector.py — collecteur microstructure HAUTE FIDÉLITÉ via WebSocket public
 # Bitget (canaux books15 + trade). OPTIONNEL : sans lui, le REST-poll de
 # microstructure.py reste disponible. Flux public, lecture seule, aucune clé.
+# RÉUTILISÉE par ws_orders.py (T4, §11 SAVOIR) — canal WS PRIVÉ `orders`, LECTURE
+# SEULE (observation pure, aucun ordre). Déjà installée sur cette machine.
 websocket-client>=1.6.0
 
 # scikit-learn : strategy_lab.strat_random_forest (§72, algo classique n°10) —

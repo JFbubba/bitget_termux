@@ -14247,6 +14247,183 @@ def test_annuel_echec_replay_annuel_pas_de_crash():
                            annuel=["pas", "un", "dict"])["ranking"] == out["ranking"]
 
 
+def test_ws_orders_login_message_reutilise_signature_sans_secret():
+    """login_message réutilise bitget_balance_reader.create_signature (même contrat
+    HMAC-SHA256/Base64 que le REST signé, §10a) — PUR avec ts_s injecté. Le secret
+    n'apparaît JAMAIS en clair dans le message produit (seul le sign dérivé y est)."""
+    import json as _json
+    import ws_orders as wo
+    from bitget_balance_reader import create_signature
+
+    msg = wo.login_message("KEY123", "SECRETVALUE", "PASSXYZ", ts_s=1700000000)
+    body = _json.loads(msg)
+    assert body["op"] == "login"
+    arg = body["args"][0]
+    assert arg["apiKey"] == "KEY123" and arg["passphrase"] == "PASSXYZ"
+    assert arg["timestamp"] == "1700000000"
+    # même sign que le contrat REST signé, sur preHash = ts + GET + /user/verify
+    assert arg["sign"] == create_signature("SECRETVALUE", "1700000000", "GET", "/user/verify")
+    assert "SECRETVALUE" not in msg                          # jamais le secret en clair
+    # déterministe : même ts_s -> même message (testable sans horloge système)
+    assert wo.login_message("KEY123", "SECRETVALUE", "PASSXYZ", ts_s=1700000000) == msg
+
+
+def test_ws_orders_parse_evenement_synthetique_latence_et_fill():
+    """Évènement `orders` synthétique -> ligne de journal correcte : latence CALCULÉE
+    (ts_reception - ts_event_exchange), champs de fill regroupés sous 'fill' quand un
+    prix/une taille/un trade_id de fill est présent."""
+    import ws_orders as wo
+
+    evt = {"arg": {"channel": "orders"}, "action": "update", "ts": 999_000,
+           "data": [{"instId": "BTCUSDT", "orderId": "OID1", "clientOid": "COID1",
+                     "status": "filled", "side": "buy", "size": "0.01",
+                     "price": "60000", "uTime": "1000500",
+                     "fillPrice": "60001.5", "baseVolume": "0.01", "tradeId": "T1"}]}
+    lignes = wo.parse_order_event(evt, ts_reception=1_000_800)
+    assert len(lignes) == 1
+    l = lignes[0]
+    assert l["symbol"] == "BTCUSDT" and l["order_id"] == "OID1" and l["client_oid"] == "COID1"
+    assert l["statut"] == "filled" and l["side"] == "buy" and l["type_evenement"] == "update"
+    assert l["taille"] == 0.01 and l["prix"] == 60000.0
+    assert l["ts_event_exchange"] == 1_000_500 and l["ts_reception"] == 1_000_800
+    assert l["latence_ms"] == 300
+    assert l["fill"] == {"prix": 60001.5, "taille": 0.01, "trade_id": "T1"}
+
+    # sans fill (ordre encore 'live', aucun champ de fill) -> fill=None, jamais un dict vide
+    evt_sans_fill = {"arg": {"channel": "orders"},
+                      "data": [{"instId": "ETHUSDT", "orderId": "OID2", "status": "live",
+                                "uTime": "500"}]}
+    l2 = wo.parse_order_event(evt_sans_fill, ts_reception=600)[0]
+    assert l2["fill"] is None and l2["latence_ms"] == 100
+
+
+def test_ws_orders_parse_champs_manquants_ligne_partielle_jamais_crash():
+    """Schéma exact non garanti (BITGET_REFERENCE §8f documente l'existence du canal,
+    pas le détail champ-à-champ) -> un évènement SANS aucun champ de temps ni de prix ne
+    lève JAMAIS, produit une ligne PARTIELLE (None sur les champs inconnus), et une
+    entrée illisible/mal formée ne casse pas les autres lignes du même message."""
+    import ws_orders as wo
+
+    evt = {"arg": {"channel": "orders"},
+           "data": [{"instId": "SOLUSDT", "orderId": "OID3"},   # rien d'autre
+                     "pas_un_dict",                              # entrée corrompue -> ignorée
+                     {"instId": "XRPUSDT", "orderId": "OID4", "status": "canceled"}]}
+    lignes = wo.parse_order_event(evt, ts_reception=42)
+    assert len(lignes) == 2                                     # l'entrée corrompue est sautée
+    l = lignes[0]
+    assert l["symbol"] == "SOLUSDT" and l["order_id"] == "OID3"
+    assert l["ts_event_exchange"] is None and l["latence_ms"] is None and l["fill"] is None
+    assert l["statut"] is None and l["side"] is None and l["taille"] is None
+
+    # raw n'est ni un dict ni une str JSON -> [] (jamais d'exception)
+    assert wo.parse_order_event(12345, ts_reception=1) == []
+    assert wo.parse_order_event({"data": "pas_une_liste"}, ts_reception=1) == []
+    assert wo.parse_order_event("{ceci n'est pas du JSON", ts_reception=1) == []
+    assert wo.parse_order_event(None, ts_reception=1) == []
+
+
+def test_ws_orders_parse_ignore_acks_et_autres_canaux():
+    """Un ack (`event`: login/subscribe/erreur) et un message d'un canal différent de
+    `orders` ne produisent AUCUNE ligne de journal (pas des faux ordres)."""
+    import ws_orders as wo
+
+    assert wo.parse_order_event({"event": "login", "code": "0"}, ts_reception=1) == []
+    assert wo.parse_order_event({"event": "error", "code": "30011", "msg": "x"},
+                                 ts_reception=1) == []
+    assert wo.parse_order_event({"event": "subscribe", "arg": {"channel": "orders"}},
+                                 ts_reception=1) == []
+    autre_canal = {"arg": {"channel": "positions"}, "data": [{"instId": "BTCUSDT"}]}
+    assert wo.parse_order_event(autre_canal, ts_reception=1) == []
+    assert wo.parse_order_event("ping", ts_reception=1) == []
+    assert wo.parse_order_event("pong", ts_reception=1) == []
+
+
+def test_ws_orders_replay_parse_sans_reseau():
+    """Le module en mode replay/parse (parse_order_event, compute_status, status(),
+    backoff_delay) n'ouvre JAMAIS de socket réseau : on fait exploser toute tentative
+    de connexion pendant l'appel et on vérifie qu'aucune exception ne remonte (donc
+    aucune tentative n'a eu lieu)."""
+    import socket
+    import tempfile
+    from pathlib import Path
+    import ws_orders as wo
+
+    def _boom(*a, **k):
+        raise AssertionError("tentative de connexion réseau pendant un test de parsing pur")
+
+    orig = socket.socket
+    socket.socket = _boom
+    try:
+        evt = {"arg": {"channel": "orders"}, "action": "update",
+               "data": [{"instId": "BTCUSDT", "orderId": "1", "status": "filled",
+                         "side": "buy", "size": "0.01", "price": "60000",
+                         "uTime": "1000"}]}
+        lignes = wo.parse_order_event(evt, ts_reception=1500)
+        assert len(lignes) == 1
+        s = wo.compute_status(lignes)
+        assert s["nb_evenements"] == 1
+        wo.backoff_delay(3, rng=lambda: 0.0)
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "journal.jsonl"
+            wo.append_event(lignes[0], path=p)
+            assert wo.status(path=p)["nb_evenements"] == 1
+    finally:
+        socket.socket = orig
+
+
+def test_ws_orders_status_agregats_sur_journal_synthetique_injecte():
+    """--status (via status(path=...), chemin INJECTÉ — ERR-019) sur un journal
+    synthétique rend les bons agrégats : nb d'évènements, latence médiane/p95 (sur
+    les latences CONNUES uniquement), dernier évènement. Journal absent -> agrégats
+    à None/0, jamais d'exception."""
+    import tempfile
+    from pathlib import Path
+    import ws_orders as wo
+    import journal_append as ja
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "ws_orders_test.jsonl"
+        # journal absent -> aucun crash, agrégats neutres
+        s_absent = wo.status(path=p)
+        assert s_absent == {"nb_evenements": 0, "nb_avec_latence": 0,
+                             "latence_mediane_ms": None, "latence_p95_ms": None,
+                             "dernier_evenement": None}
+
+        latences = [10, 20, 30, 40, 100]                    # médiane=30, p95(idx=round(.95*4)=4)->100
+        for i, lat in enumerate(latences):
+            ja.append_jsonl(p, {"order_id": f"o{i}", "latence_ms": lat, "statut": "filled"})
+        # une ligne SANS latence connue (statut d'ack ou champ manquant) ne doit pas fausser la
+        # médiane/p95 mais compte dans nb_evenements
+        ja.append_jsonl(p, {"order_id": "o_sans_latence", "latence_ms": None, "statut": "live"})
+
+        s = wo.status(path=p)
+        assert s["nb_evenements"] == 6
+        assert s["nb_avec_latence"] == 5
+        assert s["latence_mediane_ms"] == 30
+        assert s["latence_p95_ms"] == 100
+        assert s["dernier_evenement"]["order_id"] == "o_sans_latence"
+
+
+def test_ws_orders_backoff_croissant_et_borne():
+    """Backoff exponentiel + JITTER (SAVOIR §11.4, invariant 4) : la suite des délais
+    CROÎT avec le nombre de tentatives (jitter neutralisé, rng=0) jusqu'au plafond, et
+    reste BORNÉE quel que soit le jitter (rng=1, pire cas) — jamais de délai illimité."""
+    import ws_orders as wo
+
+    sans_jitter = [wo.backoff_delay(i, rng=lambda: 0.0) for i in range(10)]
+    assert all(sans_jitter[i] <= sans_jitter[i + 1] for i in range(len(sans_jitter) - 1))
+    assert sans_jitter[0] == wo.BACKOFF_BASE_S
+    assert max(sans_jitter) == wo.BACKOFF_CAP_S           # plafonne au cap sans jitter
+
+    jitter_max = [wo.backoff_delay(i, rng=lambda: 1.0) for i in range(10)]
+    assert max(jitter_max) <= wo.BACKOFF_CAP_S * 1.5      # borné même au pire jitter
+    assert all(d >= 0 for d in sans_jitter + jitter_max)
+
+    # attempt négatif ne casse pas (clampé à 0) ; jitter hors [0,1] clampé aussi
+    assert wo.backoff_delay(-5, rng=lambda: 0.0) == wo.BACKOFF_BASE_S
+    assert wo.backoff_delay(0, rng=lambda: 5.0) <= wo.BACKOFF_BASE_S * 1.5
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

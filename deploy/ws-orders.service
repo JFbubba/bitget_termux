@@ -1,0 +1,14 @@
+[Unit]
+Description=Bitget WS orders privé (T4, SAVOIR §11 — observation temps réel, LECTURE SEULE, aucun ordre)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root/bitget_termux_repo
+ExecStart=/usr/bin/python3 ws_orders.py --daemon
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
