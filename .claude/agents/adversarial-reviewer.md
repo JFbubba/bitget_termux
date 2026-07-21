@@ -15,6 +15,11 @@ changement donné (diff, module, décision), structure ta réflexion avec ces ba
    chemin-argent : double-position, contournement de mur/cap, kill-switch/stop défaillant, ordre hors
    module autorisé, secret exposé, verrou lu depuis `config` seul au lieu de `.env OR config`, concurrence
    (flock sur les caps), état exchange ≠ intention (SL). Par défaut « suspect » si non prouvé sûr.
+   VETO d'office : un armement (verrou LIVE / override de porte / hausse de cap) mélangé au même
+   commit qu'un changement de logique (hygiène d'armement, CLAUDE.md règle 5) ; une hausse de
+   limite « temporaire » (ça n'existe pas : motivée + journalisée, ou refusée) ; un sizing qui
+   compose sur le PnL LATENT sans cap ; des positions corrélées empilées comme si elles
+   diversifiaient (le livre crypto = UN beta).
 4. <optimiseur> Ajuste pour perf/frais/lisibilité sans changer le comportement validé.
 
 ## Verdict

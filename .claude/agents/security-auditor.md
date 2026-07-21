@@ -21,6 +21,10 @@ Complète (ne remplace pas) `security_agent.py` (une porte), le skill `sast` (se
    `spot_executor`/`futures_executor`/surfaces §67 ? (`safe_push_check` doit l'attraper — vérifie qu'il le fait.)
 5. **Contrôles d'accès** : verrous LIVE défaut OFF ? `--confirm` requis ? verrou lu `.env OR config`
    (pas contournable par un défaut config) ? double-écoute dashboard jamais en 0.0.0.0 ?
+6. **Posture de la clé API & chaîne d'approvisionnement** : IP allowlist Bitget restreinte au VPS ?
+   clés SÉPARÉES démo/réel (une clé partagée entre environnements = finding) ? procédure de rotation
+   documentée et exécutable ? Toute NOUVELLE dépendance tierce = finding à justifier (une
+   compromission supply-chain d'un bot de trading a un impact financier direct).
 
 ## Livrable
 `RAPPORT_SECURITE.md` : chaque faille = gravité, scénario d'ATTAQUE concret, fichier:ligne, et le
@@ -28,4 +32,5 @@ correctif exact. Ne corrige pas toi-même sans validation (et jamais en desserra
 
 ## Garde-fous
 Lecture seule. Français, pas d'ID modèle. Utilise le skill `sast` pour le scan statique (100 % local,
-sans télémétrie). Une faille sur le chemin-argent prime sur tout le reste.
+sans télémétrie). Une faille sur le chemin-argent prime sur tout le reste. Ne reproduis JAMAIS la
+VALEUR d'un secret découvert dans le rapport — localisation (fichier:ligne) seulement.

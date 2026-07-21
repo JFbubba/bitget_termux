@@ -254,7 +254,8 @@ entre les voix ; deux voix adversaires qui se ressemblent à ≥0,8 invalident l
 
 **Acquis (lu, et recoupé avec nos propres incidents).** Les moteurs d'exécution de qualité
 production (référence : Nautilus Trader — parité recherche→live, cœur déterministe, design
-crash-only) convergent sur quatre invariants :
+crash-only) convergent sur six invariants (1–4 : Nautilus Trader ; 5–6 : recoupés le même
+jour d'un bundle d'architecture multi-agents, trié anti-doublon) :
 
 1. **L'exchange est la SOURCE DE VÉRITÉ.** Au démarrage on RÉCONCILIE : l'état local est
    régénéré/aligné depuis la venue (mass status), jamais l'inverse. Un ordre orphelin se résout
@@ -268,6 +269,16 @@ crash-only) convergent sur quatre invariants :
    AVANT son handler → recovery et replay possibles après crash.
 4. **Résilience mécanique.** Retry à backoff exponentiel + JITTER, circuit breaker, timeouts —
    du code, pas de la discipline.
+5. **La parité recherche→live est un HARNAIS, pas un slogan.** On REJOUE une session live
+   ENREGISTRÉE à travers le moteur de recherche : même entrée → même décision, exactement ;
+   toute divergence est un bug P0, jamais un « détail d'arrondi ». Condition pratique : la
+   logique de signal en fonctions PURES (pas d'I/O, pas d'horloge système — le temps est
+   INJECTÉ), paramètres en config, sizing séparé du signal.
+6. **Réconciliation CONTINUE avec taxonomie des écarts.** Un écart interne↔exchange n'est
+   jamais « de l'arrondi » ; il se CLASSE : timing (ordre in-flight → se résout seul,
+   documenter), modèle de frais/funding (→ corriger le modèle), fill manqué (→ bug
+   d'exécution, escalader), INEXPLIQUÉ (→ condition de HALTE : on n'ouvre plus tant que
+   l'écart n'est pas expliqué).
 
 **Implication pour ce bot.** Nos incidents ont déjà fait converger le code vers (1) et (2) par
 la douleur : ERR-008 double-position, §109 « accepté ≠ rempli », réconciliation
@@ -275,7 +286,11 @@ la douleur : ERR-008 double-position, §109 « accepté ≠ rempli », réconcil
 PATTERN standard et complet, pas une série de rustines : toute nouvelle surface d'exécution
 (§67) doit NAÎTRE avec ces 4 invariants au lieu de les apprendre par incident. Chaînon manquant
 identifié chez nous : la confirmation temps réel par le canal WS PRIVÉ `orders`
-(BITGET_REFERENCE §8f) à la place du polling.
+(BITGET_REFERENCE §8f) à la place du polling. Deux chaînons de plus (invariants 5-6) : nos
+réconciliations (`accum_reconcile`, `futures_report`) constatent en best-effort mais ne
+CLASSENT pas les écarts et aucun écart inexpliqué n'est aujourd'hui une condition de halte ;
+et il n'existe pas de harnais de rejeu live→recherche (`live_ic_audit` mesure l'IC des voix,
+pas la parité décisionnelle) — porté au backlog (PRIORITÉ 1).
 
 ## 12. Cadre fiscal belge des plus-values crypto (2026) — factuel, PAS un conseil (ajouté le 21/07/2026)
 

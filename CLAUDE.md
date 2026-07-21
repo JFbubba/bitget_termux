@@ -79,6 +79,11 @@ strategy-lab dimanche 05:00 (§68/§70).
    sortie, puis heredoc + saut de ligne qui sort `git commit` de la chaîne `&&`).
    La forme OBLIGATOIRE est désormais : `bash gates.sh && git add … && git commit …`
    (`gates.sh` vérifie chaque porte par code de sortie strict).
+   **Hygiène d'armement (21/07/2026)** : un ARMEMENT qui passe par le dépôt (verrou LIVE,
+   override de porte type `FUTURES_EDGE_GATE_OVERRIDE` dans `config.py`, hausse de cap
+   effectif) ne voyage JAMAIS dans le même commit qu'un changement de logique — commit
+   ISOLÉ, motivé, réversible. (Les armements via `.env` restent hors dépôt, journalisés
+   + notifiés §92 comme avant.)
 6. **Classer chaque module SAFE** (lecture seule / paper) — un fichier qui passe un ordre
    réel doit être `spot_executor.py` (achat spot BTC seul, avec ses gardes).
 
