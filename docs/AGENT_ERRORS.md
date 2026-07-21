@@ -729,3 +729,40 @@ rotation opérer. Corollaire général : un fichier réécrit en entier par plus
 de modification « hors-ligne » sûre. Et quand une migration est malgré tout nécessaire : **écrire la
 destination AVANT d'effacer la source**, jamais l'inverse.
 **Statut.** RECONNU (aucun dégât, migration abandonnée volontairement) · RÈGLE ACTIVE.
+
+## ERR-022 · 2026-07-21 · Éditer un fichier consommé par un TIMER ACTIF sans le suspendre (le timer tire sur un état intermédiaire du working tree)
+
+**Contexte.** Pendant l'édition de `brain_validation.py` (script exécuté par
+`bitget-validation.timer`, cadence 6h), le timer a tiré à 21:01 en cours de session —
+et a exécuté le fichier tel qu'il se trouvait sur disque à cet instant, c'est-à-dire un
+état INTERMÉDIAIRE d'édition (ni relu, ni testé, ni commité). Le tir a produit un
+`validation_report.json` fusionné et une consignation `holdout_registry` horodatés
+**avant** le commit final des correctifs. Cette fois-ci inoffensif (l'édition en cours
+ne changeait pas la sémantique observable au moment précis du tir), mais le scénario
+d'échec est réel : un fichier à MOITIÉ édité (import cassé, docstring non fermée,
+signature à moitié changée) aurait pu écrire un rapport CORROMPU ou lever une exception
+au milieu d'une écriture — lu ensuite par `edge_ladder`/`mandate` comme un rapport
+valide.
+**Cause racine.** Un timer systemd (ou un cron) ne connaît RIEN de l'état d'édition
+d'un agent sur le dépôt : il exécute le fichier présent sur disque à l'instant T, quel
+que soit son état de préparation. Éditer un module CONSOMMÉ EN PRODUCTION par un
+scheduler actif, sans le suspendre, revient à laisser un tiers exécuter du code
+non-gaté/non-commité pendant qu'on le modifie — le même risque de fond qu'ERR-021
+(processus tiers qui détient/réécrit un artefact), mais ici c'est un TIMER qui
+EXÉCUTE le fichier en cours d'édition, pas un démon qui réécrit un registre.
+**Solution.** Avant d'éditer un fichier exécuté par un timer/cron ACTIF en production :
+suspendre le timer (`systemctl stop <timer>`) le temps de l'édition + des tests + du
+commit, puis le relancer (`systemctl start <timer>`) une fois les 3 portes vertes — OU
+travailler dans un worktree/branche isolée qui n'est jamais le chemin que le timer
+exécute. Après coup, vérifier l'horodatage des artefacts produits PENDANT la fenêtre
+d'édition (rapport JSON, registre) : tout artefact écrit dans cette fenêtre est suspect
+et doit être régénéré par un tir propre post-commit avant d'être considéré fiable.
+**Contrôle (détection ailleurs).** Avant d'éditer tout fichier `*.py` : `systemctl
+list-timers` (ou `crontab -l`) et vérifier qu'aucun timer/cron actif ne pointe vers ce
+fichier (ou un module qu'il importe en chaîne) pendant la fenêtre d'édition prévue. Si
+oui : `systemctl stop <timer>` avant d'éditer, `systemctl start <timer>` après le
+dernier commit vert. Après l'édition, comparer l'horodatage (`stat`/`git log`) des
+artefacts produits par ce module (rapport, registre, journal) à la fenêtre d'édition —
+tout artefact NÉ pendant cette fenêtre doit être régénéré une fois le code stable.
+**Statut.** RECONNU (aucun dégât — le tir du 21:01 est resté sémantiquement inoffensif)
+· RÈGLE ACTIVE.

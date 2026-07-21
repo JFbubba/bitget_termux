@@ -36,15 +36,18 @@ def _fuse_annuel(rows, annuel):
     'ranking' : row['annuel'] = {'ic': <ic>} pour les agents PRÉSENTS dans `annuel`
     (dict {agent: {ic, ic_t, n}}). PUR : ne mute PAS les dicts d'entrée (copie
     superficielle par ligne) — `ranked['agents']` reste intact pour l'appelant.
-    Agent absent de `annuel` ou ic manquant -> ligne inchangée (edge_ladder._annuel_ok
-    reste FAIL-OPEN dessus, même philosophie que l'absence totale du champ)."""
+    Agent absent de `annuel`, ic manquant OU ic NON NUMÉRIQUE (ex. régression amont
+    qui renverrait une chaîne/None/bool) -> ligne inchangée (edge_ladder._annuel_ok
+    reste FAIL-OPEN dessus, même philosophie que l'absence totale du champ) : un ic
+    non numérique n'est JAMAIS propagé vers le float() de edge_ladder._annuel_ok."""
     annuel = annuel if isinstance(annuel, dict) else {}
     out = []
     for row in rows or []:
         row = dict(row)
         info = annuel.get(str(row.get("agent")))
-        if isinstance(info, dict) and info.get("ic") is not None:
-            row["annuel"] = {"ic": info["ic"]}
+        ic = info.get("ic") if isinstance(info, dict) else None
+        if isinstance(ic, (int, float)) and not isinstance(ic, bool):
+            row["annuel"] = {"ic": ic}
         out.append(row)
     return out
 
