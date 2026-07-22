@@ -231,6 +231,24 @@ journal sur le dépôt. Deux règles déjà actives (détails dans le fichier) :
 - **ERR-002** : un système conçu comme un TOUT (séquence/machine à états, ex. modèle ICT)
   se teste D'ABORD entier et dans l'ordre ; on ne décompose qu'ensuite pour l'attribution.
 
+Règles issues de l'audit des frictions de sessions (22/07/2026) :
+- **Git nominatif** : jamais `git add -A` / `git add .` — toujours lister les fichiers
+  (le hook guard.py le bloque désormais). Un staging global a produit 8 blocages en une
+  session et peut embarquer artefacts/secrets.
+- **Périmètre complet par défaut** : tout harnais/test/backtest multi-symboles branche
+  `universe.py` (source de vérité dynamique), jamais une liste en dur ni BTCUSDT seul
+  (ERR-001 étendu aux symboles) ; un verdict « aucun edge » exige le test JOINT des
+  interactions, jamais des composants isolés (ERR-002/ERR-014).
+- **Portée avant code** : à la conception, poser « advisory ou armé réellement ? »,
+  « fouiller ou adopter ? », « un symbole ou l'univers ? » — pas après l'audit.
+- **Labos lourds** (RandomForest, walk-forward, LLM local) : `run_in_background` +
+  historique borné D'EMBLÉE — le VPS (2 cœurs, sans GPU) tue le foreground (exit 143).
+- **Missions longues** : manifeste de progression persistant dès le PREMIER lot (une
+  nouvelle session doit reprendre sans collage manuel) ; planifier les missions
+  token-lourdes juste APRÈS le reset de quota (3:40 UTC), pas avant.
+- **ERR-024** : une tâche de fond « terminée » n'est pas « réussie » — valider la
+  sortie (longueur, motifs d'erreur, structure demandée) avant de s'appuyer dessus.
+
 Commits : messages clairs en français, et **ne jamais inclure d'identifiant de modèle**
 dans un commit/PR/artefact. Pousser seulement après les 3 portes vertes.
 

@@ -6,16 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/root/.graphify-venv/bin/graphify hook-guard search"
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Glob",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/root/.graphify-venv/bin/graphify hook-guard read"
+            "command": "/root/bitget_termux_repo/.claude/hooks/graphify_hint.sh"
           }
         ]
       }

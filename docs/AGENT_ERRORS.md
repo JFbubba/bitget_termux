@@ -799,3 +799,37 @@ carte `expected`) et `wiring_audit`. Un module « sans consommateur » n'existe 
 les DEUX greps ET un passage des portes.
 **Statut.** RECONNU (attrapé par la porte 1 avant tout commit — le système de portes
 a fonctionné) · RÈGLE ACTIVE.
+
+## ERR-024 · 2026-07-22 · Tenir une tâche de fond « terminée » pour « réussie » sans valider sa sortie finale
+
+**Contexte.** L'audit des frictions de sessions (22/07) avait lancé 6 agents
+d'analyse en arrière-plan sur un modèle tiers. La session parente s'est terminée
+en croyant les agents au travail. À la reprise, 4 des 6 « rapports finaux »
+faisaient 97 caractères : le message « You're out of usage credits… » — les agents
+étaient morts d'épuisement de crédits en cours de route, et leur DERNIER MESSAGE
+(une erreur) occupait exactement la place attendue du rapport. Rien dans l'état
+« completed » ne distinguait un agent qui a fini son travail d'un agent qui a
+fini de mourir.
+**Cause racine.** Le statut d'une tâche de fond (agent, workflow, cron, run
+détaché) décrit l'ARRÊT du processus, pas l'ACCOMPLISSEMENT de la mission. Toute
+chaîne qui consomme « le dernier output » comme « le résultat » confond les deux.
+C'est le jumeau asynchrone d'ERR-005 (pipe qui avale le code de sortie) : ici
+c'est la terminaison qui avale la défaillance.
+**Solution.** Valider la SORTIE, pas le statut : avant de s'appuyer sur le
+résultat d'une tâche de fond, vérifier (1) longueur plausible pour la mission
+confiée, (2) absence des motifs d'échec connus (« out of usage credits »,
+« rate limit », Traceback, timeout, réponse vide), (3) présence de la STRUCTURE
+demandée (les sections/le format exigés par le prompt). Un rapport de 97
+caractères pour une mission d'analyse de 20 Mo de transcripts est un cadavre,
+pas un livrable. En cas de doute : rouvrir le transcript de l'agent
+(`subagents/agent-*.jsonl`) et regarder son dernier VRAI message de travail.
+**Contrôle (détection ailleurs).** Partout où un résultat d'agent/tâche de fond
+est consommé (orchestrations multi-agents, crons qui lisent l'artefact d'un
+autre, synthèses de rapports) : chercher les consommations sans garde —
+`grep -rn "task.*output\|dernier.*message\|final.*text" scripts d'orchestration`
+— et vérifier qu'un contrôle longueur/motifs/structure s'interpose. Dans les
+boucles cron du bot : tout artefact JSON consommé doit être validé (âge, taille,
+clés attendues) avant usage — la carte de fraîcheur du watchdog (§61) fait foi
+pour l'âge, PAS pour le contenu.
+**Statut.** RECONNU (audit 22/07 : 4 lots d'analyse relancés après détection —
+aucun verdict n'avait été rendu sur les rapports-cadavres) · RÈGLE ACTIVE.
