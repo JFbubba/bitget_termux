@@ -994,6 +994,17 @@ def build_state(symbol=None, tf="5m"):
             out["micro_age_s"] = round(wd.microstructure_age("BTCUSDT"), 1) if wd.microstructure_age("BTCUSDT") is not None else None
         except Exception:
             out["micro_age_s"] = None
+        try:
+            # Badge « câblage » (audit frictions 22/07 : triple « tout est câblé ? »).
+            # Validation contenu + âge (ERR-024 : un artefact présent n'est pas un
+            # artefact valide) : >26 h sans refresh cron (6 h) = état inconnu.
+            d = json.loads((REPO_ROOT / "wiring_report.json").read_text(encoding="utf-8"))
+            age = time.time() - float(d.get("ts") or 0)
+            out["wiring"] = {"orphans": list(d.get("orphans") or []),
+                             "ok": bool(d.get("ok")) and 0 <= age < 26 * 3600,
+                             "age_s": round(age)}
+        except Exception:
+            out["wiring"] = None
         return out
 
     def _orderflow_signals():

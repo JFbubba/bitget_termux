@@ -395,6 +395,24 @@ def build_report(d=None):
                    f"n {si['n']} · IC hint→résultat {_n(ic, '{:+.4f}')} (t {_n(ict, '{:+.2f}')}) · "
                    f"hit {_n(si.get('hit_rate'), '{:.3f}')} vs base {_n(si.get('base_rate'), '{:.3f}')}"
                    + verdict]
+    # — VERROUS (audit frictions 22/07 : « qu'est-ce qui est OFF qui peut passer
+    #   en ON ? » demandé à la main — désormais dans chaque revue). Lecture seule,
+    #   best-effort : la revue ne casse jamais si verrous_effectifs est indispo.
+    try:
+        import verrous_effectifs as ve
+        s = ve.summary()
+        surf = s.get("surfaces") or {}
+        lignes += ["", "— VERROUS EFFECTIFS (armé = .env OR config ; armement = acte séparé §92) —",
+                   str(s.get("resume") or "—"),
+                   "surfaces §67 : " + (", ".join(
+                       f"{k.replace('_LIVE', '').lower()}={'ON' if v else 'off'}"
+                       for k, v in sorted(surf.items())) or "—"),
+                   f"porte d'edge override={s.get('edge_gate_override')} · "
+                   f"kill-switch {'ACTIF ⚠' if s.get('kill_switch') else 'non'}",
+                   "Détail + voix opt-in : python verrous_effectifs.py — armer = décision "
+                   "sur MESURE, jamais dans la foulée de la revue."]
+    except Exception:
+        pass
     recs = recommandations(d)
     if recs:
         lignes += ["", "— RECOMMANDATIONS (données -> décision propriétaire) —"]

@@ -2,6 +2,8 @@
 lab_scenarios.py — scénarios DÉTERMINISTES de coûts + seeds de robustesse pour les labos.
 
 Classement : SAFE (pur, aucun réseau, aucun ordre, aucune écriture).
+WIRING-RESERVE : bibliothèque test/audit-only ASSUMÉE (consommée par tests_audit,
+exclu du scan de câblage par construction) — vérifié le 22/07, pas un dormant ERR-013.
 
 POURQUOI (décision propriétaire 21/07). Un « seed » RNG n'a pas d'humeur : il initialise
 le hasard, il n'oriente pas la mesure. Ce que « optimiste / pessimiste / neutre »

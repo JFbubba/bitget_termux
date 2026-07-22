@@ -15,13 +15,16 @@ AUCUN ordre, AUCUN secret, LECTURE SEULE (grep/crontab/systemctl en subprocess, 
 CLI :
     python wiring_audit.py            # rapport complet (consommés / activés / outils / ORPHELINS)
     python wiring_audit.py --alert    # concis (pour /lance-correction & cron)
+    python wiring_audit.py --write    # + sérialise wiring_report.json (badge dashboard)
 """
 import ast
 import glob
+import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SKIP = {"tests_audit", "wiring_audit"}
@@ -104,10 +107,29 @@ def audit():
     return cats
 
 
+def write_report(cats, chemin=None):
+    """Sérialise le résultat d'audit() en artefact JSON pour le badge « câblage » du
+    dashboard (audit frictions 22/07 : triple « tout est câblé ? » en une session).
+    Chemin INJECTABLE (ERR-019 : un test ne doit jamais écrire l'artefact de prod)."""
+    chemin = chemin or os.path.join(ROOT, "wiring_report.json")
+    rep = {"ts": time.time(),
+           "counts": {k: len(v) for k, v in cats.items()},
+           "orphans": list(cats.get("orphan") or []),
+           "reserve": list(cats.get("reserve") or []),
+           "ok": not cats.get("orphan")}
+    tmp = chemin + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rep, f, ensure_ascii=False)
+    os.replace(tmp, chemin)  # écriture atomique (le dashboard lit en concurrence)
+    return chemin
+
+
 def main():
     alert = "--alert" in sys.argv
     c = audit()
     orphans = c["orphan"]
+    if "--write" in sys.argv:
+        write_report(c)
     if alert:
         print(f"WIRING: {len(orphans)} orphelin(s) biblio"
               + ((" : " + ", ".join(orphans)) if orphans else " — tout câblé/activé/autonome/réserve"))

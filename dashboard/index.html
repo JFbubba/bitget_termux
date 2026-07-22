@@ -503,6 +503,7 @@
       <div class="row"><span class="k">collecteur micro.</span><span id="sy-micro">—</span></div>
       <div class="row"><span class="k">dashboard · bot</span><span id="sy-svc">—</span></div>
       <div class="row"><span class="k">kill-switch</span><span id="sy-kill">—</span></div>
+      <div class="row"><span class="k">câblage (anti-ERR-013)</span><span id="sy-wiring">—</span></div>
     </div>
     <div class="panel">
       <h2>Market · Sentiment</h2>
@@ -1731,6 +1732,11 @@ function renderState(){
     $("sy-micro").className=(sysd.micro_age_s!=null&&sysd.micro_age_s<180)?"green":(sysd.micro_age_s!=null?"amber":"dim");
     $("sy-svc").textContent=(sv.dashboard?"dash ✓":"dash ✗")+" · "+(sv.bot?"bot ✓":"bot ✗");$("sy-svc").className=(sv.dashboard&&sv.bot)?"green":"amber";
     $("sy-kill").textContent=(sysd.kill_switch==null)?"—":(sysd.kill_switch?"ARMÉ ⚠":"inactif");$("sy-kill").className=sysd.kill_switch?"red":"green";
+    {const wr=sysd.wiring;
+     if(!wr){$("sy-wiring").textContent="—";$("sy-wiring").className="dim";}
+     else if(wr.ok){$("sy-wiring").textContent="tout câblé ✓";$("sy-wiring").className="green";}
+     else if((wr.orphans||[]).length){$("sy-wiring").textContent=(wr.orphans.length)+" orphelin(s) : "+wr.orphans.join(", ");$("sy-wiring").className="amber";}
+     else{$("sy-wiring").textContent="rapport périmé ("+Math.round((wr.age_s||0)/3600)+"h)";$("sy-wiring").className="amber";}}
     // --- sources orthogonales §40 : on-chain, stablecoins, DVOL/VRP, carry ---
     const onc=st.onchain||{},flx=st.flows||{},ivv=st.vol_iv||{},cry=st.carry||{};
     if(onc.etat){const rb=onc.etat.split(" ")[0];$("oc-rib").textContent=rb+(onc.signal!=null?(" ("+(onc.signal>=0?"+":"")+onc.signal.toFixed(1)+")"):"");
