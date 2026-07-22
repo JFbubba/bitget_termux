@@ -375,6 +375,45 @@ def build(st):
         panels.append(panel("Agents DRY · mesures", pill("mesure · aucun ordre", "neutral"),
                             '<div class="kvs">' + "".join(dry_rows) + "</div>"))
 
+    # ---- Validation & Parité (chaîne LIVE + instruments du 21/07, clé validation_gates) ----
+    vg = g(st, "validation_gates", default={}) or {}
+    if vg:
+        vrows = []
+        paires = (vg.get("parite") or {}).get("paires") or []
+        if paires:
+            nb_ok = sum(1 for p in paires if p.get("parite"))
+            vrows.append(kv("Parité live→recherche", f"{nb_ok}/{len(paires)} paires",
+                            "pos" if nb_ok == len(paires) else "neg"))
+        hold = vg.get("holdout") or []
+        if hold:
+            cont = [str(h.get("version")) for h in hold if h.get("contamine")]
+            vrows.append(kv("Holdout profond",
+                            ("CONTAMINÉ : " + ", ".join(cont)) if cont
+                            else f"{len(hold)} version(s), aucune contaminée",
+                            "neg" if cont else "pos"))
+        ann = vg.get("annuel") or {}
+        cpc = vg.get("cpcv") or {}
+        cpa = cpc.get("agents") or {}
+        for a in sorted(set(ann) | set(cpa)):
+            ic = ann.get(a)
+            c = cpa.get(a) or {}
+            p10, fneg = c.get("ic_p10"), c.get("frac_neg")
+            fragile = (p10 is not None and p10 <= 0) or (fneg is not None and fneg > 0.10)
+            txt = (f"annuel {fr(ic, 3) if ic is not None else '—'} · "
+                   f"cpcv p10 {fr(p10, 3) if p10 is not None else '—'}"
+                   f" / neg {fr((fneg or 0) * 100, 0)}%")
+            vrows.append(kv(esc(a), txt, "neg" if (fragile or (ic is not None and ic < 0)) else ""))
+        geo = vg.get("geometric_sizing") or {}
+        if geo:
+            vrows.append(kv("Geometric sizing",
+                            (f"armé · scale {fr(geo.get('scale'), 2)} · z {fr(geo.get('systemic_z'), 2)}"
+                             if geo.get("arme") else "désarmé"),
+                            "neg" if (geo.get("arme") and (geo.get("scale") or 1) < 1) else ""))
+        badge = pill("CPCV armée" if cpc.get("gate_armee") else "CPCV désarmée",
+                     "good" if cpc.get("gate_armee") else "neutral")
+        panels.append(panel("Validation & Parité", badge,
+                            '<div class="kvs">' + "".join(vrows) + "</div>"))
+
     panels_html = "".join(panels)
 
     return TEMPLATE.format(ts=ts, mode=mode, kill_badge=kill_badge, total=fr(total),
