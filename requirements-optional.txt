@@ -24,3 +24,9 @@ websocket-client>=1.6.0
 #                (installé sur le VPS le 06/07 via pip --break-system-packages,
 #                comme torch §65)
 scikit-learn
+
+# pytest : suite unitaire de dev tests/ (banc COMPLÉMENTAIRE — tests_audit.py reste
+#          la porte officielle). Outil de dev pur : jamais requis au runtime du bot.
+#          Sur ce VPS (PEP 668) : venv jetable, ex.
+#          python3 -m venv .venv && .venv/bin/pip install pytest && .venv/bin/pytest
+pytest
