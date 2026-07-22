@@ -1,4 +1,6 @@
-
+"""position_sizer.py — CLI plan de trade + money management (1re génération). SAFE.
+Logique partagée extraite dans decision_core (refactor des 4 clones, iso-comportement) ;
+reste ici : le sizing (calculate_position_size) et les constantes de démonstration."""
 
 ACCOUNT_EQUITY_USDT = 100.0
 RISK_PER_TRADE_PERCENT = 1.0
@@ -6,144 +8,18 @@ RISK_PER_TRADE_PERCENT = 1.0
 
 from candle_reader import get_bitget_candles
 
-
-from indicators import ema, calculate_rsi, calculate_atr
+import decision_core
 
 
 def analyze_decision(symbol="BTCUSDT"):
     candles = get_bitget_candles(symbol=symbol, granularity="15m", limit=100)
-    closes = [candle["close"] for candle in candles]
-
-    ema9_values = ema(closes, 9)
-    ema21_values = ema(closes, 21)
-    rsi_values = calculate_rsi(closes, 14)
-    atr_values = calculate_atr(candles, 14)
-
-    last_close = closes[-1]
-    last_ema9 = ema9_values[-1]
-    last_ema21 = ema21_values[-1]
-    last_rsi = rsi_values[-1]
-    last_atr = atr_values[-1]
-
-    ema_distance_percent = ((last_ema9 - last_ema21) / last_ema21) * 100
-    atr_percent = (last_atr / last_close) * 100
-
-    score = 0
-    reasons = []
-
-    if last_ema9 > last_ema21:
-        score += 1
-        reasons.append("EMA9 > EMA21")
-    elif last_ema9 < last_ema21:
-        score -= 1
-        reasons.append("EMA9 < EMA21")
-
-    if ema_distance_percent > 0.05:
-        score += 1
-        reasons.append("distance EMA haussière significative")
-    elif ema_distance_percent < -0.05:
-        score -= 1
-        reasons.append("distance EMA baissière significative")
-
-    if 55 <= last_rsi < 70:
-        score += 1
-        reasons.append("RSI haussier sans surachat")
-    elif 30 < last_rsi <= 45:
-        score -= 1
-        reasons.append("RSI baissier sans survente")
-    elif last_rsi >= 70:
-        score -= 1
-        reasons.append("RSI en surachat")
-    elif last_rsi <= 30:
-        score += 1
-        reasons.append("RSI en survente")
-
-    if score >= 3:
-        decision = "LONG POSSIBLE"
-    elif score <= -3:
-        decision = "SHORT POSSIBLE"
-    elif score == 2:
-        decision = "BIAIS LONG"
-    elif score == -2:
-        decision = "BIAIS SHORT"
-    else:
-        decision = "NEUTRE / ATTENDRE"
-
-    return {
-        "symbol": symbol,
-        "last_close": last_close,
-        "ema_distance_percent": ema_distance_percent,
-        "rsi": last_rsi,
-        "atr": last_atr,
-        "atr_percent": atr_percent,
-        "score": score,
-        "decision": decision,
-        "reasons": reasons,
-        "candles": candles,
-    }
+    return decision_core.analyze(symbol, candles, with_atr=True,
+                                 with_ema_levels=False, include_candles=True)
 
 
 def build_trade_plan(analysis):
-    decision = analysis["decision"]
-    entry = analysis["last_close"]
-    candles = analysis["candles"]
-    atr = analysis["atr"]
-
-    recent_lows = [candle["low"] for candle in candles[-10:]]
-    recent_highs = [candle["high"] for candle in candles[-10:]]
-
-    recent_low = min(recent_lows)
-    recent_high = max(recent_highs)
-
-    if decision in ["LONG POSSIBLE", "BIAIS LONG"]:
-        structural_stop = recent_low
-        atr_stop = entry - (atr * 1.5)
-        stop_loss = min(structural_stop, atr_stop)
-
-        risk_per_unit = entry - stop_loss
-        if risk_per_unit <= 0:
-            return None
-
-        take_profit = entry + (risk_per_unit * 2)
-
-        return {
-            "side": "LONG",
-            "entry": entry,
-            "stop_loss": stop_loss,
-            "structural_stop": structural_stop,
-            "atr_stop": atr_stop,
-            "take_profit": take_profit,
-            "risk_per_unit": risk_per_unit,
-            "risk_percent": (risk_per_unit / entry) * 100,
-            "reward_percent": ((take_profit - entry) / entry) * 100,
-            "reward_risk_ratio": (take_profit - entry) / risk_per_unit,
-        }
-
-    if decision in ["SHORT POSSIBLE", "BIAIS SHORT"]:
-        structural_stop = recent_high
-        atr_stop = entry + (atr * 1.5)
-        stop_loss = max(structural_stop, atr_stop)
-
-        risk_per_unit = stop_loss - entry
-        if risk_per_unit <= 0:
-            return None
-
-        take_profit = entry - (risk_per_unit * 2)
-
-        return {
-            "side": "SHORT",
-            "entry": entry,
-            "stop_loss": stop_loss,
-            "structural_stop": structural_stop,
-            "atr_stop": atr_stop,
-            "take_profit": take_profit,
-            "risk_per_unit": risk_per_unit,
-            "risk_percent": (risk_per_unit / entry) * 100,
-            "reward_percent": ((entry - take_profit) / entry) * 100,
-            "reward_risk_ratio": (entry - take_profit) / risk_per_unit,
-        }
-
-    return None
+    return decision_core.build_plan(analysis, rr=2.0, use_atr_stop=True,
+                                    include_risk_per_unit=True)
 
 
 def calculate_position_size(plan, account_equity, risk_percent):

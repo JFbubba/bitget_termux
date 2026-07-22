@@ -9690,12 +9690,15 @@ def test_indicator_functions_are_centralized():
     import importlib
     import indicators
 
+    # Refactor decision_core (22/07) : les 4 CLIs de 1re génération (position_sizer,
+    # decision_engine, trade_plan, atr_trade_plan) ne touchent plus les indicateurs —
+    # ils délèguent à decision_core, désormais SEUL porteur de ces imports pour eux.
     expected = {
-        "ema": ["position_sizer", "decision_engine", "trade_plan", "journal_scanner",
-                "portfolio_scanner", "trend_analyzer", "ranked_scanner", "atr_trade_plan"],
-        "calculate_rsi": ["position_sizer", "trade_plan", "journal_scanner", "rsi_analyzer",
-                          "decision_engine", "portfolio_scanner", "ranked_scanner", "atr_trade_plan"],
-        "calculate_atr": ["position_sizer", "atr_trade_plan", "journal_scanner",
+        "ema": ["decision_core", "journal_scanner",
+                "portfolio_scanner", "trend_analyzer", "ranked_scanner"],
+        "calculate_rsi": ["decision_core", "journal_scanner", "rsi_analyzer",
+                          "portfolio_scanner", "ranked_scanner"],
+        "calculate_atr": ["decision_core", "journal_scanner",
                           "portfolio_scanner", "ranked_scanner"],
     }
     # aucune def locale d'indicateur ne doit subsister hors indicators.py
