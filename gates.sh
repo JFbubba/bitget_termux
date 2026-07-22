@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# gates.sh — LES 3 PORTES avant tout push, avec codes de sortie STRICTS.
+# gates.sh — LES PORTES avant tout push, avec codes de sortie STRICTS.
+# Les 3 portes constitutionnelles (CLAUDE.md §5) + la porte 4 : banc pytest tests/
+# (unitaire dev, venv .venv — FAIL-CLOSED si pytest indisponible).
 # Usage : bash gates.sh && git add ... && git commit ... && git push ...
 #
 # Né de deux incidents (03/07) où un push est parti avec un test rouge :
@@ -9,15 +11,27 @@
 # Ici chaque porte est vérifiée explicitement ; la moindre rouge -> exit 1.
 set -uo pipefail
 
-echo "— porte 1/3 : tests_audit —"
+echo "— porte 1/4 : tests_audit —"
 python tests_audit.py | tail -1 || { echo "❌ tests rouges"; exit 1; }
 
-echo "— porte 2/3 : security_agent —"
+echo "— porte 2/4 : security_agent —"
 out=$(python security_agent.py) || { echo "❌ security_agent en erreur"; exit 1; }
 echo "$out" | grep "VERDICT:" | tail -1
 echo "$out" | grep -q "VERDICT: SAFE" || { echo "❌ VERDICT non SAFE"; exit 1; }
 
-echo "— porte 3/3 : safe_push_check —"
+echo "— porte 3/4 : safe_push_check —"
 bash safe_push_check.sh | tail -1 || { echo "❌ safe_push_check rouge"; exit 1; }
 
-echo "=== 3 PORTES VERTES ==="
+echo "— porte 4/4 : pytest (banc unitaire tests/) —"
+if [ -x .venv/bin/pytest ]; then
+  PYTEST=".venv/bin/pytest"
+elif command -v pytest >/dev/null 2>&1; then
+  PYTEST="pytest"
+else
+  # FAIL-CLOSED : une porte qui saute en silence n'est pas une porte.
+  echo "❌ pytest introuvable — créer le venv : python3 -m venv --system-site-packages .venv && .venv/bin/pip install pytest"
+  exit 1
+fi
+"$PYTEST" | tail -1 || { echo "❌ pytest rouge"; exit 1; }
+
+echo "=== 4 PORTES VERTES ==="

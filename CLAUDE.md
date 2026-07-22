@@ -79,6 +79,9 @@ strategy-lab dimanche 05:00 (§68/§70).
    sortie, puis heredoc + saut de ligne qui sort `git commit` de la chaîne `&&`).
    La forme OBLIGATOIRE est désormais : `bash gates.sh && git add … && git commit …`
    (`gates.sh` vérifie chaque porte par code de sortie strict).
+   Depuis le 22/07/2026, `gates.sh` enchaîne une **4ᵉ porte** : le banc pytest `tests/`
+   (unitaire dev, venv `.venv` local — FAIL-CLOSED si pytest indisponible ; les 3
+   portes constitutionnelles restent inchangées, la 4ᵉ ne peut que bloquer davantage).
    **Hygiène d'armement (21/07/2026)** : un ARMEMENT qui passe par le dépôt (verrou LIVE,
    override de porte type `FUTURES_EDGE_GATE_OVERRIDE` dans `config.py`, hausse de cap
    effectif) ne voyage JAMAIS dans le même commit qu'un changement de logique — commit
