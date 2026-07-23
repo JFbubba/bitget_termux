@@ -833,3 +833,43 @@ clés attendues) avant usage — la carte de fraîcheur du watchdog (§61) fait 
 pour l'âge, PAS pour le contenu.
 **Statut.** RECONNU (audit 22/07 : 4 lots d'analyse relancés après détection —
 aucun verdict n'avait été rendu sur les rapports-cadavres) · RÈGLE ACTIVE.
+
+## ERR-025 · 2026-07-23 · Ajouter un fichier de TEST qui ÉNUMÈRE des verbes d'ordre → casse une PORTE constitutionnelle par faux positif
+
+**Contexte.** Le commit `0a85806` a ajouté `tests/test_guard.py`, banc unitaire du
+hook `guard.py` : il ALIMENTE des commandes dangereuses en stdin du garde-fou
+(`bgc spot_place_order …`, `bgc close_position …`, un motif grep `withdraw|transfer`)
+pour vérifier que celui-ci les bloque — il ne les APPELLE jamais. Mais la porte 3
+`safe_push_check.sh` grep précisément ces verbes (`place_order|close_position|
+withdraw|transfer|…`) sur tous les `*.py` du dépôt. Ce nouveau fichier de test a
+donc matché : `bash safe_push_check.sh` → exit 1 (« fonction dangereuse detectee »)
+→ `bash gates.sh` ROUGE en porte 3/4. Le mur « pas de code d'ordre hors module
+autorisé » s'est retrouvé neutralisé SUR HEAD, et les deux commits qui l'ont
+introduit n'avaient pas pu passer proprement la porte 3 (violation implicite de la
+règle 5). Trouvé par revue adversariale locale, reproduit par exécution.
+**Cause racine.** Une porte de sécurité qui détecte un mot-clé par grep ne
+distingue pas un APPEL opérationnel d'une ÉNUMÉRATION du mot comme donnée (charge de
+test, motif de détection, message d'affichage). Le même angle mort qu'ERR-013 côté
+`security_agent` (déjà résolu par la liste `FILES_TO_SCAN`) et qu'ERR-019 côté I/O
+de test : l'outillage d'audit/test vit dans le dépôt et parle le vocabulaire qu'il
+surveille. Tout NOUVEL outil de ce type élargit la surface de faux positifs de la
+porte, mais la porte, elle, ne connaît que sa liste d'exclusion figée.
+**Solution.** Correctif appliqué : exclusion nominative `':!tests/test_guard.py'`
+dans le grep de `safe_push_check.sh` (l.62-63), au même titre et avec la même
+justification que `tests_audit.py`. Nominatif et non `':!tests/'` en bloc : chaque
+futur fichier de test énumérant ces verbes doit être ajouté À LA MAIN, ce qui force
+une revue à chaque fois (un vrai module d'exécution glissé dans `tests/` resterait
+ainsi détecté). Comme cette édition ÉLARGIT ce que la porte laisse passer, elle part
+en **commit isolé** (hygiène d'armement, règle 5), jamais mêlée à de la logique.
+**Contrôle (détection ailleurs).** Avant de committer tout nouveau fichier qui
+CONTIENT des mots-clés surveillés sans les exécuter (banc de test d'un garde, labo
+qui liste des stratégies d'ordre, doc technique citant l'API) : lancer `bash
+gates.sh` AVANT le `git add` (la porte 3 le dira immédiatement) ; si un faux positif
+tombe, l'ajouter à la liste d'exclusion nominative de `safe_push_check.sh` ET
+vérifier le miroir `FILES_TO_SCAN` de `security_agent.py` (ERR-013). Ne JAMAIS
+répondre à un faux positif de porte en reformulant pour cacher le mot-clé — c'est
+l'anti-pattern « contournement sous pression » de la règle 5 (incident double-push
+rouge du 03/07). Une porte rouge par faux positif se corrige AU NIVEAU DE LA PORTE,
+pas au niveau du code qu'elle refuse à tort.
+**Statut.** CORRIGÉ (commit `fddc947`, porte 3 reverte au vert · 4 portes vertes
+re-vérifiées) · RÈGLE ACTIVE.
