@@ -117,10 +117,24 @@ def write_report(cats, chemin=None):
            "orphans": list(cats.get("orphan") or []),
            "reserve": list(cats.get("reserve") or []),
            "ok": not cats.get("orphan")}
-    tmp = chemin + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(rep, f, ensure_ascii=False)
-    os.replace(tmp, chemin)  # écriture atomique (le dashboard lit en concurrence)
+    # tmp UNIQUE par process : deux « --write » concurrents (cron :35 + run manuel)
+    # ne se disputent plus le même .tmp (sinon le 2ᵉ os.replace lève FileNotFoundError,
+    # le tmp ayant déjà été renommé par le 1ᵉʳ). os.replace sur le chemin final reste
+    # atomique -> le dashboard ne lit jamais qu'un JSON complet (dernier écrit gagne).
+    tmp = chemin + f".{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rep, f, ensure_ascii=False)
+        os.replace(tmp, chemin)
+    except OSError as e:
+        # best-effort : une écriture ratée ne doit pas planter le cron. Le badge
+        # dégrade en « inconnu » après 26 h (jamais un faux vert, esprit ERR-024).
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        print(f"WIRING: écriture du rapport échouée ({e})", file=sys.stderr)
+        return None
     return chemin
 
 
