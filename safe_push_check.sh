@@ -49,7 +49,10 @@ fi
 echo "[4/5] Recherche de fonctions dangereuses (code operationnel)"
 # On exclut l'outillage d'audit/securite qui ENUMERE volontairement ces
 # mots-cles comme donnees de detection (meme exclusion que FILES_TO_SCAN
-# dans security_agent.py). On exclut AUSSI spot_executor.py : c'est le module
+# dans security_agent.py) : tests_audit.py ET tests/test_guard.py (banc unitaire
+# dev du hook guard.py — il ALIMENTE ces verbes en stdin pour verifier que le
+# garde-fou les bloque ; aucun module d'execution ne vit dans tests/).
+# On exclut AUSSI spot_executor.py : c'est le module
 # d'execution AUTORISE (achat spot BTC seul), audite a part par security_agent
 # (scan_authorized_exec : aucun mot interdit + verrous MANDATE_LIVE/kill_switch).
 # On exclut AUSSI futures_executor.py : 2e module d'execution BORNE (futures, §34),
@@ -59,7 +62,7 @@ echo "[4/5] Recherche de fonctions dangereuses (code operationnel)"
 DANGER_HITS=$(
   git grep -nE 'place_order|open_long|open_short|close_position|cancel_order|change_leverage|transfer|withdraw|send_order|create_order|submit_order|set_leverage|market_order|limit_order|order/place|batch-place-order|place-order|close-positions' \
     -- '*.py' \
-    ':!security_agent.py' ':!getagent_audit.py' ':!tests_audit.py' ':!spot_executor.py' ':!futures_executor.py' \
+    ':!security_agent.py' ':!getagent_audit.py' ':!tests_audit.py' ':!tests/test_guard.py' ':!spot_executor.py' ':!futures_executor.py' \
     ':!spot_trader.py' ':!margin_trader.py' ':!account_transfers.py' ':!earn_manager.py' ':!liquidity_manager.py' ':!alt_carry.py' ':!trading_status.py' \
   || true
 )
