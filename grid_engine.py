@@ -204,14 +204,14 @@ def simulate_g(candles, cfg, funding=None):
             borrow_tot += short_notional * borrow_day * (bar_h / 24.0)
         prev_ts = ts
 
-        # ---- mark-to-market ----
+        # ---- mark-to-market (convention grid_lab : q = rung/c, notional constant/rung) ----
         latent = 0.0
-        if active:
+        if active and c > 0:
             for cl in cells:
                 if cl["side"] == "long" and cl["state"] == "coin":
-                    latent += (rung / cl["entry"]) * (c - cl["entry"])
+                    latent += (rung / c) * (c - cl["entry"])
                 elif cl["side"] == "short" and cl["state"] == "short":
-                    latent += (rung / cl["entry"]) * (cl["entry"] - c)
+                    latent += (rung / c) * (cl["entry"] - c)
         hedge_latent = hedge_qty * (hedge_entry - c) if hedge_qty else 0.0
         equity = realized - fees + latent + hedge_latent + fund_tot - borrow_tot
         pnls.append(equity - equity_prev)
@@ -221,15 +221,15 @@ def simulate_g(candles, cfg, funding=None):
                      or (cl["side"] == "short" and cl["state"] == "short")) if active else 0
         exposure_max = max(exposure_max, n_open * rung)
 
-    # latent final
+    # latent final (convention grid_lab : q = rung/cc)
     latent_final = 0.0
     cc = prep["closes"][n - 1]
-    if active:
+    if active and cc > 0:
         for cl in cells:
             if cl["side"] == "long" and cl["state"] == "coin":
-                latent_final += (rung / cl["entry"]) * (cc - cl["entry"])
+                latent_final += (rung / cc) * (cc - cl["entry"])
             elif cl["side"] == "short" and cl["state"] == "short":
-                latent_final += (rung / cl["entry"]) * (cl["entry"] - cc)
+                latent_final += (rung / cc) * (cl["entry"] - cc)
     if hedge_qty:
         latent_final += hedge_qty * (hedge_entry - cc)
 
