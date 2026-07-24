@@ -37,3 +37,9 @@ def gconfig(mode="neutral", surface="futures", funding_lean=0.0,
                 "funding_lean": float(funding_lean),
                 "borrow_bps_per_day": float(borrow_bps_per_day)})
     return cfg
+
+
+def funding_pnl(net_qty, price, rate):
+    """P&L de funding sur UN intervalle 8 h. net_qty>0 long, <0 short. Convention
+    Bitget : le LONG paie le SHORT quand rate>0 -> P&L pour nous = -net_qty*price*rate. PUR."""
+    return -float(net_qty) * float(price) * float(rate)
