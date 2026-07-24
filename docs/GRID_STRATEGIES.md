@@ -207,6 +207,13 @@ l'edge** : le hedge neutre atténue la perte sans jamais franchir la porte, au p
 le Sharpe. Reste ouverte la seule condition (b) du §4 : un actif GÉNUINEMENT range-bound (rare en crypto
 liquide). Ni le short, ni la marge, ni le funding, ni le perp ne changent le verdict.
 
+**Caveats d'interprétation (honnêteté)** : (i) le drapeau funding faible-puissance couvre `0 < fixings
+in-window < 90` — `fixings = 0` = funding ABSENT (aucun bruit à garder), la cellule est alors une grille
+propre à bas frais, non flaggée à dessein. (ii) La déflation DSR est **intra-cellule** (best-of-8
+configs), PAS sur les 120 cellules sym×TF×combo — comme `grid_lab` par (sym,TF). Sans conséquence pour
+le 0/120 (rien n'est sélectionné) ; mais un survivant FUTUR isolé porterait un risque de comparaisons
+multiples que `n_trials=8` ne déflate pas → à re-déflater sur l'ensemble du parc avant d'y croire.
+
 **Statut** : REJETÉ sur les 3 surfaces, tous modes (mesuré, 24/07). Instruments conservés, défaut OFF,
 lecture seule : `grid_engine.py` (moteur pur), `grid_engine_lab.py` (labo — `python grid_engine_lab.py
 --run [--quick|--univers]`). L'adaptateur d'exécution `grid_trader.py` reste un **SQUELETTE de sûreté
