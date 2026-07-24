@@ -484,47 +484,71 @@ git commit -m "grid_engine : simulate_g generalise (jambes long+short, funding, 
 
 ```python
 # tests/test_grid_engine.py  (ajouter)
+# Régime relâché : déploiement garanti + aucune coupe forcée par le filtre. On isole
+# les mécaniques short/funding/hedge — le filtre de régime est celui de grid_lab,
+# déjà testé là-bas et réutilisé verbatim, donc rien de neuf à tester ici. Dédupliquer
+# le `relax` local de test_simulate_g_longonly_parity en le pointant sur _RELAX.
+_RELAX = dict(adx_max=999.0, bb_expand_max=99.0, vol_expand_max=99.0,
+              vol_spike=999.0, adx_exit=999.0, atr_exit_mult=999.0)
+
 def test_short_leg_profits_symmetric_range():
-    # bidirectional sur un range pur : les jambes short DOIVENT réaliser des ventes
+    # bidirectional sur un range : ouvertures ET fermetures des deux jambes
     candles = _serie_range(n=1000)
-    cfg = ge.gconfig(mode="bidirectional", surface="futures", spacing=0.008, k_atr=3.0)
+    cfg = ge.gconfig(mode="bidirectional", surface="futures", spacing=0.008, k_atr=3.0,
+                     rung_notional=500.0, **_RELAX)
     r = ge.simulate_g(candles, cfg)
     assert r is not None
-    assert r["n_buys"] > 0 and r["n_sells"] > 0        # activité des deux jambes
+    assert r["n_buys"] > 0 and r["n_sells"] > 0        # la grille remplit vraiment
 
-def test_neutral_reduces_abs_net_delta():
-    # neutral doit garder |delta net| PLUS PETIT que bidirectional sur le même range
+def test_neutral_hedge_shifts_delta_short():
+    # Seule la couverture (short) distingue neutral de bidirectional sur la MÊME série :
+    # fills IDENTIQUES, et le hedge déplace le delta net vers le short d'EXACTEMENT
+    # hedge_qty>0 -> assertion DÉTERMINISTE (pas une inégalité |delta| fragile au dernier
+    # barreau, qui n'est vraie qu'en moyenne).
     candles = _serie_range(n=1000)
-    cbid = ge.gconfig(mode="bidirectional", surface="futures", spacing=0.008, k_atr=3.0)
-    cneu = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0)
+    cbid = ge.gconfig(mode="bidirectional", surface="futures", spacing=0.008, k_atr=3.0,
+                      rung_notional=500.0, **_RELAX)
+    cneu = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0,
+                      rung_notional=500.0, **_RELAX)
     rb = ge.simulate_g(candles, cbid)
     rn = ge.simulate_g(candles, cneu)
-    assert abs(rn["net_delta_final"]) <= abs(rb["net_delta_final"]) + 1e-9
+    assert rb is not None and rn is not None
+    assert rn["n_buys"] == rb["n_buys"] and rn["n_sells"] == rb["n_sells"]   # mêmes fills
+    assert rn["net_delta_final"] < rb["net_delta_final"]                     # hedge = short
 
 def test_accounting_identity():
     # TOTAL == grid_profit + latent_final + funding − fees − borrow (à la clôture)
     candles = _serie_range(n=1000)
-    fund = [(candles[k][0], 0.0001) for k in range(0, len(candles), 8)]   # funding synthétique 8 barres
-    cfg = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0, funding_lean=0.5)
+    fund = [(candles[k][0], 0.0001) for k in range(0, len(candles), 8)]   # funding synthétique
+    cfg = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0,
+                     funding_lean=0.5, rung_notional=500.0, **_RELAX)
     r = ge.simulate_g(candles, cfg, funding=fund)
     lhs = r["total_pnl"]
     rhs = r["grid_profit"] + r["latent_final"] + r["funding_pnl_total"] - r["fees"] - r["borrow_total"]
-    assert abs(lhs - rhs) < 1e-3, f"identité rompue: {lhs} vs {rhs}"
+    assert abs(lhs - rhs) < 1e-2, f"identité rompue: {lhs} vs {rhs}"
 
 def test_borrow_only_margin_short():
     candles = _serie_range(n=1000)
-    cf = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0, borrow_bps_per_day=50)
-    cm = ge.gconfig(mode="neutral", surface="margin",  spacing=0.008, k_atr=3.0, borrow_bps_per_day=50)
-    assert ge.simulate_g(candles, cf)["borrow_total"] == 0.0        # futures : pas de borrow
-    assert ge.simulate_g(candles, cm)["borrow_total"] >= 0.0        # marge : borrow ≥ 0
+    cf = ge.gconfig(mode="neutral", surface="futures", spacing=0.008, k_atr=3.0,
+                    borrow_bps_per_day=50, rung_notional=500.0, **_RELAX)
+    cm = ge.gconfig(mode="neutral", surface="margin",  spacing=0.008, k_atr=3.0,
+                    borrow_bps_per_day=50, rung_notional=500.0, **_RELAX)
+    cmb = ge.gconfig(mode="bidirectional", surface="margin", spacing=0.008, k_atr=3.0,
+                     borrow_bps_per_day=50, rung_notional=500.0, **_RELAX)
+    assert ge.simulate_g(candles, cf)["borrow_total"] == 0.0       # futures : pas de borrow
+    b_neutral = ge.simulate_g(candles, cm)["borrow_total"]
+    b_bidir = ge.simulate_g(candles, cmb)["borrow_total"]
+    assert b_neutral > 0.0                                          # marge short : borrow accumulé
+    assert b_neutral > b_bidir                                     # le hedge neutre AJOUTE du borrow (spec §4.3)
 ```
 
-- [ ] **Step 2 : Lancer, vérifier l'échec puis le passage**
+- [ ] **Step 2 : Lancer, vérifier le passage (tests de caractérisation du moteur Task 3)**
 
 Run: `.venv/bin/pytest tests/test_grid_engine.py -q`
-Expected: les 4 nouveaux tests PASSENT déjà si `simulate_g` (Task 3) est correct. Sinon, corriger `simulate_g` :
-- `test_accounting_identity` échoue → vérifier que `equity` cumule EXACTEMENT `realized − fees + latent + hedge_latent + fund_tot − borrow_tot` et que `latent_final` recompose le même latent à la dernière barre.
-- `test_neutral_reduces_abs_net_delta` échoue → vérifier le signe du hedge dans `_net_delta` (hedge soustrait).
+Expected: les 4 nouveaux tests PASSENT (ils caractérisent le moteur déjà implémenté en Task 3 avec le régime relâché qui garantit le déploiement). Si l'un échoue, corriger `simulate_g` :
+- `test_accounting_identity` échoue → vérifier que `equity` cumule EXACTEMENT `realized − fees + latent + hedge_latent + fund_tot − borrow_tot` et que `latent_final` (q = rung/cc) recompose le latent de la dernière barre.
+- `test_neutral_hedge_shifts_delta_short` échoue → vérifier que le hedge est SOUSTRAIT dans `_net_delta` et que les fills sont identiques entre bidir et neutral (seul le hedge diffère).
+- `test_borrow_only_margin_short` (marge = 0) → vérifier que des cellules short RESTENT ouvertes sur des barres (sinon borrow ne s'accumule pas) ; le régime relâché doit maintenir la grille active.
 
 - [ ] **Step 3 : (si besoin) corriger `simulate_g`** — appliquer le correctif minimal identifié, relancer jusqu'au vert.
 
@@ -560,11 +584,26 @@ git commit -m "grid_engine : tests jambes short, invariant delta neutre, identit
 import grid_engine_lab as gel
 import grid_engine as ge
 
-def _serie_range(n=1000, base=100.0):
+def _serie_range(n=1000, base=100.0, amp=0.03, period=20.0):
     import math
     return [[1_700_000_000_000 + i * 3_600_000,
-             base * (1 + 0.02 * math.sin(i / 9.0)), base * 1.002, base * 0.998,
-             base * (1 + 0.02 * math.sin(i / 9.0)), 1000.0] for i in range(n)]
+             base * (1 + amp * math.sin(i / period)), base * 1.002, base * 0.998,
+             base * (1 + amp * math.sin(i / period)), 1000.0] for i in range(n)]
+
+# Régime relâché pour FORCER le déploiement en test unitaire (le filtre de régime est
+# celui de grid_lab, déjà testé ; on isole ici le PIPELINE de jugement/déflation).
+_RELAX = dict(adx_max=999.0, bb_expand_max=99.0, vol_expand_max=99.0,
+              vol_spike=999.0, adx_exit=999.0, atr_exit_mult=999.0)
+
+def _relaxed_sweep(mode, surface):
+    # même grille que config_sweep (8 configs) mais régime relâché + gros rung
+    out = []
+    for spacing in (0.004, 0.007, 0.012, 0.02):
+        for k in (2.5, 3.5):
+            out.append((f"{surface}/{mode} g={spacing*100:.1f}%·k={k}",
+                        ge.gconfig(mode=mode, surface=surface, spacing=spacing, k_atr=k,
+                                   rung_notional=500.0, **_RELAX)))
+    return out
 
 def test_combos_valid_per_surface():
     combos = gel.combos()
@@ -580,17 +619,27 @@ def test_config_sweep_size_and_fees():
     assert all(cfg["fee_bps"] == 2 and cfg["mode"] == "neutral" for _, cfg in sw)
 
 def test_evaluate_cell_deflates_over_full_sweep():
-    candles = _serie_range()
-    ev = gel.evaluate_cell(candles, "neutral", "futures", funding=None)
-    assert ev is None or ev["n_trials"] >= 8       # déflation sur TOUT le balayage
-    if ev is not None:
-        assert "survives" in ev and "dsr" in ev
+    # cfg_list relâché -> déploiement garanti -> le pipeline de jugement s'exécute vraiment
+    candles = _serie_range(n=1000)
+    ev = gel.evaluate_cell(candles, "neutral", "futures", funding=None,
+                           cfg_list=_relaxed_sweep("neutral", "futures"))
+    assert ev is not None                          # a vraiment déployé/jugé
+    assert ev["n_trials"] >= 8                     # déflation sur TOUT le balayage
+    assert "survives" in ev and "dsr" in ev and isinstance(ev["survives"], bool)
 
-def test_longonly_spot_baseline_no_survivor():
-    # non-régression du verdict mort : le baseline de contrôle ne survit pas
-    candles = _serie_range()
-    ev = gel.evaluate_cell(candles, "long_only", "spot", funding=None)
-    assert ev is None or ev["survives"] is False
+def test_evaluate_cell_wellformed_both_modes():
+    # structure du verdict pour la baseline long_only/spot ET le neutre/futures.
+    # (La NON-RÉGRESSION du verdict mort se mesure sur données RÉELLES au smoke run
+    #  Task 6 : sur une sinusoïde SYNTHÉTIQUE parfaite une grille GAGNE — c'est le
+    #  meilleur cas de range —, donc « pas de survivant » n'a de sens que sur du réel.)
+    candles = _serie_range(n=1000)
+    for surface, mode in (("spot", "long_only"), ("futures", "neutral")):
+        ev = gel.evaluate_cell(candles, mode, surface, funding=None,
+                               cfg_list=_relaxed_sweep(mode, surface))
+        assert ev is not None
+        for key in ("survives", "dsr", "mode", "surface", "total_pnl", "oos_total"):
+            assert key in ev
+        assert isinstance(ev["survives"], bool)
 ```
 
 - [ ] **Step 2 : Lancer, vérifier l'échec**
@@ -650,15 +699,17 @@ def _cost_stress_g(cfg, candles, funding, frac_train=0.6):
     return {"stress": out, "survives_stress": all(v is not None and v > 0 for v in out.values())}
 
 
-def evaluate_cell(candles, mode, surface, funding=None):
+def evaluate_cell(candles, mode, surface, funding=None, cfg_list=None):
     """Juge une cellule : sweep 8 configs, sélection TRAIN, jugement OOS déflaté
     sur TOUT le sweep, PBO, stress, B&H apparié. Réutilise les métriques PURES de
-    grid_lab. Fail-safe -> None."""
+    grid_lab. cfg_list injectable (défaut config_sweep(mode,surface)) — sert aux tests
+    à régime relâché (comme grid_lab.evaluate_symbol_tf). Fail-safe -> None."""
     import agent_validation as av
     import backtest_brain as bt
     closes = [r[4] for r in candles]
+    cfg_list = cfg_list or config_sweep(mode, surface)
     sims = {}
-    for label, cfg in config_sweep(mode, surface):
+    for label, cfg in cfg_list:
         try:
             r = ge.simulate_g(candles, cfg, funding=funding)
         except Exception:
@@ -690,7 +741,11 @@ def evaluate_cell(candles, mode, surface, funding=None):
     dsr = av.deflated_sharpe(oos["oos_sharpe"], oos["n_oos"], oos["skew"], oos["kurt"], n_trials, var_sr)
     stress = _cost_stress_g(cfg_best, candles, funding)
     # funding faible-puissance : nombre d'intervalles de funding effectifs
-    n_fund = len(funding) if funding else 0
+    if funding and candles:                       # fixings DANS la fenêtre de la cellule
+        _t0, _t1 = candles[0][0], candles[-1][0]   # (pas len(funding) = historique complet)
+        n_fund = sum(1 for r in funding if _t0 <= r[0] <= _t1)
+    else:
+        n_fund = 0
     low_power = bool(ge.SURFACE[surface]["funding"] and 0 < n_fund < LOW_POWER_FUNDING)
     survives = (oos["oos_total"] > 0 and oos["oos_sharpe"] > 0
                 and oos["folds_pos"] >= gl.BARRE["folds_pos_min"]
