@@ -1,10 +1,18 @@
 # PROJECT STATE — bitget_termux
 
-> Document de continuité. Si la conversation est compressée/résumée, **ce
-> fichier (+ `docs/DATA_SOURCES.md`) contient tout le nécessaire pour reprendre
-> le développement sans perte.** Langue de travail : français.
+> ## ⚠️ DOCUMENT HISTORIQUE (figé au 22/06/2026) — NE PLUS UTILISER COMME ÉTAT COURANT
+> **La source de vérité de continuité est aujourd'hui `CLAUDE.md`** (+ `docs/RESEARCH_NOTES.md`
+> pour l'historique des décisions §1→§114, `docs/VERDICTS.md` pour les mesures rendues,
+> et la mémoire agent `MEMORY.md`). Ce fichier décrit un état **périmé et faux** sur le
+> point le plus sensible : il affirme « can_trade=False partout, aucun ordre réel ».
+> **C'EST FAUX depuis le 27/06 (§44) :** l'accumulation spot BTC est RÉELLE (capée 2–5 $/j)
+> et le futures est RÉEL borné (§45, murs 50/250, levier ×5, stop −5 %). La porte d'edge
+> directionnelle est ROUVERTE depuis le 23/07 (§114). Conservé pour la vision produit §1
+> et l'historique d'amorçage seulement — toute reprise de dev lit CLAUDE.md D'ABORD.
 
-_Dernière mise à jour : 2026-06-22._
+> Document de continuité (HISTORIQUE). Langue de travail : français.
+
+_Dernière mise à jour du contenu ci-dessous : 2026-06-22 (gelé — voir bandeau)._
 
 ## 1. Vision
 Système d'**intelligence de trading crypto** pour l'utilisateur (jeanfminet) :

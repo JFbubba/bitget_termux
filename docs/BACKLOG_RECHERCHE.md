@@ -33,6 +33,38 @@ la rentabilité de ces edges.** La mesure valide donc la priorisation : exécuti
 
 ---
 
+## ⚠️ MISE À JOUR DE STATUT (23/07/2026) — pistes désormais LIVRÉES / MESURÉES / RÉFUTÉES
+
+Balayage de complétude (deep-research 23/07). Les puces ci-dessous sont **CLOSES** : le texte
+détaillé qui suit est conservé comme rationale historique, mais **ne rien re-coder ni re-mesurer**.
+
+- **CPCV (P1, l.~41)** : ✅ **LIVRÉ ET ARMÉ EN PORTE.** `agent_validation.cpcv_paths`/`cpcv_diagnostic`
+  existe ; la porte §112 bride le palier LIVE si `ic_p10≤0` ou `frac_neg>0.10` (`edge_ladder._cpcv_ok`,
+  câblé dans `tier_of`). Voir RESEARCH_NOTES §112 et VERDICTS. Plus rien à porter.
+- **Registre d'usage du HOLDOUT (l.~65)** : ✅ **LIVRÉ** (`holdout_registry.py`, `holdout_usage.json`,
+  drapeau `contamine`, fusion `_annuel` dans `brain_validation`). Voir VERDICTS « LIVRÉ 21/07 ».
+- **Gate KER / Kaufman (l.~89)** : ❌ **RÉFUTÉ ×2** (`kaufman_gate.py` mesuré CPCV/WF purgé, signe
+  INVERSÉ ; VERDICTS « gate de régime REJETÉ ×2 »). La puce « non testé → piste-gate n°1 » **se
+  contredit elle-même** (cf. l.78-82 du même fichier) → NE PAS re-tester. Idem prudence 200-SMA /
+  multi-TF / squeeze (prior défavorable, mesure-d'abord seulement).
+- **Momentum CROSS-SECTIONAL #8 (l.~151)** : ⏸ **MESURÉ-CLASSÉ** — `cross_sectional_1d` +
+  walk-forward + univers 46 coins → OOS t=1,51 maker / 0,80 taker, « réel mais NON TRADABLE seul ».
+  Réouverture conditionnée à un **univers 100+ coins** UNIQUEMENT (VERDICTS).
+- **Avellaneda-Stoikov (P4, l.~181)** : ✅ **FAIT** — skew d'inventaire A-S intégré dans
+  `market_maker.py` (« contrôle d'inventaire Avellaneda-Stoikov simplifié »).
+- **P2bis basis / funding-z / F&G+long-short / macro FRED** : ✅ **COUVERTS** au banc 14
+  (`carry_agent`, `sentiment_index`, `macro_context`, IC temporelle via `market_timing`). Seul reste
+  ouvert : test d'incrémentalité formel du z-funding 90j vs `funding_fade` (voix classics déjà coupée).
+- **SuperTrend / Ultimate-RSI / Vortex / Fisher / CMF (P3, l.~164)** : ⏸ réfutés en panier
+  réversion-7 (500 configs, 0 forte, même à 0 frais) → renvoi VERDICTS. Le trailing SuperTrend est
+  couvert par le crible exits (« le SL/TP n'est PAS un levier maker »).
+
+**Reste RÉELLEMENT ouvert (non clos ci-dessus)** : survivorship du panel de rejeu 6 ans (aucun
+univers historique listings/delistings daté — instrument pur à construire) ; re-mesures λ ridge §102
+et régime→consensus §103 (en retard) ; instruments d'ombre non-gating (MCPT, RR25 Deribit, logger OI).
+
+---
+
 ## PRIORITÉ 1 — durcir le JUGE (sert TOUTES les voix, meilleur ROI)
 
 Améliorer la porte de promotion §68 / `agent_validation` rapporte plus qu'une voix de plus :

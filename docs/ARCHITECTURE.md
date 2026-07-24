@@ -46,7 +46,7 @@ flowchart TD
   KJSON -. "rules_for()" .-> BRAIN
 
   subgraph BRAIN["Cerveau — swarm_brain.py (mixture of experts)"]
-    AG["8 agents : orderflow · technicals · macro · sentiment · derivs · liquidations · divergent · structure"]
+    AG["14 agents (banc gelé §62) : orderflow · technicals · macro · sentiment · derivs · liquidations · divergent · structure · simons · savant · geometric · flows · carry · leadlag — + voix opt-in 15–18 (LLM/NN/classics/QML, défaut OFF)"]
     AGG["aggregate → consensus / biais (zone morte)"]
     COG["cognition (entropie, accord, groupthink) + volatility_regime (CVIX)"]
     LRN["learn() → EARCP (perf + cohérence)"]
@@ -105,7 +105,7 @@ flowchart TD
         ╔═══════════════════════════════════════════════════════╗
         ║  CERVEAU  swarm_brain.py   (indicators, pro_indicators,║
         ║  price_action, regime_features, black_scholes)         ║
-        ║  8 agents → aggregate → cognition+CVIX → conviction    ║
+        ║  14 agents → aggregate → cognition+CVIX → conviction   ║
         ║  learn() → EARCP → brain_weights.json                  ║
         ║         (apprend les POIDS, jamais le RISQUE)          ║
         ╚════════╤═══════════════════════════╤══════════════════╝
@@ -132,9 +132,9 @@ flowchart TD
 | De | Vers | Lien |
 |---|---|---|
 | Sources externes | `market_sources` → `runtime_cache` | données cachées (TTL + stale-while-error) |
-| `runtime_cache` + primitives | **8 agents** (`swarm_brain`) | features de vote |
+| `runtime_cache` + primitives | **14 agents** (`swarm_brain`, banc gelé §62) | features de vote |
 | `knowledge.json` | agents & `strategy_lab` | `kb.rules_for(...)` (règles extraites) |
-| 8 agents | `aggregate` → `cognition`+CVIX | consensus, prudence, conviction ajustée |
+| 14 agents | `aggregate` → `cognition`+CVIX | consensus, prudence, conviction ajustée |
 | `brain_log.json` + prix | `learn()` → EARCP | mise à jour des **poids** (jamais le risque) |
 | Cerveau | **Dashboard** | advisory (charts + marqueur conscience) |
 | primitives + `backtest_brain` + KB | **`strategy_lab`** | fabrique/teste/classe/**promeut** → `strategies_out/` |

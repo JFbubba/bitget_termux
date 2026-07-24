@@ -5,7 +5,10 @@ Indicateurs recommandés par des traders pro, classés en deux familles :
 **(B) macro / cross-asset / microstructure** (nécessitent des flux externes —
 documentés ici avec leurs sources, à brancher en **lecture seule**).
 
-Tout reste **aide à la décision** : aucun ordre réel, `can_trade=False`.
+Ces indicateurs restent **aide à la décision** (mesure/paper) ; ils ne passent aucun ordre.
+L'exécution réelle du bot passe uniquement par les modules audités (`spot_executor` §44,
+`futures_executor` §45, surfaces §67). (Le cadrage global « `can_trade=False` » est périmé
+depuis §44/§45 — voir CLAUDE.md.)
 
 ---
 

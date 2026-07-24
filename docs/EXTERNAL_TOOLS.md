@@ -3,7 +3,10 @@
 Revue de ~32 sources fournies (données, bots, serveurs MCP, skills Claude,
 Polymarket) pour améliorer le projet **sans introduire de trading réel
 automatique**. Tout ce qui est retenu reste **lecture seule / aide à la
-décision**. Le moteur Termux reste paper / dry-run (`can_trade=False`).
+décision**. Les outils de ce document restent en lecture seule ; l'exécution réelle du
+bot est cantonnée aux modules audités (`spot_executor` réel §44, `futures_executor` borné
+§45, surfaces §67) — voir CLAUDE.md « État réel vs paper ». (Cadrage historique « moteur
+paper `can_trade=False` » périmé depuis §44/§45.)
 
 Tri : **ADOPTER** (gratuit/légitime, exploitable) · **CONSIDÉRER** (utile mais
 payant / lourd / à réimplémenter) · **ÉVITER** (scam, malware, exécution à risque).

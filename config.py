@@ -159,11 +159,12 @@ BRAIN_EARCP_LISSAGE = 0.02            # lissage vers la cible : même vitesse ho
 # === FUTURES RÉEL (§45 — décision propriétaire du 02/07/2026) ===
 # Le propriétaire a changé les règles (3 questions d'engagement répondues) : futures
 # réel autorisé (carry + directionnel), directement en réel, plafond = solde futures.
-# La porte d'edge a été OUTREPASSÉE (§45, 02/07) puis ROUVERTE le 20/07, et REFERMÉE
-# le 21/07 (décision proprio « suis tes recommandations ») : le directionnel réel
-# attend désormais un agent au palier LIVE de l'échelle d'edge (replay + live +
-# annuel §54 + CPCV §112). Les caps effectifs démarrent BAS ; murs absolus en dur
-# dans futures_executor : 50 $/trade, 250 $ cumulé, infranchissables par env/config.
+# La porte d'edge a été OUTREPASSÉE (§45, 02/07), ROUVERTE le 20/07, REFERMÉE le
+# 21/07 (§113, décision proprio « suis tes recommandations »), puis RE-ROUVERTE le
+# 23/07 (§114, commit d1aedf4, régime §45) — voir le commentaire inline de la valeur.
+# Refermée, le directionnel réel attend un agent au palier LIVE de l'échelle d'edge
+# (replay + live + annuel §54 + CPCV §112). Les caps effectifs démarrent BAS ; murs
+# absolus en dur dans futures_executor : 50 $/trade, 250 $ cumulé, infranchissables.
 FUTURES_EDGE_GATE_OVERRIDE = 1        # ROUVERTE 23/07 — décision propriétaire explicite (régime §45) : OUTREPASSEMENT ASSUMÉ de l'edge non prouvé (à la réouverture : espérance +0.088 $/trade, t 0.70, n=12, indistinguable de zéro). Arme les ouvertures directionnelles ~25$ sous consensus (|consensus|≥ seuil, ≤1/4h, 1 position/symbole). =0 referme instantanément ; carry et murs durs 50/250/×5/stop −5 % INCHANGÉS ; réversible.
 FUTURES_REAL_MAX_PER_TRADE_USDT = 50.0   # cap effectif par ordre = mur dur (décision propriétaire 03/07, cap carry 200)
 FUTURES_REAL_MAX_GROSS_USDT = 200.0      # cap effectif exposition cumulée (mur dur : 250 ; décision propriétaire 03/07)

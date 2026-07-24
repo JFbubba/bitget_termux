@@ -4057,3 +4057,29 @@ Deux actes §92 de la même session « suis tes recommandations », notifiés Te
    attend désormais un agent au palier LIVE (replay + live + annuel §54 + CPCV §112).
    Fermé position FLAT, espérance mesurée t=0.70 (n=12) indistinguable de zéro. Le carry
    et la gestion des positions restent actifs. Rouvrir = décision propriétaire (=1).
+
+## §114 — RÉOUVERTURE de la porte d'edge directionnelle (23/07/2026)
+
+Décision propriétaire explicite (régime §45, délégation §92) : **`FUTURES_EDGE_GATE_OVERRIDE 0 → 1`**,
+commit **isolé** `d1aedf4` (config.py seul, 1 ligne — hygiène d'armement §5 respectée : l'armement
+ne voyage pas avec de la logique). Symétrique du §113 qui l'avait refermée le 21/07.
+
+**Ce que ça arme.** La boucle directionnelle (`futures_auto`, cron `:10/:25/:40/:55`) peut de
+nouveau OUVRIR des positions réelles ~25 $ quand le consensus du banc dépasse le seuil
+(`FUTURES_AUTO_SEUIL_ENTREE` 0.35, |consensus| ≥ seuil), au plus 1 ordre / 4 h
+(`FUTURES_AUTO_MIN_INTERVAL_H`), 1 position par symbole, `FUTURES_AUTO_MAX_POSITIONS=1`
+(démarrage prudent, réduit 3→1 le 20/07).
+
+**Espérance à la réouverture (assumée non prouvée, comme au §45).** Snapshot `futures_report` :
+win ~46 %, payoff ~2.09, espérance **+0.088 $/trade, t 0.70, n=12** — indistinguable de zéro.
+L'OUTREPASSEMENT est donc CONSCIENT (les 3 questions d'engagement du §45 sont considérées
+toujours répondues) : on rouvre sur un **régime**, pas sur une preuve d'edge. Le jour où un agent
+franchit réellement le palier LIVE (replay DSR≥0.9/n≥120 + live n≥60/ic_t≥2 + annuel §54 + CPCV
+§112 `ic_p10>0`/`frac_neg≤0.10`), l'override devient superflu.
+
+**Ce qui NE bouge pas.** Murs absolus INCHANGÉS : 50 $/trade, 250 $ cumulé, levier ×5, stop
+journalier −5 % → kill-switch, RETRAIT inexistant (clé Trade-only). `GEOMETRIC_RISK_SIZING`
+(§113, réducteur systémique) et `KELLY_SIZING` (§111) continuent de brider le notional SOUS
+les murs. **Réversibilité totale** : `FUTURES_EDGE_GATE_OVERRIDE=0` referme à l'instant (le
+carry et la gestion des positions ouvertes restent actifs dans les deux sens). Acte notifié
+Telegram, surveillance maker armée (cf. mémoire `porte-edge-ouverte-surveillance-maker`).

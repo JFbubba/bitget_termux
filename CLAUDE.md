@@ -97,7 +97,7 @@ strategy-lab dimanche 05:00 (§68/§70).
 | Lecture compte (portefeuille complet) | RÉEL, lecture seule (`bitget_hub_bridge`, `bitget_balance_reader`) |
 | Accumulation spot BTC | **RÉELLE** : `limit_ioc` anti-slippage, 2–5 $/j ∝ opportunité (§44), garde best-price, double verrou |
 | Futures borné (`futures_executor`) | **RÉEL depuis §45** : marge adaptative (crossed en compte union), ≤×5, caps 50/trade · 200 cumulé (murs 50/250 ; décision 03/07, cap carry 200 par tranches), stop journalier −5 % sur le LIVRE COUVERT (futures + expo BTC spot) -> kill-switch |
-| Cerveau (14 agents) -> consensus multi-symboles | **RÉEL depuis §47** : la boucle directionnelle trade le consensus de TOUT l'univers (1 position/symbole, 3 max) |
+| Cerveau (14 agents) -> consensus multi-symboles | **RÉEL depuis §47** : la boucle directionnelle trade le consensus de TOUT l'univers (1 position/symbole, **1 max** — réduit 3→1 le 20/07, démarrage prudent porte §45 ; porte d'edge ROUVERTE le 23/07 §114) |
 | Pipeline pré-ordres + xs paper (§60) | **PAPER** (laboratoires : mesure, jamais d'exécution — le pré-ordre est mesuré PERDANT §52) |
 | Échelle d'edge | 0 agent LIVE — porte OUTREPASSÉE par décision §45 (`FUTURES_EDGE_GATE_OVERRIDE`) |
 
@@ -124,7 +124,8 @@ strategy-lab dimanche 05:00 (§68/§70).
 - **Market making** : `market_maker.py` (§94, décision — cotations bid/ask post-only
   autour de fair=0.7×microprice+0.3×mid, inventaire du module seul, stop local −1 $/j ;
   délègue à `spot_trader.quote/cancel` ; gated `MM_AUTO` défaut OFF, boucle */5 min DRY
-  — cron à poser, voir §94 ; principes Virtu versés à `docs/SAVOIR.md` §9).
+  — **cron POSÉ** (`*/5 * * * * market_maker.py --cycle`, reste DRY tant que `MM_AUTO=0`) ;
+  principes Virtu versés à `docs/SAVOIR.md` §9).
 - **Protection** : `watchdog.py` (carte de fraîcheur 10 artefacts §61), tripwires
   spend-watch (marge de liquidation §60), black-out macro vivant (Kalshi §59),
   `backup_registres.py` (registres chiffrés -> Telegram, quotidien).
@@ -178,7 +179,8 @@ FUTURES_MAKER_SYMBOLS=         # périmètre maker : CSV — VIDE = TOUS les tok
                                # "BTCUSDT" restreint à BTC. Mesure exit_calibration : maker DIVISE la perte
                                # directionnelle (~−0.088→−0.041R/trade) mais ne la bascule PAS positive ; sur
                                # alts illiquides le post-only remplit rarement → repli taker (neutre). Le
-                               # directionnel réel est EN PAUSE (FUTURES_EDGE_GATE_OVERRIDE=0) → maker DORMANT.
+                               # directionnel réel est ACTIF depuis le 23/07 (§114, FUTURES_EDGE_GATE_OVERRIDE=1)
+                               # → maker de nouveau à l'œuvre sur les ouvertures directionnelles.
 FIRM_BULL_BEAR_DEBATE=0     # débat haussier/baissier LOCAL (§106) — défaut OFF. Bull et bear sont ADVERSAIRES
                             # par construction et rendent pourtant le MÊME texte (similarité médiane 1,00).
                             # LOI mesurée (docs/SAVOIR.md §10) : à cette taille de modèle un PERSONA ne
