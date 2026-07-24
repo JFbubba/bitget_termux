@@ -108,6 +108,7 @@ trading_real_ledger.json
 .mm_lab_result.json
 .grid_lab_result.json
 .grid_futures_result.json
+.grid_engine_result.json
 
 # Venv du prototype QML (qml_prototype)
 .venv/
