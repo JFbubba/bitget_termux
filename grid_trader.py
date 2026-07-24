@@ -6,11 +6,13 @@ NE PLACE AUCUN ORDRE lui-même : DÉLÈGUE à spot_trader/margin_trader/futures_
 fail-closed. Caps §67 SOUS les murs. Retrait impossible (clé Trade-only).
 Ne déploie qu'une config `survives=True` du labo (ou override proprio journalisé §92).
 
-Task 7 (cette version) : couche de SÛRETÉ seule — `_delegate` NE CÂBLE AUCUN
-exécuteur (aucun import spot_trader/margin_trader/futures_executor ici). Les
-4 tests court-circuitent tous AVANT `_delegate` (DRY/refus/kill/verrou OFF).
-Le câblage réel aux exécuteurs audités + la classification §67 arrivent en
-Task 8.
+CÂBLAGE DIFFÉRÉ (décision proprio 24/07) : la mesure exhaustive (docs/GRID_STRATEGIES.md
+§6, grid_engine_lab) trouve 0/120 cellule survivante — aucun edge sur les 3 surfaces,
+même avec short/neutre/funding. `_delegate` reste donc NON CÂBLÉ (aucun import
+d'exécuteur, aucun chemin d'ordre réel) : ce module est le SQUELETTE de sûreté PRÊT
+(défaut OFF/DRY, gardes prouvées) à câbler SEULEMENT si une config franchit un jour la
+porte (rabais VIP profond, actif structurellement range-bound). Les 4 tests
+court-circuitent tous AVANT `_delegate`.
 """
 from pathlib import Path
 
@@ -48,10 +50,17 @@ def _intentions(cell):
 
 
 def plan_cycle(cell, dry=None):
-    """Un cycle borné. dry=None -> True sauf si live_enabled(). Fail-safe.
-    Ordre des gardes : survives -> kill-switch -> verrou LIVE -> délégation."""
+    """Un cycle borné. Fail-safe. Ordre des gardes : survives -> surface valide ->
+    kill-switch -> verrou LIVE -> délégation.
+    SÉMANTIQUE DRY (money-path — NE PAS desserrer) : le LIVE exige un `dry=False`
+    EXPLICITE **ET** `live_enabled()`. `dry=None` (défaut) est INCONDITIONNELLEMENT
+    DRY quel que soit `live_enabled()`. Ne JAMAIS remplacer `dry is False` par
+    `not dry` : cela rendrait un simple `plan_cycle(cell)` live-éligible."""
     res = {"dry": True, "refused": False, "killed": False, "delegated": 0, "intentions": []}
     if not cell.get("survives"):
+        res["refused"] = True
+        return res
+    if cell.get("surface") not in ge.SURFACE:          # surface inconnue -> refus gracieux (pas de KeyError)
         res["refused"] = True
         return res
     res["intentions"] = _intentions(cell)
@@ -74,13 +83,12 @@ def plan_cycle(cell, dry=None):
 
 
 def _delegate(intention):
-    """Route l'intention vers l'exécuteur audité de la surface. NON CÂBLÉ en Task 7
-    (aucun import d'exécuteur — voir docstring de module). Câblage réel : Task 8."""
+    """Route l'intention vers l'exécuteur audité de la surface. NON CÂBLÉ (décision
+    proprio 24/07 : 0/120 survivant mesuré -> pas de chemin d'ordre réel pour une
+    stratégie sans edge ; cf. docstring module + docs/GRID_STRATEGIES.md §6). À
+    câbler SEULEMENT si un survivant apparaît (délègue alors à spot_trader/
+    margin_trader/futures_executor, + classification §67)."""
     surface = intention["surface"]
-    if surface == "spot":
-        raise NotImplementedError(f"câblage {surface} — Task 8")
-    elif surface == "margin":
-        raise NotImplementedError(f"câblage {surface} — Task 8")
-    elif surface == "futures":
-        raise NotImplementedError(f"câblage {surface} — Task 8")
+    if surface in ("spot", "margin", "futures"):
+        raise NotImplementedError(f"câblage différé ({surface}) — aucun survivant mesuré")
     raise ValueError(f"surface inconnue: {surface}")

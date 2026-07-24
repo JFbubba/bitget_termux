@@ -29,3 +29,10 @@ def test_live_off_forces_dry(monkeypatch):
     monkeypatch.setattr(gt, "live_enabled", lambda: False)
     out = gt.plan_cycle(_cell(), dry=False)   # demande live mais verrou OFF
     assert out["dry"] is True and out["delegated"] == 0
+
+
+def test_unknown_surface_refused_not_crash(monkeypatch):
+    # surface inconnue -> refus gracieux (pas de KeyError), même verrou LIVE forcé
+    monkeypatch.setattr(gt, "live_enabled", lambda: True)
+    out = gt.plan_cycle(_cell(surface="perp_inverse"), dry=False)
+    assert out["refused"] and out["delegated"] == 0 and out["dry"] is True
