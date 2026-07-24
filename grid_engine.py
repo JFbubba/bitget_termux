@@ -70,7 +70,17 @@ def simulate_g(candles, cfg, funding=None):
     """Simule la grille généralisée barre par barre. PUR, fail-safe -> None.
     mode long_only : parité grid_lab. bidirectional : + jambes SHORT au-dessus du
     centre. neutral : + hedge de base (short) pour delta≈0, funding_lean l'incline.
-    Comptabilité TOTAL = realized − fees + latent + funding − borrow."""
+    Comptabilité TOTAL = realized − fees + latent + funding − borrow.
+
+    n_buys/n_sells : compteurs d'ACTIVITÉ génériques (ouverture/fermeture de cellule),
+    PAS le side d'ordre littéral — sur la jambe short, ouvrir un short (prix qui
+    monte à travers le rung de vente) incrémente n_buys, et le racheter (couvrir)
+    incrémente n_sells. n_buys = ouvertures (achat long + ouverture short),
+    n_sells = fermetures (vente long + rachat short). Noms conservés tels quels
+    (parité de champs avec grid_lab, requise par le test de parité long_only).
+
+    core_notional (paramètre de sizing spot forwardé par gconfig depuis
+    grid_lab.config) N'EST PAS appliqué par simulate_g — il est ignoré ici."""
     n = len(candles)
     warmup = max(cfg["window"], 2 * cfg["adx_period"] + 2, cfg["bb_period"],
                  cfg["vol_period"]) + 1
@@ -201,6 +211,7 @@ def simulate_g(candles, cfg, funding=None):
         if borrow_day:
             short_notional = sum(rung for cl in cells
                                  if cl["side"] == "short" and cl["state"] == "short")
+            short_notional += hedge_qty * c        # le hedge neutre est AUSSI un short emprunté (spec §4.3)
             borrow_tot += short_notional * borrow_day * (bar_h / 24.0)
         prev_ts = ts
 
