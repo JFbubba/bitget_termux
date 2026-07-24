@@ -170,3 +170,47 @@ range-bound à faible tendance (rare en crypto liquide) — non observé ici.
 **Statut** : REJETÉ sur futures AUSSI (mesuré, 24/07). Instruments conservés (`grid_lab.py` +
 `grid_futures_measure.py`, défaut OFF, lecture seule). **NE PAS re-tester** sans un changement de
 régime de frais (rabais VIP) OU un actif structurellement range-bound.
+
+---
+
+## 6. VERDICT EXHAUSTIF MULTI-SURFACE (grid_engine, 24/07) — short + delta-neutre + funding
+
+Les §4/§5 mesuraient la grille **long-only**. Le §5 excluait explicitement les leviers que la marge et
+les futures débloquent : le **short** (jambes bidirectionnelles, couverture delta-neutre) et le
+**funding** (perp). Le moteur `grid_engine.py` (pur, généralisé) + le labo `grid_engine_lab.py` balaient
+ces dimensions exhaustivement (angle « C » — la mesure tranche) : `mode {long_only, bidirectional,
+neutral} × surface {spot, margin, futures} × funding × 8 configs × 3 symboles × échelle TF M1..W1`.
+Design : `docs/superpowers/specs/2026-07-24-grid-engine-multi-surface-design.md`. Combos valides :
+spot=long_only (baseline de contrôle, reproduit le §4), marge/futures = bidirectionnel + neutre.
+Gardes d'honnêteté (le piège de l'exhaustif) : **déflation DSR sur TOUT le sweep**, **B&H apparié à
+l'exposition**, **funding faible-puissance signalé** (`⚠️lowfund` si < 90 fixings 8 h DANS la fenêtre),
+non-régression du long-only mort. Frais autoritatifs : spot/marge = 8 bps, futures = 2 bps (+ funding).
+
+**Résultat : 0/120 (sym × TF × combo) SURVIVENT. Le short et le funding ne rouvrent RIEN.**
+
+- **Le hedge delta-neutre fait EXACTEMENT ce pour quoi il est conçu** — il supprime le delta directionnel
+  et **DIVISE la perte de cassure** en tendance : BTC D1 spot −25,55 $ → futures/neutral −12,59 $
+  (**−51 %**) ; SOL D1 spot −86,13 $ → futures/neutral −38,15 $ (**−56 %**), marge/neutral −44,51 $.
+  L'hypothèse « supprimer le delta = supprimer le tueur #2 » est donc **mécaniquement CONFIRMÉE**…
+  mais le DSR s'**effondre** (0,001–0,03, PIRE que le spot long-only 0,14–0,51) : le neutre **churne
+  davantage** (deux jambes + couverture), il échange la perte contre du **bruit** et ne devient jamais
+  viable. Réduire la perte ≠ produire un edge.
+- **La meilleure cellule des 120, ETH M30 futures/bidirectional, a DSR 0,9742 (> porte 0,95) — et reste
+  ✗** : elle a échoué un AUTRE verrou (bat-B&H / stress ×2 / folds+ / PBO). C'est la **preuve que les
+  gardes multi-critères marchent** : un gate à une seule métrique (DSR seul) l'aurait FAUSSEMENT promue.
+- **Funding négligeable** (−0,03 à +0,03 $ par cellule sur ce parc) — il ne bascule ni ne sauve rien ;
+  le drapeau `⚠️lowfund` se déclenche correctement sur les cellules short-TF (fenêtre funding fine).
+
+**Conclusion honnête** : la grille est **close sur les TROIS surfaces** — long-only (§4/§5) ET
+bidirectionnelle ET delta-neutre ET funding-aware. Le seul apport neuf mesuré est **négatif au sens de
+l'edge** : le hedge neutre atténue la perte sans jamais franchir la porte, au prix d'un churn qui détruit
+le Sharpe. Reste ouverte la seule condition (b) du §4 : un actif GÉNUINEMENT range-bound (rare en crypto
+liquide). Ni le short, ni la marge, ni le funding, ni le perp ne changent le verdict.
+
+**Statut** : REJETÉ sur les 3 surfaces, tous modes (mesuré, 24/07). Instruments conservés, défaut OFF,
+lecture seule : `grid_engine.py` (moteur pur), `grid_engine_lab.py` (labo — `python grid_engine_lab.py
+--run [--quick|--univers]`). L'adaptateur d'exécution `grid_trader.py` reste un **SQUELETTE de sûreté
+NON CÂBLÉ** (défaut OFF/DRY, gardes prouvées, `_delegate` lève NotImplementedError — **décision proprio
+STOP** : pas de chemin d'ordre réel pour une stratégie sans edge). **NE PAS re-mesurer** sans (a) rabais
+de frais VIP profond OU (b) un actif structurellement range-bound. Le câblage live de `grid_trader` (aux
+§67, classification `safe_push_check`) n'est à faire QUE si une config franchit un jour la porte.
