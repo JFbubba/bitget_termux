@@ -127,3 +127,46 @@ re-mesurer seulement si l'un de ces deux changements survient — sinon NE PAS r
 
 **Statut** : REJETÉ (mesuré perdant). Aucune config à retenir pour une étape ultérieure. Le banc
 reste comme instrument de MESURE réutilisable (défaut OFF, lecture seule).
+
+---
+
+## 5. VERDICT COMPARATIF SPOT vs FUTURES (grid_futures_measure.py, 24/07)
+
+La condition de réouverture (a) du §4 — « frais ≈ 0 » — est en partie testable **maintenant** : les
+frais **maker FUTURES Bitget = 2 bps/côté**, soit **4× moins cher que le spot** (8 bps BGB). Le banc
+`grid_futures_measure.py` (LECTURE SEULE, réutilise `grid_lab`) isole la SEULE variable frais : mêmes
+bougies, même sweep 8 configs, mêmes portes ; spot = 8 bps maker + 2 bps slip, futures = 2 bps maker
++ 4 bps slip (modélise le repli taker ~6 bps que le post-only subit sur seed + coupe). Long-only
+(pas de short, pas de funding) pour que le frais reste le facteur DOMINANT du verdict.
+
+**Setup** : BTC + ETH + SOL, échelle complète M1·M5·M15·M30·H1·H4·D1·W1 = **24 cellules × 2 régimes**.
+
+**Résultat : SPOT 0/24 · FUTURES 0/24. Les frais 4× plus bas ne font basculer AUCUNE cellule.**
+
+- **DSR < 0,95 PARTOUT, les deux régimes.** Meilleur DSR de tout le balayage (48 mesures) :
+  **ETH M30 futures 0,7038** — le MAX, sélectionné sur multiple-testing, toujours **sous la porte**.
+  BTC M1 futures 0,4972 (spot 0,4538) ; ETH W1 = 0,00 (aucune puissance, peu de barres). **Aucune niche.**
+- **L'avantage frais est réel PAR FILL mais à DOUBLE TRANCHANT.** À frais futures, `cost_ar = 2·(2+4)/1e4
+  = 0,0012` → l'espacement 0,4 % **passe la règle d'or 3×coûts** (interdit en spot). Le sweep sélectionne
+  alors des grilles **plus serrées** qui multiplient les fills. Sur les TENDANCES longues, ce churn accru
+  **réalise PLUS de pertes aux coupes** : ETH D1 futures −33,79 $ (vs spot −9,62 $), ETH H4 frais 2,69 $
+  mais total quand même sous porte, BTC H4 futures −5,89 $ (vs spot −2,35 $, DSR 0,134 < 0,178). Le frais
+  bas n'achète PAS de la viabilité — il **déplace la sélection vers le churn**.
+- **Où le frais aide vraiment** (TF courts M1–M30, fills nombreux) : DSR futures > spot dans ~11/12 cas
+  (BTC M5 0,102→0,245 ; ETH M30 0,531→0,704 ; SOL M30 0,158→0,362). Mais l'amélioration part de ~0,1–0,5
+  et **plafonne à 0,70** — jamais 0,95. Le levier « exécution/frais » (mém. `exec-fees-lever`) réduit la
+  perte SANS la basculer, exactement comme sur le directionnel futures (mém. `exit-calibration-verdict`).
+- **Les grosses cellules « positives » sont des artefacts de BETA latent** : BTC W1 +23,64/+24,02 $,
+  SOL W1 +10,96/+7,97 $, SOL D1 futures +11,64 $ — tenir l'inventaire à travers une jambe haussière =
+  buy-and-hold déguisé, recalé par `beats_bh` / PBO / DSR (0,0–0,29, W1 = quasi-aucune barre).
+
+**Conclusion honnête** : diviser les frais par 4 (spot 8 bps → futures 2 bps) **NE ROUVRE PAS** le
+grid trading. La condition (a) du §4 est donc **fermée dans sa version accessible** (les 2 bps futures
+sont le plancher de frais réel du compte, hors rabais VIP profond). La grille reste **fee-killed ET
+breakout-trap-killed** — et sur futures, le frais plus bas aggrave même le piège de cassure en
+autorisant des grilles plus serrées. Reste ouverte la seule condition (b) : un actif GÉNUINEMENT
+range-bound à faible tendance (rare en crypto liquide) — non observé ici.
+
+**Statut** : REJETÉ sur futures AUSSI (mesuré, 24/07). Instruments conservés (`grid_lab.py` +
+`grid_futures_measure.py`, défaut OFF, lecture seule). **NE PAS re-tester** sans un changement de
+régime de frais (rabais VIP) OU un actif structurellement range-bound.

@@ -107,6 +107,7 @@ firm_voice_meta.json
 trading_real_ledger.json
 .mm_lab_result.json
 .grid_lab_result.json
+.grid_futures_result.json
 
 # Venv du prototype QML (qml_prototype)
 .venv/
