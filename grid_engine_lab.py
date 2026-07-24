@@ -87,8 +87,14 @@ def evaluate_cell(candles, mode, surface, funding=None, cfg_list=None):
     oos = oos_by_lab[best_lab]
     dsr = av.deflated_sharpe(oos["oos_sharpe"], oos["n_oos"], oos["skew"], oos["kurt"], n_trials, var_sr)
     stress = _cost_stress_g(cfg_best, candles, funding)
-    # funding faible-puissance : nombre d'intervalles de funding effectifs
-    n_fund = len(funding) if funding else 0
+    # funding faible-puissance : nombre d'intervalles de funding DANS la fenêtre de la
+    # cellule (pas tout l'historique en cache, chargé une fois par symbole et réutilisé
+    # sur TOUTES les TF — un M1 de 3 jours ne doit pas hériter de la puissance d'un W1).
+    if funding and candles:
+        _t0, _t1 = candles[0][0], candles[-1][0]
+        n_fund = sum(1 for r in funding if _t0 <= r[0] <= _t1)
+    else:
+        n_fund = 0
     low_power = bool(ge.SURFACE[surface]["funding"] and 0 < n_fund < LOW_POWER_FUNDING)
     survives = (oos["oos_total"] > 0 and oos["oos_sharpe"] > 0
                 and oos["folds_pos"] >= gl.BARRE["folds_pos_min"]

@@ -64,3 +64,19 @@ def test_evaluate_cell_wellformed_both_modes():
         for key in ("survives", "dsr", "mode", "surface", "total_pnl", "oos_total"):
             assert key in ev
         assert isinstance(ev["survives"], bool)
+
+
+def test_low_power_funding_counts_in_window():
+    # funding : 100 vieux fixings AVANT la fenêtre + seulement 5 DEDANS ->
+    # la garde doit voir 5 (in-window), pas 105 (historique complet) -> low_power=True
+    candles = _serie_range(n=200)                      # fenêtre ~8,3 jours (horaire)
+    t0 = candles[0][0]
+    old = [(t0 - (k + 1) * 8 * 3_600_000, 0.0001) for k in range(100)]   # hors fenêtre (avant)
+    inw = [(t0 + (k + 1) * 8 * 3_600_000, 0.0001) for k in range(5)]     # 5 fixings 8h dans la fenêtre
+    fund = sorted(old + inw)
+    ev = gel.evaluate_cell(candles, "neutral", "futures", funding=fund,
+                           cfg_list=_relaxed_sweep("neutral", "futures"))
+    assert ev is not None
+    assert ev["n_funding"] == 5              # seuls les fixings DANS la fenêtre comptent
+    assert ev["low_power_funding"] is True   # 5 < 90
+    assert ev["survives"] is False           # low_power bloque la survie
